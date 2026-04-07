@@ -1,0 +1,20 @@
+"""Nautilus models package."""
+
+from __future__ import annotations
+
+{%- for module_name in model_modules %}
+from .{{ module_name }} import *
+{%- endfor %}
+
+# Resolve forward references for models with cross-model relations.
+# Pydantic v2 requires model_rebuild() to be called after all referenced
+# model classes are available in the current scope.
+{%- for class_name in model_classes %}
+{{ class_name }}.model_rebuild()
+{%- endfor %}
+
+__all__ = [
+{%- for class_name in model_classes %}
+    "{{ class_name }}",
+{%- endfor %}
+]

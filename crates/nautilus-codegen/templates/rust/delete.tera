@@ -1,0 +1,78 @@
+/// Internal Delete builder for {{ model_name }} — use `{{ delegate_name }}::delete(filter)` instead.
+pub(crate) struct {{ delete_name }}<E: crate::Executor> {
+    client: crate::Client<E>,
+    filter: Option<nautilus_core::Expr>,
+    require_filter: bool,
+}
+
+impl<E> {{ delete_name }}<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        {{ delete_name }} {
+            client,
+            filter: None,
+            require_filter: true,
+        }
+    }
+
+    /// Set WHERE filter.
+    #[must_use]
+    pub(crate) fn where_(mut self, expr: nautilus_core::Expr) -> Self {
+        self.filter = Some(expr);
+        self
+    }
+
+    /// Delete all rows (removes the safety guard that requires a filter).
+    #[must_use]
+    pub(crate) fn all(mut self) -> Self {
+        self.require_filter = false;
+        self
+    }
+
+    /// Execute the delete, returning deleted rows via `RETURNING`.
+    ///
+    /// Returns an empty `Vec` for databases that do not support `RETURNING`
+    /// (e.g. MySQL).
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<{{ model_name }}>> {
+        use nautilus_core::*;
+        use futures::StreamExt;
+
+        if self.require_filter && self.filter.is_none() {
+            return Err(Error::InvalidQuery(
+                "Delete requires a WHERE filter — call `.all()` to delete every row.".to_string(),
+            ));
+        }
+
+        let mut builder = Delete::from_table("{{ table_name }}");
+        if let Some(filter) = self.filter {
+            builder = builder.filter(filter);
+        }
+
+        let supports_returning = self.client.dialect().supports_returning();
+        if supports_returning {
+            let returning_cols = vec![
+{%- for field in all_scalar_fields %}
+                ColumnMarker::new("{{ table_name }}", "{{ field.db_name }}"),
+{%- endfor %}
+            ];
+            builder = builder.returning(returning_cols);
+        }
+
+        let delete = builder.build()?;
+        let sql = self.client.dialect().render_delete(&delete)?;
+
+        let stream = self.client.executor().execute(&sql);
+        futures::pin_mut!(stream);
+
+        let mut results = Vec::new();
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result.map_err(|e| Error::Other(e.to_string()))?.into();
+            results.push(decode_model_row_with_hints(row, all_scalar_value_hints())?);
+        }
+
+        Ok(results)
+    }
+}

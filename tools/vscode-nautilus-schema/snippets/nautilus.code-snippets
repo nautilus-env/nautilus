@@ -1,0 +1,152 @@
+{
+  "Datasource block": {
+    "prefix": "datasource",
+    "scope": "nautilus",
+    "body": [
+      "datasource db {",
+      "  provider = \"${1|postgresql,mysql,sqlite|}\"",
+      "  url      = env(\"${2:DATABASE_URL}\")",
+      "}"
+    ],
+    "description": "Datasource configuration block"
+  },
+  "Generator block": {
+    "prefix": "generator",
+    "scope": "nautilus",
+    "body": [
+      "generator client {",
+      "  provider  = \"${1|nautilus-client-rs,nautilus-client-py|}\"",
+      "  output    = \"${2:src/generated}\"",
+      "  interface = \"${3|sync,async|}\"",
+      "}"
+    ],
+    "description": "Generator configuration block"
+  },
+  "Generator block (Python)": {
+    "prefix": "generator-py",
+    "scope": "nautilus",
+    "body": [
+      "generator client {",
+      "  provider           = \"nautilus-client-py\"",
+      "  interface          = \"${1|async,sync|}\"",
+      "  recursive_type_depth = ${2:5}",
+      "}"
+    ],
+    "description": "Python client generator block with recursive_type_depth"
+  },
+  "Model block": {
+    "prefix": "model",
+    "scope": "nautilus",
+    "body": [
+      "model ${1:ModelName} {",
+      "  id   Uuid   @id @default(uuid())",
+      "  ${2:field} ${3:String}",
+      "  @@map(\"${4:table_name}\")",
+      "}"
+    ],
+    "description": "Model definition block"
+  },
+  "Enum block": {
+    "prefix": "enum",
+    "scope": "nautilus",
+    "body": [
+      "enum ${1:EnumName} {",
+      "  ${2:VARIANT_A}",
+      "  ${3:VARIANT_B}",
+      "}"
+    ],
+    "description": "Enum definition block"
+  },
+  "@id attribute": {
+    "prefix": "@id",
+    "scope": "nautilus",
+    "body": ["@id"],
+    "description": "Mark field as primary key"
+  },
+  "@unique attribute": {
+    "prefix": "@unique",
+    "scope": "nautilus",
+    "body": ["@unique"],
+    "description": "Add unique constraint to field"
+  },
+  "@default attribute": {
+    "prefix": "@default",
+    "scope": "nautilus",
+    "body": ["@default(${1:value})"],
+    "description": "Set default value"
+  },
+  "@default uuid": {
+    "prefix": "@default-uuid",
+    "scope": "nautilus",
+    "body": ["@default(uuid())"],
+    "description": "Default UUID value"
+  },
+  "@default now": {
+    "prefix": "@default-now",
+    "scope": "nautilus",
+    "body": ["@default(now())"],
+    "description": "Default current timestamp"
+  },
+  "@default autoincrement": {
+    "prefix": "@default-autoincrement",
+    "scope": "nautilus",
+    "body": ["@default(autoincrement())"],
+    "description": "Default auto-increment value"
+  },
+  "@map attribute": {
+    "prefix": "@map",
+    "scope": "nautilus",
+    "body": ["@map(\"${1:column_name}\")"],
+    "description": "Map field to a different column name"
+  },
+  "@store attribute": {
+    "prefix": "@store",
+    "scope": "nautilus",
+    "body": ["@store(${1|json,native|})"],
+    "description": "Array storage strategy (for SQLite/MySQL)"
+  },
+  "@relation attribute": {
+    "prefix": "@relation",
+    "scope": "nautilus",
+    "body": [
+      "@relation(fields: [${1:localField}], references: [${2:remoteField}], onDelete: ${3|Cascade,Restrict,SetNull,NoAction,SetDefault|}, onUpdate: ${4|Cascade,Restrict,SetNull,NoAction,SetDefault|})"
+    ],
+    "description": "Define a relation between models"
+  },
+  "@@map attribute": {
+    "prefix": "@@map",
+    "scope": "nautilus",
+    "body": ["@@map(\"${1:table_name}\")"],
+    "description": "Map model to a different table name"
+  },
+  "@@id attribute": {
+    "prefix": "@@id",
+    "scope": "nautilus",
+    "body": ["@@id([${1:field1}, ${2:field2}])"],
+    "description": "Composite primary key"
+  },
+  "@@unique attribute": {
+    "prefix": "@@unique",
+    "scope": "nautilus",
+    "body": ["@@unique([${1:field1}, ${2:field2}])"],
+    "description": "Composite unique constraint"
+  },
+  "@@index attribute": {
+    "prefix": "@@index",
+    "scope": "nautilus",
+    "body": ["@@index([${1:field1}, ${2:field2}])"],
+    "description": "Composite index (default DBMS type)"
+  },
+  "@@index with type": {
+    "prefix": "@@index-typed",
+    "scope": "nautilus",
+    "body": ["@@index([${1:field1}], type: ${2|BTree,Hash,Gin,Gist,Brin,FullText|})"],
+    "description": "Composite index with explicit type (BTree/Hash/Gin/Gist/Brin/FullText)"
+  },
+  "@@index with name": {
+    "prefix": "@@index-named",
+    "scope": "nautilus",
+    "body": ["@@index([${1:field1}], map: \"${2:idx_name}\")"],
+    "description": "Composite index with custom DDL name"
+  }
+}

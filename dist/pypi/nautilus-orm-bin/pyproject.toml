@@ -1,0 +1,20 @@
+# Template for platform-specific binary packages.
+# CI replaces PLATFORM (e.g. linux-x86_64) and copies the built binary to
+# nautilus/nautilus (or nautilus/nautilus.exe on Windows) before running:
+#   python -m build --wheel
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nautilus-orm-PLATFORM"
+version = "0.0.0-dev"
+description = "Nautilus ORM binary for PLATFORM"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.9"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nautilus"]
+# Include the binary even though it is not a .py file
+artifacts = ["nautilus/nautilus", "nautilus/nautilus.exe"]

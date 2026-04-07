@@ -1,0 +1,37 @@
+/// {{ type_name }} composite type.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct {{ type_name }} {
+{%- for field in fields %}
+    pub {{ field.name }}: {{ field.rust_type }},
+{%- endfor %}
+}
+
+impl nautilus_core::FromValue for {{ type_name }} {
+    fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
+        match value {
+            nautilus_core::Value::Json(json) => {
+                serde_json::from_value(json.clone()).map_err(|e| {
+                    nautilus_core::Error::TypeError(format!(
+                        "failed to deserialize {{ type_name }}: {}", e
+                    ))
+                })
+            }
+            nautilus_core::Value::Null => Err(nautilus_core::Error::TypeError(
+                "NULL value for {{ type_name }}".to_string(),
+            )),
+            _ => Err(nautilus_core::Error::TypeError(format!(
+                "expected Json for {{ type_name }}, got {:?}",
+                value
+            ))),
+        }
+    }
+}
+
+impl From<{{ type_name }}> for nautilus_core::Value {
+    fn from(v: {{ type_name }}) -> Self {
+        nautilus_core::Value::Json(
+            serde_json::to_value(v).unwrap_or(serde_json::Value::Null),
+        )
+    }
+}
+

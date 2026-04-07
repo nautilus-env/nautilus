@@ -1,0 +1,236 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Nautilus Schema",
+  "scopeName": "source.nautilus",
+  "fileTypes": [".nautilus"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#block-keywords" },
+    { "include": "#config-keys" },
+    { "include": "#field-names" },
+    { "include": "#enum-variants" },
+    { "include": "#computed-check-expressions" },
+    { "include": "#model-attributes" },
+    { "include": "#field-attributes" },
+    { "include": "#attribute-arguments" },
+    { "include": "#scalar-types" },
+    { "include": "#enum-value-refs" },
+    { "include": "#model-type-refs" },
+    { "include": "#builtin-functions" },
+    { "include": "#boolean-literals" },
+    { "include": "#numeric-literals" },
+    { "include": "#modifiers" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.nautilus",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.nautilus",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.begin.nautilus" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.comment.end.nautilus" }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.nautilus",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.nautilus" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.nautilus" }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.nautilus",
+          "match": "\\\\."        },
+        {
+          "comment": "Known config values: provider names and interface styles",
+          "match": "\\b(sync|async|postgresql|mysql|sqlite|python)\\b",
+          "name": "support.constant.property-value.nautilus"        }
+      ]
+    },
+    "block-keywords": {
+      "patterns": [
+        {
+          "comment": "Block keyword followed by name: 'model User', 'enum Role', 'type Address', etc.",
+          "match": "\\b(datasource|generator|model|enum|type)\\b(\\s+([A-Za-z_][A-Za-z0-9_]*))?",
+          "captures": {
+            "1": { "name": "keyword.control.nautilus" },
+            "3": { "name": "entity.name.type.nautilus" }
+          }
+        }
+      ]
+    },
+    "config-keys": {
+      "comment": "Known config field names inside datasource/generator blocks",
+      "match": "^\\s+(provider|url|output|interface|recursive_type_depth)(?=\\s*=)",
+      "captures": {
+        "1": { "name": "support.type.property-name.nautilus" }
+      }
+    },
+    "field-names": {
+      "comment": "Field names at the start of an indented line (lowercase identifiers inside model blocks)",
+      "match": "^\\s+([a-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "variable.other.property.nautilus" }
+      }
+    },
+    "enum-variants": {
+      "comment": "Enum variant names (capitalized identifiers on indented lines)",
+      "match": "^\\s+([A-Z][A-Z0-9_]*)\\s*$",
+      "captures": {
+        "1": { "name": "variable.other.property.nautilus" }
+      }
+    },
+    "model-attributes": {
+      "comment": "@@-attributes: @@map, @@id, @@unique, @@index",
+      "match": "@@[A-Za-z_][A-Za-z0-9_]*",
+      "name": "entity.name.function.nautilus"
+    },
+    "computed-check-expressions": {
+      "comment": "Expressions inside @computed(...) and @check(...)/@@check(...) — field names in azure",
+      "begin": "(@@?(?:computed|check))\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.nautilus" },
+        "2": { "name": "punctuation.definition.parameters.begin.nautilus" }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.parameters.end.nautilus" }
+      },
+      "patterns": [
+        { "include": "#numeric-literals" },
+        {
+          "comment": "Storage kinds: Stored, Virtual",
+          "match": "\\b(Stored|Virtual)\\b",
+          "name": "constant.language.nautilus"
+        },
+        {
+          "comment": "Field name references inside expressions",
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "variable.other.property.nautilus" }
+          }
+        }
+      ]
+    },
+    "field-attributes": {
+      "comment": "@-attributes: @id, @unique, @default, @map, @relation, @store",
+      "match": "@[A-Za-z_][A-Za-z0-9_]*",
+      "name": "entity.name.function.nautilus"
+    },
+    "attribute-arguments": {
+      "patterns": [
+        {
+          "comment": "Argument keys in attributes: fields:, references:, name:, etc.",
+          "match": "\\b([a-z][A-Za-z]*)\\s*:",
+          "captures": {
+            "1": { "name": "variable.parameter.nautilus" }
+          }
+        },
+        {
+          "comment": "Referential actions and computed storage kinds: Cascade, SetNull, Restrict, NoAction, SetDefault, Stored, Virtual",
+          "match": "\\b(Cascade|SetNull|Restrict|NoAction|SetDefault|Stored|Virtual)\\b",
+          "name": "constant.language.nautilus"
+        },
+        {
+          "comment": "Field references inside square brackets (single or comma-separated list) — excludes known constants",
+          "match": "(?<=\\[|,)\\s*(?!(?:Cascade|SetNull|Restrict|NoAction|SetDefault|Stored|Virtual)\\b)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "variable.other.property.nautilus" }
+          }
+        }
+      ]
+    },
+    "enum-value-refs": {
+      "comment": "Enum variant references in attribute arguments — ALL_CAPS identifiers",
+      "match": "\\b([A-Z][A-Z0-9_]*)\\b(?!\\s*\\{)",
+      "name": "variable.other.property.nautilus"
+    },
+    "model-type-refs": {
+      "comment": "Model/enum type references — PascalCase identifiers that are not scalar types",
+      "match": "\\b([A-Z][A-Za-z][A-Za-z0-9_]*)\\b(?!\\s*\\{)",
+      "name": "constant.language.nautilus"
+    },
+    "scalar-types": {
+      "comment": "Built-in scalar field types",
+      "match": "\\b(String|Boolean|Int|BigInt|Float|Decimal|DateTime|Bytes|Json|Uuid|Jsonb|Xml|Char|VarChar)\\b",
+      "name": "support.type.primitive.nautilus"
+    },
+    "builtin-functions": {
+      "comment": "Built-in default/value functions",
+      "match": "\\b(uuid|now|autoincrement|env|cuid|dbgenerated)\\b(?=\\s*\\()",
+      "name": "support.function.nautilus"
+    },
+    "boolean-literals": {
+      "match": "\\b(true|false)\\b",
+      "name": "constant.language.boolean.nautilus"
+    },
+    "numeric-literals": {
+      "match": "\\b\\d+(\\.\\d+)?\\b",
+      "name": "constant.numeric.nautilus"
+    },
+    "modifiers": {
+      "patterns": [
+        {
+          "name": "storage.modifier.array.nautilus",
+          "match": "\\[\\]"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.block.begin.nautilus",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.section.block.end.nautilus",
+          "match": "\\}"
+        },
+        {
+          "name": "punctuation.definition.array.begin.nautilus",
+          "match": "\\["
+        },
+        {
+          "name": "punctuation.definition.array.end.nautilus",
+          "match": "\\]"
+        },
+        {
+          "name": "punctuation.definition.parameters.begin.nautilus",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.definition.parameters.end.nautilus",
+          "match": "\\)"
+        },
+        {
+          "name": "punctuation.separator.comma.nautilus",
+          "match": ","
+        },
+        {
+          "name": "keyword.operator.assignment.nautilus",
+          "match": "="
+        },
+        {
+          "name": "punctuation.separator.colon.nautilus",
+          "match": ":"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,75 @@
+/// Internal Create builder for {{ model_name }} — use `{{ delegate_name }}::create(data)` instead.
+pub(crate) struct {{ create_name }}<E: crate::Executor> {
+    client: crate::Client<E>,
+{%- for field in create_fields %}
+    {{ field.name }}: Option<{{ field.rust_type }}>,
+{%- endfor %}
+}
+
+impl<E> {{ create_name }}<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        {{ create_name }} {
+            client,
+{%- for field in create_fields %}
+            {{ field.name }}: None,
+{%- endfor %}
+        }
+    }
+
+{%- for field in create_fields %}
+    /// Set {{ field.name }}.
+    #[must_use]
+    pub(crate) fn {{ field.name }}(mut self, value: impl Into<{{ field.rust_type }}>) -> Self {
+        self.{{ field.name }} = Some(value.into());
+        self
+    }
+
+{%- endfor %}
+    /// Execute the create query.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<{{ model_name }}> {
+        use nautilus_core::*;
+
+        let mut columns = Vec::new();
+        let mut values = Vec::new();
+
+{%- for field in create_fields %}
+        if let Some(value) = self.{{ field.name }} {
+            columns.push(ColumnMarker::new("{{ table_name }}", "{{ field.db_name }}"));
+            values.push(Value::from(value));
+        }
+{%- endfor %}
+
+        let mut builder = Insert::into_table("{{ table_name }}")
+            .columns(columns)
+            .values(values);
+
+        let supports_returning = self.client.dialect().supports_returning();
+        if supports_returning {
+            let returning_cols = vec![
+{%- for field in all_scalar_fields %}
+                ColumnMarker::new("{{ table_name }}", "{{ field.db_name }}"),
+{%- endfor %}
+            ];
+            builder = builder.returning(returning_cols);
+        }
+
+        let insert = builder.build()?;
+        let sql = self.client.dialect().render_insert(&insert)?;
+
+        let stream = self.client.executor().execute(&sql);
+        futures::pin_mut!(stream);
+
+        let row: Row = stream
+            .next()
+            .await
+            .ok_or_else(|| Error::Other("INSERT returned no rows".to_string()))?
+            .map_err(|e| Error::Other(e.to_string()))?
+            .into();
+
+        decode_model_row_with_hints(row, all_scalar_value_hints())
+    }
+}

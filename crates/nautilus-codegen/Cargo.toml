@@ -1,0 +1,39 @@
+[package]
+name = "nautilus-orm-codegen"
+description = "Code generator for Nautilus ORM schema files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.wix]
+upgrade-guid = "B75F8964-1B21-40CD-B02B-A9B4B5BC81A2"
+path-guid = "AEF3BD7C-1A8B-47D4-B584-665E3FE00E67"
+license = false
+eula = false
+
+[lib]
+name = "nautilus_codegen"
+
+[[bin]]
+name = "nautilus-codegen"
+path = "src/main.rs"
+
+[dependencies]
+nautilus-schema = { workspace = true }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+console = "0.16.3"
+heck = "0.5"
+tera = "1.19"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+insta = { version = "1", features = ["filters"] }
+tempfile = "3"
+
+[lints]
+workspace = true

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nautilus-orm"
+version = "0.0.0-dev"
+description = "Nautilus — Rust-powered ORM CLI"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.9"
+dependencies = [
+    "pydantic>=2.0",
+    "nautilus-orm-linux-x86_64==0.0.0-dev; sys_platform=='linux' and platform_machine=='x86_64'",
+    "nautilus-orm-linux-aarch64==0.0.0-dev; sys_platform=='linux' and platform_machine=='aarch64'",
+    "nautilus-orm-darwin-x86_64==0.0.0-dev; sys_platform=='darwin' and platform_machine=='x86_64'",
+    "nautilus-orm-darwin-arm64==0.0.0-dev; sys_platform=='darwin' and platform_machine=='arm64'",
+    "nautilus-orm-win-amd64==0.0.0-dev; sys_platform=='win32'",
+]
+
+[project.urls]
+Repository = "https://github.com/y0gm4/nautilus"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nautilus"]
+
+[project.scripts]
+nautilus = "nautilus.__main__:main"

@@ -1,0 +1,26 @@
+"""Generated composite types."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import List, Optional
+
+
+{%- for ctype in composite_types %}
+
+
+@dataclass
+class {{ ctype.name }}:
+    """{{ ctype.name }} composite type."""
+
+{%- for f in ctype.fields %}
+    {{ f.name }}: {{ f.python_type }}
+{%- endfor %}
+{%- endfor %}
+
+
+__all__ = [
+{%- for ctype in composite_types %}
+    "{{ ctype.name }}",
+{%- endfor %}
+]

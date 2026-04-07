@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nautilus-postgres
+    environment:
+      POSTGRES_USER: nautilus
+      POSTGRES_PASSWORD: nautilus
+      POSTGRES_DB: nautilus_test
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nautilus"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  mysql:
+    image: mysql:8.0
+    container_name: nautilus-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: nautilus_root
+      MYSQL_DATABASE: nautilus_test
+      MYSQL_USER: nautilus
+      MYSQL_PASSWORD: nautilus
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  postgres_data:
+  mysql_data:

@@ -1,0 +1,107 @@
+# Rust build artifacts
+/target/
+
+# Backup files
+**/*.rs.bk
+
+# Node.js
+node_modules/
+
+# VS Code extension — compiled output and packaged artifacts
+tools/vscode-nautilus-schema/out/
+*.vsix
+
+# Cargo.lock (uncomment if this becomes a binary project)
+# Cargo.lock
+
+# Environment files
+.env
+.env.local
+
+# Python generated code
+clients/python/nautilus/generated/
+**/generated/*.py
+**/generated/__pycache__/
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+# Ignore generated wheel output but NOT dist/pypi/ (PyPI package sources are tracked)
+dist/wheels/
+dist/pypi/*/nautilus/nautilus
+dist/pypi/*/nautilus/nautilus.exe
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Python virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Python type checking and linting
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.ruff_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+benchmark/
+examples/
+# Insta snapshots — track approved baselines, ignore review artifacts
+**/snapshots/*
+!**/snapshots/.gitkeep
+!**/snapshots/*.snap
+**/snapshots/*.snap.new

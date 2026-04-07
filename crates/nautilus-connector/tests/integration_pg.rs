@@ -1,0 +1,357 @@
+//! Integration tests for PostgreSQL executor.
+//!
+//! These tests require a running PostgreSQL database.
+//! Run `docker-compose up -d` before running these tests, then execute
+//! `cargo test -p nautilus-orm-connector --test integration_pg -- --ignored --test-threads=1`.
+//! Optionally override the connection URL with `DATABASE_URL`.
+
+#[path = "common/assertions.rs"]
+mod assertions;
+#[path = "common/pg.rs"]
+mod pg_common;
+
+use assertions::{
+    assert_duplicate_projection, assert_null_user_row, assert_positional_projection,
+    assert_sequential_user_rows, assert_standard_user_row, StandardUserExpectation,
+};
+use futures::stream::StreamExt;
+use nautilus_connector::{execute_all, Executor};
+use nautilus_core::Value;
+use nautilus_dialect::Sql;
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn test_pg_executor_connection() {
+    let executor = pg_common::setup_executor().await;
+    assert!(
+        executor.is_ok(),
+        "Failed to connect to database: {:?}",
+        executor.err()
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn test_execute_query_no_results() {
+    let executor = pg_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+    pg_common::setup_test_users_table(&executor)
+        .await
+        .expect("Failed to setup table");
+
+    let sql = Sql {
+        text: "SELECT * FROM test_users WHERE id = $1".to_string(),
+        params: vec![Value::I64(999)],
+    };
+
+    let rows = execute_all(&executor, &sql)
+        .await
+        .expect("Failed to execute query");
+    assert_eq!(rows.len(), 0, "Expected no rows");
+
+    pg_common::teardown_test_users_table(&executor).await.ok();
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn test_insert_and_select() {
+    let executor = pg_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+    pg_common::setup_test_users_table(&executor)
+        .await
+        .expect("Failed to setup table");
+
+    let insert = Sql {
+        text: "INSERT INTO test_users (id, name, email, age, score, active, data) VALUES ($1, $2, $3, $4, $5, $6, $7)".to_string(),
+        params: vec![
+            Value::I64(1),
+            Value::String("Alice".to_string()),
+            Value::String("alice@example.com".to_string()),
+            Value::I64(30),
+            Value::F64(95.5),
+            Value::Bool(true),
+            Value::Bytes(vec![1, 2, 3]),
+        ],
+    };
+    execute_all(&executor, &insert)
+        .await
+        .expect("Failed to insert");
+
+    let select = Sql {
+        text: "SELECT id, name, email, age, score, active, data FROM test_users WHERE id = $1"
+            .to_string(),
+        params: vec![Value::I64(1)],
+    };
+
+    let rows = execute_all(&executor, &select)
+        .await
+        .expect("Failed to select");
+    assert_eq!(rows.len(), 1, "Expected 1 row");
+    assert_standard_user_row(
+        &rows[0],
+        StandardUserExpectation {
+            id: 1,
+            name: "Alice",
+            email: "alice@example.com",
+            age: 30,
+            score: 95.5,
+            active: true,
+            data: &[1, 2, 3],
+        },
+    );
+
+    pg_common::teardown_test_users_table(&executor).await.ok();
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn test_row_positional_access() {
+    let executor = pg_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+    pg_common::setup_test_users_table(&executor)
+        .await
+        .expect("Failed to setup table");
+
+    let insert = Sql {
+        text: "INSERT INTO test_users (id, name, age, score, active) VALUES ($1, $2, $3, $4, $5)"
+            .to_string(),
+        params: vec![
+            Value::I64(2),
+            Value::String("Bob".to_string()),
+            Value::I64(25),
+            Value::F64(88.0),
+            Value::Bool(false),
+        ],
+    };
+    execute_all(&executor, &insert)
+        .await
+        .expect("Failed to insert");
+
+    let select = Sql {
+        text: "SELECT id, name, email FROM test_users WHERE id = $1".to_string(),
+        params: vec![Value::I64(2)],
+    };
+
+    let rows = execute_all(&executor, &select)
+        .await
+        .expect("Failed to select");
+    assert_eq!(rows.len(), 1);
+    assert_positional_projection(&rows[0], 2, "Bob");
+
+    pg_common::teardown_test_users_table(&executor).await.ok();
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn test_row_iterator() {
+    let executor = pg_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+    pg_common::setup_test_users_table(&executor)
+        .await
+        .expect("Failed to setup table");
+
+    let insert = Sql {
+        text: "INSERT INTO test_users (id, name, email, age, score, active, data) VALUES ($1, $2, $3, $4, $5, $6, $7)".to_string(),
+        params: vec![
+            Value::I64(3),
+            Value::String("Charlie".to_string()),
+            Value::String("charlie@example.com".to_string()),
+            Value::I64(35),
+            Value::F64(92.0),
+            Value::Bool(true),
+            Value::Bytes(vec![]),
+        ],
+    };
+    execute_all(&executor, &insert)
+        .await
+        .expect("Failed to insert");
+
+    let select = Sql {
+        text: "SELECT id, name FROM test_users WHERE id = $1".to_string(),
+        params: vec![Value::I64(3)],
+    };
+
+    let rows = execute_all(&executor, &select)
+        .await
+        .expect("Failed to select");
+    let row = &rows[0];
+
+    let columns: Vec<_> = row.iter().collect();
+    assert_eq!(columns.len(), 2);
+    assert_eq!(columns[0].0, "id");
+    assert_eq!(columns[0].1, &Value::I64(3));
+    assert_eq!(columns[1].0, "name");
+    assert_eq!(columns[1].1, &Value::String("Charlie".to_string()));
+
+    pg_common::teardown_test_users_table(&executor).await.ok();
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn test_null_values() {
+    let executor = pg_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+    pg_common::setup_test_users_table(&executor)
+        .await
+        .expect("Failed to setup table");
+
+    let insert = Sql {
+        text: "INSERT INTO test_users (id, name, email, age, score, active, data) VALUES ($1, $2, DEFAULT, DEFAULT, DEFAULT, DEFAULT, DEFAULT)".to_string(),
+        params: vec![
+            Value::I64(4),
+            Value::String("David".to_string()),
+        ],
+    };
+    execute_all(&executor, &insert)
+        .await
+        .expect("Failed to insert");
+
+    let select = Sql {
+        text: "SELECT id, name, email, age, score, active, data FROM test_users WHERE id = $1"
+            .to_string(),
+        params: vec![Value::I64(4)],
+    };
+
+    let rows = execute_all(&executor, &select)
+        .await
+        .expect("Failed to select");
+    assert_null_user_row(&rows[0], 4, "David");
+
+    pg_common::teardown_test_users_table(&executor).await.ok();
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn test_duplicate_column_names() {
+    let executor = pg_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+    pg_common::setup_test_users_table(&executor)
+        .await
+        .expect("Failed to setup table");
+
+    let insert = Sql {
+        text: "INSERT INTO test_users (id, name, email, age, score, active) VALUES ($1, $2, $3, $4, $5, $6)".to_string(),
+        params: vec![
+            Value::I64(5),
+            Value::String("Eve".to_string()),
+            Value::String("eve@example.com".to_string()),
+            Value::I64(28),
+            Value::F64(90.0),
+            Value::Bool(true),
+        ],
+    };
+    execute_all(&executor, &insert)
+        .await
+        .expect("Failed to insert");
+
+    let select = Sql {
+        text: "SELECT id, name, id FROM test_users WHERE id = $1".to_string(),
+        params: vec![Value::I64(5)],
+    };
+
+    let rows = execute_all(&executor, &select)
+        .await
+        .expect("Failed to select");
+    assert_duplicate_projection(&rows[0], 5, "Eve");
+
+    pg_common::teardown_test_users_table(&executor).await.ok();
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn test_multiple_rows() {
+    let executor = pg_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+    pg_common::setup_test_users_table(&executor)
+        .await
+        .expect("Failed to setup table");
+
+    for i in 10..15 {
+        let insert = Sql {
+            text: "INSERT INTO test_users (id, name, email, age, score, active) VALUES ($1, $2, $3, $4, $5, $6)".to_string(),
+            params: vec![
+                Value::I64(i),
+                Value::String(format!("User{}", i)),
+                Value::String(format!("user{}@example.com", i)),
+                Value::I64(20 + i),
+                Value::F64(80.0 + i as f64),
+                Value::Bool(i % 2 == 0),
+            ],
+        };
+        execute_all(&executor, &insert)
+            .await
+            .expect("Failed to insert");
+    }
+
+    let select = Sql {
+        text: "SELECT id, name FROM test_users WHERE id >= $1 ORDER BY id".to_string(),
+        params: vec![Value::I64(10)],
+    };
+
+    let rows = execute_all(&executor, &select)
+        .await
+        .expect("Failed to select");
+    assert_eq!(rows.len(), 5);
+    assert_sequential_user_rows(&rows, 10);
+
+    pg_common::teardown_test_users_table(&executor).await.ok();
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn test_streaming_execution() {
+    let executor = pg_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+    pg_common::setup_test_users_table(&executor)
+        .await
+        .expect("Failed to setup table");
+
+    for i in 20..25 {
+        let insert = Sql {
+            text: "INSERT INTO test_users (id, name, email, age, score, active) VALUES ($1, $2, $3, $4, $5, $6)".to_string(),
+            params: vec![
+                Value::I64(i),
+                Value::String(format!("StreamUser{}", i)),
+                Value::String(format!("stream{}@example.com", i)),
+                Value::I64(20 + i),
+                Value::F64(80.0 + i as f64),
+                Value::Bool(true),
+            ],
+        };
+        execute_all(&executor, &insert)
+            .await
+            .expect("Failed to insert");
+    }
+
+    let select = Sql {
+        text: "SELECT id, name FROM test_users WHERE id >= $1 ORDER BY id".to_string(),
+        params: vec![Value::I64(20)],
+    };
+
+    let mut stream = executor.execute(&select);
+    let mut count = 0;
+    let mut collected_ids = Vec::new();
+
+    while let Some(result) = stream.next().await {
+        let row = result.expect("Failed to get row from stream");
+        let id = match row.get("id") {
+            Some(Value::I64(i)) => *i,
+            _ => panic!("Expected I64 id"),
+        };
+        collected_ids.push(id);
+        count += 1;
+    }
+
+    assert_eq!(count, 5, "Expected 5 rows from stream");
+    assert_eq!(collected_ids, vec![20, 21, 22, 23, 24]);
+
+    pg_common::teardown_test_users_table(&executor).await.ok();
+}

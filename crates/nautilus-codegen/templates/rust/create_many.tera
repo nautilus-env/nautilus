@@ -1,0 +1,116 @@
+/// Entry for creating {{ model_name }}.
+#[derive(Debug, Clone)]
+pub struct {{ entry_name }} {
+{%- for field in create_fields %}
+    pub {{ field.name }}: {{ field.rust_type }},
+{%- endfor %}
+}
+
+impl {{ entry_name }} {
+    pub(crate) fn to_engine_data(&self) -> serde_json::Value {
+        let mut data = serde_json::Map::new();
+{%- for field in create_fields %}
+        data.insert(
+            "{{ field.db_name }}".to_string(),
+{%- if field.is_optional %}
+            match &self.{{ field.name }} {
+                Some(value) => nautilus_core::Value::from(value.clone()).to_json_plain(),
+                None => serde_json::Value::Null,
+            },
+{%- else %}
+            nautilus_core::Value::from(self.{{ field.name }}.clone()).to_json_plain(),
+{%- endif %}
+        );
+{%- endfor %}
+        serde_json::Value::Object(data)
+    }
+}
+
+/// Internal CreateMany builder for {{ model_name }} — use `{{ delegate_name }}::create_many(entries)` instead.
+pub(crate) struct {{ create_many_name }}<E: crate::Executor> {
+    client: crate::Client<E>,
+    entries: Vec<{{ entry_name }}>,
+}
+
+impl<E> {{ create_many_name }}<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        {{ create_many_name }} {
+            client,
+            entries: vec![],
+        }
+    }
+
+    /// Add an entry to the batch.
+    #[must_use]
+    pub(crate) fn entry(mut self, entry: {{ entry_name }}) -> Self {
+        self.entries.push(entry);
+        self
+    }
+
+    /// Execute the batch create using a single multi-row `INSERT`.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<{{ model_name }}>> {
+        use nautilus_core::*;
+
+        if self.entries.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // MySQL does not support RETURNING — fall back to per-row inserts.
+        if !self.client.dialect().supports_returning() {
+            let mut results = Vec::with_capacity(self.entries.len());
+            for entry in self.entries {
+                let result = {{ create_name }}::new(self.client.clone())
+{%- for field in create_fields %}
+                    .{{ field.name }}(entry.{{ field.name }})
+{%- endfor %}
+                    .exec().await?;
+                results.push(result);
+            }
+            return Ok(results);
+        }
+
+        let columns = vec![
+{%- for field in create_fields %}
+            ColumnMarker::new("{{ table_name }}", "{{ field.db_name }}"),
+{%- endfor %}
+        ];
+
+        let mut builder = Insert::into_table("{{ table_name }}")
+            .columns(columns);
+
+        for entry in &self.entries {
+            let row = vec![
+{%- for field in create_fields %}
+                Value::from(entry.{{ field.name }}.clone()),
+{%- endfor %}
+            ];
+            builder = builder.values(row);
+        }
+
+        let returning_cols = vec![
+{%- for field in all_scalar_fields %}
+            ColumnMarker::new("{{ table_name }}", "{{ field.db_name }}"),
+{%- endfor %}
+        ];
+        builder = builder.returning(returning_cols);
+
+        let insert = builder.build()?;
+        let sql = self.client.dialect().render_insert(&insert)?;
+
+        let stream = self.client.executor().execute(&sql);
+        futures::pin_mut!(stream);
+
+        let mut results = Vec::with_capacity(self.entries.len());
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result.map_err(|e| Error::Other(e.to_string()))?.into();
+            let decoded = decode_model_row_with_hints(row, all_scalar_value_hints())?;
+            results.push(decoded);
+        }
+
+        Ok(results)
+    }
+}

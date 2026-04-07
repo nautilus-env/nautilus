@@ -1,0 +1,257 @@
+{% if needs_typeddict %}
+class StringFilter(TypedDict, total=False):
+    """String field filter operations."""
+    equals: NotRequired[str]
+    not_: NotRequired[str]
+    contains: NotRequired[str]
+    startswith: NotRequired[str]
+    endswith: NotRequired[str]
+    in_: NotRequired[List[str]]
+    not_in: NotRequired[List[str]]
+
+
+class IntFilter(TypedDict, total=False):
+    """Integer field filter operations."""
+    equals: NotRequired[int]
+    not_: NotRequired[int]
+    lt: NotRequired[int]
+    lte: NotRequired[int]
+    gt: NotRequired[int]
+    gte: NotRequired[int]
+    in_: NotRequired[List[int]]
+    not_in: NotRequired[List[int]]
+
+
+class FloatFilter(TypedDict, total=False):
+    """Float field filter operations."""
+    equals: NotRequired[float]
+    not_: NotRequired[float]
+    lt: NotRequired[float]
+    lte: NotRequired[float]
+    gt: NotRequired[float]
+    gte: NotRequired[float]
+    in_: NotRequired[List[float]]
+    not_in: NotRequired[List[float]]
+
+
+class DecimalFilter(TypedDict, total=False):
+    """Decimal field filter operations."""
+    equals: NotRequired[Decimal]
+    not_: NotRequired[Decimal]
+    lt: NotRequired[Decimal]
+    lte: NotRequired[Decimal]
+    gt: NotRequired[Decimal]
+    gte: NotRequired[Decimal]
+    in_: NotRequired[List[Decimal]]
+    not_in: NotRequired[List[Decimal]]
+
+
+class DateTimeFilter(TypedDict, total=False):
+    """DateTime field filter operations."""
+    equals: NotRequired[datetime]
+    not_: NotRequired[datetime]
+    lt: NotRequired[datetime]
+    lte: NotRequired[datetime]
+    gt: NotRequired[datetime]
+    gte: NotRequired[datetime]
+    in_: NotRequired[List[datetime]]
+    not_in: NotRequired[List[datetime]]
+
+
+class UuidFilter(TypedDict, total=False):
+    """UUID field filter operations."""
+    equals: NotRequired[UUID]
+    not_: NotRequired[UUID]
+    in_: NotRequired[List[UUID]]
+    not_in: NotRequired[List[UUID]]
+
+
+class BoolFilter(TypedDict, total=False):
+    """Boolean field filter operations."""
+    equals: NotRequired[bool]
+    not_: NotRequired[bool]
+
+
+class {{ model_name }}WhereInput(TypedDict, total=False):
+    """Filter conditions for {{ model_name }} queries."""
+    {% for field in where_input_fields %}
+    {% if field.python_type == "str" %}
+    {{ field.name }}: NotRequired[Union[str, StringFilter]]
+    {% elif field.python_type == "int" %}
+    {{ field.name }}: NotRequired[Union[int, IntFilter]]
+    {% elif field.python_type == "float" %}
+    {{ field.name }}: NotRequired[Union[float, FloatFilter]]
+    {% elif field.python_type == "Decimal" %}
+    {{ field.name }}: NotRequired[Union[Decimal, DecimalFilter]]
+    {% elif field.python_type == "datetime" %}
+    {{ field.name }}: NotRequired[Union[datetime, DateTimeFilter]]
+    {% elif field.python_type == "UUID" %}
+    {{ field.name }}: NotRequired[Union[UUID, UuidFilter]]
+    {% elif field.python_type == "bool" %}
+    {{ field.name }}: NotRequired[Union[bool, BoolFilter]]
+    {% else %}
+    {{ field.name }}: NotRequired[{{ field.python_type }}]
+    {% endif %}
+    {% endfor %}
+    AND: NotRequired[Union[{{ model_name }}WhereInput, List[{{ model_name }}WhereInput]]]
+    OR: NotRequired[Union[{{ model_name }}WhereInput, List[{{ model_name }}WhereInput]]]
+    NOT: NotRequired[Union[{{ model_name }}WhereInput, List[{{ model_name }}WhereInput]]]
+
+
+class {{ model_name }}CreateInput(TypedDict{% if create_input_fields %}, total=False{% endif %}):
+    """Input data for creating a {{ model_name }}."""
+    {% for field in create_input_fields %}
+    {% if field.is_required %}
+    {{ field.name }}: {{ field.python_type }}
+    {% else %}
+    {{ field.name }}: NotRequired[{{ field.python_type }}]
+    {% endif %}
+    {% endfor %}
+
+
+class {{ model_name }}UpdateInput(TypedDict, total=False):
+    """Input data for updating a {{ model_name }}."""
+    {% for field in update_input_fields %}
+    {{ field.name }}: NotRequired[{{ field.python_type }}]
+    {% endfor %}
+
+
+class {{ model_name }}OrderByInput(TypedDict, total=False):
+    """Ordering options for {{ model_name }} queries."""
+    {% for field in order_by_fields %}
+    {{ field.name }}: NotRequired[Literal["asc", "desc"]]
+    {% endfor %}
+
+
+class {{ model_name }}SelectInput(TypedDict, total=False):
+    """Scalar field projection for {{ model_name }} queries."""
+    {% for field in scalar_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+{% if has_includes %}
+
+class {{ model_name }}IncludeInput(TypedDict, total=False):
+    """Relations to include in {{ model_name }} queries.
+
+    Each field accepts either ``True`` (include with defaults) or a typed-args
+    dict to filter / paginate the included records.
+    """
+    {% for field in include_fields %}
+    {{ field.name }}: NotRequired[Union[bool, "FindMany{{ field.target_model }}ArgsFrom{{ model_name }}"]]
+    {% endfor %}
+
+{% for field in include_fields %}
+class FindMany{{ field.target_model }}ArgsFrom{{ model_name }}(TypedDict, total=False):
+    """Arguments for including {{ field.target_model }} in {{ model_name }} queries."""
+    where: NotRequired["{{ field.target_model }}WhereInput"]
+    {% if field.is_array %}
+    take: NotRequired[int]
+    skip: NotRequired[int]
+    order_by: NotRequired[Union["{{ field.target_model }}OrderByInput", List["{{ field.target_model }}OrderByInput"]]]
+    cursor: NotRequired[Dict[str, Any]]
+    distinct: NotRequired[List["{{ field.target_model }}ScalarFieldKeys"]]
+    {% endif %}
+    include: NotRequired["{{ field.target_model }}IncludeRecursive1"]
+
+{% endfor %}
+
+{# Recursive include types
+   These are used when THIS model ({{ model_name }}) is itself nested inside
+   another include.  Depth 1 is used at the first nesting level, depth N at
+   the Nth level; at the maximum depth the `include` field is omitted to avoid
+   infinite type recursion. #}
+{% for depth in range(end=recursive_type_depth) %}{% set d = depth + 1 %}
+class {{ model_name }}IncludeRecursive{{ d }}(TypedDict, total=False):
+    """Depth-{{ d }} include for {{ model_name }} (recursive nesting)."""
+    {% for field in include_fields %}
+    {{ field.name }}: NotRequired[Union[bool, "FindMany{{ field.target_model }}ArgsFrom{{ model_name }}Recursive{{ d }}"]]
+    {% endfor %}
+
+{% for field in include_fields %}
+class FindMany{{ field.target_model }}ArgsFrom{{ model_name }}Recursive{{ d }}(TypedDict, total=False):
+    """Depth-{{ d }} args for including {{ field.target_model }} from {{ model_name }}."""
+    where: NotRequired["{{ field.target_model }}WhereInput"]
+    {% if field.is_array %}
+    take: NotRequired[int]
+    skip: NotRequired[int]
+    order_by: NotRequired[Union["{{ field.target_model }}OrderByInput", List["{{ field.target_model }}OrderByInput"]]]
+    cursor: NotRequired[Dict[str, Any]]
+    distinct: NotRequired[List["{{ field.target_model }}ScalarFieldKeys"]]
+    {% endif %}
+    {% if d < recursive_type_depth %}
+    include: NotRequired["{{ field.target_model }}IncludeRecursive{{ d + 1 }}"]
+    {% endif %}
+
+{% endfor %}
+{% endfor %}
+
+{% endif %}
+
+
+class {{ model_name }}UpsertInput(TypedDict, total=False):
+    """Input data for upserting a {{ model_name }}.
+
+    Contains both ``create`` (used when no matching record exists) and
+    ``update`` (applied when a matching record is found).
+    """
+    create: NotRequired[{{ model_name }}CreateInput]
+    update: NotRequired[{{ model_name }}UpdateInput]
+
+
+{{ model_name }}ScalarFieldKeys = Literal[{% for field in scalar_fields %}"{{ field.name }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+
+SortOrder = Literal["asc", "desc"]
+
+
+class {{ model_name }}CountAggregateInput(TypedDict, total=False):
+    """Select which fields to include in COUNT aggregation."""
+    _all: NotRequired[bool]
+    {% for field in scalar_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+
+{% if has_numeric_fields %}
+class {{ model_name }}AvgAggregateInput(TypedDict, total=False):
+    """Select which numeric fields to include in AVG aggregation."""
+    {% for field in numeric_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+
+class {{ model_name }}SumAggregateInput(TypedDict, total=False):
+    """Select which numeric fields to include in SUM aggregation."""
+    {% for field in numeric_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+{% endif %}
+
+class {{ model_name }}MinAggregateInput(TypedDict, total=False):
+    """Select which fields to include in MIN aggregation."""
+    {% for field in orderable_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+
+class {{ model_name }}MaxAggregateInput(TypedDict, total=False):
+    """Select which fields to include in MAX aggregation."""
+    {% for field in orderable_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+
+class {{ model_name }}GroupByOutput(TypedDict, total=False):
+    """Result row from a group_by query on {{ model_name }}."""
+    {% for field in scalar_fields %}
+    {{ field.name }}: NotRequired[{{ field.python_type }}]
+    {% endfor %}
+    _count: NotRequired[Dict[str, int]]
+    _avg: NotRequired[Dict[str, float]]
+    _sum: NotRequired[Dict[str, Any]]
+    _min: NotRequired[Dict[str, Any]]
+    _max: NotRequired[Dict[str, Any]]
+
+
+{% endif %}

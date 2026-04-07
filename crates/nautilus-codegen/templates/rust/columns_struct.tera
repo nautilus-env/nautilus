@@ -1,0 +1,54 @@
+/// Column accessors for {{ model_name }} selections.
+#[derive(Debug, Clone, Copy)]
+pub struct {{ columns_name }};
+
+impl {{ columns_name }} {
+{%- for field in scalar_fields %}
+    pub fn {{ field.name }}(&self) -> nautilus_core::Column<{{ field.column_type }}> {
+        nautilus_core::Column::new("{{ table_name }}", "{{ field.db_name }}")
+    }
+
+{%- endfor %}
+{%- if relations %}
+{%- for relation in relations %}
+{%- if relation.is_array %}
+    /// Filter parent rows that have **at least one** `{{ relation.field_name }}` matching `child_filter`.
+    pub fn {{ relation.field_name }}_some(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
+        nautilus_core::Expr::relation_some(
+            "{{ relation.field_name }}",
+            "{{ table_name }}",
+            "{{ relation.target_table }}",
+            "{{ relation.references_db | first }}",
+            "{{ relation.fields_db | first }}",
+            child_filter,
+        )
+    }
+
+    /// Filter parent rows that have **no** `{{ relation.field_name }}` matching `child_filter`.
+    pub fn {{ relation.field_name }}_none(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
+        nautilus_core::Expr::relation_none(
+            "{{ relation.field_name }}",
+            "{{ table_name }}",
+            "{{ relation.target_table }}",
+            "{{ relation.references_db | first }}",
+            "{{ relation.fields_db | first }}",
+            child_filter,
+        )
+    }
+
+    /// Filter parent rows where **all** `{{ relation.field_name }}` match `child_filter`.
+    pub fn {{ relation.field_name }}_every(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
+        nautilus_core::Expr::relation_every(
+            "{{ relation.field_name }}",
+            "{{ table_name }}",
+            "{{ relation.target_table }}",
+            "{{ relation.references_db | first }}",
+            "{{ relation.fields_db | first }}",
+            child_filter,
+        )
+    }
+
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+}

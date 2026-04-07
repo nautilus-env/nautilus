@@ -1,0 +1,237 @@
+/// Internal FindMany builder for {{ model_name }} - use `{{ delegate_name }}::find_many(args)` instead.
+pub(crate) struct {{ find_many_name }}<E: crate::Executor, S = ()> {
+    client: crate::Client<E>,
+    filter: Option<nautilus_core::Expr>,
+    order_by: Vec<nautilus_core::OrderBy>,
+    /// Positive = forward pagination, negative = backward pagination.
+    take: Option<i32>,
+    skip: Option<u32>,
+    select: std::collections::HashSet<String>,
+    /// Cursor map: PK field name -> value for stable keyset pagination.
+    cursor: Option<std::collections::HashMap<String, nautilus_core::Value>>,
+    /// True when `take` was negative (backward pagination).
+    backward: bool,
+    /// Columns to deduplicate on (SELECT DISTINCT / DISTINCT ON).
+    distinct: Vec<String>,
+    _selection: std::marker::PhantomData<S>,
+}
+
+impl<E, S> {{ find_many_name }}<E, S>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        {{ find_many_name }} {
+            client,
+            filter: None,
+            order_by: vec![],
+            take: None,
+            skip: None,
+            select: std::collections::HashSet::new(),
+            cursor: None,
+            backward: false,
+            distinct: vec![],
+            _selection: std::marker::PhantomData,
+        }
+    }
+
+    /// Add a WHERE filter.
+    #[must_use]
+    pub(crate) fn where_(mut self, expr: nautilus_core::Expr) -> Self {
+        self.filter = Some(expr);
+        self
+    }
+
+    /// Add ORDER BY clause.
+    #[must_use]
+    pub(crate) fn order_by(mut self, order: nautilus_core::OrderBy) -> Self {
+        self.order_by.push(order);
+        self
+    }
+
+    /// Limit the number of results.
+    ///
+    /// Positive `n` paginates **forward**; negative `n` paginates **backward**
+    /// (flips ORDER BY and reverses the result slice in memory).
+    #[must_use]
+    pub(crate) fn take(mut self, n: i32) -> Self {
+        self.backward = n < 0;
+        self.take = Some(n);
+        self
+    }
+
+    /// Skip a number of results (OFFSET).
+    #[must_use]
+    pub(crate) fn skip(mut self, n: u32) -> Self {
+        self.skip = Some(n);
+        self
+    }
+
+    /// Set the cursor for stable keyset pagination.
+    ///
+    /// The map must contain all primary-key fields of the model.
+    /// The cursor record is included in the result.
+    #[must_use]
+    pub(crate) fn cursor(
+        mut self,
+        map: std::collections::HashMap<String, nautilus_core::Value>,
+    ) -> Self {
+        self.cursor = Some(map);
+        self
+    }
+
+    /// Specify columns to deduplicate on (SELECT DISTINCT / DISTINCT ON).
+    ///
+    /// - **Postgres**: emits `DISTINCT ON (cols)` - the columns are automatically
+    ///   prepended to `ORDER BY` before query execution.
+    /// - **SQLite / MySQL**: emits plain `SELECT DISTINCT` (full-row dedup;
+    ///   combine with `select_fields` for column-level effect).
+    #[must_use]
+    pub(crate) fn distinct(mut self, columns: Vec<String>) -> Self {
+        self.distinct = columns;
+        self
+    }
+
+    /// Specify a field projection (only return the listed columns).
+    ///
+    /// PK fields are always included regardless.
+    #[must_use]
+    pub(crate) fn select_fields(mut self, fields: std::collections::HashSet<String>) -> Self {
+        self.select = fields;
+        self
+    }
+}
+
+impl<E> {{ find_many_name }}<E, ()>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    /// Execute the query and return all rows.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<{{ model_name }}>> {
+        use nautilus_core::*;
+
+        let client = self.client;
+        let mut builder = Select::from_table("{{ table_name }}");
+        let mut row_hints: Vec<Option<crate::ValueHint>> = Vec::new();
+
+        // Add scalar columns (PK columns always included; others filtered by select if active)
+{%- for field in scalar_fields %}
+{%- if field.is_pk %}
+        builder = builder.item(SelectItem::column(ColumnMarker::new("{{ table_name }}", "{{ field.db_name }}")));
+        row_hints.push({{ field.read_hint_expr }});
+{%- else %}
+        if self.select.is_empty() || self.select.contains("{{ field.name }}") {
+            builder = builder.item(SelectItem::column(ColumnMarker::new("{{ table_name }}", "{{ field.db_name }}")));
+            row_hints.push({{ field.read_hint_expr }});
+        }
+{%- endif %}
+{%- endfor %}
+
+        // Extract fields from self so we can mix borrows and moves freely.
+        let backward = self.backward;
+        let cursor = self.cursor;
+        let filter = self.filter;
+        let order_by = self.order_by;
+        let take = self.take;
+        let skip = self.skip;
+        let distinct = self.distinct;
+
+        // Auto-add distinct columns to ORDER BY so they appear first (required for
+        // Postgres DISTINCT ON; harmless for SQLite / MySQL which use plain DISTINCT).
+        if !distinct.is_empty() {
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+            for col in &distinct {
+                if !existing_cols.contains(col.as_str()) {
+                    let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                    builder = builder.order_by(col.clone(), dir);
+                }
+            }
+        }
+
+        // Cursor predicate
+        // Build an inclusive keyset WHERE clause from the cursor map and merge
+        // it with any caller-supplied filter.
+        let effective_filter = if let Some(ref cursor_map) = cursor {
+            // Static PK field (cursor-map-key, table__db_col) pairs - generated
+            // at code-generation time from the model's primary-key definition.
+            let pk_pairs: &[(&str, &str)] = &[
+{%- for pk in pk_fields_with_db %}
+                ("{{ pk.name }}", "{{ table_name }}__{{ pk.db_name }}"),
+{%- endfor %}
+            ];
+            let cursor_pred =
+                nautilus_core::build_cursor_predicate(pk_pairs, cursor_map, backward)?;
+
+            // Auto-add any PK column that is not yet in order_by so that the
+            // keyset predicate is unambiguous.
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+{%- for pk in pk_fields_with_db %}
+            if !existing_cols.contains("{{ pk.db_name }}") {
+                let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                builder = builder.order_by("{{ pk.db_name }}".to_string(), dir);
+            }
+{%- endfor %}
+
+            Some(match filter {
+                Some(f) => f.and(cursor_pred),
+                None => cursor_pred,
+            })
+        } else {
+            filter
+        };
+
+        if let Some(f) = effective_filter {
+            builder = builder.filter(f);
+        }
+
+        // Apply ordering, flipping direction for backward pagination.
+        for order in order_by {
+            let dir = if backward {
+                match order.direction {
+                    OrderDir::Asc => OrderDir::Desc,
+                    OrderDir::Desc => OrderDir::Asc,
+                }
+            } else {
+                order.direction
+            };
+            builder = builder.order_by(order.column, dir);
+        }
+
+        // Apply take (absolute value; direction is handled by ORDER BY flip).
+        if let Some(n) = take {
+            builder = builder.take(n.saturating_abs());
+        }
+        if let Some(offset) = skip {
+            builder = builder.skip(offset);
+        }
+
+        // Apply distinct (SELECT DISTINCT / DISTINCT ON).
+        if !distinct.is_empty() {
+            builder = builder.distinct(distinct);
+        }
+
+        let select = builder.build()?;
+        let sql = client.dialect().render_select(&select)?;
+
+        let stream = client.executor().execute(&sql);
+        futures::pin_mut!(stream);
+
+        let mut results = Vec::new();
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result.map_err(|e| Error::Other(e.to_string()))?.into();
+            let decoded = decode_model_row_with_hints(row, &row_hints)?;
+            results.push(decoded);
+        }
+
+        // Backward pagination: DB returned rows in reversed order - restore natural order.
+        if backward {
+            results.reverse();
+        }
+
+        Ok(results)
+    }
+}

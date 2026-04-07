@@ -1,0 +1,21 @@
+[package]
+name = "nautilus-orm-dialect"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "SQL dialect renderers for Nautilus ORM"
+
+[lib]
+name = "nautilus_dialect"
+
+[dependencies]
+nautilus-core = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+impl {{ model_name }} {
+{%- for field in scalar_fields %}
+    /// Column accessor for {{ field.name }}.
+    pub fn {{ field.name }}() -> nautilus_core::Column<{{ field.column_type }}> {
+        nautilus_core::Column::new("{{ table_name }}", "{{ field.db_name }}")
+    }
+
+{%- endfor %}
+    /// Create a delegate for {{ model_name }} queries.
+    pub fn nautilus<E>(client: &crate::Client<E>) -> {{ delegate_name }}<E>
+    where
+        E: crate::Executor,
+        for<'a> E::Row<'a>: Into<crate::Row>,
+    {
+        {{ delegate_name }}::new(client.clone())
+    }
+}

@@ -1,0 +1,31 @@
+[package]
+name = "nautilus-orm-connector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Database executors and connection management for Nautilus ORM"
+
+[lib]
+name = "nautilus_connector"
+
+[dependencies]
+nautilus-core = { workspace = true }
+nautilus-dialect = { workspace = true }
+sqlx = { version = "0.8", features = ["postgres", "sqlite", "mysql", "runtime-tokio", "uuid", "chrono", "rust_decimal"] }
+futures = "0.3"
+async-stream = "0.3"
+tokio = { version = "1", features = ["sync", "time"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+uuid = { version = "1.0", features = ["v4"] }
+rust_decimal = "1.35"
+serde_json = "1.0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+
+[lints]
+workspace = true

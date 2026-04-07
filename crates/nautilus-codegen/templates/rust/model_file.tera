@@ -1,0 +1,59 @@
+//! {{ model_name }} model and associated builders.
+
+use crate::{FromRow, Row};
+use futures::stream::StreamExt;
+{%- if has_enums %}
+{%- for enum_name in enum_imports %}
+use super::enums::{{ enum_name }};
+{%- endfor %}
+{%- endif %}
+{%- if has_composite_types %}
+{%- for type_name in composite_type_imports %}
+use super::types::{{ type_name }};
+{%- endfor %}
+{%- endif %}
+{%- if has_relations %}
+{%- for relation_model in relation_imports %}
+use super::{{ relation_model }};
+{%- endfor %}
+{%- endif %}
+
+fn all_scalar_value_hints() -> &'static [Option<crate::ValueHint>] {
+    &[
+{%- for field in scalar_fields %}
+        {{ field.read_hint_expr }},
+{%- endfor %}
+    ]
+}
+
+fn decode_model_row_with_hints(
+    row: crate::Row,
+    hints: &[Option<crate::ValueHint>],
+) -> nautilus_core::Result<{{ model_name }}> {
+    let row = crate::normalize_row_with_hints(row, hints)
+        .map_err(|e| nautilus_core::Error::Other(format!(
+            "Failed to normalize {{ model_name }} row: {}",
+            e
+        )))?;
+    {{ model_name }}::from_row(&row)
+}
+
+{% include "model_struct.tera" %}
+
+{% include "column_impl.tera" %}
+
+{% include "from_row_impl.tera" %}
+
+{% include "columns_struct.tera" %}
+
+{% include "delegate.tera" %}
+
+{% include "find_many.tera" %}
+
+{% include "create.tera" %}
+
+{% include "create_many.tera" %}
+
+{% include "update.tera" %}
+
+{% include "delete.tera" %}

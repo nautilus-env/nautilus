@@ -1,0 +1,20 @@
+[package]
+name = "nautilus-orm-schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Schema parsing and validation for Nautilus ORM"
+
+[lib]
+name = "nautilus_schema"
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints]
+workspace = true

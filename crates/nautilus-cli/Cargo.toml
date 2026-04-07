@@ -1,0 +1,43 @@
+[package]
+name = "nautilus-orm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Nautilus ORM command-line interface"
+
+[package.metadata.wix]
+upgrade-guid = "64BA9F55-8641-4574-A3FD-F5EFEBA06E69"
+path-guid = "49C69878-ED7C-49EF-8976-2462CCD35AD5"
+license = false
+eula = false
+
+[[bin]]
+name = "nautilus"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+nautilus-schema  = { workspace = true }
+nautilus-migrate = { workspace = true }
+nautilus-engine  = { workspace = true }
+nautilus-codegen = { workspace = true }
+
+tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "sync"] }
+
+sqlx = { version = "0.8.2", features = ["runtime-tokio-rustls", "postgres", "sqlite", "mysql", "any"] }
+
+clap = { version = "4", features = ["derive"] }
+
+console   = "0.16.3"
+indicatif = "0.18.4"
+
+anyhow = "1.0"
+
+chrono = { version = "0.4" }
+
+[dev-dependencies]
+tempfile = "3"

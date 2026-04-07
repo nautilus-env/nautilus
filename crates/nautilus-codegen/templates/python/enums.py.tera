@@ -1,0 +1,19 @@
+"""Generated enum types."""
+
+from enum import Enum
+
+
+{%- for enum in enums %}
+class {{ enum.name }}(str, Enum):
+    """{{ enum.name }} enum type."""
+{%- for variant in enum.variants %}
+    {{ variant }} = "{{ variant }}"
+{%- endfor %}
+
+{% endfor %}
+
+__all__ = [
+{%- for enum in enums %}
+    "{{ enum.name }}",
+{%- endfor %}
+]

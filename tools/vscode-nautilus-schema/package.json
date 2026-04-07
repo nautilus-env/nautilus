@@ -1,0 +1,99 @@
+{
+  "name": "vscode-nautilus-schema",
+  "displayName": "Nautilus Schema",
+  "description": "Language support for the Nautilus schema DSL (*.nautilus files)",
+  "version": "0.1.0",
+  "publisher": "nautilus",
+  "icon": "icons/icon.png",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/y0gm4/nautilus"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:nautilus",
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "vscode:prepublish": "npm run bundle",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.3.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "keywords": [
+    "nautilus",
+    "schema",
+    "database",
+    "ORM",
+    "DSL"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "nautilus",
+        "aliases": [
+          "Nautilus Schema",
+          "nautilus"
+        ],
+        "extensions": [
+          ".nautilus"
+        ],
+        "icon": {
+          "light": "./icons/nautilus-light.svg",
+          "dark": "./icons/nautilus-dark.svg"
+        },
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nautilus",
+        "scopeName": "source.nautilus",
+        "path": "./syntaxes/nautilus.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "nautilus",
+        "path": "./snippets/nautilus.code-snippets"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "nautilus",
+        "scopes": {
+          "nautilusModel": ["constant.language.nautilus"],
+          "nautilusEnum": ["constant.language.nautilus"],
+          "nautilusCompositeType": ["support.type.primitive.nautilus"]
+        }
+      }
+    ],
+    "configuration": {
+      "title": "Nautilus",
+      "properties": {
+        "nautilus.lspPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the `nautilus-lsp` binary. Leave empty to use the auto-downloaded binary or the one on `PATH`."
+        }
+      }
+    }
+  }
+}

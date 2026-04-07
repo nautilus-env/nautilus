@@ -1,0 +1,115 @@
+/// Internal Update builder for {{ model_name }} — use `{{ delegate_name }}::update(args)` instead.
+pub(crate) struct {{ update_name }}<E: crate::Executor> {
+    client: crate::Client<E>,
+    filter: Option<nautilus_core::Expr>,
+    require_filter: bool,
+    /// Column-value assignments collected from `set_data`.
+    assignments: Vec<(nautilus_core::ColumnMarker, nautilus_core::Value)>,
+}
+
+impl<E> {{ update_name }}<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        {{ update_name }} {
+            client,
+            filter: None,
+            require_filter: true,
+            assignments: Vec::new(),
+        }
+    }
+
+    /// Set WHERE filter.
+    #[must_use]
+    pub(crate) fn where_(mut self, expr: nautilus_core::Expr) -> Self {
+        self.filter = Some(expr);
+        self
+    }
+
+    /// Update all rows (removes the safety guard that requires a filter).
+    #[must_use]
+    pub(crate) fn all(mut self) -> Self {
+        self.require_filter = false;
+        self
+    }
+
+    /// Load field assignments from a structured update-input value.
+    ///
+    /// Only fields that are `Some(…)` in `data` are included in the SET
+    /// clause; `None` fields are intentionally skipped (left unchanged).
+    /// For nullable fields a `Some(None)` sets the column to NULL.
+    #[must_use]
+    pub(crate) fn set_data(mut self, data: {{ model_name }}UpdateInput) -> Self {
+{%- for field in create_fields %}
+        if let Some(outer) = data.{{ field.name }} {
+{%- if field.is_optional %}
+            let val = match outer {
+                Some(v) => nautilus_core::Value::from(v),
+                None => nautilus_core::Value::Null,
+            };
+{%- else %}
+            let val = nautilus_core::Value::from(outer);
+{%- endif %}
+            self.assignments.push((
+                nautilus_core::ColumnMarker::new("{{ table_name }}", "{{ field.db_name }}"),
+                val,
+            ));
+        }
+{%- endfor %}
+        self
+    }
+
+    /// Execute the update, returning affected rows via `RETURNING`.
+    ///
+    /// Returns an empty `Vec` for databases that do not support `RETURNING`
+    /// (e.g. MySQL).  Returns an empty `Vec` without touching the database
+    /// when no assignments have been loaded via `set_data`.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<{{ model_name }}>> {
+        use nautilus_core::*;
+        use futures::StreamExt;
+
+        if self.assignments.is_empty() {
+            return Ok(vec![]);
+        }
+
+        if self.require_filter && self.filter.is_none() {
+            return Err(Error::InvalidQuery(
+                "Update requires a WHERE filter — call `.all()` to update every row.".to_string(),
+            ));
+        }
+
+        let mut builder = Update::table("{{ table_name }}");
+        for (col, val) in self.assignments {
+            builder = builder.set(col, val);
+        }
+        if let Some(filter) = self.filter {
+            builder = builder.filter(filter);
+        }
+
+        let supports_returning = self.client.dialect().supports_returning();
+        if supports_returning {
+            let returning_cols = vec![
+{%- for field in all_scalar_fields %}
+                ColumnMarker::new("{{ table_name }}", "{{ field.db_name }}"),
+{%- endfor %}
+            ];
+            builder = builder.returning(returning_cols);
+        }
+
+        let update = builder.build()?;
+        let sql = self.client.dialect().render_update(&update)?;
+
+        let stream = self.client.executor().execute(&sql);
+        futures::pin_mut!(stream);
+
+        let mut results = Vec::new();
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result.map_err(|e| Error::Other(e.to_string()))?.into();
+            results.push(decode_model_row_with_hints(row, all_scalar_value_hints())?);
+        }
+
+        Ok(results)
+    }
+}

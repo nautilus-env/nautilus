@@ -1,0 +1,27 @@
+"""Nautilus errors package."""
+
+from __future__ import annotations
+
+from .errors import *
+
+__all__ = [
+    "NautilusError",
+    "ProtocolError",
+    "HandshakeError",
+    "ValidationError",
+    "QueryError",
+    "DatabaseError",
+    "ConnectionError",
+    "ConstraintViolationError",
+    "UniqueConstraintError",
+    "ForeignKeyConstraintError",
+    "CheckConstraintError",
+    "NullConstraintError",
+    "QueryTimeoutError",
+    "DeadlockError",
+    "SerializationError",
+    "NotFoundError",
+    "InternalError",
+    "TransactionError",
+    "TransactionTimeoutError",
+]

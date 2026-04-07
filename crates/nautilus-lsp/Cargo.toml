@@ -1,0 +1,27 @@
+[package]
+name = "nautilus-orm-lsp"
+description = "LSP server for .nautilus schema files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[package.metadata.wix]
+upgrade-guid = "0B0CC6D0-3381-4280-8FD2-60B32239EFE7"
+path-guid = "49B12884-C900-4FD5-9DE7-12A0EAB267D3"
+license = false
+eula = false
+
+[[bin]]
+name = "nautilus-lsp"
+path = "src/main.rs"
+
+[dependencies]
+nautilus-schema = { workspace = true }
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+dashmap = "6"
+
+[lints]
+workspace = true

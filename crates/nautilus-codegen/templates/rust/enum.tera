@@ -1,0 +1,38 @@
+/// {{ enum_name }} enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum {{ enum_name }} {
+{%- for variant in variants %}
+    {{ variant }},
+{%- endfor %}
+}
+
+impl nautilus_core::FromValue for {{ enum_name }} {
+    fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
+        match value {
+            nautilus_core::Value::String(s) => match s.as_str() {
+{%- for variant in variants %}
+                "{{ variant }}" => Ok({{ enum_name }}::{{ variant }}),
+{%- endfor %}
+                other => Err(nautilus_core::Error::TypeError(
+                    format!("Invalid {{ enum_name }} variant: {}", other)
+                )),
+            },
+            nautilus_core::Value::Null => Err(nautilus_core::Error::TypeError(
+                "NULL value for {{ enum_name }}".to_string()
+            )),
+            _ => Err(nautilus_core::Error::TypeError(format!(
+                "expected String for {{ enum_name }}, got {:?}", value
+            ))),
+        }
+    }
+}
+
+impl From<{{ enum_name }}> for nautilus_core::Value {
+    fn from(e: {{ enum_name }}) -> Self {
+        match e {
+{%- for variant in variants %}
+            {{ enum_name }}::{{ variant }} => nautilus_core::Value::String("{{ variant }}".to_string()),
+{%- endfor %}
+        }
+    }
+}

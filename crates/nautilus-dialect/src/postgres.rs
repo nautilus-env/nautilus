@@ -1,0 +1,276 @@
+//! PostgreSQL SQL dialect renderer.
+
+use crate::{Dialect, Sql};
+use nautilus_core::{BinaryOp, Delete, Expr, Insert, Result, Select, Update, Value};
+
+/// PostgreSQL SQL dialect renderer.
+///
+/// Uses `$1, $2, ...` numbered parameter placeholders and double-quoted identifiers.
+/// Supports `RETURNING`, `DISTINCT ON`, PostgreSQL array operators, UUID type casts,
+/// and `FILTER (WHERE ...)` on aggregates.
+#[derive(Debug, Clone, Copy)]
+pub struct PostgresDialect;
+
+impl Dialect for PostgresDialect {
+    fn render_select(&self, select: &Select) -> Result<Sql> {
+        let mut ctx = RenderContext::new();
+        render_select_body_core!(&mut ctx, select, quote_identifier, render_expr, true, false);
+        Ok(Sql {
+            text: ctx.sql,
+            params: ctx.params,
+        })
+    }
+
+    fn render_insert(&self, insert: &Insert) -> Result<Sql> {
+        let mut ctx = RenderContext::new();
+        render_insert_body!(&mut ctx, insert, quote_identifier, true, true);
+        Ok(Sql {
+            text: ctx.sql,
+            params: ctx.params,
+        })
+    }
+
+    fn render_update(&self, update: &Update) -> Result<Sql> {
+        let mut ctx = RenderContext::new();
+        render_update_body!(&mut ctx, update, quote_identifier, render_expr, true, true);
+        Ok(Sql {
+            text: ctx.sql,
+            params: ctx.params,
+        })
+    }
+
+    fn render_delete(&self, delete: &Delete) -> Result<Sql> {
+        let mut ctx = RenderContext::new();
+        render_delete_body!(&mut ctx, delete, quote_identifier, render_expr, true);
+        Ok(Sql {
+            text: ctx.sql,
+            params: ctx.params,
+        })
+    }
+}
+
+fn quote_identifier(name: &str) -> String {
+    crate::double_quote_identifier(name)
+}
+
+struct RenderContext {
+    sql: String,
+    params: Vec<Value>,
+}
+
+impl RenderContext {
+    fn new() -> Self {
+        Self {
+            sql: String::new(),
+            params: Vec::new(),
+        }
+    }
+
+    fn push_param(&mut self, value: Value) -> String {
+        self.params.push(value);
+        format!("${}", self.params.len())
+    }
+}
+
+fn render_select_body(ctx: &mut RenderContext, select: &crate::Select) {
+    render_select_body_core!(ctx, select, quote_identifier, render_expr, true, false);
+}
+
+fn render_expr(ctx: &mut RenderContext, expr: &Expr) {
+    render_expr_common!(ctx, expr, quote_identifier, render_expr, render_select_body, {
+        Expr::Param(value) => {
+            // NULL is emitted literally; PostgreSQL cannot implicitly resolve a
+            // typed NULL sent as an unknown OID via the binary protocol.
+            if matches!(value, Value::Null) {
+                ctx.sql.push_str("NULL");
+            } else {
+                let placeholder = ctx.push_param(value.clone());
+                ctx.sql.push_str(&placeholder);
+                // PostgreSQL needs an explicit cast when the driver sends an unknown OID.
+                if matches!(value, Value::Uuid(_)) {
+                    ctx.sql.push_str("::uuid");
+                } else if matches!(value, Value::Json(_)) {
+                    ctx.sql.push_str("::json");
+                } else if let Value::Enum { type_name, .. } = value {
+                    ctx.sql.push_str("::");
+                    ctx.sql.push_str(type_name);
+                }
+            }
+        }
+        Expr::Binary { left, op, right } => {
+            if matches!(op, BinaryOp::In | BinaryOp::NotIn) {
+                ctx.sql.push('(');
+                render_expr(ctx, left);
+                ctx.sql.push(' ');
+                ctx.sql.push_str(if matches!(op, BinaryOp::In) { "IN" } else { "NOT IN" });
+                ctx.sql.push_str(" (");
+                if let Expr::List(exprs) = right.as_ref() {
+                    for (i, e) in exprs.iter().enumerate() {
+                        if i > 0 { ctx.sql.push_str(", "); }
+                        render_expr(ctx, e);
+                    }
+                } else {
+                    render_expr(ctx, right);
+                }
+                ctx.sql.push(')');
+                ctx.sql.push(')');
+            } else {
+                ctx.sql.push('(');
+                render_expr(ctx, left);
+                ctx.sql.push(' ');
+                ctx.sql.push_str(match op {
+                    BinaryOp::ArrayContains => "@>",
+                    BinaryOp::ArrayContainedBy => "<@",
+                    BinaryOp::ArrayOverlaps => "&&",
+                    _ => crate::binary_op_sql(op),
+                });
+                ctx.sql.push(' ');
+                render_expr(ctx, right);
+                ctx.sql.push(')');
+            }
+        }
+        Expr::FunctionCall { name, args } => {
+            ctx.sql.push_str(name);
+            ctx.sql.push('(');
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 { ctx.sql.push_str(", "); }
+                render_expr(ctx, arg);
+            }
+            ctx.sql.push(')');
+        }
+        Expr::Filter { expr, predicate } => {
+            // Native PostgreSQL FILTER clause (supported since pg 9.4).
+            render_expr(ctx, expr);
+            ctx.sql.push_str(" FILTER (WHERE ");
+            render_expr(ctx, predicate);
+            ctx.sql.push(')');
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quote_identifier() {
+        assert_eq!(quote_identifier("users"), "\"users\"");
+        assert_eq!(quote_identifier("email"), "\"email\"");
+        assert_eq!(quote_identifier("foo\"bar"), "\"foo\"\"bar\"");
+        assert_eq!(quote_identifier("a\"b\"c"), "\"a\"\"b\"\"c\"");
+    }
+
+    #[test]
+    fn test_array_contains_operator() {
+        let dialect = PostgresDialect;
+        let expr = Expr::Binary {
+            left: Box::new(Expr::column("posts__tags")),
+            op: BinaryOp::ArrayContains,
+            right: Box::new(Expr::param(Value::Array(vec![Value::String(
+                "rust".to_string(),
+            )]))),
+        };
+        let select = Select::from_table("posts").filter(expr).build().unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM \"posts\" WHERE (\"posts\".\"tags\" @> $1)"
+        );
+        assert_eq!(sql.params.len(), 1);
+        match &sql.params[0] {
+            Value::Array(arr) => {
+                assert_eq!(arr.len(), 1);
+                assert_eq!(arr[0], Value::String("rust".to_string()));
+            }
+            _ => panic!("Expected Array value"),
+        }
+    }
+
+    #[test]
+    fn test_array_contained_by_operator() {
+        let dialect = PostgresDialect;
+        let expr = Expr::Binary {
+            left: Box::new(Expr::column("posts__tags")),
+            op: BinaryOp::ArrayContainedBy,
+            right: Box::new(Expr::param(Value::Array(vec![
+                Value::String("rust".to_string()),
+                Value::String("go".to_string()),
+            ]))),
+        };
+        let select = Select::from_table("posts").filter(expr).build().unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM \"posts\" WHERE (\"posts\".\"tags\" <@ $1)"
+        );
+        assert_eq!(sql.params.len(), 1);
+        match &sql.params[0] {
+            Value::Array(arr) => {
+                assert_eq!(arr.len(), 2);
+                assert_eq!(arr[0], Value::String("rust".to_string()));
+                assert_eq!(arr[1], Value::String("go".to_string()));
+            }
+            _ => panic!("Expected Array value"),
+        }
+    }
+
+    #[test]
+    fn test_array_overlaps_operator() {
+        let dialect = PostgresDialect;
+        let expr = Expr::Binary {
+            left: Box::new(Expr::column("posts__tags")),
+            op: BinaryOp::ArrayOverlaps,
+            right: Box::new(Expr::param(Value::Array(vec![
+                Value::String("rust".to_string()),
+                Value::String("python".to_string()),
+            ]))),
+        };
+        let select = Select::from_table("posts").filter(expr).build().unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM \"posts\" WHERE (\"posts\".\"tags\" && $1)"
+        );
+        assert_eq!(sql.params.len(), 1);
+        match &sql.params[0] {
+            Value::Array(arr) => {
+                assert_eq!(arr.len(), 2);
+                assert_eq!(arr[0], Value::String("rust".to_string()));
+                assert_eq!(arr[1], Value::String("python".to_string()));
+            }
+            _ => panic!("Expected Array value"),
+        }
+    }
+
+    #[test]
+    fn test_array_operators_with_integers() {
+        let dialect = PostgresDialect;
+        let expr = Expr::Binary {
+            left: Box::new(Expr::column("posts__scores")),
+            op: BinaryOp::ArrayContains,
+            right: Box::new(Expr::param(Value::Array(vec![
+                Value::I32(100),
+                Value::I32(200),
+            ]))),
+        };
+        let select = Select::from_table("posts").filter(expr).build().unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM \"posts\" WHERE (\"posts\".\"scores\" @> $1)"
+        );
+        assert_eq!(sql.params.len(), 1);
+        match &sql.params[0] {
+            Value::Array(arr) => {
+                assert_eq!(arr.len(), 2);
+                assert_eq!(arr[0], Value::I32(100));
+                assert_eq!(arr[1], Value::I32(200));
+            }
+            _ => panic!("Expected Array value"),
+        }
+    }
+}

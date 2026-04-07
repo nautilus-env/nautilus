@@ -1,0 +1,16 @@
+[package]
+name = "nautilus-orm-protocol"
+description = "Wire protocol types and serialization for Nautilus ORM"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "nautilus_protocol"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+thiserror = "2.0.18"

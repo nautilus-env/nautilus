@@ -1,0 +1,10 @@
+"""Nautilus enums package."""
+
+from __future__ import annotations
+
+{%- if has_enums %}
+from .enums import *
+{%- endif %}
+
+__all__ = [
+]

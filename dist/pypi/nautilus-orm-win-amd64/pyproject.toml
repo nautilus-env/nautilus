@@ -1,0 +1,19 @@
+# Platform-specific binary package for win-amd64.
+# CI copies the built binary to nautilus/nautilus.exe before running:
+#   python -m build --wheel
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nautilus-orm-win-amd64"
+version = "0.0.0-dev"
+description = "Nautilus ORM binary for win-amd64"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.9"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nautilus"]
+# Include the binary even though it is not a .py file
+artifacts = ["nautilus/nautilus.exe"]

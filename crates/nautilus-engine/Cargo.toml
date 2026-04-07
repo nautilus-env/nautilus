@@ -1,0 +1,44 @@
+[package]
+name = "nautilus-orm-engine"
+description = "Query execution engine for Nautilus ORM"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[package.metadata.wix]
+upgrade-guid = "2D973E64-3999-4EB0-965F-BF7A63AAAFDB"
+path-guid = "C99D95B1-331E-4EF9-A994-E259DA0EB813"
+license = false
+eula = false
+
+[lib]
+name = "nautilus_engine"
+
+[[bin]]
+name = "nautilus-engine"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1.41", features = ["macros", "rt-multi-thread", "sync", "time", "io-std", "io-util"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+sonic-rs = "0.5.8"
+
+nautilus-protocol = { workspace = true }
+nautilus-connector = { workspace = true }
+nautilus-schema = { workspace = true }
+nautilus-core = { workspace = true }
+nautilus-dialect = { workspace = true }
+nautilus-migrate = { workspace = true }
+uuid = { version = "1.0", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = "1.35"
+futures = "0.3"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3"

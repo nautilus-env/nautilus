@@ -1,0 +1,67 @@
+# nautilus-cli
+
+`nautilus-cli` builds the `nautilus` binary: the main entry point for schema validation, code generation, live-database workflows, migrations, engine startup, and a small Python shim installer.
+
+## Current command surface
+
+| Command | Notes |
+| --- | --- |
+| `nautilus generate [--schema <path>] [--standalone]` | Validates the schema and generates the client selected by the generator block |
+| `nautilus validate [--schema <path>]` | Parse + validate only |
+| `nautilus format [--schema <path>]` | Rewrites a schema file in canonical formatting |
+| `nautilus db push [--schema <path>] [--accept-data-loss] [--no-generate]` | Diffs the live database against the schema and applies the change set |
+| `nautilus db status [--schema <path>]` | Shows the pending diff without applying it |
+| `nautilus db pull [--schema <path>] [--output <path>]` | Introspects a live database and writes a `.nautilus` schema |
+| `nautilus db drop [--schema <path>] [--force]` | Drops all live tables without recreating them |
+| `nautilus db reset [--schema <path>] [--force] [--only-data]` | Drops and recreates schema state, or truncates only data when `--only-data` is set |
+| `nautilus db seed <file>` | Executes a SQL seed script |
+| `nautilus migrate generate [label]` | Writes versioned `.up.sql` / `.down.sql` files from the current diff |
+| `nautilus migrate apply` | Applies pending migrations |
+| `nautilus migrate rollback [--steps N]` | Rolls back the last applied migrations |
+| `nautilus migrate status` | Shows applied vs pending migrations |
+| `nautilus engine serve --schema <path>` | Starts the JSON-RPC engine on stdin/stdout |
+| `nautilus python install` / `uninstall` | Installs or removes a `.pth` shim so `python -m nautilus` resolves to the CLI binary |
+
+## Day-to-day workflows
+
+### Schema-first development
+
+```bash
+nautilus validate --schema schema.nautilus
+nautilus db status --schema schema.nautilus
+nautilus db push --schema schema.nautilus
+```
+
+`db push` regenerates the client automatically after a successful diff/apply unless you pass `--no-generate`.
+
+### Versioned migrations
+
+```bash
+nautilus migrate generate add_users --schema schema.nautilus
+nautilus migrate apply --schema schema.nautilus
+nautilus migrate status --schema schema.nautilus
+```
+
+### Local engine debugging
+
+```bash
+nautilus engine serve --schema schema.nautilus --migrate
+```
+
+## Notes
+
+- If `--schema` is omitted, generation and validation commands auto-detect the first `.nautilus` file in the current directory.
+- The generator provider inside the schema decides the client target:
+  - `nautilus-client-rs`
+  - `nautilus-client-py`
+  - `nautilus-client-js`
+- For JS and Python, `nautilus generate` produces local source packages first. The normal workflow is to import the generated `output` directory; `install = true` only copies the same files into local `site-packages/nautilus` or `node_modules/nautilus` for convenience.
+- `--standalone` is meaningful only for the Rust generator; it emits a `Cargo.toml` next to the generated Rust sources.
+- The Python shim command is intentionally separate from code generation. It exists to make the installed CLI reachable from Python as `python -m nautilus`; it does not install or publish generated ORM clients.
+
+## Main dependencies
+
+- `nautilus-schema` for parsing, validation, and formatting
+- `nautilus-codegen` for generation and validation subcommands
+- `nautilus-migrate` for schema diffing and migration execution
+- `nautilus-engine` for `engine serve`

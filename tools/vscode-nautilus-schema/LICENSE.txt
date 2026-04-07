@@ -1,0 +1,5 @@
+MIT OR Apache-2.0
+
+See the repository root for the full license texts:
+- LICENSE-MIT
+- LICENSE-APACHE

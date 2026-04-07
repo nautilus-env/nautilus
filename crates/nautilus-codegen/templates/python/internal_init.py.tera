@@ -1,0 +1,7 @@
+"""Nautilus internal runtime.
+
+This package contains internal implementation details.
+Do not use directly.
+"""
+
+from __future__ import annotations

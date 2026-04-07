@@ -1,0 +1,2 @@
+include nautilus/__init__.py
+include nautilus/__main__.py
