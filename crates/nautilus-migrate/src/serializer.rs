@@ -7,8 +7,9 @@ use std::collections::HashMap;
 
 use crate::{
     ddl::DatabaseProvider,
-    live::{ComputedKind, LiveCompositeType, LiveForeignKey, LiveSchema},
+    live::{ComputedKind, LiveCompositeType, LiveForeignKey, LiveSchema, LiveTable},
 };
+use nautilus_schema::ir::IndexType;
 
 /// Convert a [`LiveSchema`] to a `.nautilus` schema source string.
 ///
@@ -87,7 +88,11 @@ pub fn serialize_live_schema(live: &LiveSchema, provider: DatabaseProvider, url:
             .iter()
             .map(|c| {
                 let t = infer_nautilus_type(&c.col_type, &live.enums, &live.composite_types);
-                let nullable_suffix = if c.nullable { 1 } else { 0 };
+                let nullable_suffix = if c.nullable && type_supports_optional_modifier(&t) {
+                    1
+                } else {
+                    0
+                };
                 t.len() + nullable_suffix
             })
             .max()
@@ -97,7 +102,7 @@ pub fn serialize_live_schema(live: &LiveSchema, provider: DatabaseProvider, url:
 
         for col in &table.columns {
             let type_str = infer_nautilus_type(&col.col_type, &live.enums, &live.composite_types);
-            let type_with_mod = if col.nullable {
+            let type_with_mod = if col.nullable && type_supports_optional_modifier(&type_str) {
                 format!("{}?", type_str)
             } else {
                 type_str
@@ -164,10 +169,16 @@ pub fn serialize_live_schema(live: &LiveSchema, provider: DatabaseProvider, url:
                 fields_list, references_list
             );
             if let Some(action) = &fk.on_delete {
-                rel_args.push_str(&format!(", onDelete: {}", action));
+                rel_args.push_str(&format!(
+                    ", onDelete: {}",
+                    render_referential_action(action)
+                ));
             }
             if let Some(action) = &fk.on_update {
-                rel_args.push_str(&format!(", onUpdate: {}", action));
+                rel_args.push_str(&format!(
+                    ", onUpdate: {}",
+                    render_referential_action(action)
+                ));
             }
             lines.push(format!(
                 "  {}  {}  @relation({})",
@@ -176,9 +187,17 @@ pub fn serialize_live_schema(live: &LiveSchema, provider: DatabaseProvider, url:
         }
 
         if let Some(refs) = back_refs.get(*table_name) {
-            for (owning_table, _fk) in refs {
+            for (owning_table, fk) in refs {
                 let owning_model = to_pascal_case(owning_table);
-                lines.push(format!("  {}  {}[]", owning_table, owning_model));
+                if is_one_to_one_back_relation(live, owning_table, fk) {
+                    lines.push(format!(
+                        "  {}  {}?",
+                        singular_name(owning_table),
+                        owning_model
+                    ));
+                } else {
+                    lines.push(format!("  {}  {}[]", owning_table, owning_model));
+                }
             }
         }
 
@@ -193,7 +212,24 @@ pub fn serialize_live_schema(live: &LiveSchema, provider: DatabaseProvider, url:
             if idx.unique {
                 lines.push(format!("  @@unique([{}])", idx.columns.join(", ")));
             } else {
-                lines.push(format!("  @@index([{}])", idx.columns.join(", ")));
+                let mut args = Vec::new();
+                if let Some(index_type) = render_index_type(idx.method.as_deref()) {
+                    args.push(format!("type: {}", index_type));
+                }
+                let default_name = default_index_name(table_name, &idx.columns);
+                if idx.name != default_name {
+                    args.push(format!("map: \"{}\"", idx.name));
+                }
+
+                if args.is_empty() {
+                    lines.push(format!("  @@index([{}])", idx.columns.join(", ")));
+                } else {
+                    lines.push(format!(
+                        "  @@index([{}], {})",
+                        idx.columns.join(", "),
+                        args.join(", ")
+                    ));
+                }
             }
         }
 
@@ -253,6 +289,21 @@ fn infer_nautilus_type(
         }
     }
 
+    if let Some(length) = parse_sized_type_length(&t, "varchar(")
+        .or_else(|| parse_sized_type_length(&t, "character varying("))
+    {
+        return format!("VarChar({})", length);
+    }
+
+    if let Some(length) =
+        parse_sized_type_length(&t, "char(").or_else(|| parse_sized_type_length(&t, "character("))
+    {
+        if length == 36 {
+            return "Uuid".to_string();
+        }
+        return format!("Char({})", length);
+    }
+
     match t.as_str() {
         "text" | "clob" => "String".to_string(),
         t if t.starts_with("varchar") || t.starts_with("character varying") => "String".to_string(),
@@ -289,6 +340,9 @@ fn infer_default_attr(
     let t = raw.trim().to_lowercase();
 
     if t.contains("nextval") || t.contains("autoincrement") {
+        if can_infer_autoincrement(col_type) {
+            return Some("@default(autoincrement())".to_string());
+        }
         return None;
     }
 
@@ -337,6 +391,86 @@ fn infer_relation_field_name(fk_cols: &[String], ref_table: &str) -> String {
         }
     }
     singular_name(ref_table)
+}
+
+fn type_supports_optional_modifier(nautilus_type: &str) -> bool {
+    !nautilus_type.ends_with("[]")
+}
+
+fn render_referential_action(action: &str) -> String {
+    let normalized: String = action
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect();
+    match normalized.as_str() {
+        "cascade" => "Cascade".to_string(),
+        "restrict" => "Restrict".to_string(),
+        "noaction" => "NoAction".to_string(),
+        "setnull" => "SetNull".to_string(),
+        "setdefault" => "SetDefault".to_string(),
+        _ => action.to_string(),
+    }
+}
+
+fn render_index_type(method: Option<&str>) -> Option<&'static str> {
+    let index_type = method?.parse::<IndexType>().ok()?;
+    (index_type != IndexType::BTree).then(|| index_type.as_str())
+}
+
+fn default_index_name(table_name: &str, columns: &[String]) -> String {
+    let mut sorted_columns = columns.to_vec();
+    sorted_columns.sort();
+    format!("idx_{}_{}", table_name, sorted_columns.join("_"))
+}
+
+fn is_one_to_one_back_relation(live: &LiveSchema, owning_table: &str, fk: &LiveForeignKey) -> bool {
+    live.tables
+        .get(owning_table)
+        .is_some_and(|table| columns_form_unique_key(table, &fk.columns))
+}
+
+fn columns_form_unique_key(table: &LiveTable, columns: &[String]) -> bool {
+    let mut normalized_columns = columns.to_vec();
+    normalized_columns.sort();
+
+    let mut primary_key = table.primary_key.clone();
+    primary_key.sort();
+    if normalized_columns == primary_key {
+        return true;
+    }
+
+    table.indexes.iter().any(|idx| {
+        if !idx.unique {
+            return false;
+        }
+        let mut index_columns = idx.columns.clone();
+        index_columns.sort();
+        index_columns == normalized_columns
+    })
+}
+
+fn parse_sized_type_length(sql_type: &str, prefix: &str) -> Option<usize> {
+    let inner = sql_type.strip_prefix(prefix)?.strip_suffix(')')?;
+    inner.trim().parse().ok()
+}
+
+fn can_infer_autoincrement(col_type: &str) -> bool {
+    let normalized = col_type.trim().to_lowercase();
+    let base = normalized.strip_suffix("[]").unwrap_or(&normalized);
+    matches!(
+        base,
+        "integer"
+            | "int"
+            | "int2"
+            | "int4"
+            | "smallint"
+            | "tinyint"
+            | "mediumint"
+            | "bigint"
+            | "int8"
+            | "unsigned bigint"
+    )
 }
 
 /// Very simple singularisation: strip a trailing `s` (handles the common
@@ -430,11 +564,15 @@ mod tests {
         );
         assert_eq!(
             infer_nautilus_type("varchar(255)", &no_enums, &no_composites),
-            "String"
+            "VarChar(255)"
         );
         assert_eq!(
             infer_nautilus_type("char(36)", &no_enums, &no_composites),
             "Uuid"
+        );
+        assert_eq!(
+            infer_nautilus_type("char(10)", &no_enums, &no_composites),
+            "Char(10)"
         );
 
         let mut with_enums = HashMap::new();
@@ -556,7 +694,7 @@ mod tests {
         let no_enums: HashMap<String, Vec<String>> = HashMap::new();
         assert_eq!(
             infer_default_attr("nextval('seq')", "integer", &no_enums),
-            None
+            Some("@default(autoincrement())".into())
         );
     }
 

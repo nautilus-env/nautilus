@@ -88,7 +88,7 @@ pub async fn run(
 
     let applier = DiffApplier::new(ctx.provider, &generator, &ctx.schema_ir, &live);
 
-    let (ok, failed) = apply_changes(&classified, &applier, &ctx.conn).await?;
+    let (ok, failed) = apply_changes(&classified, &applier, &live, &ctx.conn).await?;
 
     let elapsed = start.elapsed();
 

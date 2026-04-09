@@ -1,6 +1,6 @@
 use crate::applier::DiffApplier;
 use crate::ddl::{DatabaseProvider, DdlGenerator};
-use crate::diff::Change;
+use crate::diff::{order_changes_for_apply, Change};
 use crate::error::{MigrationError, Result};
 use crate::live::{LiveIndex, LiveSchema, LiveTable};
 use crate::migration::Migration;
@@ -65,7 +65,9 @@ impl MigrationExecutor {
         let mut up_sql: Vec<String> = Vec::new();
         let mut down_sql: Vec<String> = Vec::new();
 
-        for change in changes {
+        let ordered_changes = order_changes_for_apply(changes, live);
+
+        for change in &ordered_changes {
             let stmts = applier.sql_for(change)?;
             up_sql.extend(stmts);
             down_sql.extend(self.reverse_change(change, provider, live));

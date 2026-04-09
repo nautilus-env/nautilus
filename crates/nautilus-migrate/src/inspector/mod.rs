@@ -279,6 +279,7 @@ fn normalize_pg_type(
     udt_name: &str,
     numeric_precision: Option<i32>,
     numeric_scale: Option<i32>,
+    character_maximum_length: Option<i32>,
 ) -> String {
     match udt_name.to_lowercase().as_str() {
         "int4" => "integer".to_string(),
@@ -290,12 +291,23 @@ fn normalize_pg_type(
         "jsonb" => "jsonb".to_string(),
         "uuid" => "uuid".to_string(),
         "bytea" => "bytea".to_string(),
+        "varchar" => character_maximum_length
+            .map(|length| format!("varchar({length})"))
+            .unwrap_or_else(|| "varchar".to_string()),
+        "bpchar" => character_maximum_length
+            .map(|length| format!("char({length})"))
+            .unwrap_or_else(|| "char".to_string()),
         "numeric" => match (numeric_precision, numeric_scale) {
             (Some(p), Some(s)) => format!("decimal({p}, {s})"),
             _ => "decimal".to_string(),
         },
         udt if udt.starts_with('_') => {
-            let base = normalize_pg_type(&udt[1..], numeric_precision, numeric_scale);
+            let base = normalize_pg_type(
+                &udt[1..],
+                numeric_precision,
+                numeric_scale,
+                character_maximum_length,
+            );
             format!("{base}[]")
         }
         other => other.to_string(),
@@ -743,59 +755,69 @@ mod tests {
 
     #[test]
     fn pg_int4() {
-        assert_eq!(normalize_pg_type("int4", None, None), "integer");
+        assert_eq!(normalize_pg_type("int4", None, None, None), "integer");
     }
 
     #[test]
     fn pg_int8() {
-        assert_eq!(normalize_pg_type("int8", None, None), "bigint");
+        assert_eq!(normalize_pg_type("int8", None, None, None), "bigint");
     }
 
     #[test]
     fn pg_text() {
-        assert_eq!(normalize_pg_type("text", None, None), "text");
+        assert_eq!(normalize_pg_type("text", None, None, None), "text");
     }
 
     #[test]
     fn pg_bool() {
-        assert_eq!(normalize_pg_type("bool", None, None), "boolean");
+        assert_eq!(normalize_pg_type("bool", None, None, None), "boolean");
     }
 
     #[test]
     fn pg_float8() {
-        assert_eq!(normalize_pg_type("float8", None, None), "double precision");
+        assert_eq!(normalize_pg_type("float8", None, None, None), "double precision");
     }
 
     #[test]
     fn pg_numeric_with_precision() {
         assert_eq!(
-            normalize_pg_type("numeric", Some(10), Some(2)),
+            normalize_pg_type("numeric", Some(10), Some(2), None),
             "decimal(10, 2)"
         );
     }
 
     #[test]
     fn pg_numeric_without_precision() {
-        assert_eq!(normalize_pg_type("numeric", None, None), "decimal");
+        assert_eq!(normalize_pg_type("numeric", None, None, None), "decimal");
     }
 
     #[test]
     fn pg_array_type() {
-        assert_eq!(normalize_pg_type("_int4", None, None), "integer[]");
-        assert_eq!(normalize_pg_type("_text", None, None), "text[]");
+        assert_eq!(normalize_pg_type("_int4", None, None, None), "integer[]");
+        assert_eq!(normalize_pg_type("_text", None, None, None), "text[]");
     }
 
     #[test]
     fn pg_uuid() {
-        assert_eq!(normalize_pg_type("uuid", None, None), "uuid");
+        assert_eq!(normalize_pg_type("uuid", None, None, None), "uuid");
     }
 
     #[test]
     fn pg_enum_passthrough() {
         assert_eq!(
-            normalize_pg_type("my_custom_enum", None, None),
+            normalize_pg_type("my_custom_enum", None, None, None),
             "my_custom_enum"
         );
+    }
+
+    #[test]
+    fn pg_varchar_with_length() {
+        assert_eq!(normalize_pg_type("varchar", None, None, Some(30)), "varchar(30)");
+    }
+
+    #[test]
+    fn pg_char_with_length() {
+        assert_eq!(normalize_pg_type("bpchar", None, None, Some(12)), "char(12)");
     }
 
     #[test]

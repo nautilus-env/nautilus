@@ -60,6 +60,23 @@ fn drop_table_sqlite() {
 }
 
 #[test]
+fn drop_table_postgres_uses_cascade() {
+    let ir = common::parse("model Dummy { id Int @id }").unwrap();
+    let live = LiveSchema::default();
+    let ddl = DdlGenerator::new(DatabaseProvider::Postgres);
+    let applier = DiffApplier::new(DatabaseProvider::Postgres, &ddl, &ir, &live);
+
+    let stmts = applier
+        .sql_for(&Change::DroppedTable {
+            name: "OldTable".to_string(),
+        })
+        .unwrap();
+
+    assert_eq!(stmts.len(), 1);
+    assert_eq!(stmts[0], "DROP TABLE IF EXISTS \"OldTable\" CASCADE");
+}
+
+#[test]
 fn add_column_postgres() {
     let ir = common::parse("model User { id Int @id  email String? }").unwrap();
     let live = common::make_live_schema(vec![LiveTable {

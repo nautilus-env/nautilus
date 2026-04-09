@@ -68,7 +68,12 @@ impl<'a> DiffApplier<'a> {
                 Ok(stmts)
             }
 
-            Change::DroppedTable { name } => Ok(vec![strategy.drop_table_sql(name, false)]),
+            Change::DroppedTable { name } => {
+                Ok(vec![strategy.drop_table_sql(
+                    name,
+                    self.provider == DatabaseProvider::Postgres,
+                )])
+            }
 
             Change::AddedColumn { table, field } => {
                 if field.is_required && field.default_value.is_none() && field.computed.is_none() {

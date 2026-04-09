@@ -1,8 +1,8 @@
 mod common;
 
 use nautilus_migrate::live::{
-    ComputedKind, LiveColumn, LiveCompositeField, LiveCompositeType, LiveIndex, LiveSchema,
-    LiveTable,
+    ComputedKind, LiveColumn, LiveCompositeField, LiveCompositeType, LiveForeignKey, LiveIndex,
+    LiveSchema, LiveTable,
 };
 use nautilus_migrate::{serialize_live_schema, DatabaseProvider};
 use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
@@ -86,6 +86,42 @@ fn serialises_nullable_column() {
 }
 
 #[test]
+fn serialises_nullable_array_without_optional_marker() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "posts".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "tags".to_string(),
+                col_type: "text[]".to_string(),
+                nullable: true,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+
+    assert!(out.contains("String[]"));
+    assert!(!out.contains("String[]?"));
+}
+
+#[test]
 fn serialises_composite_pk() {
     let live = common::make_live_schema(vec![LiveTable {
         name: "order_items".to_string(),
@@ -142,13 +178,13 @@ fn serialises_indexes() {
         primary_key: vec!["id".to_string()],
         indexes: vec![
             LiveIndex {
-                name: "idx_User_email".to_string(),
+                name: "idx_users_email".to_string(),
                 columns: vec!["email".to_string()],
                 unique: true,
                 method: None,
             },
             LiveIndex {
-                name: "idx_User_name".to_string(),
+                name: "idx_users_name".to_string(),
                 columns: vec!["name".to_string()],
                 unique: false,
                 method: None,
@@ -162,6 +198,46 @@ fn serialises_indexes() {
 
     assert!(out.contains("@@unique([email])"));
     assert!(out.contains("@@index([name])"));
+}
+
+#[test]
+fn serialises_index_type_and_map() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "users".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "created_at".to_string(),
+                col_type: "timestamp".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![LiveIndex {
+            name: "idx_users_created".to_string(),
+            columns: vec!["created_at".to_string()],
+            unique: false,
+            method: Some("brin".to_string()),
+        }],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+
+    assert!(out.contains("@@index([created_at], type: Brin, map: \"idx_users_created\")"));
 }
 
 #[test]
@@ -197,6 +273,30 @@ fn serialises_default_value() {
     let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
 
     assert!(out.contains("@default(true)"));
+}
+
+#[test]
+fn serialises_autoincrement_default() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "users".to_string(),
+        columns: vec![LiveColumn {
+            name: "id".to_string(),
+            col_type: "integer".to_string(),
+            nullable: false,
+            default_value: Some("nextval('users_id_seq')".to_string()),
+            generated_expr: None,
+            computed_kind: None,
+            check_expr: None,
+        }],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+
+    assert!(out.contains("@default(autoincrement())"));
 }
 
 #[test]
@@ -552,4 +652,166 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
         ResolvedFieldType::Scalar(ScalarType::Int)
     ));
     assert!(lucky_numbers.is_array);
+}
+
+#[test]
+fn serialises_varchar_lengths() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "users".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "username".to_string(),
+                col_type: "varchar(30)".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+
+    assert!(out.contains("VarChar(30)"));
+}
+
+#[test]
+fn serialises_relation_actions_with_schema_casing() {
+    let live = common::make_live_schema(vec![
+        LiveTable {
+            name: "users".to_string(),
+            columns: vec![LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            }],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![],
+        },
+        LiveTable {
+            name: "posts".to_string(),
+            columns: vec![
+                LiveColumn {
+                    name: "id".to_string(),
+                    col_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+                LiveColumn {
+                    name: "user_id".to_string(),
+                    col_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+            ],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![LiveForeignKey {
+                constraint_name: "fk_posts_user_id".to_string(),
+                columns: vec!["user_id".to_string()],
+                referenced_table: "users".to_string(),
+                referenced_columns: vec!["id".to_string()],
+                on_delete: Some("CASCADE".to_string()),
+                on_update: Some("SET NULL".to_string()),
+            }],
+        },
+    ]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+
+    assert!(out.contains("onDelete: Cascade"));
+    assert!(out.contains("onUpdate: SetNull"));
+}
+
+#[test]
+fn serialises_one_to_one_back_reference_as_optional_scalar() {
+    let live = common::make_live_schema(vec![
+        LiveTable {
+            name: "users".to_string(),
+            columns: vec![LiveColumn {
+                name: "id".to_string(),
+                col_type: "uuid".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            }],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![],
+        },
+        LiveTable {
+            name: "profiles".to_string(),
+            columns: vec![
+                LiveColumn {
+                    name: "id".to_string(),
+                    col_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+                LiveColumn {
+                    name: "user_id".to_string(),
+                    col_type: "uuid".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+            ],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![LiveIndex {
+                name: "idx_profiles_user_id".to_string(),
+                columns: vec!["user_id".to_string()],
+                unique: true,
+                method: Some("btree".to_string()),
+            }],
+            check_constraints: vec![],
+            foreign_keys: vec![LiveForeignKey {
+                constraint_name: "fk_profiles_user_id".to_string(),
+                columns: vec!["user_id".to_string()],
+                referenced_table: "users".to_string(),
+                referenced_columns: vec!["id".to_string()],
+                on_delete: Some("CASCADE".to_string()),
+                on_update: None,
+            }],
+        },
+    ]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+
+    assert!(out.contains("\n  profile  Profiles?\n"));
+    assert!(!out.contains("\n  profiles  Profiles[]\n"));
 }

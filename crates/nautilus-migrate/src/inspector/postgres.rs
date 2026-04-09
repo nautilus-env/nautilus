@@ -51,6 +51,7 @@ impl SchemaInspector {
                         udt_name, \
                         is_nullable, \
                         column_default, \
+                        character_maximum_length, \
                         numeric_precision, \
                         numeric_scale, \
                         generation_expression \
@@ -79,6 +80,9 @@ impl SchemaInspector {
                 let column_default: Option<String> = row
                     .try_get("column_default")
                     .map_err(|e| MigrationError::Database(e.to_string()))?;
+                let character_maximum_length: Option<i32> = row
+                    .try_get("character_maximum_length")
+                    .map_err(|e| MigrationError::Database(e.to_string()))?;
                 let numeric_precision: Option<i32> = row
                     .try_get("numeric_precision")
                     .map_err(|e| MigrationError::Database(e.to_string()))?;
@@ -89,7 +93,12 @@ impl SchemaInspector {
                     .try_get("generation_expression")
                     .map_err(|e| MigrationError::Database(e.to_string()))?;
 
-                let col_type = normalize_pg_type(&udt_name, numeric_precision, numeric_scale);
+                let col_type = normalize_pg_type(
+                    &udt_name,
+                    numeric_precision,
+                    numeric_scale,
+                    character_maximum_length,
+                );
                 let nullable = is_nullable.eq_ignore_ascii_case("YES");
                 let default_value = column_default.map(|d| normalize_pg_default(&d));
                 let generated_expr = generation_expression

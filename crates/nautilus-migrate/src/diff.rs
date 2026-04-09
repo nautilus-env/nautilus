@@ -286,6 +286,85 @@ pub fn change_risk(change: &Change) -> ChangeRisk {
     }
 }
 
+/// Reorder computed changes into a safer execution plan.
+///
+/// The plan prefers dropping foreign keys before destructive column/table
+/// changes, drops tables in reverse live dependency order, and defers foreign
+/// key creation until after structural changes complete.
+pub fn order_changes_for_apply(changes: &[Change], live: &LiveSchema) -> Vec<Change> {
+    use std::collections::HashMap;
+
+    let mut pre_type_changes = Vec::new();
+    let mut new_tables = Vec::new();
+    let mut added_columns = Vec::new();
+    let mut foreign_key_drops = Vec::new();
+    let mut main_changes = Vec::new();
+    let mut dropped_table_names = Vec::new();
+    let mut dropped_tables: HashMap<String, Change> = HashMap::new();
+    let mut index_adds = Vec::new();
+    let mut foreign_key_adds = Vec::new();
+    let mut post_type_changes = Vec::new();
+
+    for change in changes {
+        match change {
+            Change::CreateCompositeType { .. } | Change::CreateEnum { .. } => {
+                pre_type_changes.push(change.clone());
+            }
+            Change::AlterCompositeType {
+                dropped_fields,
+                type_changed_fields,
+                ..
+            } if dropped_fields.is_empty() && type_changed_fields.is_empty() => {
+                pre_type_changes.push(change.clone());
+            }
+            Change::AlterEnum {
+                removed_variants, ..
+            } if removed_variants.is_empty() => {
+                pre_type_changes.push(change.clone());
+            }
+            Change::NewTable(_) => new_tables.push(change.clone()),
+            Change::AddedColumn { .. } => added_columns.push(change.clone()),
+            Change::ForeignKeyDropped { .. } => foreign_key_drops.push(change.clone()),
+            Change::DroppedTable { name } => {
+                dropped_table_names.push(name.clone());
+                dropped_tables.insert(name.clone(), change.clone());
+            }
+            Change::IndexAdded { .. } => index_adds.push(change.clone()),
+            Change::ForeignKeyAdded { .. } => foreign_key_adds.push(change.clone()),
+            Change::DropCompositeType { .. } | Change::DropEnum { .. } => {
+                post_type_changes.push(change.clone());
+            }
+            Change::AlterCompositeType { .. } | Change::AlterEnum { .. } => {
+                post_type_changes.push(change.clone());
+            }
+            _ => main_changes.push(change.clone()),
+        }
+    }
+
+    let mut ordered = Vec::with_capacity(changes.len());
+    ordered.extend(pre_type_changes);
+    ordered.extend(new_tables);
+    ordered.extend(added_columns);
+    ordered.extend(foreign_key_drops);
+    ordered.extend(main_changes);
+
+    for name in order_dropped_live_tables(live, &dropped_table_names) {
+        if let Some(change) = dropped_tables.remove(name.as_str()) {
+            ordered.push(change);
+        }
+    }
+    for name in &dropped_table_names {
+        if let Some(change) = dropped_tables.remove(name.as_str()) {
+            ordered.push(change);
+        }
+    }
+
+    ordered.extend(index_adds);
+    ordered.extend(foreign_key_adds);
+    ordered.extend(post_type_changes);
+    ordered
+}
+
 /// Computes the difference between a live database and a target schema.
 pub struct SchemaDiff;
 
@@ -1257,6 +1336,70 @@ fn fk_actions_equal(provider: DatabaseProvider, live: Option<&str>, target: Opti
 /// Derive a deterministic FK constraint name from table and FK column list.
 fn fk_auto_name(table: &str, columns: &[String]) -> String {
     format!("fk_{}_{}", table, columns.join("_"))
+}
+
+fn order_dropped_live_tables(live: &LiveSchema, dropped_tables: &[String]) -> Vec<String> {
+    use std::collections::{HashMap, HashSet, VecDeque};
+
+    let dropped_set: HashSet<&str> = dropped_tables.iter().map(String::as_str).collect();
+    let mut names: Vec<&str> = dropped_set.iter().copied().collect();
+    names.sort_unstable();
+
+    let name_to_idx: HashMap<&str, usize> = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (*name, i))
+        .collect();
+    let mut in_degree = vec![0usize; names.len()];
+    let mut dependents: Vec<Vec<usize>> = vec![Vec::new(); names.len()];
+
+    for &table_name in &names {
+        let Some(table) = live.tables.get(table_name) else {
+            continue;
+        };
+        let table_idx = name_to_idx[table_name];
+        let mut seen_refs: HashSet<&str> = HashSet::new();
+
+        for fk in &table.foreign_keys {
+            let referenced = fk.referenced_table.as_str();
+            if referenced == table_name
+                || !dropped_set.contains(referenced)
+                || !seen_refs.insert(referenced)
+            {
+                continue;
+            }
+            let referenced_idx = name_to_idx[referenced];
+            dependents[referenced_idx].push(table_idx);
+            in_degree[table_idx] += 1;
+        }
+    }
+
+    let mut queue: VecDeque<usize> = (0..names.len()).filter(|&i| in_degree[i] == 0).collect();
+    let mut create_order = Vec::with_capacity(names.len());
+
+    while let Some(idx) = queue.pop_front() {
+        create_order.push(names[idx]);
+        let mut ready = Vec::new();
+        for &dependent_idx in &dependents[idx] {
+            in_degree[dependent_idx] -= 1;
+            if in_degree[dependent_idx] == 0 {
+                ready.push(dependent_idx);
+            }
+        }
+        ready.sort_unstable_by_key(|idx| names[*idx]);
+        queue.extend(ready);
+    }
+
+    let emitted: HashSet<&str> = create_order.iter().copied().collect();
+    let mut remaining: Vec<&str> = names
+        .into_iter()
+        .filter(|name| !emitted.contains(name))
+        .collect();
+    remaining.sort_unstable();
+    create_order.extend(remaining);
+
+    create_order.reverse();
+    create_order.into_iter().map(str::to_string).collect()
 }
 
 pub(crate) fn topo_sort_models<'a>(models: &[&'a ModelIr]) -> Vec<&'a ModelIr> {

@@ -1,7 +1,9 @@
 //! Shared database connection helpers used by all `nautilus db` subcommands.
 
 use anyhow::{bail, Context};
-use nautilus_migrate::{Change, ChangeRisk, DatabaseProvider, DiffApplier};
+use nautilus_migrate::{
+    order_changes_for_apply, Change, ChangeRisk, DatabaseProvider, DiffApplier, LiveSchema,
+};
 use nautilus_schema::{ir::SchemaIr, validate_schema_source};
 use std::path::{Path, PathBuf};
 
@@ -288,10 +290,18 @@ pub fn change_display_name(change: &Change) -> String {
 pub async fn apply_changes(
     classified: &[(Change, ChangeRisk)],
     applier: &DiffApplier<'_>,
+    live: &LiveSchema,
     conn: &Connection,
 ) -> anyhow::Result<(usize, usize)> {
+    let ordered_changes = order_changes_for_apply(
+        &classified
+            .iter()
+            .map(|(change, _risk)| change.clone())
+            .collect::<Vec<_>>(),
+        live,
+    );
     let mut change_stmts: Vec<(String, Vec<String>)> = Vec::new();
-    for (change, _risk) in classified {
+    for change in &ordered_changes {
         let label = change_display_name(change);
         let stmts = applier
             .sql_for(change)

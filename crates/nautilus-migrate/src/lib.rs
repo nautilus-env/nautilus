@@ -28,7 +28,7 @@ pub mod live;
 
 pub use applier::DiffApplier;
 pub use ddl::{DatabaseProvider, DdlGenerator};
-pub use diff::{change_risk, Change, ChangeRisk, SchemaDiff};
+pub use diff::{change_risk, order_changes_for_apply, Change, ChangeRisk, SchemaDiff};
 pub use error::{MigrationError, Result};
 pub use executor::MigrationExecutor;
 pub use file_store::MigrationFileStore;

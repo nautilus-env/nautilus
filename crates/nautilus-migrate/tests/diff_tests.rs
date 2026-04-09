@@ -3,7 +3,10 @@ mod common;
 use std::collections::HashMap;
 
 use nautilus_migrate::live::{ComputedKind, LiveColumn, LiveForeignKey, LiveIndex, LiveTable};
-use nautilus_migrate::{change_risk, Change, ChangeRisk, DatabaseProvider, LiveSchema, SchemaDiff};
+use nautilus_migrate::{
+    change_risk, order_changes_for_apply, Change, ChangeRisk, DatabaseProvider, LiveSchema,
+    SchemaDiff,
+};
 use nautilus_schema::ir::SchemaIr;
 
 #[test]
@@ -977,4 +980,267 @@ model Post {
         "MySQL default RESTRICT actions should not churn foreign keys: {:?}",
         changes
     );
+}
+
+#[test]
+fn order_changes_moves_foreign_key_drop_before_dropped_column() {
+    let target = common::parse(
+        r#"
+model User {
+  id Int @id
+}
+
+model Post {
+  id Int @id
+}
+"#,
+    )
+    .unwrap();
+
+    let live = common::make_live_schema(vec![
+        LiveTable {
+            name: "User".to_string(),
+            columns: vec![LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            }],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![],
+        },
+        LiveTable {
+            name: "Post".to_string(),
+            columns: vec![
+                LiveColumn {
+                    name: "id".to_string(),
+                    col_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+                LiveColumn {
+                    name: "authorId".to_string(),
+                    col_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+            ],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![LiveForeignKey {
+                constraint_name: "fk_Post_authorId".to_string(),
+                columns: vec!["authorId".to_string()],
+                referenced_table: "User".to_string(),
+                referenced_columns: vec!["id".to_string()],
+                on_delete: None,
+                on_update: None,
+            }],
+        },
+    ]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+    let ordered = order_changes_for_apply(&changes, &live);
+
+    let fk_drop_idx = ordered
+        .iter()
+        .position(|change| {
+            matches!(
+                change,
+                Change::ForeignKeyDropped { table, constraint_name }
+                    if table == "Post" && constraint_name == "fk_Post_authorId"
+            )
+        })
+        .expect("expected foreign key drop");
+    let dropped_column_idx = ordered
+        .iter()
+        .position(|change| {
+            matches!(
+                change,
+                Change::DroppedColumn { table, column }
+                    if table == "Post" && column == "authorId"
+            )
+        })
+        .expect("expected dropped column");
+
+    assert!(fk_drop_idx < dropped_column_idx, "{ordered:?}");
+}
+
+#[test]
+fn order_changes_moves_foreign_key_drop_before_dropped_table() {
+    let target = common::parse(
+        r#"
+model Post {
+  id Int @id
+  authorId Int
+}
+"#,
+    )
+    .unwrap();
+
+    let live = common::make_live_schema(vec![
+        LiveTable {
+            name: "User".to_string(),
+            columns: vec![LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            }],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![],
+        },
+        LiveTable {
+            name: "Post".to_string(),
+            columns: vec![
+                LiveColumn {
+                    name: "id".to_string(),
+                    col_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+                LiveColumn {
+                    name: "authorId".to_string(),
+                    col_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+            ],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![LiveForeignKey {
+                constraint_name: "fk_Post_authorId".to_string(),
+                columns: vec!["authorId".to_string()],
+                referenced_table: "User".to_string(),
+                referenced_columns: vec!["id".to_string()],
+                on_delete: None,
+                on_update: None,
+            }],
+        },
+    ]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Mysql);
+    let ordered = order_changes_for_apply(&changes, &live);
+
+    let fk_drop_idx = ordered
+        .iter()
+        .position(|change| {
+            matches!(
+                change,
+                Change::ForeignKeyDropped { table, constraint_name }
+                    if table == "Post" && constraint_name == "fk_Post_authorId"
+            )
+        })
+        .expect("expected foreign key drop");
+    let dropped_table_idx = ordered
+        .iter()
+        .position(|change| {
+            matches!(
+                change,
+                Change::DroppedTable { name } if name == "User"
+            )
+        })
+        .expect("expected dropped table");
+
+    assert!(fk_drop_idx < dropped_table_idx, "{ordered:?}");
+}
+
+#[test]
+fn order_changes_drops_tables_in_reverse_live_dependency_order() {
+    let target = SchemaIr {
+        datasource: None,
+        generator: None,
+        models: HashMap::new(),
+        enums: HashMap::new(),
+        composite_types: HashMap::new(),
+    };
+    let live = common::make_live_schema(vec![
+        LiveTable {
+            name: "User".to_string(),
+            columns: vec![LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            }],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![],
+        },
+        LiveTable {
+            name: "Post".to_string(),
+            columns: vec![
+                LiveColumn {
+                    name: "id".to_string(),
+                    col_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+                LiveColumn {
+                    name: "authorId".to_string(),
+                    col_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+            ],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![LiveForeignKey {
+                constraint_name: "fk_Post_authorId".to_string(),
+                columns: vec!["authorId".to_string()],
+                referenced_table: "User".to_string(),
+                referenced_columns: vec!["id".to_string()],
+                on_delete: None,
+                on_update: None,
+            }],
+        },
+    ]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Sqlite);
+    let ordered = order_changes_for_apply(&changes, &live);
+
+    let user_idx = ordered
+        .iter()
+        .position(|change| matches!(change, Change::DroppedTable { name } if name == "User"))
+        .expect("expected dropped User");
+    let post_idx = ordered
+        .iter()
+        .position(|change| matches!(change, Change::DroppedTable { name } if name == "Post"))
+        .expect("expected dropped Post");
+
+    assert!(post_idx < user_idx, "{ordered:?}");
 }
