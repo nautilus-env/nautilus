@@ -1,5 +1,5 @@
 use anyhow::{bail, Context};
-use nautilus_migrate::{serialize_live_schema, SchemaInspector};
+use nautilus_migrate::{serialize_live_schema_with_options, PullNamingOptions, SchemaInspector};
 use nautilus_schema::parse_schema_source;
 use std::path::{Path, PathBuf};
 
@@ -12,6 +12,7 @@ pub async fn run(
     schema_arg: Option<String>,
     db_url_arg: Option<String>,
     output_arg: Option<String>,
+    naming_options: PullNamingOptions,
 ) -> anyhow::Result<()> {
     tui::print_header("db pull");
 
@@ -58,7 +59,8 @@ pub async fn run(
         output_path
     };
 
-    let schema_text = serialize_live_schema(&live, provider, &database_url);
+    let schema_text =
+        serialize_live_schema_with_options(&live, provider, &database_url, naming_options);
 
     std::fs::write(&write_path, &schema_text)
         .with_context(|| format!("Cannot write {}", write_path.display()))?;

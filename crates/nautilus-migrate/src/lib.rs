@@ -37,5 +37,7 @@ pub use live::{
     LiveColumn, LiveCompositeField, LiveCompositeType, LiveIndex, LiveSchema, LiveTable,
 };
 pub use migration::{Migration, MigrationDirection, MigrationStatus};
-pub use serializer::serialize_live_schema;
+pub use serializer::{
+    serialize_live_schema, serialize_live_schema_with_options, PullNameCase, PullNamingOptions,
+};
 pub use tracker::MigrationTracker;

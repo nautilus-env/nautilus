@@ -437,7 +437,7 @@ fn format_field_attr(attr: &FieldAttribute) -> String {
             let mut args: Vec<String> = Vec::new();
 
             if let Some(n) = name {
-                args.push(format!("\"{}\"", n));
+                args.push(format!("name: \"{}\"", n));
             }
             if let Some(flds) = fields {
                 let names: Vec<_> = flds.iter().map(|i| i.value.clone()).collect();

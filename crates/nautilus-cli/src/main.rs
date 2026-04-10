@@ -161,6 +161,16 @@ mod tests {
     }
 
     #[test]
+    fn db_pull_help_mentions_case_flags() {
+        let help = help_for_nested("db", "pull");
+        assert!(help.contains("--model-case <MODEL_CASE>"));
+        assert!(help.contains("--field-case <FIELD_CASE>"));
+        assert!(help.contains("auto"));
+        assert!(help.contains("snake"));
+        assert!(help.contains("pascal"));
+    }
+
+    #[test]
     fn top_level_help_mentions_engine_and_python_commands() {
         let help = top_level_help();
         assert!(help.contains("engine"));
@@ -218,6 +228,41 @@ mod tests {
                 }
                 other => panic!(
                     "expected db push command, got {:?}",
+                    std::mem::discriminant(&other)
+                ),
+            },
+            other => panic!(
+                "expected db command, got {:?}",
+                std::mem::discriminant(&other)
+            ),
+        }
+    }
+
+    #[test]
+    fn db_pull_accepts_name_case_flags() {
+        let cli = Cli::try_parse_from([
+            "nautilus",
+            "db",
+            "pull",
+            "--model-case",
+            "pascal",
+            "--field-case",
+            "snake",
+        ])
+        .expect("db pull naming flags should parse");
+
+        match cli.command {
+            Command::Db { subcommand } => match subcommand {
+                DbCommand::Pull {
+                    model_case,
+                    field_case,
+                    ..
+                } => {
+                    assert_eq!(format!("{model_case:?}"), "Pascal");
+                    assert_eq!(format!("{field_case:?}"), "Snake");
+                }
+                other => panic!(
+                    "expected db pull command, got {:?}",
                     std::mem::discriminant(&other)
                 ),
             },

@@ -1,4 +1,5 @@
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
+use nautilus_migrate::{PullNameCase, PullNamingOptions};
 
 pub mod connection;
 mod drop;
@@ -7,6 +8,37 @@ mod push;
 mod reset;
 mod seed;
 mod status;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum PullNameCaseArg {
+    /// Preserve the current `db pull` naming behaviour.
+    #[default]
+    Auto,
+    /// Render logical names in `snake_case`.
+    Snake,
+    /// Render logical names in `PascalCase`.
+    Pascal,
+}
+
+impl From<PullNameCaseArg> for PullNameCase {
+    fn from(value: PullNameCaseArg) -> Self {
+        match value {
+            PullNameCaseArg::Auto => PullNameCase::Auto,
+            PullNameCaseArg::Snake => PullNameCase::Snake,
+            PullNameCaseArg::Pascal => PullNameCase::Pascal,
+        }
+    }
+}
+
+fn pull_naming_options(
+    model_case: PullNameCaseArg,
+    field_case: PullNameCaseArg,
+) -> PullNamingOptions {
+    PullNamingOptions {
+        model_case: model_case.into(),
+        field_case: field_case.into(),
+    }
+}
 
 #[derive(Subcommand)]
 pub enum DbCommand {
@@ -51,6 +83,14 @@ pub enum DbCommand {
         /// Output file path (default: pulled.nautilus)
         #[arg(short, long)]
         output: Option<String>,
+
+        /// Logical naming mode for generated model names.
+        #[arg(long, value_enum, default_value_t = PullNameCaseArg::Auto)]
+        model_case: PullNameCaseArg,
+
+        /// Logical naming mode for generated field names.
+        #[arg(long, value_enum, default_value_t = PullNameCaseArg::Auto)]
+        field_case: PullNameCaseArg,
     },
     /// Drop all tables permanently without recreating them
     Drop {
@@ -111,7 +151,17 @@ pub async fn run(cmd: DbCommand) -> anyhow::Result<()> {
             schema,
             database_url,
             output,
-        } => pull::run(schema, database_url, output).await,
+            model_case,
+            field_case,
+        } => {
+            pull::run(
+                schema,
+                database_url,
+                output,
+                pull_naming_options(model_case, field_case),
+            )
+            .await
+        }
         DbCommand::Drop {
             schema,
             database_url,

@@ -4,8 +4,11 @@ use nautilus_migrate::live::{
     ComputedKind, LiveColumn, LiveCompositeField, LiveCompositeType, LiveForeignKey, LiveIndex,
     LiveSchema, LiveTable,
 };
-use nautilus_migrate::{serialize_live_schema, DatabaseProvider};
-use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
+use nautilus_migrate::{
+    serialize_live_schema, serialize_live_schema_with_options, DatabaseProvider, PullNameCase,
+    PullNamingOptions,
+};
+use nautilus_schema::ir::{DefaultValue, ResolvedFieldType, ScalarType};
 
 #[test]
 fn serialises_single_table() {
@@ -814,4 +817,376 @@ fn serialises_one_to_one_back_reference_as_optional_scalar() {
 
     assert!(out.contains("\n  profile  Profiles?\n"));
     assert!(!out.contains("\n  profiles  Profiles[]\n"));
+}
+
+#[test]
+fn serialises_mixed_case_postgres_enum_columns_and_defaults() {
+    let mut live = LiveSchema::default();
+    live.enums.insert(
+        "ToneType".to_string(),
+        vec![
+            "FORMAL".to_string(),
+            "INFORMAL".to_string(),
+            "FRIENDLY".to_string(),
+        ],
+    );
+    live.tables.insert(
+        "Agent".to_string(),
+        LiveTable {
+            name: "Agent".to_string(),
+            columns: vec![
+                LiveColumn {
+                    name: "id".to_string(),
+                    col_type: "uuid".to_string(),
+                    nullable: false,
+                    default_value: Some("gen_random_uuid()".to_string()),
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+                LiveColumn {
+                    name: "tone".to_string(),
+                    col_type: "tonetype".to_string(),
+                    nullable: false,
+                    default_value: Some("'FRIENDLY'".to_string()),
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+            ],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![],
+        },
+    );
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+    let ir = common::parse(&out).unwrap();
+    let agent = ir.models.get("Agent").unwrap();
+    let tone = agent.find_field("tone").unwrap();
+
+    assert!(matches!(
+        &tone.field_type,
+        ResolvedFieldType::Enum { enum_name } if enum_name == "ToneType"
+    ));
+    assert!(matches!(
+        &tone.default_value,
+        Some(DefaultValue::EnumVariant(variant)) if variant == "FRIENDLY"
+    ));
+}
+
+#[test]
+fn serialises_ambiguous_relations_with_explicit_names() {
+    let live = common::make_live_schema(vec![
+        LiveTable {
+            name: "App".to_string(),
+            columns: vec![
+                LiveColumn {
+                    name: "id".to_string(),
+                    col_type: "uuid".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+                LiveColumn {
+                    name: "current_version_id".to_string(),
+                    col_type: "uuid".to_string(),
+                    nullable: true,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+            ],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![LiveIndex {
+                name: "idx_App_current_version_id".to_string(),
+                columns: vec!["current_version_id".to_string()],
+                unique: true,
+                method: Some("btree".to_string()),
+            }],
+            check_constraints: vec![],
+            foreign_keys: vec![LiveForeignKey {
+                constraint_name: "App_current_version_id_fkey".to_string(),
+                columns: vec!["current_version_id".to_string()],
+                referenced_table: "History".to_string(),
+                referenced_columns: vec!["id".to_string()],
+                on_delete: Some("SET NULL".to_string()),
+                on_update: Some("CASCADE".to_string()),
+            }],
+        },
+        LiveTable {
+            name: "History".to_string(),
+            columns: vec![
+                LiveColumn {
+                    name: "id".to_string(),
+                    col_type: "uuid".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+                LiveColumn {
+                    name: "app_id".to_string(),
+                    col_type: "uuid".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+            ],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![LiveForeignKey {
+                constraint_name: "History_app_id_fkey".to_string(),
+                columns: vec!["app_id".to_string()],
+                referenced_table: "App".to_string(),
+                referenced_columns: vec!["id".to_string()],
+                on_delete: Some("CASCADE".to_string()),
+                on_update: Some("CASCADE".to_string()),
+            }],
+        },
+    ]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+    let ir = common::parse(&out).unwrap();
+
+    let app = ir.models.get("App").unwrap();
+    let current_version = app.find_field("current_version").unwrap();
+    let histories = app.find_field("histories").unwrap();
+    let history = ir.models.get("History").unwrap();
+    let app_field = history.find_field("app").unwrap();
+    let app_current_version = history.find_field("app_current_version").unwrap();
+
+    assert!(matches!(
+        &current_version.field_type,
+        ResolvedFieldType::Relation(rel) if rel.name.as_deref() == Some("App_current_version")
+    ));
+    assert!(matches!(
+        &histories.field_type,
+        ResolvedFieldType::Relation(rel) if rel.name.as_deref() == Some("History_app")
+    ));
+    assert!(matches!(
+        &app_field.field_type,
+        ResolvedFieldType::Relation(rel) if rel.name.as_deref() == Some("History_app")
+    ));
+    assert!(matches!(
+        &app_current_version.field_type,
+        ResolvedFieldType::Relation(rel) if rel.name.as_deref() == Some("App_current_version")
+    ));
+}
+
+#[test]
+fn serialises_self_relations_with_explicit_names() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "Folder".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "uuid".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "parent_id".to_string(),
+                col_type: "uuid".to_string(),
+                nullable: true,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![LiveForeignKey {
+            constraint_name: "Folder_parent_id_fkey".to_string(),
+            columns: vec!["parent_id".to_string()],
+            referenced_table: "Folder".to_string(),
+            referenced_columns: vec!["id".to_string()],
+            on_delete: Some("CASCADE".to_string()),
+            on_update: Some("CASCADE".to_string()),
+        }],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+    let ir = common::parse(&out).unwrap();
+    let folder = ir.models.get("Folder").unwrap();
+    let parent = folder.find_field("parent").unwrap();
+    let folders = folder.find_field("folders").unwrap();
+
+    assert!(matches!(
+        &parent.field_type,
+        ResolvedFieldType::Relation(rel) if rel.name.as_deref() == Some("Folder_parent")
+    ));
+    assert!(matches!(
+        &folders.field_type,
+        ResolvedFieldType::Relation(rel) if rel.name.is_none()
+    ));
+}
+
+#[test]
+fn serialises_custom_model_and_field_case_with_maps() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "APICollection".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "uuid".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "created_at".to_string(),
+                col_type: "timestamp".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema_with_options(
+        &live,
+        DatabaseProvider::Postgres,
+        "postgres://localhost/db",
+        PullNamingOptions {
+            model_case: PullNameCase::Snake,
+            field_case: PullNameCase::Pascal,
+        },
+    );
+
+    assert!(out.contains("model api_collection {"));
+    assert!(out.contains("CreatedAt  DateTime  @map(\"created_at\")"));
+    assert!(out.contains("@@map(\"APICollection\")"));
+}
+
+#[test]
+fn serialises_relations_with_logical_names_under_custom_case() {
+    let live = common::make_live_schema(vec![
+        LiveTable {
+            name: "Users".to_string(),
+            columns: vec![LiveColumn {
+                name: "id".to_string(),
+                col_type: "uuid".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            }],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![],
+        },
+        LiveTable {
+            name: "BlogPosts".to_string(),
+            columns: vec![
+                LiveColumn {
+                    name: "id".to_string(),
+                    col_type: "uuid".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+                LiveColumn {
+                    name: "author_id".to_string(),
+                    col_type: "uuid".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                },
+            ],
+            primary_key: vec!["id".to_string()],
+            indexes: vec![],
+            check_constraints: vec![],
+            foreign_keys: vec![LiveForeignKey {
+                constraint_name: "BlogPosts_author_id_fkey".to_string(),
+                columns: vec!["author_id".to_string()],
+                referenced_table: "Users".to_string(),
+                referenced_columns: vec!["id".to_string()],
+                on_delete: Some("CASCADE".to_string()),
+                on_update: Some("CASCADE".to_string()),
+            }],
+        },
+    ]);
+
+    let out = serialize_live_schema_with_options(
+        &live,
+        DatabaseProvider::Postgres,
+        "postgres://localhost/db",
+        PullNamingOptions {
+            model_case: PullNameCase::Snake,
+            field_case: PullNameCase::Pascal,
+        },
+    );
+
+    assert!(out.contains("model blog_posts {"));
+    assert!(out.contains("AuthorId  Uuid  @map(\"author_id\")"));
+    assert!(out.contains(
+        "Author  users  @relation(fields: [AuthorId], references: [Id], onDelete: Cascade, onUpdate: Cascade)"
+    ));
+}
+
+#[test]
+fn serialises_reserved_field_name_with_safe_logical_identifier() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "AppAgent".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "uuid".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "model".to_string(),
+                col_type: "text".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+    let ir = common::parse(&out).unwrap();
+    let app_agent = ir.models.get("AppAgent").unwrap();
+
+    assert!(out.contains("model_  String  @map(\"model\")"));
+    assert!(app_agent.find_field("model_").is_some());
+    assert!(app_agent.find_field("model").is_none());
 }
