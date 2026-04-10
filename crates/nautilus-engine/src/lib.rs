@@ -48,14 +48,39 @@ pub async fn run_engine(
         let migration_url = resolve_engine_migration_url(database_url.as_deref(), &schema_ir)?;
         let generator = DdlGenerator::new(db_provider);
         let statements = generator.generate_create_tables(&schema_ir)?;
-        let migration_state = EngineState::new(schema_ir.clone(), migration_url).await?;
+        let migration_state = EngineState::new(schema_ir.clone(), migration_url, None).await?;
         migration_state.execute_ddl_sql(statements).await?;
 
         eprintln!("[engine] Migrations applied successfully");
     }
 
     let runtime_url = resolve_engine_runtime_url(database_url.as_deref(), &schema_ir)?;
-    let state = EngineState::new(schema_ir.clone(), runtime_url).await?;
+
+    // When no explicit --database-url override is given, pass the schema's direct_url
+    // so raw SQL queries can bypass poolers (e.g. PgBouncer) that reject prepared statements.
+    // If the env variable is not set we warn and continue without a direct pool rather than
+    // failing engine startup.
+    let direct_url = if database_url.is_none() {
+        schema_ir
+            .datasource
+            .as_ref()
+            .and_then(|ds| ds.direct_url.as_deref())
+            .and_then(|raw| match resolve_datasource_url(raw) {
+                Ok(url) => Some(url),
+                Err(e) => {
+                    eprintln!(
+                        "[engine] Warning: direct_url could not be resolved ({}), \
+                         raw queries will use the pooled connection",
+                        e
+                    );
+                    None
+                }
+            })
+    } else {
+        None
+    };
+
+    let state = EngineState::new(schema_ir.clone(), runtime_url, direct_url).await?;
 
     eprintln!("[engine] Engine initialized, entering request loop");
 
@@ -117,7 +142,7 @@ fn resolve_datasource_url(raw: &str) -> Result<String, Box<dyn std::error::Error
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_engine_migration_url, resolve_engine_runtime_url};
+    use super::{resolve_datasource_url, resolve_engine_migration_url, resolve_engine_runtime_url};
     use nautilus_schema::validate_schema_source;
 
     struct EnvVarGuard {
@@ -192,5 +217,57 @@ model User {
 
         let url = resolve_engine_migration_url(None, &schema_ir).expect("expected migration url");
         assert_eq!(url, "postgres://direct/admin");
+    }
+
+    #[test]
+    fn direct_url_plain_string_resolves() {
+        let schema_ir = parse_schema_ir(
+            r#"
+datasource db {
+  provider   = "postgresql"
+  url        = "postgres://pooled/runtime"
+  direct_url = "postgres://direct/admin"
+}
+
+model User {
+  id Int @id
+}
+"#,
+        );
+
+        let direct = schema_ir
+            .datasource
+            .as_ref()
+            .and_then(|ds| ds.direct_url.as_deref())
+            .and_then(|raw| resolve_datasource_url(raw).ok());
+
+        assert_eq!(direct.as_deref(), Some("postgres://direct/admin"));
+    }
+
+    #[test]
+    fn direct_url_missing_env_var_yields_none_not_error() {
+        let schema_ir = parse_schema_ir(
+            r#"
+datasource db {
+  provider   = "postgresql"
+  url        = "postgres://pooled/runtime"
+  direct_url = env("__NAUTILUS_TEST_UNSET_DIRECT_URL__")
+}
+
+model User {
+  id Int @id
+}
+"#,
+        );
+
+        // Env var is deliberately unset; resolution should fail so the engine
+        // falls back to None (no direct pool) rather than aborting startup.
+        let direct = schema_ir
+            .datasource
+            .as_ref()
+            .and_then(|ds| ds.direct_url.as_deref())
+            .and_then(|raw| resolve_datasource_url(raw).ok());
+
+        assert_eq!(direct, None, "unresolvable env() should produce None, not an error");
     }
 }

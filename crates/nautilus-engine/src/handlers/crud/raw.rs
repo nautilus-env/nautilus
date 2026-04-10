@@ -19,7 +19,7 @@ pub(super) async fn handle_raw_query(
     };
 
     let rows = state
-        .execute_query_on(&sql, "rawQuery", params.transaction_id.as_deref())
+        .execute_direct_query_on(&sql, "rawQuery", params.transaction_id.as_deref())
         .await?;
     wrap_data_result(&rows, "rawQuery result")
 }
@@ -48,7 +48,7 @@ pub(super) async fn handle_raw_stmt_query(
     };
 
     let rows = state
-        .execute_query_on(&sql, "rawStmtQuery", params.transaction_id.as_deref())
+        .execute_direct_query_on(&sql, "rawStmtQuery", params.transaction_id.as_deref())
         .await?;
     wrap_data_result(&rows, "rawStmtQuery result")
 }

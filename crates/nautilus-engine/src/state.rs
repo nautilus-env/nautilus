@@ -41,8 +41,11 @@ pub struct EngineState {
     pub schema: SchemaIr,
     /// SQL dialect renderer.
     pub dialect: Arc<dyn Dialect + Send + Sync>,
-    /// Database connection.
+    /// Database connection (pooled / proxied URL).
     pub client: DatabaseClient,
+    /// Optional direct connection that bypasses poolers like PgBouncer.
+    /// Used for raw SQL queries when `direct_url` is configured in the schema.
+    direct_client: Option<DatabaseClient>,
     /// Active interactive transactions, keyed by transaction ID.
     pub transactions: Arc<Mutex<HashMap<String, ActiveTransaction>>>,
     /// Recently expired interactive transactions, kept briefly so late follow-up
@@ -113,10 +116,35 @@ impl DatabaseClient {
 }
 
 impl EngineState {
+    /// Connect to a database and return a `(dialect, client)` pair.
+    async fn build_client(
+        provider: DatabaseProvider,
+        url: &str,
+    ) -> Result<(Arc<dyn Dialect + Send + Sync>, DatabaseClient), Box<dyn std::error::Error>> {
+        match provider {
+            DatabaseProvider::Postgres => {
+                let pg_client = Client::postgres(url).await?;
+                Ok((Arc::new(PostgresDialect), DatabaseClient::Postgres(pg_client)))
+            }
+            DatabaseProvider::Mysql => {
+                let mysql_client = Client::mysql(url).await?;
+                Ok((Arc::new(MysqlDialect), DatabaseClient::Mysql(mysql_client)))
+            }
+            DatabaseProvider::Sqlite => {
+                let sqlite_client = Client::sqlite(url).await?;
+                Ok((Arc::new(SqliteDialect), DatabaseClient::Sqlite(sqlite_client)))
+            }
+        }
+    }
+
     /// Create a new engine state by connecting to the database.
+    ///
+    /// `direct_url`, when provided, opens a second connection that bypasses
+    /// poolers (e.g. PgBouncer). Raw SQL queries prefer this connection.
     pub async fn new(
         schema: SchemaIr,
         database_url: String,
+        direct_url: Option<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let models = schema.models.clone();
 
@@ -127,27 +155,16 @@ impl EngineState {
 
         let provider = DatabaseProvider::from_schema_provider(&datasource.provider)
             .ok_or_else(|| format!("Unsupported database provider: {}", datasource.provider))?;
-        let resolved_url = resolve_database_url(&database_url)?;
 
-        let (dialect, client): (Arc<dyn Dialect + Send + Sync>, DatabaseClient) = match provider {
-            DatabaseProvider::Postgres => {
-                let pg_client = Client::postgres(&resolved_url).await?;
-                (
-                    Arc::new(PostgresDialect),
-                    DatabaseClient::Postgres(pg_client),
-                )
-            }
-            DatabaseProvider::Mysql => {
-                let mysql_client = Client::mysql(&resolved_url).await?;
-                (Arc::new(MysqlDialect), DatabaseClient::Mysql(mysql_client))
-            }
-            DatabaseProvider::Sqlite => {
-                let sqlite_client = Client::sqlite(&resolved_url).await?;
-                (
-                    Arc::new(SqliteDialect),
-                    DatabaseClient::Sqlite(sqlite_client),
-                )
-            }
+        let resolved_url = resolve_database_url(&database_url)?;
+        let (dialect, client) = Self::build_client(provider, &resolved_url).await?;
+
+        let direct_client = if let Some(raw_direct) = direct_url {
+            let resolved_direct = resolve_database_url(&raw_direct)?;
+            let (_, dc) = Self::build_client(provider, &resolved_direct).await?;
+            Some(dc)
+        } else {
+            None
         };
 
         Ok(EngineState {
@@ -155,6 +172,7 @@ impl EngineState {
             schema,
             dialect,
             client,
+            direct_client,
             transactions: Arc::new(Mutex::new(HashMap::new())),
             expired_transactions: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -209,6 +227,26 @@ impl EngineState {
                     .await
                     .map_err(|e| connector_to_protocol(e, context))
             }
+        }
+    }
+
+    /// Execute a SQL query using the direct connection when available, otherwise the pooled one.
+    ///
+    /// Raw SQL queries should use this so they bypass connection poolers (e.g. PgBouncer)
+    /// that do not support prepared statements. If a `tx_id` is provided the query always
+    /// runs on the transaction's connection regardless.
+    pub async fn execute_direct_query_on(
+        &self,
+        sql: &Sql,
+        context: &str,
+        tx_id: Option<&str>,
+    ) -> Result<Vec<Row>, ProtocolError> {
+        if tx_id.is_some() {
+            return self.execute_query_on(sql, context, tx_id).await;
+        }
+        match &self.direct_client {
+            Some(direct) => direct.execute_query(sql, context).await,
+            None => self.client.execute_query(sql, context).await,
         }
     }
 
@@ -472,7 +510,7 @@ mod tests {
     async fn sqlite_state(schema_source: &str) -> (EngineState, TempDir) {
         let schema = parse_ir(schema_source);
         let (database_url, temp_dir) = test_db_url();
-        let state = EngineState::new(schema.clone(), database_url)
+        let state = EngineState::new(schema.clone(), database_url, None)
             .await
             .expect("failed to create engine state");
 

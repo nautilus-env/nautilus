@@ -26,7 +26,7 @@ fn sqlite_db_url(prefix: &str) -> (String, TempDir) {
 pub async fn sqlite_state(prefix: &str, schema_source: &str) -> (EngineState, TempDir) {
     let schema = parse_ir(schema_source);
     let (database_url, temp_dir) = sqlite_db_url(prefix);
-    let state = EngineState::new(schema.clone(), database_url)
+    let state = EngineState::new(schema.clone(), database_url, None)
         .await
         .expect("failed to create engine state");
 

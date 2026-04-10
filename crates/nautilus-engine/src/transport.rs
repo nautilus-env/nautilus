@@ -198,7 +198,7 @@ mod tests {
         let schema = parse_ir(schema_source);
         let (database_url, temp_dir) = test_db_url();
         let state = Arc::new(
-            EngineState::new(schema.clone(), database_url)
+            EngineState::new(schema.clone(), database_url, None)
                 .await
                 .expect("failed to create engine state"),
         );

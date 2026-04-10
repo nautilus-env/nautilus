@@ -37,7 +37,7 @@ model Existing {
 "#,
     );
     let (database_url, temp_dir) = test_db_url();
-    let state = EngineState::new(schema, database_url)
+    let state = EngineState::new(schema, database_url, None)
         .await
         .expect("failed to create engine state");
     (state, temp_dir)
