@@ -59,7 +59,7 @@ impl Backend {
                 },
             )),
             completion_provider: Some(CompletionOptions {
-                trigger_characters: Some(vec!["@".to_string(), "=".to_string()]),
+                trigger_characters: Some(vec!["@".to_string(), "=".to_string(), "\"".to_string()]),
                 ..Default::default()
             }),
             hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -147,7 +147,12 @@ impl LanguageServer for Backend {
         };
         let offset = position_to_offset(&state.source, pos);
         let items = state.completion(offset);
-        let lsp_items: Vec<CompletionItem> = items.iter().map(nautilus_completion_to_lsp).collect();
+        let lsp_items: Vec<CompletionItem> = items
+            .iter()
+            .map(|item| {
+                nautilus_completion_to_lsp(&state.source, &state.analysis.tokens, offset, item)
+            })
+            .collect();
 
         Ok(Some(CompletionResponse::Array(lsp_items)))
     }
@@ -257,7 +262,7 @@ mod tests {
         let caps = Backend::server_capabilities();
         let completion = caps.completion_provider.expect("completion provider");
         let triggers = completion.trigger_characters.expect("trigger characters");
-        assert_eq!(triggers, vec!["@", "="]);
+        assert_eq!(triggers, vec!["@", "=", "\""]);
         assert_eq!(
             caps.document_formatting_provider,
             Some(tower_lsp::lsp_types::OneOf::Left(true))

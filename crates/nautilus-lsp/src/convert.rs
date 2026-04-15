@@ -4,11 +4,11 @@
 use nautilus_schema::{
     analysis::{CompletionItem, CompletionKind, HoverInfo, SemanticKind, SemanticToken},
     diagnostic::{Diagnostic, Severity},
-    Span,
+    Span, Token, TokenKind,
 };
 use tower_lsp::lsp_types::{
-    self, CompletionItemKind, DiagnosticSeverity, InsertTextFormat, Position, Range,
-    SemanticToken as LspSemanticToken,
+    self, CompletionItemKind, CompletionTextEdit, DiagnosticSeverity, InsertTextFormat, Position,
+    Range, SemanticToken as LspSemanticToken, TextEdit,
 };
 
 /// Convert a byte `offset` in `source` to an LSP [`Position`].
@@ -98,7 +98,12 @@ pub fn nautilus_diagnostic_to_lsp(source: &str, d: &Diagnostic) -> lsp_types::Di
     }
 }
 
-pub fn nautilus_completion_to_lsp(item: &CompletionItem) -> lsp_types::CompletionItem {
+pub fn nautilus_completion_to_lsp(
+    source: &str,
+    tokens: &[Token],
+    offset: usize,
+    item: &CompletionItem,
+) -> lsp_types::CompletionItem {
     let kind = match item.kind {
         CompletionKind::Keyword => CompletionItemKind::KEYWORD,
         CompletionKind::Type => CompletionItemKind::CLASS,
@@ -108,11 +113,13 @@ pub fn nautilus_completion_to_lsp(item: &CompletionItem) -> lsp_types::Completio
         CompletionKind::EnumName => CompletionItemKind::ENUM,
         CompletionKind::FieldName => CompletionItemKind::FIELD,
     };
+    let (new_text, range) = completion_text_edit(source, tokens, offset, item);
     lsp_types::CompletionItem {
         label: item.label.clone(),
         kind: Some(kind),
         detail: item.detail.clone(),
-        insert_text: item.insert_text.clone(),
+        filter_text: Some(item.label.clone()),
+        text_edit: Some(CompletionTextEdit::Edit(TextEdit { range, new_text })),
         insert_text_format: if item.is_snippet {
             Some(InsertTextFormat::SNIPPET)
         } else {
@@ -120,6 +127,97 @@ pub fn nautilus_completion_to_lsp(item: &CompletionItem) -> lsp_types::Completio
         },
         ..Default::default()
     }
+}
+
+fn completion_text_edit(
+    source: &str,
+    tokens: &[Token],
+    offset: usize,
+    item: &CompletionItem,
+) -> (String, Range) {
+    if is_quoted_string_completion(item) {
+        if let Some(span) = enclosing_string_span(tokens, offset) {
+            let content_start = span.start + 1;
+            let content_end = span.end.saturating_sub(1);
+            let new_text = item
+                .insert_text
+                .as_deref()
+                .and_then(|text| {
+                    text.strip_prefix('"')
+                        .and_then(|text| text.strip_suffix('"'))
+                })
+                .unwrap_or(item.label.as_str())
+                .to_string();
+            return (
+                new_text,
+                Range {
+                    start: offset_to_position(source, content_start),
+                    end: offset_to_position(source, content_end),
+                },
+            );
+        }
+    }
+
+    let new_text = item
+        .insert_text
+        .clone()
+        .unwrap_or_else(|| item.label.clone());
+    let (start, end) = completion_word_bounds(source, offset);
+    (
+        new_text,
+        Range {
+            start: offset_to_position(source, start),
+            end: offset_to_position(source, end),
+        },
+    )
+}
+
+fn is_quoted_string_completion(item: &CompletionItem) -> bool {
+    item.insert_text
+        .as_deref()
+        .is_some_and(|text| text.starts_with('"') && text.ends_with('"'))
+}
+
+fn enclosing_string_span(tokens: &[Token], offset: usize) -> Option<Span> {
+    tokens.iter().find_map(|token| match &token.kind {
+        TokenKind::String(_) if token.span.start < offset && offset < token.span.end => {
+            Some(token.span.clone())
+        }
+        _ => None,
+    })
+}
+
+fn completion_word_bounds(source: &str, offset: usize) -> (usize, usize) {
+    let safe = offset.min(source.len());
+    let mut start = safe;
+    while start > 0 {
+        let ch = source[..start]
+            .chars()
+            .next_back()
+            .expect("slice ending at a valid offset is never empty");
+        if !is_completion_word_char(ch) {
+            break;
+        }
+        start -= ch.len_utf8();
+    }
+
+    let mut end = safe;
+    while end < source.len() {
+        let ch = source[end..]
+            .chars()
+            .next()
+            .expect("slice starting at a valid offset is never empty");
+        if !is_completion_word_char(ch) {
+            break;
+        }
+        end += ch.len_utf8();
+    }
+
+    (start, end)
+}
+
+fn is_completion_word_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }
 
 pub fn hover_info_to_lsp(source: &str, h: &HoverInfo) -> lsp_types::Hover {
@@ -179,6 +277,7 @@ pub fn semantic_tokens_to_lsp(source: &str, tokens: &[SemanticToken]) -> Vec<Lsp
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nautilus_schema::analyze;
 
     #[test]
     fn round_trip_offset_position() {
@@ -252,5 +351,64 @@ mod tests {
             ),
             line_end
         );
+    }
+
+    #[test]
+    fn string_completion_replaces_the_entire_quoted_value() {
+        let source = "datasource db {\n  provider = \"sq\"\n}\n";
+        let quoted = source.find("\"sq\"").unwrap();
+        let offset = quoted + 3;
+        let analysis = analyze(source);
+        let item = CompletionItem {
+            label: "sqlite".to_string(),
+            insert_text: Some("\"sqlite\"".to_string()),
+            is_snippet: false,
+            kind: CompletionKind::Keyword,
+            detail: Some("SQLite database".to_string()),
+        };
+
+        let lsp_item = nautilus_completion_to_lsp(source, &analysis.tokens, offset, &item);
+        let Some(CompletionTextEdit::Edit(edit)) = lsp_item.text_edit else {
+            panic!("expected completion text edit");
+        };
+
+        assert_eq!(
+            edit.range,
+            Range {
+                start: offset_to_position(source, quoted + 1),
+                end: offset_to_position(source, quoted + "\"sq".len()),
+            }
+        );
+        assert_eq!(edit.new_text, "sqlite");
+        assert_eq!(lsp_item.filter_text.as_deref(), Some("sqlite"));
+    }
+
+    #[test]
+    fn identifier_completion_replaces_the_current_word() {
+        let source = "model User {\n  name Str\n}\n";
+        let word = source.find("Str").unwrap();
+        let offset = word + "Str".len();
+        let analysis = analyze(source);
+        let item = CompletionItem {
+            label: "String".to_string(),
+            insert_text: None,
+            is_snippet: false,
+            kind: CompletionKind::Type,
+            detail: Some("UTF-8 text".to_string()),
+        };
+
+        let lsp_item = nautilus_completion_to_lsp(source, &analysis.tokens, offset, &item);
+        let Some(CompletionTextEdit::Edit(edit)) = lsp_item.text_edit else {
+            panic!("expected completion text edit");
+        };
+
+        assert_eq!(
+            edit.range,
+            Range {
+                start: offset_to_position(source, word),
+                end: offset_to_position(source, word + "Str".len()),
+            }
+        );
+        assert_eq!(edit.new_text, "String");
     }
 }
