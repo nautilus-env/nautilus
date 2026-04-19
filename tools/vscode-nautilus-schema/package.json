@@ -30,8 +30,12 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.25.0",
     "typescript": "^5.3.0"
+  },
+  "overrides": {
+    "minimatch": "^5.1.8",
+    "brace-expansion": "^2.0.3"
   },
   "categories": [
     "Programming Languages",
