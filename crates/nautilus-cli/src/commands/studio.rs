@@ -16,7 +16,7 @@ use zip::ZipArchive;
 
 use crate::tui;
 
-pub static STUDIO_GITHUB_REPO: &str = "TonnoBelloSnello/nautilus-orm-studio";
+pub static STUDIO_GITHUB_REPO: &str = "nautilus-env/nautilus-orm-studio";
 pub static STUDIO_RELEASE_ASSET_PREFIX: &str = "nautilus-orm-studio-";
 
 const STUDIO_DIR_NAME: &str = "studio";
