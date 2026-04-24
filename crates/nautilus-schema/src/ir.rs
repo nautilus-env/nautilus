@@ -80,6 +80,14 @@ pub struct DatasourceIr {
     /// Names are lower-cased, deduplicated and sorted for stable output.
     /// Empty for non-Postgres providers (enforced by the validator).
     pub extensions: Vec<String>,
+    /// Preserve PostgreSQL extensions that are installed in the live database
+    /// but not listed in [`extensions`](Self::extensions).
+    ///
+    /// When `false` (the default), extension management is fully declarative:
+    /// extra live extensions are diffed as destructive `DROP EXTENSION`
+    /// changes. When `true`, Nautilus still creates declared missing
+    /// extensions, but it does not propose dropping extra live extensions.
+    pub preserve_extensions: bool,
     /// Span of the datasource block.
     pub span: Span,
 }

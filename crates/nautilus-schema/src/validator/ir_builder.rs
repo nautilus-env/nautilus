@@ -37,6 +37,7 @@ impl SchemaValidator {
         let url = Self::datasource_url_value(datasource)?;
         let direct_url = Self::datasource_direct_url_value(datasource)?;
         let extensions = Self::datasource_extensions_value(datasource);
+        let preserve_extensions = Self::datasource_preserve_extensions_value(datasource)?;
 
         Ok(DatasourceIr {
             name: datasource.name.value.clone(),
@@ -44,6 +45,7 @@ impl SchemaValidator {
             url,
             direct_url,
             extensions,
+            preserve_extensions,
             span: datasource.span,
         })
     }

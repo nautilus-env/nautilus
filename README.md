@@ -219,6 +219,35 @@ nautilus generate --schema schema.nautilus
 If `--schema` is omitted, schema-based commands auto-detect the first
 `.nautilus` file in the current directory.
 
+### PostgreSQL extensions
+
+PostgreSQL extensions can be declared directly in the datasource block. Nautilus
+emits `CREATE EXTENSION IF NOT EXISTS` before enum, composite type, and table
+DDL, and `db pull` serializes installed extensions back into the datasource.
+
+```prisma
+datasource db {
+  provider            = "postgresql"
+  url                 = env("DATABASE_URL")
+  extensions          = [citext, hstore, ltree, "uuid-ossp"]
+  preserve_extensions = true
+}
+
+model Account {
+  id    Int    @id
+  email Citext
+  meta  Hstore?
+  path  Ltree?
+}
+```
+
+The extension list is declarative: if an extension is installed in the live
+database but is not listed in the datasource, `db status`/`db push` will propose
+a destructive `DROP EXTENSION IF EXISTS` without `CASCADE`.
+Set `preserve_extensions = true` when your database contains extensions managed
+by another app or platform and Nautilus should leave those extra live extensions
+alone.
+
 Generated clients are local build artifacts, not registry packages. If your
 schema uses `output = "./db"`, the normal consumption path is to import that
 directory directly, for example `from db import Nautilus` in Python or

@@ -950,6 +950,11 @@ fn datasource_field_completions() -> Vec<CompletionItem> {
             CompletionKind::FieldName,
             Some("PostgreSQL extensions to install before DDL".to_string()),
         ),
+        CompletionItem::new(
+            "preserve_extensions",
+            CompletionKind::FieldName,
+            Some("Preserve live PostgreSQL extensions not listed in the schema".to_string()),
+        ),
     ]
 }
 

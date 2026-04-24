@@ -26,12 +26,39 @@
 ## Supported schema constructs
 
 - `datasource` and `generator` blocks
+- PostgreSQL datasource extensions via `extensions = [citext, "uuid-ossp"]`
 - `model`, `enum`, and `type` declarations
 - scalar, enum, composite, relation, optional, and list field types
 - mapped names via `@map` / `@@map`
 - defaults such as `autoincrement()`, `uuid()`, `now()`
 - relation metadata including `fields`, `references`, and referential actions
 - indexes, unique constraints, checks, and computed fields
+
+## Minimal usage
+
+## PostgreSQL extensions
+
+Datasource blocks may declare PostgreSQL extensions to install before schema
+DDL runs:
+
+```prisma
+datasource db {
+  provider            = "postgresql"
+  url                 = env("DATABASE_URL")
+  extensions          = [citext, hstore, ltree, "uuid-ossp"]
+  preserve_extensions = true
+}
+```
+
+The field is PostgreSQL-only. Entries can be bare identifiers or string
+literals, are normalized to lowercase, and are deduplicated in the validated IR.
+Unknown names produce warnings rather than hard errors so custom extensions can
+still be managed. Extension-backed scalar types currently include `Citext`,
+`Hstore`, and `Ltree`; the validator warns when those types are used without the
+matching datasource extension. By default extension management is declarative:
+extra live extensions are diffed as destructive drops. Set
+`preserve_extensions = true` to keep live extensions that are managed outside
+Nautilus.
 
 ## Minimal usage
 

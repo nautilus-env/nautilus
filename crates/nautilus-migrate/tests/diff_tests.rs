@@ -1295,6 +1295,39 @@ model Doc { id Int @id }
 }
 
 #[test]
+fn preserve_extensions_suppresses_dropped_extension_changes() {
+    let source = r#"
+datasource db {
+  provider            = "postgresql"
+  url                 = "postgres://localhost/test"
+  extensions          = [pgcrypto]
+  preserve_extensions = true
+}
+
+model Doc { id Int @id }
+"#;
+    let target = common::parse(source).unwrap();
+    let mut live = LiveSchema::default();
+    live.extensions
+        .insert("pg_trgm".to_string(), "1.6".to_string());
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        changes
+            .iter()
+            .any(|c| matches!(c, Change::CreateExtension { name } if name == "pgcrypto")),
+        "declared missing extensions should still be created: {changes:?}"
+    );
+    assert!(
+        !changes
+            .iter()
+            .any(|c| matches!(c, Change::DropExtension { name } if name == "pg_trgm")),
+        "extra live extensions should be preserved: {changes:?}"
+    );
+}
+
+#[test]
 fn no_changes_when_extensions_match() {
     let source = r#"
 datasource db {

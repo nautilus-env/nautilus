@@ -17,7 +17,13 @@ use crate::ir::*;
 use crate::span::Span;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-const KNOWN_DATASOURCE_FIELDS: &[&str] = &["provider", "url", "direct_url", "extensions"];
+const KNOWN_DATASOURCE_FIELDS: &[&str] = &[
+    "provider",
+    "url",
+    "direct_url",
+    "extensions",
+    "preserve_extensions",
+];
 
 /// Curated whitelist of PostgreSQL contrib extensions that Nautilus knows about.
 ///

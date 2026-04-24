@@ -215,6 +215,12 @@ pub fn config_field_hover(key: &str) -> String {
             "Accepts bare identifiers like `pg_trgm` and string literals like `\"uuid-ossp\"`.  \n\n",
             "Example: `extensions = [pg_trgm, pgcrypto, \"uuid-ossp\"]`",
         ).to_string(),
+        "preserve_extensions" => concat!(
+            "**preserve_extensions**  \n",
+            "Optional PostgreSQL-only boolean.  \n\n",
+            "When `true`, Nautilus creates missing declared extensions but does not propose dropping live extensions that are absent from `extensions`.  \n\n",
+            "Default: `false`.",
+        ).to_string(),
         "output" => concat!(
             "**output**  \n",
             "Output directory path for generated client files.  \n\n",

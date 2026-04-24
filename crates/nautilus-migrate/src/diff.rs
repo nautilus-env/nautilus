@@ -410,6 +410,10 @@ impl SchemaDiff {
                 .as_ref()
                 .map(|d| d.extensions.as_slice())
                 .unwrap_or(&[]);
+            let preserve_extensions = target
+                .datasource
+                .as_ref()
+                .is_some_and(|d| d.preserve_extensions);
             let target_extensions_set: std::collections::HashSet<&str> =
                 target_extensions.iter().map(String::as_str).collect();
 
@@ -419,14 +423,16 @@ impl SchemaDiff {
                 }
             }
 
-            let mut live_extension_names: Vec<&str> =
-                live.extensions.keys().map(String::as_str).collect();
-            live_extension_names.sort_unstable();
-            for live_ext in live_extension_names {
-                if !target_extensions_set.contains(live_ext) {
-                    post_type_changes.push(Change::DropExtension {
-                        name: live_ext.to_string(),
-                    });
+            if !preserve_extensions {
+                let mut live_extension_names: Vec<&str> =
+                    live.extensions.keys().map(String::as_str).collect();
+                live_extension_names.sort_unstable();
+                for live_ext in live_extension_names {
+                    if !target_extensions_set.contains(live_ext) {
+                        post_type_changes.push(Change::DropExtension {
+                            name: live_ext.to_string(),
+                        });
+                    }
                 }
             }
 

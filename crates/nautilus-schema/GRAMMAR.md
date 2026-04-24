@@ -47,6 +47,7 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
   extensions = [pg_trgm, "uuid-ossp"]
+  preserve_extensions = true
 }
 ```
 
@@ -58,9 +59,13 @@ datasource db {
 | `url` | ✓ | string literal or `env("VAR")` | — | Runtime database connection URL |
 | `direct_url` | — | string literal or `env("VAR")` | — | Direct admin/introspection URL |
 | `extensions` | — | array of identifiers/string literals | `[]` | PostgreSQL-only extensions to install via `CREATE EXTENSION IF NOT EXISTS` before type/table DDL |
+| `preserve_extensions` | — | boolean literal | `false` | PostgreSQL-only; preserve live extensions that are not listed in `extensions` instead of diffing them as drops |
 
 The `extensions` field is only valid when `provider = "postgresql"`. It accepts
 both bare identifiers such as `pg_trgm` and quoted names such as `"uuid-ossp"`.
+The `preserve_extensions` field is also PostgreSQL-only. When it is `true`,
+Nautilus still creates missing declared extensions but does not propose dropping
+extra live extensions.
 
 ### Generator
 
@@ -681,6 +686,7 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
   extensions = [pgcrypto, "uuid-ossp"]
+  preserve_extensions = true
 }
 
 generator client {

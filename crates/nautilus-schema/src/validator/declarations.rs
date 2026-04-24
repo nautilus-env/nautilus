@@ -44,6 +44,7 @@ impl SchemaValidator {
         }
 
         self.validate_datasource_extensions(datasource);
+        self.validate_datasource_preserve_extensions(datasource);
     }
 
     pub(super) fn validate_datasource_extensions(&mut self, datasource: &DatasourceDecl) {
@@ -121,6 +122,34 @@ impl SchemaValidator {
                     span,
                 ));
             }
+        }
+    }
+
+    pub(super) fn validate_datasource_preserve_extensions(&mut self, datasource: &DatasourceDecl) {
+        let Some(field) = datasource.find_field("preserve_extensions") else {
+            return;
+        };
+
+        let provider_is_postgres = Self::datasource_provider_value(datasource)
+            .ok()
+            .and_then(|p| p.parse::<DatabaseProvider>().ok())
+            .is_some_and(|p| p == DatabaseProvider::Postgres);
+
+        if !provider_is_postgres {
+            self.errors.push_back(SchemaError::Validation(
+                "Datasource field 'preserve_extensions' is only supported for the \
+                 'postgresql' provider"
+                    .to_string(),
+                field.span,
+            ));
+            return;
+        }
+
+        if !matches!(field.value, Expr::Literal(Literal::Boolean(_, _))) {
+            self.errors.push_back(SchemaError::Validation(
+                "Datasource 'preserve_extensions' must be a boolean literal".to_string(),
+                field.span,
+            ));
         }
     }
 
@@ -249,6 +278,22 @@ impl SchemaValidator {
         datasource: &DatasourceDecl,
     ) -> Result<Option<String>> {
         Self::datasource_optional_url_value(datasource, "direct_url")
+    }
+
+    pub(super) fn datasource_preserve_extensions_value(
+        datasource: &DatasourceDecl,
+    ) -> Result<bool> {
+        let Some(field) = datasource.find_field("preserve_extensions") else {
+            return Ok(false);
+        };
+
+        match &field.value {
+            Expr::Literal(Literal::Boolean(value, _)) => Ok(*value),
+            _ => Err(SchemaError::Validation(
+                "Datasource 'preserve_extensions' must be a boolean literal".to_string(),
+                field.span,
+            )),
+        }
     }
 
     fn datasource_optional_url_value(

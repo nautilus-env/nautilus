@@ -1011,6 +1011,26 @@ model User { id Int @id }
     // Extensions are normalized to lower-case and sorted alphabetically;
     // '_' (0x5F) sorts before 'c' (0x63), so "pg_trgm" < "pgcrypto".
     assert_eq!(ds.extensions, vec!["pg_trgm", "pgcrypto", "uuid-ossp"]);
+    assert!(!ds.preserve_extensions);
+}
+
+#[test]
+fn test_datasource_preserve_extensions_populated_in_ir() {
+    let source = r#"
+datasource db {
+  provider            = "postgresql"
+  url                 = "postgres://localhost/test"
+  extensions          = [pg_trgm]
+  preserve_extensions = true
+}
+
+model User { id Int @id }
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).expect("preserve_extensions should validate");
+    let ds = ir.datasource.expect("datasource IR");
+    assert_eq!(ds.extensions, vec!["pg_trgm"]);
+    assert!(ds.preserve_extensions);
 }
 
 #[test]
@@ -1030,6 +1050,31 @@ model User { id Int @id }
         SchemaError::Validation(msg, _) => {
             assert!(
                 msg.contains("'extensions' is only supported for the 'postgresql'"),
+                "got: {}",
+                msg
+            );
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn test_datasource_preserve_extensions_rejected_for_mysql() {
+    let source = r#"
+datasource db {
+  provider            = "mysql"
+  url                 = "mysql://localhost/test"
+  preserve_extensions = true
+}
+
+model User { id Int @id }
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(
+                msg.contains("'preserve_extensions' is only supported for the 'postgresql'"),
                 "got: {}",
                 msg
             );
@@ -1108,6 +1153,27 @@ model User { id Int @id }
     match err {
         SchemaError::Validation(msg, _) => {
             assert!(msg.contains("must be an array"), "got: {}", msg);
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn test_datasource_preserve_extensions_must_be_boolean() {
+    let source = r#"
+datasource db {
+  provider            = "postgresql"
+  url                 = "postgres://localhost/test"
+  preserve_extensions = "true"
+}
+
+model User { id Int @id }
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(msg.contains("must be a boolean literal"), "got: {}", msg);
         }
         _ => panic!("Expected validation error"),
     }

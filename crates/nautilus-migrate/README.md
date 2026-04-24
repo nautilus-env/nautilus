@@ -40,8 +40,10 @@ Starting from the schema IR, `DdlGenerator` emits SQL to create every table from
 
 ```prisma
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider            = "postgresql"
+  url                 = env("DATABASE_URL")
+  extensions          = [citext, hstore]
+  preserve_extensions = true
 }
 
 model User {
@@ -72,13 +74,17 @@ enum Role {
 **Generated DDL (PostgreSQL):**
 
 ```sql
--- 1. Enum type (Postgres-only — wrapped in DO block for idempotency)
+-- 1. Extensions (Postgres-only, emitted before types and tables)
+CREATE EXTENSION IF NOT EXISTS "citext";
+CREATE EXTENSION IF NOT EXISTS "hstore";
+
+-- 2. Enum type (Postgres-only - wrapped in DO block for idempotency)
 DO $$ BEGIN
   CREATE TYPE "role" AS ENUM ('USER', 'ADMIN');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- 2. users table (no FK dependencies — created first)
+-- 3. users table (no FK dependencies - created first)
 CREATE TABLE IF NOT EXISTS "users" (
   "id"         UUID                     NOT NULL DEFAULT gen_random_uuid(),
   "email"      TEXT                     NOT NULL,
@@ -129,9 +135,24 @@ CREATE TABLE IF NOT EXISTS "posts" (
 
 Before computing a diff, `SchemaInspector` queries the live database and builds a `LiveSchema` snapshot — a normalized in-memory representation of what is actually in the database right now.
 
-For PostgreSQL it queries `information_schema` and `pg_catalog`; for SQLite it uses `PRAGMA table_info()` and `PRAGMA index_list()`; for MySQL it queries `information_schema.columns` and `information_schema.statistics`.
+For PostgreSQL it queries `information_schema`, `pg_catalog`, and
+`pg_extension`; for SQLite it uses `PRAGMA table_info()` and
+`PRAGMA index_list()`; for MySQL it queries `information_schema.columns` and
+`information_schema.statistics`. PostgreSQL's built-in `plpgsql` extension is
+excluded from snapshots because it is present by default and should not be
+declared by users.
 
 Every value in the snapshot is **normalized** (lower-cased, casts stripped, display widths removed) so that cosmetic differences — like `'USER'::text` vs `'USER'` — are ignored during comparison.
+
+PostgreSQL extensions are treated declaratively. If the target datasource lists
+an extension that is missing from the live database, the diff emits
+`CreateExtension`. If the live database has an extension that is not listed in
+the target datasource, the diff emits a destructive `DropExtension`. Drops are
+generated without `CASCADE`, which lets PostgreSQL fail loudly when tables,
+indexes, or types still depend on the extension. Set
+`preserve_extensions = true` in the datasource to continue creating declared
+missing extensions while ignoring extra live extensions that are managed by
+another tool.
 
 **Example snapshot** for a database that has `users` but is missing `posts`:
 

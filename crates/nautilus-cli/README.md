@@ -35,6 +35,27 @@ nautilus db push --schema schema.nautilus
 
 `db push` regenerates the client automatically after a successful diff/apply unless you pass `--no-generate`.
 
+### PostgreSQL extensions
+
+For PostgreSQL, datasource-level extensions are applied as part of `db push`
+before table/type DDL:
+
+```prisma
+datasource db {
+  provider            = "postgresql"
+  url                 = env("DATABASE_URL")
+  extensions          = [citext, hstore, ltree]
+  preserve_extensions = true
+}
+```
+
+`db pull` writes installed PostgreSQL extensions back to the datasource block.
+The extension list is declarative: an extension that exists in the live database
+but is absent from the schema is shown as a destructive drop. Nautilus emits the
+drop without `CASCADE`, so PostgreSQL will reject it while dependent objects
+still exist. Set `preserve_extensions = true` to keep extra live extensions
+that are managed outside Nautilus.
+
 ### Versioned migrations
 
 ```bash

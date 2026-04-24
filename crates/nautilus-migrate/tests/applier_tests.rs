@@ -1,7 +1,9 @@
 mod common;
 
 use nautilus_migrate::live::{LiveColumn, LiveTable};
-use nautilus_migrate::{Change, DatabaseProvider, DdlGenerator, DiffApplier, LiveSchema};
+use nautilus_migrate::{
+    change_risk, Change, ChangeRisk, DatabaseProvider, DdlGenerator, DiffApplier, LiveSchema,
+};
 
 #[test]
 fn new_table_postgres() {
@@ -74,6 +76,26 @@ fn drop_table_postgres_uses_cascade() {
 
     assert_eq!(stmts.len(), 1);
     assert_eq!(stmts[0], "DROP TABLE IF EXISTS \"OldTable\" CASCADE");
+}
+
+#[test]
+fn drop_extension_postgres_is_destructive_and_uses_restrictive_drop() {
+    let ir = common::parse("model Dummy { id Int @id }").unwrap();
+    let live = LiveSchema::default();
+    let ddl = DdlGenerator::new(DatabaseProvider::Postgres);
+    let applier = DiffApplier::new(DatabaseProvider::Postgres, &ddl, &ir, &live);
+    let change = Change::DropExtension {
+        name: "citext".to_string(),
+    };
+
+    assert_eq!(change_risk(&change), ChangeRisk::Destructive);
+
+    let stmts = applier.sql_for(&change).unwrap();
+    assert_eq!(stmts, vec!["DROP EXTENSION IF EXISTS \"citext\""]);
+    assert!(
+        !stmts[0].contains("CASCADE"),
+        "extension drops must not silently cascade: {stmts:?}"
+    );
 }
 
 #[test]

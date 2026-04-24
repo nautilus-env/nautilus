@@ -242,6 +242,11 @@ fn completion_inside_datasource_only_contains_datasource_fields() {
         labels
     );
     assert!(
+        labels.contains(&"preserve_extensions"),
+        "missing preserve_extensions: {:?}",
+        labels
+    );
+    assert!(
         !labels.contains(&"output"),
         "unexpected output: {:?}",
         labels
@@ -597,6 +602,23 @@ datasource db {
     );
     assert!(
         h.content.contains("\"uuid-ossp\""),
+        "unexpected hover: {}",
+        h.content
+    );
+}
+
+#[test]
+fn hover_on_preserve_extensions_field_describes_extra_live_extension_policy() {
+    let src = r#"
+datasource db {
+  provider            = "postgresql"
+  preserve_extensions = true
+}
+"#;
+    let offset = src.find("preserve_extensions").unwrap() + 2;
+    let h = hover(src, offset).expect("expected hover");
+    assert!(
+        h.content.contains("preserve_extensions") && h.content.contains("Default: `false`"),
         "unexpected hover: {}",
         h.content
     );
