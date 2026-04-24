@@ -411,15 +411,19 @@ fn render_datasource_block(live: &LiveSchema, provider: DatabaseProvider, url: &
     ];
 
     if provider == DatabaseProvider::Postgres && !live.extensions.is_empty() {
-        let mut extensions: Vec<&str> = live.extensions.keys().map(String::as_str).collect();
-        extensions.sort_unstable();
+        let mut extensions: Vec<(&str, &str)> = live
+            .extensions
+            .iter()
+            .map(|(name, state)| (name.as_str(), state.schema.as_str()))
+            .collect();
+        extensions.sort_unstable_by(|a, b| a.0.cmp(b.0));
         fields.push((
             "extensions".to_string(),
             format!(
                 "[{}]",
                 extensions
                     .iter()
-                    .map(|extension| render_extension_schema_name(extension))
+                    .map(|(name, schema)| render_extension_entry(name, schema))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -904,6 +908,26 @@ fn render_extension_schema_name(name: &str) -> String {
         name.to_string()
     } else {
         format!("\"{}\"", escape_schema_string(name))
+    }
+}
+
+/// Render a single array entry for the `extensions = [...]` field in a
+/// serialized datasource block.
+///
+/// Round-trips live state back into source: when the extension lives in the
+/// default `public` namespace we emit the compact form (`pg_trgm` or
+/// `"uuid-ossp"`); any other schema is captured explicitly via the structured
+/// `extension(name = ..., schema = "...")` syntax so `db pull` does not
+/// silently drop the namespace information.
+fn render_extension_entry(name: &str, schema: &str) -> String {
+    if schema == "public" {
+        render_extension_schema_name(name)
+    } else {
+        format!(
+            "extension(name = {}, schema = \"{}\")",
+            render_extension_schema_name(name),
+            escape_schema_string(schema)
+        )
     }
 }
 

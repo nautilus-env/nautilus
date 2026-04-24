@@ -53,8 +53,13 @@ impl SchemaValidator {
     /// Extracts, normalises and sorts the declared extensions.
     ///
     /// Assumes `validate_datasource_extensions` has already flagged structural
-    /// problems: malformed entries are silently skipped here.
-    pub(super) fn datasource_extensions_value(datasource: &DatasourceDecl) -> Vec<String> {
+    /// problems: malformed entries are silently skipped here. For the
+    /// structured `extension(name = ..., schema = ...)` form, the schema is
+    /// preserved as `Some("…")`; the bare identifier and string-literal forms
+    /// produce entries with `schema = None`.
+    pub(super) fn datasource_extensions_value(
+        datasource: &DatasourceDecl,
+    ) -> Vec<PostgresExtensionIr> {
         let Some(field) = datasource.find_field("extensions") else {
             return Vec::new();
         };
@@ -62,18 +67,23 @@ impl SchemaValidator {
             return Vec::new();
         };
 
-        let mut names: Vec<String> = elements
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut entries: Vec<PostgresExtensionIr> = elements
             .iter()
-            .filter_map(|e| match e {
-                Expr::Ident(ident) => Some(ident.value.to_lowercase()),
-                Expr::Literal(Literal::String(s, _)) => Some(s.to_lowercase()),
-                _ => None,
+            .filter_map(|e| Self::parse_extension_entry(e).ok())
+            .filter_map(|entry| {
+                let name = entry.name.to_lowercase();
+                if name.is_empty() || !seen.insert(name.clone()) {
+                    return None;
+                }
+                Some(PostgresExtensionIr {
+                    name,
+                    schema: entry.schema,
+                })
             })
-            .filter(|s| !s.is_empty())
             .collect();
-        names.sort();
-        names.dedup();
-        names
+        entries.sort();
+        entries
     }
 
     pub(super) fn build_generator_ir(&self, generator: &GeneratorDecl) -> Result<GeneratorIr> {

@@ -79,16 +79,11 @@ impl SchemaValidator {
 
         let mut seen: HashSet<String> = HashSet::new();
         for element in elements {
-            let (name, span) = match element {
-                Expr::Ident(ident) => (ident.value.clone(), ident.span),
-                Expr::Literal(Literal::String(s, span)) => (s.clone(), *span),
-                other => {
-                    self.errors.push_back(SchemaError::Validation(
-                        "Extension entries must be identifiers or string \
-                         literals"
-                            .to_string(),
-                        other.span(),
-                    ));
+            let parsed = Self::parse_extension_entry(element);
+            let (name, span) = match parsed {
+                Ok(entry) => (entry.name, entry.span),
+                Err(err) => {
+                    self.errors.push_back(err);
                     continue;
                 }
             };
@@ -122,6 +117,98 @@ impl SchemaValidator {
                     span,
                 ));
             }
+        }
+    }
+
+    /// Parse a single `extensions = [...]` array entry into a (name, span)
+    /// pair. Accepts three forms:
+    ///
+    /// - `pg_trgm` (bare identifier)
+    /// - `"uuid-ossp"` (quoted string literal)
+    /// - `extension(name = vector, schema = "extensions")` (structured)
+    pub(super) fn parse_extension_entry(expr: &Expr) -> Result<ParsedExtensionEntry> {
+        match expr {
+            Expr::Ident(ident) => Ok(ParsedExtensionEntry {
+                name: ident.value.clone(),
+                schema: None,
+                span: ident.span,
+            }),
+            Expr::Literal(Literal::String(s, span)) => Ok(ParsedExtensionEntry {
+                name: s.clone(),
+                schema: None,
+                span: *span,
+            }),
+            Expr::FunctionCall { name, args, span } if name.value == "extension" => {
+                let mut ext_name: Option<String> = None;
+                let mut schema: Option<String> = None;
+                let mut saw_positional = false;
+
+                for (idx, arg) in args.iter().enumerate() {
+                    match arg {
+                        Expr::NamedArg {
+                            name: arg_name,
+                            value,
+                            span: arg_span,
+                        } => match arg_name.value.as_str() {
+                            "name" => {
+                                ext_name = Some(extract_extension_string(value, *arg_span)?);
+                            }
+                            "schema" => {
+                                schema = Some(extract_extension_string(value, *arg_span)?);
+                            }
+                            other => {
+                                return Err(SchemaError::Validation(
+                                    format!(
+                                        "Unknown 'extension(...)' argument '{}'. \
+                                         Supported: name, schema",
+                                        other
+                                    ),
+                                    *arg_span,
+                                ));
+                            }
+                        },
+                        _ if idx == 0 && !saw_positional => {
+                            saw_positional = true;
+                            ext_name = Some(extract_extension_string(arg, arg.span())?);
+                        }
+                        _ => {
+                            return Err(SchemaError::Validation(
+                                "'extension(...)' arguments after the first must \
+                                 be named (e.g. schema = \"extensions\")"
+                                    .to_string(),
+                                arg.span(),
+                            ));
+                        }
+                    }
+                }
+
+                let Some(name) = ext_name else {
+                    return Err(SchemaError::Validation(
+                        "'extension(...)' requires a 'name' argument".to_string(),
+                        *span,
+                    ));
+                };
+
+                Ok(ParsedExtensionEntry {
+                    name,
+                    schema,
+                    span: *span,
+                })
+            }
+            Expr::FunctionCall { name, span, .. } => Err(SchemaError::Validation(
+                format!(
+                    "Unsupported extension entry '{}(...)'. Use an identifier, \
+                     a string literal, or the 'extension(name = ..., schema = ...)' form",
+                    name.value
+                ),
+                *span,
+            )),
+            other => Err(SchemaError::Validation(
+                "Extension entries must be identifiers, string literals, or \
+                 'extension(name = ..., schema = ...)' calls"
+                    .to_string(),
+                other.span(),
+            )),
         }
     }
 
@@ -560,5 +647,24 @@ impl SchemaValidator {
             fields.extend_from_slice(JAVA_ONLY_GENERATOR_FIELDS);
         }
         fields
+    }
+}
+
+/// Result of parsing a single array entry in `extensions = [...]`.
+#[derive(Debug, Clone)]
+pub(super) struct ParsedExtensionEntry {
+    pub(super) name: String,
+    pub(super) schema: Option<String>,
+    pub(super) span: Span,
+}
+
+fn extract_extension_string(expr: &Expr, span: Span) -> Result<String> {
+    match expr {
+        Expr::Ident(ident) => Ok(ident.value.clone()),
+        Expr::Literal(Literal::String(s, _)) => Ok(s.clone()),
+        _ => Err(SchemaError::Validation(
+            "Extension argument must be an identifier or string literal".to_string(),
+            span,
+        )),
     }
 }

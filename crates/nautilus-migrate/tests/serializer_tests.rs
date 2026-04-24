@@ -1,8 +1,8 @@
 mod common;
 
 use nautilus_migrate::live::{
-    ComputedKind, LiveColumn, LiveCompositeField, LiveCompositeType, LiveForeignKey, LiveIndex,
-    LiveSchema, LiveTable,
+    ComputedKind, LiveColumn, LiveCompositeField, LiveCompositeType, LiveExtension, LiveForeignKey,
+    LiveIndex, LiveSchema, LiveTable,
 };
 use nautilus_migrate::{
     serialize_live_schema, serialize_live_schema_with_options, DatabaseProvider, PullNameCase,
@@ -56,10 +56,20 @@ fn serialises_single_table() {
 #[test]
 fn serialises_postgres_extensions_in_datasource_block() {
     let mut live = LiveSchema::default();
-    live.extensions
-        .insert("uuid-ossp".to_string(), "1.1".to_string());
-    live.extensions
-        .insert("pg_trgm".to_string(), "1.6".to_string());
+    live.extensions.insert(
+        "uuid-ossp".to_string(),
+        LiveExtension {
+            version: "1.1".to_string(),
+            schema: "public".to_string(),
+        },
+    );
+    live.extensions.insert(
+        "pg_trgm".to_string(),
+        LiveExtension {
+            version: "1.6".to_string(),
+            schema: "public".to_string(),
+        },
+    );
 
     let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
     let datasource = common::parse(&out)
@@ -71,7 +81,12 @@ fn serialises_postgres_extensions_in_datasource_block() {
         out.contains("extensions = [pg_trgm, \"uuid-ossp\"]"),
         "{out}"
     );
-    assert_eq!(datasource.extensions, vec!["pg_trgm", "uuid-ossp"]);
+    let names: Vec<&str> = datasource
+        .extensions
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
+    assert_eq!(names, vec!["pg_trgm", "uuid-ossp"]);
 }
 
 #[test]

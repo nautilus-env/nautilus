@@ -429,9 +429,10 @@ impl SchemaInspector {
         }
 
         let extension_rows = pg_query(
-            "SELECT extname, extversion \
-             FROM pg_extension \
-             WHERE extname <> 'plpgsql'",
+            "SELECT e.extname, e.extversion, n.nspname AS extschema \
+             FROM pg_extension e \
+             JOIN pg_namespace n ON n.oid = e.extnamespace \
+             WHERE e.extname <> 'plpgsql'",
         )
         .fetch_all(&pool)
         .await
@@ -448,7 +449,15 @@ impl SchemaInspector {
                     "failed to read version for extension \"{name}\": {e}"
                 ))
             })?;
-            live.extensions.insert(name.to_lowercase(), version);
+            let schema: String = row.try_get("extschema").map_err(|e| {
+                MigrationError::Database(format!(
+                    "failed to read schema for extension \"{name}\": {e}"
+                ))
+            })?;
+            live.extensions.insert(
+                name.to_lowercase(),
+                crate::live::LiveExtension { version, schema },
+            );
         }
 
         Ok(live)

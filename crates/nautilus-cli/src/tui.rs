@@ -375,11 +375,13 @@ fn describe_change(change: &nautilus_migrate::Change) -> (&'static str, String, 
             };
             ("~", format!("enum:{}", name), annotation)
         }
-        Change::CreateExtension { name } => (
-            "+",
-            format!("ext:{}", name),
-            "CREATE EXTENSION (safe)".into(),
-        ),
+        Change::CreateExtension { name, schema } => {
+            let annotation = match schema {
+                Some(s) => format!("CREATE EXTENSION ... WITH SCHEMA \"{}\" (safe)", s),
+                None => "CREATE EXTENSION (safe)".to_string(),
+            };
+            ("+", format!("ext:{}", name), annotation)
+        }
         Change::DropExtension { name } => (
             "-",
             format!("ext:{}", name),

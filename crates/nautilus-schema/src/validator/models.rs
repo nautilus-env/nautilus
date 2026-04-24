@@ -217,7 +217,7 @@ impl SchemaValidator {
 
                         if !declared_extensions
                             .iter()
-                            .any(|ext| ext == required_extension)
+                            .any(|ext| ext.name == required_extension)
                         {
                             self.warnings.push_back(SchemaError::Warning(
                                 format!(

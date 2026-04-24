@@ -984,6 +984,12 @@ fn datasource_extension_value_completions(
                     Some("Known PostgreSQL extension".to_string()),
                 )
             })
+            .chain(std::iter::once(CompletionItem::with_snippet(
+                "extension(name = .., schema = ..)",
+                "extension(name = ${1:pg_trgm}, schema = \"${2:public}\")",
+                CompletionKind::Keyword,
+                Some("Structured extension entry with an explicit target schema".to_string()),
+            )))
             .collect(),
         ExtensionsValueMode::None => Vec::new(),
     }
@@ -1013,6 +1019,12 @@ fn datasource_extension_array_item_completions(
                     Some("Known PostgreSQL extension".to_string()),
                 )
             })
+            .chain(std::iter::once(CompletionItem::with_snippet(
+                "extension(name = .., schema = ..)",
+                "extension(name = ${1:pg_trgm}, schema = \"${2:public}\")",
+                CompletionKind::Keyword,
+                Some("Structured extension entry with an explicit target schema".to_string()),
+            )))
             .collect(),
     )
 }

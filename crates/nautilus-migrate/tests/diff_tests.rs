@@ -1264,7 +1264,7 @@ model Doc { id Int @id }
     assert!(
         changes
             .iter()
-            .any(|c| matches!(c, Change::CreateExtension { name } if name == "pg_trgm")),
+            .any(|c| matches!(c, Change::CreateExtension { name, .. } if name == "pg_trgm")),
         "expected CreateExtension(pg_trgm): {changes:?}"
     );
 }
@@ -1281,8 +1281,13 @@ model Doc { id Int @id }
 "#;
     let target = common::parse(source).unwrap();
     let mut live = LiveSchema::default();
-    live.extensions
-        .insert("pg_trgm".to_string(), "1.6".to_string());
+    live.extensions.insert(
+        "pg_trgm".to_string(),
+        nautilus_migrate::LiveExtension {
+            version: "1.6".to_string(),
+            schema: "public".to_string(),
+        },
+    );
 
     let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
 
@@ -1308,15 +1313,20 @@ model Doc { id Int @id }
 "#;
     let target = common::parse(source).unwrap();
     let mut live = LiveSchema::default();
-    live.extensions
-        .insert("pg_trgm".to_string(), "1.6".to_string());
+    live.extensions.insert(
+        "pg_trgm".to_string(),
+        nautilus_migrate::LiveExtension {
+            version: "1.6".to_string(),
+            schema: "public".to_string(),
+        },
+    );
 
     let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
 
     assert!(
         changes
             .iter()
-            .any(|c| matches!(c, Change::CreateExtension { name } if name == "pgcrypto")),
+            .any(|c| matches!(c, Change::CreateExtension { name, .. } if name == "pgcrypto")),
         "declared missing extensions should still be created: {changes:?}"
     );
     assert!(
@@ -1340,10 +1350,20 @@ model Doc { id Int @id }
 "#;
     let target = common::parse(source).unwrap();
     let mut live = LiveSchema::default();
-    live.extensions
-        .insert("pg_trgm".to_string(), "1.6".to_string());
-    live.extensions
-        .insert("pgcrypto".to_string(), "1.3".to_string());
+    live.extensions.insert(
+        "pg_trgm".to_string(),
+        nautilus_migrate::LiveExtension {
+            version: "1.6".to_string(),
+            schema: "public".to_string(),
+        },
+    );
+    live.extensions.insert(
+        "pgcrypto".to_string(),
+        nautilus_migrate::LiveExtension {
+            version: "1.3".to_string(),
+            schema: "public".to_string(),
+        },
+    );
     // Stub in the live Doc table so only extension state is compared.
     live.tables.insert(
         "Doc".to_string(),

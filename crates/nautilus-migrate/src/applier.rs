@@ -8,7 +8,9 @@
 
 use std::collections::HashSet;
 
-use nautilus_schema::ir::{DefaultValue, FieldIr, ModelIr, ResolvedFieldType, SchemaIr};
+use nautilus_schema::ir::{
+    DefaultValue, FieldIr, ModelIr, PostgresExtensionIr, ResolvedFieldType, SchemaIr,
+};
 
 use crate::ddl::{DatabaseProvider, DdlGenerator};
 use crate::diff::Change;
@@ -486,11 +488,15 @@ impl<'a> DiffApplier<'a> {
                 Ok(vec![format!("DROP TYPE IF EXISTS {}", self.type_q(name))])
             }
 
-            Change::CreateExtension { name } => {
+            Change::CreateExtension { name, schema } => {
                 if !strategy.supports_user_defined_types() {
                     return Ok(vec![]);
                 }
-                Ok(vec![self.ddl.generate_create_extension(name)])
+                let ext = PostgresExtensionIr {
+                    name: name.clone(),
+                    schema: schema.clone(),
+                };
+                Ok(vec![self.ddl.generate_create_extension(&ext)])
             }
 
             Change::DropExtension { name } => {

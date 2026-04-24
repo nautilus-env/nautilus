@@ -1,7 +1,9 @@
 //! Schema diff engine — compares a [`LiveSchema`] snapshot against a target
 //! [`SchemaIr`] and returns a list of [`Change`]s that need to be applied.
 
-use nautilus_schema::ir::{FieldIr, IndexType, ModelIr, ResolvedFieldType, SchemaIr};
+use nautilus_schema::ir::{
+    FieldIr, IndexType, ModelIr, PostgresExtensionIr, ResolvedFieldType, SchemaIr,
+};
 use nautilus_schema::{Lexer, Span, TokenKind};
 
 use crate::ddl::{DatabaseProvider, DdlGenerator};
@@ -178,6 +180,9 @@ pub enum Change {
     CreateExtension {
         /// Extension name (lower-cased, as it appears in `pg_extension.extname`).
         name: String,
+        /// Optional schema qualifier. When `Some`, the emitted DDL will include
+        /// `WITH SCHEMA "<schema>"`.
+        schema: Option<String>,
     },
 
     /// A PostgreSQL extension is installed in the live database but is no
@@ -405,7 +410,7 @@ impl SchemaDiff {
         let mut post_type_changes: Vec<Change> = Vec::new();
 
         if provider == DatabaseProvider::Postgres {
-            let target_extensions: &[String] = target
+            let target_extensions: &[PostgresExtensionIr] = target
                 .datasource
                 .as_ref()
                 .map(|d| d.extensions.as_slice())
@@ -415,11 +420,14 @@ impl SchemaDiff {
                 .as_ref()
                 .is_some_and(|d| d.preserve_extensions);
             let target_extensions_set: std::collections::HashSet<&str> =
-                target_extensions.iter().map(String::as_str).collect();
+                target_extensions.iter().map(|e| e.name.as_str()).collect();
 
             for ext in target_extensions {
-                if !live.extensions.contains_key(ext) {
-                    pre_type_changes.push(Change::CreateExtension { name: ext.clone() });
+                if !live.extensions.contains_key(&ext.name) {
+                    pre_type_changes.push(Change::CreateExtension {
+                        name: ext.name.clone(),
+                        schema: ext.schema.clone(),
+                    });
                 }
             }
 

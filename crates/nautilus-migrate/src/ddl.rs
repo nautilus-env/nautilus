@@ -3,7 +3,7 @@ use crate::provider::{CreateIndex, ProviderStrategy};
 use nautilus_schema::ast::StorageStrategy;
 use nautilus_schema::ir::{
     CompositeFieldIr, CompositeTypeIr, ComputedKind, DefaultValue, EnumIr, FieldIr, IndexType,
-    ModelIr, ResolvedFieldType, ScalarType, SchemaIr,
+    ModelIr, PostgresExtensionIr, ResolvedFieldType, ScalarType, SchemaIr,
 };
 
 /// Generates DDL (Data Definition Language) SQL from schema IR
@@ -327,19 +327,28 @@ impl DdlGenerator {
     ///
     /// The extension name is quoted with double quotes because some common
     /// names contain hyphens (e.g. `uuid-ossp`) which cannot appear in an
-    /// unquoted identifier.
-    pub(crate) fn generate_create_extension(&self, name: &str) -> String {
-        format!(
-            "CREATE EXTENSION IF NOT EXISTS \"{}\"",
-            name.replace('"', "\"\"")
-        )
+    /// unquoted identifier. When a target schema is provided, emit
+    /// `WITH SCHEMA "<schema>"` so the extension is installed in that namespace
+    /// rather than the default (`public`).
+    pub(crate) fn generate_create_extension(&self, ext: &PostgresExtensionIr) -> String {
+        let name = ext.name.replace('"', "\"\"");
+        match ext.schema.as_deref() {
+            Some(schema) => format!(
+                "CREATE EXTENSION IF NOT EXISTS \"{}\" WITH SCHEMA \"{}\"",
+                name,
+                schema.replace('"', "\"\"")
+            ),
+            None => format!("CREATE EXTENSION IF NOT EXISTS \"{}\"", name),
+        }
     }
 
     /// Generate DROP EXTENSION IF EXISTS for a PostgreSQL extension.
     ///
     /// Intentionally **does not** use CASCADE: if objects still depend on the
     /// extension we want the DROP to fail loudly rather than silently destroy
-    /// dependent columns or indexes.
+    /// dependent columns or indexes. `CASCADE` is the explicit default (`false`)
+    /// so users have to opt out — any future "cascade" knob should preserve
+    /// that safety-first behaviour.
     pub(crate) fn generate_drop_extension(&self, name: &str) -> String {
         format!("DROP EXTENSION IF EXISTS \"{}\"", name.replace('"', "\"\""))
     }

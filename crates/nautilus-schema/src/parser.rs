@@ -709,7 +709,7 @@ impl<'a> Parser<'a> {
 
                     let mut args = Vec::new();
                     while !self.check(TokenKind::RParen) && !self.is_at_end() {
-                        args.push(self.parse_expr()?);
+                        args.push(self.parse_call_argument()?);
                         if self.check(TokenKind::Comma) {
                             self.advance();
                         }
@@ -734,6 +734,30 @@ impl<'a> Parser<'a> {
                 self.current_span(),
             )),
         }
+    }
+
+    /// Parses a single function-call argument.
+    ///
+    /// Supports two forms:
+    /// - positional: any `parse_expr` value;
+    /// - named: `ident = expr`, emitted as [`Expr::NamedArg`]. This is what
+    ///   the structured `extension(name = ..., schema = ...)` datasource
+    ///   entry relies on.
+    fn parse_call_argument(&mut self) -> Result<Expr> {
+        if let Some(TokenKind::Ident(_)) = self.peek_kind() {
+            if matches!(self.peek_kind_at(1), Some(TokenKind::Equal)) {
+                let name = self.parse_ident()?;
+                self.expect(TokenKind::Equal)?;
+                let value = self.parse_expr()?;
+                let span = name.span.merge(value.span());
+                return Ok(Expr::NamedArg {
+                    name,
+                    value: Box::new(value),
+                    span,
+                });
+            }
+        }
+        self.parse_expr()
     }
 
     /// Parses an array expression [a, b, c].
@@ -840,6 +864,14 @@ impl<'a> Parser<'a> {
     /// Peeks at the current token kind.
     fn peek_kind(&self) -> Option<TokenKind> {
         self.tokens.get(self.pos).map(|t| t.kind.clone())
+    }
+
+    /// Peeks at the token kind `offset` positions ahead of the cursor.
+    ///
+    /// Used for single-token lookahead (e.g. deciding whether an identifier
+    /// followed by `=` should be parsed as a named function-call argument).
+    fn peek_kind_at(&self, offset: usize) -> Option<TokenKind> {
+        self.tokens.get(self.pos + offset).map(|t| t.kind.clone())
     }
 
     /// Advances to the next token, returns current token.

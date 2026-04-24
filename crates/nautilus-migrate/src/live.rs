@@ -20,12 +20,26 @@ pub struct LiveSchema {
     pub composite_types: HashMap<String, LiveCompositeType>,
     /// PostgreSQL extensions currently installed in the live database.
     ///
-    /// Keyed on the extension name (lower-case), value is the installed
-    /// version string as reported by `pg_extension.extversion`. The built-in
-    /// `plpgsql` extension is excluded because it is present in every cluster
-    /// by default and not something users declare.
-    /// Empty for non-Postgres providers.
-    pub extensions: HashMap<String, String>,
+    /// Keyed on the extension name (lower-case). The built-in `plpgsql`
+    /// extension is excluded because it is present in every cluster by default
+    /// and not something users declare. Empty for non-Postgres providers.
+    pub extensions: HashMap<String, LiveExtension>,
+}
+
+/// State of a single PostgreSQL extension as installed in the live database.
+///
+/// Populated from `pg_extension` joined with `pg_namespace`. We carry both the
+/// version (from `extversion`) and the containing schema name (from
+/// `extnamespace -> nspname`) so `db pull` can round-trip structured
+/// declarations and the diff can reason about schema placement in future
+/// iterations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveExtension {
+    /// Installed version string (`pg_extension.extversion`).
+    pub version: String,
+    /// Schema in which the extension is installed
+    /// (`pg_namespace.nspname` for `pg_extension.extnamespace`).
+    pub schema: String,
 }
 
 /// A composite type in the live database.

@@ -491,6 +491,7 @@ Property settings:
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn infers_java_home_when_tool_already_lives_in_bin_directory() {
         let tool_path = std::path::Path::new(r"C:\Program Files\Java\jdk-24\bin\javac.exe");
@@ -503,11 +504,38 @@ Property settings:
         );
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn infers_java_home_when_tool_already_lives_in_bin_directory() {
+        let tool_path = std::path::Path::new("/opt/jdk-24/bin/javac");
+
+        assert_eq!(
+            infer_java_home_from_path(tool_path)
+                .expect("java home should be inferred")
+                .to_string_lossy(),
+            "/opt/jdk-24"
+        );
+    }
+
+    #[cfg(windows)]
     #[test]
     fn finds_tool_in_directory_with_windows_candidate_names() {
         let temp = tempfile::TempDir::new().expect("temp dir");
         let tool_path = temp.path().join("jar.exe");
         std::fs::write(&tool_path, b"stub").expect("write jar.exe");
+
+        assert_eq!(
+            find_tool_in_dir("jar", temp.path()).expect("jar should be found"),
+            tool_path
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn finds_tool_in_directory_with_unix_candidate_names() {
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let tool_path = temp.path().join("jar");
+        std::fs::write(&tool_path, b"stub").expect("write jar");
 
         assert_eq!(
             find_tool_in_dir("jar", temp.path()).expect("jar should be found"),

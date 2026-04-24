@@ -60,6 +60,22 @@ impl Default for SchemaIr {
     }
 }
 
+/// A single PostgreSQL extension declaration, as it appears in the validated IR.
+///
+/// Supports both the shorthand syntax (`pg_trgm`, `"uuid-ossp"`) and the
+/// structured form (`extension(name = vector, schema = "extensions")`). The
+/// shorthand produces entries with `schema = None`, meaning "install in the
+/// PostgreSQL default search path".
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PostgresExtensionIr {
+    /// Extension name as it appears in `pg_extension.extname` (lower-cased).
+    pub name: String,
+    /// Optional target schema. When `Some`, the DDL emits
+    /// `CREATE EXTENSION ... WITH SCHEMA "<schema>"` and `db pull` round-trips
+    /// the declaration as a structured entry.
+    pub schema: Option<String>,
+}
+
 /// Validated datasource configuration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DatasourceIr {
@@ -77,9 +93,9 @@ pub struct DatasourceIr {
     pub direct_url: Option<String>,
     /// PostgreSQL extensions declared in the datasource block.
     ///
-    /// Names are lower-cased, deduplicated and sorted for stable output.
+    /// Entries are deduplicated by name and sorted for stable output.
     /// Empty for non-Postgres providers (enforced by the validator).
-    pub extensions: Vec<String>,
+    pub extensions: Vec<PostgresExtensionIr>,
     /// Preserve PostgreSQL extensions that are installed in the live database
     /// but not listed in [`extensions`](Self::extensions).
     ///

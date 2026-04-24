@@ -299,7 +299,7 @@ impl MigrationExecutor {
                 }
             }
 
-            Change::CreateExtension { name } => {
+            Change::CreateExtension { name, .. } => {
                 if strategy.supports_user_defined_types() {
                     vec![format!(
                         "DROP EXTENSION IF EXISTS \"{}\"",

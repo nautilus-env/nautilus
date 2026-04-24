@@ -1010,8 +1010,59 @@ model User { id Int @id }
     let ds = ir.datasource.expect("datasource IR");
     // Extensions are normalized to lower-case and sorted alphabetically;
     // '_' (0x5F) sorts before 'c' (0x63), so "pg_trgm" < "pgcrypto".
-    assert_eq!(ds.extensions, vec!["pg_trgm", "pgcrypto", "uuid-ossp"]);
+    let names: Vec<&str> = ds.extensions.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, vec!["pg_trgm", "pgcrypto", "uuid-ossp"]);
+    assert!(ds.extensions.iter().all(|e| e.schema.is_none()));
     assert!(!ds.preserve_extensions);
+}
+
+#[test]
+fn test_datasource_structured_extension_with_schema_is_captured_in_ir() {
+    let source = r#"
+datasource db {
+  provider   = "postgresql"
+  url        = "postgres://localhost/test"
+  extensions = [pg_trgm, extension(name = "uuid-ossp", schema = "ext")]
+}
+
+model User { id Int @id }
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).expect("structured extension entry should validate");
+    let ds = ir.datasource.expect("datasource IR");
+    let rendered: Vec<(String, Option<String>)> = ds
+        .extensions
+        .iter()
+        .map(|e| (e.name.clone(), e.schema.clone()))
+        .collect();
+    assert_eq!(
+        rendered,
+        vec![
+            ("pg_trgm".to_string(), None),
+            ("uuid-ossp".to_string(), Some("ext".to_string())),
+        ]
+    );
+}
+
+#[test]
+fn test_datasource_structured_extension_rejects_unknown_argument() {
+    let source = r#"
+datasource db {
+  provider   = "postgresql"
+  url        = "postgres://localhost/test"
+  extensions = [extension(name = "vector", cascade = true)]
+}
+
+model User { id Int @id }
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        nautilus_schema::SchemaError::Validation(msg, _) => {
+            assert!(msg.contains("cascade"), "unexpected message: {msg}");
+        }
+        other => panic!("expected validation error, got {other:?}"),
+    }
 }
 
 #[test]
@@ -1029,7 +1080,8 @@ model User { id Int @id }
     let ast = parse(source).unwrap();
     let ir = validate_schema(ast).expect("preserve_extensions should validate");
     let ds = ir.datasource.expect("datasource IR");
-    assert_eq!(ds.extensions, vec!["pg_trgm"]);
+    let names: Vec<&str> = ds.extensions.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, vec!["pg_trgm"]);
     assert!(ds.preserve_extensions);
 }
 
