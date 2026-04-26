@@ -253,6 +253,8 @@ impl<'a> Parser<'a> {
             "Citext" => FieldType::Citext,
             "Hstore" => FieldType::Hstore,
             "Ltree" => FieldType::Ltree,
+            "Geometry" => FieldType::Geometry,
+            "Geography" => FieldType::Geography,
             "Vector" => {
                 self.expect(TokenKind::LParen)?;
                 let dimension = self.parse_number()?.parse::<u32>().map_err(|_| {

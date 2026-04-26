@@ -175,13 +175,21 @@ pub(super) fn parse_field_operators(
     };
 
     for (op, value) in operators {
-        if is_vector_field(field_type)
+        if is_opaque_postgres_scalar_field(field_type)
             && !matches!(op.as_str(), "eq" | "ne" | "not" | "isNull" | "isNotNull")
         {
-            return Err(ProtocolError::InvalidFilter(format!(
-                "Operator '{}' is not supported for Vector fields; use equality/null filters or vector similarity search",
-                op
-            )));
+            let message = if is_vector_field(field_type) {
+                format!(
+                    "Operator '{}' is not supported for Vector fields; use equality/null filters or vector similarity search",
+                    op
+                )
+            } else {
+                format!(
+                    "Operator '{}' is not supported for this field type; use equality/null filters",
+                    op
+                )
+            };
+            return Err(ProtocolError::InvalidFilter(format!("{}", message)));
         }
 
         let condition = match op.as_str() {
@@ -293,6 +301,10 @@ pub(super) fn parse_field_operators(
     }
 
     combine_conditions(conditions, BinaryOp::And)
+}
+
+fn is_opaque_postgres_scalar_field(field_type: Option<&ResolvedFieldType>) -> bool {
+    matches!(field_type, Some(ResolvedFieldType::Scalar(s)) if s.is_vector() || s.is_postgis())
 }
 
 fn is_vector_field(field_type: Option<&ResolvedFieldType>) -> bool {

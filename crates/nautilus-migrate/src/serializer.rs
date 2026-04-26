@@ -504,6 +504,14 @@ fn infer_nautilus_type(
         return format!("Vector({})", dimension);
     }
 
+    if t == "geometry" || t.starts_with("geometry(") {
+        return "Geometry".to_string();
+    }
+
+    if t == "geography" || t.starts_with("geography(") {
+        return "Geography".to_string();
+    }
+
     if let Some(length) =
         parse_sized_type_length(&t, "char(").or_else(|| parse_sized_type_length(&t, "character("))
     {
@@ -518,6 +526,8 @@ fn infer_nautilus_type(
         "citext" => "Citext".to_string(),
         "hstore" => "Hstore".to_string(),
         "ltree" => "Ltree".to_string(),
+        "geometry" => "Geometry".to_string(),
+        "geography" => "Geography".to_string(),
         t if t.starts_with("varchar") || t.starts_with("character varying") => "String".to_string(),
         "uuid" | "char(36)" => "Uuid".to_string(),
         t if t.starts_with("char(") && !t.starts_with("char(36") => "String".to_string(),

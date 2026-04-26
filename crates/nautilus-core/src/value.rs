@@ -5,6 +5,98 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// PostGIS `geometry` value represented as textual WKT/EWKT or EWKB hex.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Geometry(String);
+
+impl Geometry {
+    /// Create a geometry value from its textual representation.
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// Borrow the underlying textual representation.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume the wrapper and return the underlying textual representation.
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl From<String> for Geometry {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for Geometry {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl AsRef<str> for Geometry {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for Geometry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// PostGIS `geography` value represented as textual WKT/EWKT or EWKB hex.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Geography(String);
+
+impl Geography {
+    /// Create a geography value from its textual representation.
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// Borrow the underlying textual representation.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume the wrapper and return the underlying textual representation.
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl From<String> for Geography {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for Geography {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl AsRef<str> for Geography {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for Geography {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Database value type.
 ///
 /// Implements custom JSON serialization for cross-language compatibility:
@@ -34,6 +126,10 @@ pub enum Value {
     Json(serde_json::Value),
     /// PostgreSQL hstore key/value map.
     Hstore(BTreeMap<String, Option<String>>),
+    /// PostgreSQL PostGIS geometry value.
+    Geometry(String),
+    /// PostgreSQL PostGIS geography value.
+    Geography(String),
     /// PostgreSQL pgvector dense embedding vector.
     Vector(Vec<f32>),
     /// String.
@@ -71,6 +167,8 @@ enum SerdeValue {
     Uuid(String),
     Json(serde_json::Value),
     Hstore(BTreeMap<String, Option<String>>),
+    Geometry(String),
+    Geography(String),
     Vector(Vec<f32>),
     String(String),
     Bytes(String),
@@ -104,6 +202,8 @@ impl From<&Value> for SerdeValue {
             Value::Uuid(v) => SerdeValue::Uuid(v.to_string()),
             Value::Json(v) => SerdeValue::Json(v.clone()),
             Value::Hstore(v) => SerdeValue::Hstore(v.clone()),
+            Value::Geometry(v) => SerdeValue::Geometry(v.clone()),
+            Value::Geography(v) => SerdeValue::Geography(v.clone()),
             Value::Vector(v) => SerdeValue::Vector(v.clone()),
             Value::String(v) => SerdeValue::String(v.clone()),
             Value::Bytes(v) => {
@@ -139,6 +239,8 @@ impl TryFrom<SerdeValue> for Value {
                 .map_err(|e| format!("invalid uuid '{}': {}", raw, e)),
             SerdeValue::Json(v) => Ok(Value::Json(v)),
             SerdeValue::Hstore(v) => Ok(Value::Hstore(v)),
+            SerdeValue::Geometry(v) => Ok(Value::Geometry(v)),
+            SerdeValue::Geography(v) => Ok(Value::Geography(v)),
             SerdeValue::Vector(v) => Ok(Value::Vector(v)),
             SerdeValue::String(v) => Ok(Value::String(v)),
             SerdeValue::Bytes(raw) => {
@@ -215,6 +317,18 @@ impl From<BTreeMap<String, Option<String>>> for Value {
     }
 }
 
+impl From<Geometry> for Value {
+    fn from(v: Geometry) -> Self {
+        Value::Geometry(v.into_inner())
+    }
+}
+
+impl From<Geography> for Value {
+    fn from(v: Geography) -> Self {
+        Value::Geography(v.into_inner())
+    }
+}
+
 impl From<Vec<f32>> for Value {
     fn from(v: Vec<f32>) -> Self {
         Value::Vector(v)
@@ -270,6 +384,8 @@ impl_vec_from!(
     f64,
     bool,
     String,
+    Geometry,
+    Geography,
     BTreeMap<String, Option<String>>,
     rust_decimal::Decimal,
     uuid::Uuid,
@@ -299,6 +415,8 @@ impl_option_from!(
     f64,
     String,
     Vec<f32>,
+    Geometry,
+    Geography,
     BTreeMap<String, Option<String>>,
     rust_decimal::Decimal,
     uuid::Uuid,
@@ -344,6 +462,7 @@ impl Value {
                     })
                     .collect(),
             ),
+            Value::Geometry(v) | Value::Geography(v) => serde_json::Value::String(v.clone()),
             Value::Vector(v) => serde_json::Value::Array(
                 v.iter()
                     .map(|item| {

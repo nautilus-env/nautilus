@@ -20,7 +20,10 @@ impl LanguageBackend for PythonBackend {
             ScalarType::Bytes => "bytes",
             ScalarType::Json => "JsonValue",
             ScalarType::Uuid => "UUID",
-            ScalarType::Citext | ScalarType::Ltree => "str",
+            ScalarType::Citext
+            | ScalarType::Ltree
+            | ScalarType::Geometry
+            | ScalarType::Geography => "str",
             ScalarType::Hstore => "HstoreValue",
             ScalarType::Vector { .. } => "List[float]",
             ScalarType::Jsonb => "JsonValue",

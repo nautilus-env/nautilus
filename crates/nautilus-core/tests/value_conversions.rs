@@ -4,7 +4,7 @@
 
 use core::f64;
 
-use nautilus_core::Value;
+use nautilus_core::{Geography, Geometry, Value};
 
 #[test]
 fn from_bool() {
@@ -55,6 +55,18 @@ fn from_json_value() {
     let json = serde_json::json!({"key": "value"});
     let v = Value::from(json.clone());
     assert_eq!(v, Value::Json(json));
+}
+
+#[test]
+fn from_postgis_spatial_newtypes() {
+    assert_eq!(
+        Value::from(Geometry::from("POINT(1 2)")),
+        Value::Geometry("POINT(1 2)".to_string())
+    );
+    assert_eq!(
+        Value::from(Geography::from("SRID=4326;POINT(1 2)")),
+        Value::Geography("SRID=4326;POINT(1 2)".to_string())
+    );
 }
 
 #[test]

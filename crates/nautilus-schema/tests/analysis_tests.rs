@@ -323,6 +323,7 @@ fn completion_inside_datasource_extensions_value_suggests_known_extensions() {
         "missing uuid-ossp: {:?}",
         labels
     );
+    assert!(labels.contains(&"postgis"), "missing postgis: {:?}", labels);
 
     let uuid_ossp = items
         .iter()
@@ -397,7 +398,7 @@ model User {
     let items = completion(src, offset);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
 
-    for ty in &["Citext", "Hstore", "Ltree"] {
+    for ty in &["Citext", "Hstore", "Ltree", "Geometry", "Geography"] {
         assert!(labels.contains(ty), "missing type '{}': {:?}", ty, labels);
     }
 }
@@ -418,7 +419,7 @@ model User {
     let items = completion(src, offset);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
 
-    for ty in &["Citext", "Hstore", "Ltree"] {
+    for ty in &["Citext", "Hstore", "Ltree", "Geometry", "Geography"] {
         assert!(
             !labels.contains(ty),
             "unexpected type '{}': {:?}",

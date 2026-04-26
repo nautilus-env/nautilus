@@ -13,6 +13,8 @@ impl LanguageBackend for JavaBackend {
             ScalarType::String
             | ScalarType::Citext
             | ScalarType::Ltree
+            | ScalarType::Geometry
+            | ScalarType::Geography
             | ScalarType::Xml
             | ScalarType::Char { .. }
             | ScalarType::VarChar { .. } => "String",

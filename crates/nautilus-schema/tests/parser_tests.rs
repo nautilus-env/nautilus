@@ -157,13 +157,15 @@ model AllTypes {
   citext   Citext
   hstore   Hstore
   ltree    Ltree
+  geom     Geometry
+  geog     Geography
   vector   Vector(1536)
 }
 "#;
 
     let schema = parse(source).unwrap();
     let model = schema.models().next().unwrap();
-    assert_eq!(model.fields.len(), 14);
+    assert_eq!(model.fields.len(), 16);
 
     assert!(matches!(model.fields[0].field_type, FieldType::String));
     assert!(matches!(model.fields[1].field_type, FieldType::Boolean));
@@ -184,8 +186,10 @@ model AllTypes {
     assert!(matches!(model.fields[10].field_type, FieldType::Citext));
     assert!(matches!(model.fields[11].field_type, FieldType::Hstore));
     assert!(matches!(model.fields[12].field_type, FieldType::Ltree));
+    assert!(matches!(model.fields[13].field_type, FieldType::Geometry));
+    assert!(matches!(model.fields[14].field_type, FieldType::Geography));
     assert!(matches!(
-        model.fields[13].field_type,
+        model.fields[15].field_type,
         FieldType::Vector { dimension: 1536 }
     ));
 }

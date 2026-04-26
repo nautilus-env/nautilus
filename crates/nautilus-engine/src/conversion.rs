@@ -30,6 +30,10 @@ pub enum ValueHint {
     Json,
     /// Parse textual values into [`Value::Uuid`].
     Uuid,
+    /// Wrap textual values as [`Value::Geometry`].
+    Geometry,
+    /// Wrap textual values as [`Value::Geography`].
+    Geography,
 }
 
 /// Convert a JSON value to a [`Value`] for use in queries.
@@ -108,6 +112,12 @@ pub fn json_to_value_field(
     }
     if let ResolvedFieldType::Scalar(ScalarType::Vector { dimension }) = field_type {
         return json_to_vector_value(json, *dimension);
+    }
+    if let ResolvedFieldType::Scalar(ScalarType::Geometry) = field_type {
+        return json_to_geometry_value(json);
+    }
+    if let ResolvedFieldType::Scalar(ScalarType::Geography) = field_type {
+        return json_to_geography_value(json);
     }
     json_to_value(json)
 }
@@ -330,6 +340,42 @@ fn json_to_vector_value(json: &serde_json::Value, dimension: u32) -> Result<Valu
     }
 }
 
+fn json_to_geometry_value(json: &serde_json::Value) -> Result<Value, ProtocolError> {
+    json_to_spatial_value(json, "Geometry", Value::Geometry)
+}
+
+fn json_to_geography_value(json: &serde_json::Value) -> Result<Value, ProtocolError> {
+    json_to_spatial_value(json, "Geography", Value::Geography)
+}
+
+fn json_to_spatial_value(
+    json: &serde_json::Value,
+    type_name: &str,
+    wrap: fn(String) -> Value,
+) -> Result<Value, ProtocolError> {
+    match json {
+        serde_json::Value::Null => Ok(Value::Null),
+        serde_json::Value::String(raw) => Ok(wrap(raw.clone())),
+        serde_json::Value::Array(items) => {
+            let mut values = Vec::with_capacity(items.len());
+            for (idx, item) in items.iter().enumerate() {
+                let Some(raw) = item.as_str() else {
+                    return Err(ProtocolError::InvalidParams(format!(
+                        "{} arrays must contain only strings; element {} was {:?}",
+                        type_name, idx, item
+                    )));
+                };
+                values.push(wrap(raw.to_string()));
+            }
+            Ok(Value::Array(values))
+        }
+        other => Err(ProtocolError::InvalidParams(format!(
+            "{} values must be strings containing WKT/EWKT or EWKB hex, got {:?}",
+            type_name, other
+        ))),
+    }
+}
+
 fn normalize_value_with_hint(
     column: &str,
     index: usize,
@@ -345,6 +391,8 @@ fn normalize_value_with_hint(
         ValueHint::DateTime => normalize_datetime_value(column, index, value),
         ValueHint::Json => normalize_json_value(column, index, value),
         ValueHint::Uuid => normalize_uuid_value(column, index, value),
+        ValueHint::Geometry => normalize_geometry_value(column, index, value),
+        ValueHint::Geography => normalize_geography_value(column, index, value),
     }
 }
 
@@ -402,6 +450,40 @@ fn normalize_uuid_value(column: &str, index: usize, value: Value) -> Result<Valu
     }
 }
 
+fn normalize_geometry_value(
+    column: &str,
+    index: usize,
+    value: Value,
+) -> Result<Value, ProtocolError> {
+    match value {
+        Value::Geometry(raw) => Ok(Value::Geometry(raw)),
+        Value::String(raw) => Ok(Value::Geometry(raw)),
+        other => Err(invalid_hint_value(
+            column,
+            index,
+            ValueHint::Geometry,
+            other,
+        )),
+    }
+}
+
+fn normalize_geography_value(
+    column: &str,
+    index: usize,
+    value: Value,
+) -> Result<Value, ProtocolError> {
+    match value {
+        Value::Geography(raw) => Ok(Value::Geography(raw)),
+        Value::String(raw) => Ok(Value::Geography(raw)),
+        other => Err(invalid_hint_value(
+            column,
+            index,
+            ValueHint::Geography,
+            other,
+        )),
+    }
+}
+
 fn parse_decimal(column: &str, index: usize, raw: &str) -> Result<Value, ProtocolError> {
     rust_decimal::Decimal::from_str(raw)
         .map(Value::Decimal)
@@ -439,5 +521,7 @@ fn hint_name(hint: ValueHint) -> &'static str {
         ValueHint::DateTime => "DateTime",
         ValueHint::Json => "Json",
         ValueHint::Uuid => "Uuid",
+        ValueHint::Geometry => "Geometry",
+        ValueHint::Geography => "Geography",
     }
 }

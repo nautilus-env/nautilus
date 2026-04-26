@@ -60,7 +60,7 @@ fn test_generate_postgres_ddl_with_extension_backed_scalar_types() {
 datasource db {
   provider   = "postgresql"
   url        = "postgres://localhost/test"
-  extensions = [citext, hstore, ltree]
+  extensions = [citext, hstore, ltree, postgis]
 }
 
 model User {
@@ -68,6 +68,8 @@ model User {
   email Citext
   meta  Hstore
   path  Ltree
+  geom  Geometry
+  geog  Geography
 }
 "#;
     let ir = common::parse(source).unwrap();
@@ -90,6 +92,16 @@ model User {
         table_stmt
     );
     assert!(table_stmt.contains("\"path\" LTREE"), "sql: {}", table_stmt);
+    assert!(
+        table_stmt.contains("\"geom\" GEOMETRY"),
+        "sql: {}",
+        table_stmt
+    );
+    assert!(
+        table_stmt.contains("\"geog\" GEOGRAPHY"),
+        "sql: {}",
+        table_stmt
+    );
 }
 
 #[test]

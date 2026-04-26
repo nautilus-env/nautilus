@@ -229,7 +229,7 @@ DDL, and `db pull` serializes installed extensions back into the datasource.
 datasource db {
   provider            = "postgresql"
   url                 = env("DATABASE_URL")
-  extensions          = [citext, hstore, ltree, "uuid-ossp"]
+  extensions          = [citext, hstore, ltree, postgis, "uuid-ossp"]
   preserve_extensions = true
 }
 
@@ -238,8 +238,15 @@ model Account {
   email Citext
   meta  Hstore?
   path  Ltree?
+  area  Geometry?
+  geo   Geography?
 }
 ```
+
+For PostGIS, declare the PostgreSQL extension as `postgis` and use `Geometry`
+or `Geography` fields. Client APIs represent these values as text
+WKT/EWKT/EWKB strings; PostgreSQL parameters are cast to `geometry` or
+`geography` during query rendering.
 
 For pgvector, declare the PostgreSQL extension as `vector` and use a sized
 `Vector(dim)` field:

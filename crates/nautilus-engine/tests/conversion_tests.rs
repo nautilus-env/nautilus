@@ -180,6 +180,40 @@ fn json_to_value_field_vector_rejects_wrong_dimension() {
 }
 
 #[test]
+fn json_to_value_field_postgis_spatial_strings() {
+    let geom = json_to_value_field(
+        &json!("POINT(1 2)"),
+        &ResolvedFieldType::Scalar(ScalarType::Geometry),
+    )
+    .unwrap();
+    let geog = json_to_value_field(
+        &json!("SRID=4326;POINT(1 2)"),
+        &ResolvedFieldType::Scalar(ScalarType::Geography),
+    )
+    .unwrap();
+
+    assert_eq!(geom, Value::Geometry("POINT(1 2)".to_string()));
+    assert_eq!(geog, Value::Geography("SRID=4326;POINT(1 2)".to_string()));
+}
+
+#[test]
+fn json_to_value_field_postgis_spatial_array() {
+    let val = json_to_value_field(
+        &json!(["POINT(1 2)", "POINT(3 4)"]),
+        &ResolvedFieldType::Scalar(ScalarType::Geometry),
+    )
+    .unwrap();
+
+    assert_eq!(
+        val,
+        Value::Array(vec![
+            Value::Geometry("POINT(1 2)".to_string()),
+            Value::Geometry("POINT(3 4)".to_string()),
+        ])
+    );
+}
+
+#[test]
 fn rows_to_raw_json_empty() {
     let raw = rows_to_raw_json(&[]).unwrap();
     let parsed: Vec<serde_json::Value> = serde_json::from_str(raw.get()).unwrap();

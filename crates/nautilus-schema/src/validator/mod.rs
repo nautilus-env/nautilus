@@ -26,7 +26,7 @@ const KNOWN_DATASOURCE_FIELDS: &[&str] = &[
     "preserve_extensions",
 ];
 
-/// Curated whitelist of PostgreSQL contrib extensions that Nautilus knows about.
+/// Curated whitelist of PostgreSQL extensions that Nautilus knows about.
 ///
 /// Names outside this list are still accepted (the DDL pipeline will emit
 /// `CREATE EXTENSION IF NOT EXISTS <name>`), but a warning is surfaced so the
@@ -40,6 +40,7 @@ pub(crate) const KNOWN_POSTGRES_EXTENSIONS: &[&str] = &[
     "ltree",
     "pgcrypto",
     "pg_trgm",
+    "postgis",
     "unaccent",
     "uuid-ossp",
     "vector",

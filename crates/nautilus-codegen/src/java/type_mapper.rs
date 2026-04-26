@@ -148,6 +148,8 @@ pub fn is_orderable_field(field: &FieldIr) -> bool {
             | ResolvedFieldType::Scalar(ScalarType::Json)
             | ResolvedFieldType::Scalar(ScalarType::Jsonb)
             | ResolvedFieldType::Scalar(ScalarType::Hstore)
+            | ResolvedFieldType::Scalar(ScalarType::Geometry)
+            | ResolvedFieldType::Scalar(ScalarType::Geography)
             | ResolvedFieldType::Scalar(ScalarType::Vector { .. })
             | ResolvedFieldType::Scalar(ScalarType::Bytes)
     )

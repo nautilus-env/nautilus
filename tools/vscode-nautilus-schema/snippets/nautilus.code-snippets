@@ -17,7 +17,7 @@
       "datasource db {",
       "  provider            = \"postgresql\"",
       "  url                 = env(\"${1:DATABASE_URL}\")",
-      "  extensions          = [${2:vector}]",
+      "  extensions          = [${2:postgis, vector}]",
       "  preserve_extensions = ${3|false,true|}",
       "}"
     ],

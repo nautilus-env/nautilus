@@ -694,6 +694,8 @@ fn field_type_name(ft: &FieldType) -> String {
         FieldType::Citext => "Citext".to_string(),
         FieldType::Hstore => "Hstore".to_string(),
         FieldType::Ltree => "Ltree".to_string(),
+        FieldType::Geometry => "Geometry".to_string(),
+        FieldType::Geography => "Geography".to_string(),
         FieldType::Vector { dimension } => format!("Vector({})", dimension),
         FieldType::Jsonb => "Jsonb".to_string(),
         FieldType::Xml => "Xml".to_string(),
@@ -723,6 +725,12 @@ fn field_type_description(ft: &FieldType) -> &'static str {
         }
         FieldType::Ltree => {
             "Label tree path column (PostgreSQL only). Requires the `ltree` extension and maps to `LTREE`."
+        }
+        FieldType::Geometry => {
+            "Planar spatial column (PostgreSQL only). Requires the `postgis` extension and maps to `GEOMETRY`."
+        }
+        FieldType::Geography => {
+            "Geodetic spatial column (PostgreSQL only). Requires the `postgis` extension and maps to `GEOGRAPHY`."
         }
         FieldType::Vector { .. } => {
             "Dense embedding vector column (PostgreSQL only). Requires the `vector` extension and maps to `VECTOR(n)`."

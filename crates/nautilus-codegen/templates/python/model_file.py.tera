@@ -450,11 +450,10 @@ class {{ delegate_name }}:
                 args["orderBy"] = order_by
             else:
                 args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
-        {% if has_vector_fields %}
+{% if has_vector_fields -%}
         if nearest is not None:
             args["nearest"] = nearest
-        {% endif %}
-        if take is not None:
+{% endif %}        if take is not None:
             args["take"] = take
         if skip is not None:
             args["skip"] = skip

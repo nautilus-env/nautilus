@@ -387,6 +387,10 @@ pub enum FieldType {
     Hstore,
     /// Label tree path type (PostgreSQL + ltree extension).
     Ltree,
+    /// Planar spatial value (PostgreSQL + PostGIS extension).
+    Geometry,
+    /// Geodetic spatial value (PostgreSQL + PostGIS extension).
+    Geography,
     /// Dense embedding vector type (PostgreSQL + pgvector `vector` extension).
     Vector {
         /// Number of vector dimensions.
@@ -428,6 +432,8 @@ impl fmt::Display for FieldType {
             FieldType::Citext => write!(f, "Citext"),
             FieldType::Hstore => write!(f, "Hstore"),
             FieldType::Ltree => write!(f, "Ltree"),
+            FieldType::Geometry => write!(f, "Geometry"),
+            FieldType::Geography => write!(f, "Geography"),
             FieldType::Vector { dimension } => write!(f, "Vector({})", dimension),
             FieldType::Jsonb => write!(f, "Jsonb"),
             FieldType::Xml => write!(f, "Xml"),

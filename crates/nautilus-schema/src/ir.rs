@@ -334,6 +334,10 @@ pub enum ScalarType {
     Hstore,
     /// Label tree path (PostgreSQL + ltree extension).
     Ltree,
+    /// Planar spatial value (PostgreSQL + PostGIS extension).
+    Geometry,
+    /// Geodetic spatial value (PostgreSQL + PostGIS extension).
+    Geography,
     /// Dense embedding vector (PostgreSQL + pgvector `vector` extension).
     Vector {
         /// Number of vector dimensions.
@@ -371,6 +375,8 @@ impl ScalarType {
             ScalarType::Uuid => "uuid::Uuid",
             ScalarType::Citext | ScalarType::Ltree => "String",
             ScalarType::Hstore => "std::collections::BTreeMap<String, Option<String>>",
+            ScalarType::Geometry => "nautilus_core::Geometry",
+            ScalarType::Geography => "nautilus_core::Geography",
             ScalarType::Vector { .. } => "Vec<f32>",
             ScalarType::Jsonb => "serde_json::Value",
             ScalarType::Xml | ScalarType::Char { .. } | ScalarType::VarChar { .. } => "String",
@@ -383,6 +389,8 @@ impl ScalarType {
             ScalarType::Citext
             | ScalarType::Hstore
             | ScalarType::Ltree
+            | ScalarType::Geometry
+            | ScalarType::Geography
             | ScalarType::Vector { .. }
             | ScalarType::Jsonb
             | ScalarType::Xml => provider == DatabaseProvider::Postgres,
@@ -402,6 +410,8 @@ impl ScalarType {
             ScalarType::Citext
             | ScalarType::Hstore
             | ScalarType::Ltree
+            | ScalarType::Geometry
+            | ScalarType::Geography
             | ScalarType::Vector { .. }
             | ScalarType::Jsonb
             | ScalarType::Xml => "PostgreSQL only",
@@ -413,6 +423,11 @@ impl ScalarType {
     /// Returns `true` when this scalar is a pgvector `Vector(dim)`.
     pub fn is_vector(self) -> bool {
         matches!(self, ScalarType::Vector { .. })
+    }
+
+    /// Returns `true` when this scalar is a PostGIS spatial type.
+    pub fn is_postgis(self) -> bool {
+        matches!(self, ScalarType::Geometry | ScalarType::Geography)
     }
 }
 

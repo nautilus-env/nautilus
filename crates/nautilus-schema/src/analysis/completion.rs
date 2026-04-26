@@ -844,6 +844,18 @@ fn scalar_type_completions(provider: Option<&str>) -> Vec<CompletionItem> {
             CompletionKind::Type,
             Some("Label tree path -> LTREE (PostgreSQL + ltree extension)".to_string()),
         ));
+        items.push(CompletionItem::new(
+            "Geometry",
+            CompletionKind::Type,
+            Some("Planar spatial value -> GEOMETRY (PostgreSQL + PostGIS extension)".to_string()),
+        ));
+        items.push(CompletionItem::new(
+            "Geography",
+            CompletionKind::Type,
+            Some(
+                "Geodetic spatial value -> GEOGRAPHY (PostgreSQL + PostGIS extension)".to_string(),
+            ),
+        ));
         items.push(CompletionItem::with_snippet(
             "Vector(dim)",
             "Vector(${1:1536})",

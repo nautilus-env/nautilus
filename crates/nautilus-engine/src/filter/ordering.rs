@@ -37,12 +37,16 @@ pub(super) fn parse_order_by(
                 .is_some_and(|field_type| {
                     matches!(
                         field_type,
-                        ResolvedFieldType::Scalar(ScalarType::Vector { .. })
+                        ResolvedFieldType::Scalar(
+                            ScalarType::Vector { .. }
+                                | ScalarType::Geometry
+                                | ScalarType::Geography
+                        )
                     )
                 })
             {
                 return Err(ProtocolError::InvalidFilter(format!(
-                    "Vector field '{}' cannot be used with classic orderBy; use a vector similarity search API instead",
+                    "Field '{}' cannot be used with classic orderBy because it is not orderable",
                     field
                 )));
             }

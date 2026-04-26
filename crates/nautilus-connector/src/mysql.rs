@@ -210,6 +210,7 @@ pub(crate) fn bind_value<'q>(
         Value::DateTime(dt) => Ok(query.bind(dt.format("%Y-%m-%dT%H:%M:%S%.f").to_string())),
         Value::Uuid(u) => Ok(query.bind(u.to_string())),
         Value::String(s) => Ok(query.bind(s.as_str())),
+        Value::Geometry(raw) | Value::Geography(raw) => Ok(query.bind(raw.as_str())),
         Value::Hstore(_) => Err(Error::database_msg(
             "HSTORE values are only supported on PostgreSQL",
         )),

@@ -788,6 +788,8 @@ impl DdlGenerator {
                 ScalarType::Citext => "CITEXT",
                 ScalarType::Hstore => "HSTORE",
                 ScalarType::Ltree => "LTREE",
+                ScalarType::Geometry => "GEOMETRY",
+                ScalarType::Geography => "GEOGRAPHY",
                 ScalarType::Vector { dimension } => {
                     return Ok(format!("VECTOR({})", dimension));
                 }
@@ -938,6 +940,8 @@ impl DdlGenerator {
             ScalarType::Citext => "CITEXT",
             ScalarType::Hstore => "HSTORE",
             ScalarType::Ltree => "LTREE",
+            ScalarType::Geometry => "GEOMETRY",
+            ScalarType::Geography => "GEOGRAPHY",
             ScalarType::Vector { dimension } => {
                 return Ok(format!("VECTOR({})", dimension));
             }

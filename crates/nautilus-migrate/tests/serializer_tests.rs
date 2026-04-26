@@ -197,6 +197,79 @@ fn serialises_pgvector_columns_with_dimension() {
 }
 
 #[test]
+fn serialises_postgis_columns() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "places".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "geom".to_string(),
+                col_type: "geometry".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "geog".to_string(),
+                col_type: "geography(Point,4326)".to_string(),
+                nullable: true,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+    let schema = common::parse(&out).expect("schema should parse");
+    let model = schema.models.get("Places").expect("Places model missing");
+
+    assert!(
+        out.lines()
+            .any(|line| line.contains("geom") && line.contains("Geometry")),
+        "{out}"
+    );
+    assert!(
+        out.lines()
+            .any(|line| line.contains("geog") && line.contains("Geography")),
+        "{out}"
+    );
+    assert!(matches!(
+        model
+            .fields
+            .iter()
+            .find(|field| field.logical_name == "geom")
+            .expect("geom field missing")
+            .field_type,
+        ResolvedFieldType::Scalar(ScalarType::Geometry)
+    ));
+    assert!(matches!(
+        model
+            .fields
+            .iter()
+            .find(|field| field.logical_name == "geog")
+            .expect("geog field missing")
+            .field_type,
+        ResolvedFieldType::Scalar(ScalarType::Geography)
+    ));
+}
+
+#[test]
 fn serialises_nullable_column() {
     let live = common::make_live_schema(vec![LiveTable {
         name: "posts".to_string(),

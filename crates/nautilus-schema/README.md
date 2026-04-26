@@ -45,7 +45,7 @@ DDL runs:
 datasource db {
   provider            = "postgresql"
   url                 = env("DATABASE_URL")
-  extensions          = [citext, hstore, ltree, "uuid-ossp"]
+  extensions          = [citext, hstore, ltree, postgis, "uuid-ossp"]
   preserve_extensions = true
 }
 ```
@@ -54,7 +54,8 @@ The field is PostgreSQL-only. Entries can be bare identifiers or string
 literals, are normalized to lowercase, and are deduplicated in the validated IR.
 Unknown names produce warnings rather than hard errors so custom extensions can
 still be managed. Extension-backed scalar types currently include `Citext`,
-`Hstore`, `Ltree`, and pgvector's sized `Vector(dim)` (declared with
+`Hstore`, `Ltree`, PostGIS `Geometry`/`Geography` (declared with
+`extensions = [postgis]`), and pgvector's sized `Vector(dim)` (declared with
 `extensions = [vector]`); the validator warns when those types are used without
 the matching datasource extension. By default extension management is declarative:
 extra live extensions are diffed as destructive drops. Set

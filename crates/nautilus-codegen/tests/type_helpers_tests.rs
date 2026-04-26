@@ -203,6 +203,15 @@ fn test_rust_hstore_maps_to_btree_map() {
 }
 
 #[test]
+fn test_rust_postgis_scalars_map_to_spatial_newtypes() {
+    let geom = scalar_field(ScalarType::Geometry, true, false);
+    let geog = scalar_field(ScalarType::Geography, true, false);
+
+    assert_eq!(field_to_rust_type(&geom), "nautilus_core::Geometry");
+    assert_eq!(field_to_rust_type(&geog), "nautilus_core::Geography");
+}
+
+#[test]
 fn test_rust_scalar_decimal() {
     let f = scalar_field(
         ScalarType::Decimal {
@@ -359,6 +368,8 @@ fn test_python_scalar_uuid() {
 fn test_python_extension_backed_postgres_scalars_map_to_str() {
     assert_eq!(scalar_to_python_type(&ScalarType::Citext), "str");
     assert_eq!(scalar_to_python_type(&ScalarType::Ltree), "str");
+    assert_eq!(scalar_to_python_type(&ScalarType::Geometry), "str");
+    assert_eq!(scalar_to_python_type(&ScalarType::Geography), "str");
 }
 
 #[test]
@@ -533,6 +544,15 @@ fn test_filter_operators_for_vector_only_expose_not() {
     let ops = get_filter_operators_for_scalar(&ScalarType::Vector { dimension: 1536 });
     let suffixes: Vec<&str> = ops.iter().map(|o| o.suffix.as_str()).collect();
     assert_eq!(suffixes, vec!["not"]);
+}
+
+#[test]
+fn test_filter_operators_for_postgis_only_expose_not() {
+    for scalar in [ScalarType::Geometry, ScalarType::Geography] {
+        let ops = get_filter_operators_for_scalar(&scalar);
+        let suffixes: Vec<&str> = ops.iter().map(|o| o.suffix.as_str()).collect();
+        assert_eq!(suffixes, vec!["not"]);
+    }
 }
 
 /// Int gets lt / lte / gt / gte / in / not_in / not

@@ -82,6 +82,8 @@ pub(super) fn field_value_hint(field: &FieldIr) -> Option<ValueHint> {
         ResolvedFieldType::Scalar(ScalarType::DateTime) => Some(ValueHint::DateTime),
         ResolvedFieldType::Scalar(ScalarType::Json | ScalarType::Jsonb) => Some(ValueHint::Json),
         ResolvedFieldType::Scalar(ScalarType::Uuid) => Some(ValueHint::Uuid),
+        ResolvedFieldType::Scalar(ScalarType::Geometry) => Some(ValueHint::Geometry),
+        ResolvedFieldType::Scalar(ScalarType::Geography) => Some(ValueHint::Geography),
         ResolvedFieldType::CompositeType { .. }
             if field.storage_strategy == Some(StorageStrategy::Json) =>
         {

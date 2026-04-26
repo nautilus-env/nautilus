@@ -145,7 +145,10 @@ pub trait LanguageBackend {
                     type_name: arr,
                 });
             }
-            ScalarType::Hstore | ScalarType::Vector { .. } => {}
+            ScalarType::Hstore
+            | ScalarType::Geometry
+            | ScalarType::Geography
+            | ScalarType::Vector { .. } => {}
             ScalarType::Int | ScalarType::BigInt => {
                 ops.extend(self.numeric_operators(self.scalar_to_type(scalar)));
             }

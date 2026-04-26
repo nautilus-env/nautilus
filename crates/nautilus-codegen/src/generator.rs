@@ -174,6 +174,12 @@ fn field_read_hint_expr(field: &FieldIr) -> String {
             "Some(crate::ValueHint::Json)".to_string()
         }
         ResolvedFieldType::Scalar(ScalarType::Uuid) => "Some(crate::ValueHint::Uuid)".to_string(),
+        ResolvedFieldType::Scalar(ScalarType::Geometry) => {
+            "Some(crate::ValueHint::Geometry)".to_string()
+        }
+        ResolvedFieldType::Scalar(ScalarType::Geography) => {
+            "Some(crate::ValueHint::Geography)".to_string()
+        }
         ResolvedFieldType::CompositeType { .. }
             if field.storage_strategy == Some(StorageStrategy::Json) =>
         {
@@ -302,6 +308,8 @@ pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> String 
                 | ResolvedFieldType::Scalar(ScalarType::Json)
                 | ResolvedFieldType::Scalar(ScalarType::Jsonb)
                 | ResolvedFieldType::Scalar(ScalarType::Hstore)
+                | ResolvedFieldType::Scalar(ScalarType::Geometry)
+                | ResolvedFieldType::Scalar(ScalarType::Geography)
                 | ResolvedFieldType::Scalar(ScalarType::Vector { .. })
                 | ResolvedFieldType::Scalar(ScalarType::Bytes)
         );

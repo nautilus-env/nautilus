@@ -81,6 +81,14 @@ fn decode_value(row: &PgRow, idx: usize, type_info: &sqlx::postgres::PgTypeInfo)
             .map(Value::String)
             .map_err(|e| Error::row_decode(e, "Failed to decode string")),
 
+        "GEOMETRY" => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
+            .map(Value::Geometry)
+            .map_err(|e| Error::row_decode(e, "Failed to decode GEOMETRY")),
+
+        "GEOGRAPHY" => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
+            .map(Value::Geography)
+            .map_err(|e| Error::row_decode(e, "Failed to decode GEOGRAPHY")),
+
         "HSTORE" => row
             .try_get::<PgHstore, _>(idx)
             .map(|map| Value::Hstore(map.0))
@@ -147,6 +155,12 @@ fn decode_value(row: &PgRow, idx: usize, type_info: &sqlx::postgres::PgTypeInfo)
                     .try_get::<Vec<String>, _>(idx)
                     .map(|vec| Value::Array(vec.into_iter().map(Value::String).collect()))
                     .map_err(|e| Error::row_decode(e, "Failed to decode TEXT[]")),
+                "GEOMETRY" => sqlx::Row::try_get_unchecked::<Vec<String>, _>(row, idx)
+                    .map(|vec| Value::Array(vec.into_iter().map(Value::Geometry).collect()))
+                    .map_err(|e| Error::row_decode(e, "Failed to decode GEOMETRY[]")),
+                "GEOGRAPHY" => sqlx::Row::try_get_unchecked::<Vec<String>, _>(row, idx)
+                    .map(|vec| Value::Array(vec.into_iter().map(Value::Geography).collect()))
+                    .map_err(|e| Error::row_decode(e, "Failed to decode GEOGRAPHY[]")),
                 "HSTORE" => row
                     .try_get::<Vec<PgHstore>, _>(idx)
                     .map(|vec| {

@@ -32,6 +32,7 @@ pub(crate) fn value_to_json(v: &Value) -> serde_json::Value {
                 })
                 .collect(),
         ),
+        Value::Geometry(raw) | Value::Geography(raw) => serde_json::Value::String(raw.clone()),
         Value::Vector(values) => serde_json::Value::Array(
             values
                 .iter()

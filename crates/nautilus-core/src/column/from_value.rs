@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::error::Result;
-use crate::value::Value;
+use crate::value::{Geography, Geometry, Value};
 
 /// Trait for converting database values to Rust types.
 ///
@@ -242,6 +242,62 @@ impl FromValue for BTreeMap<String, Option<String>> {
             Value::Null => Err(crate::Error::TypeError("NULL value for Hstore".to_string())),
             other => Err(crate::Error::TypeError(format!(
                 "expected Hstore or Json object, got {:?}",
+                other
+            ))),
+        }
+    }
+}
+
+impl FromValue for Geometry {
+    fn from_value(value: &Value) -> Result<Self> {
+        match value {
+            Value::Geometry(v) | Value::String(v) => Ok(Geometry::new(v.clone())),
+            Value::Null => Err(crate::Error::TypeError(
+                "NULL value for Geometry".to_string(),
+            )),
+            other => Err(crate::Error::TypeError(format!(
+                "expected Geometry or String, got {:?}",
+                other
+            ))),
+        }
+    }
+
+    fn from_value_owned(value: Value) -> Result<Self> {
+        match value {
+            Value::Geometry(v) | Value::String(v) => Ok(Geometry::new(v)),
+            Value::Null => Err(crate::Error::TypeError(
+                "NULL value for Geometry".to_string(),
+            )),
+            other => Err(crate::Error::TypeError(format!(
+                "expected Geometry or String, got {:?}",
+                other
+            ))),
+        }
+    }
+}
+
+impl FromValue for Geography {
+    fn from_value(value: &Value) -> Result<Self> {
+        match value {
+            Value::Geography(v) | Value::String(v) => Ok(Geography::new(v.clone())),
+            Value::Null => Err(crate::Error::TypeError(
+                "NULL value for Geography".to_string(),
+            )),
+            other => Err(crate::Error::TypeError(format!(
+                "expected Geography or String, got {:?}",
+                other
+            ))),
+        }
+    }
+
+    fn from_value_owned(value: Value) -> Result<Self> {
+        match value {
+            Value::Geography(v) | Value::String(v) => Ok(Geography::new(v)),
+            Value::Null => Err(crate::Error::TypeError(
+                "NULL value for Geography".to_string(),
+            )),
+            other => Err(crate::Error::TypeError(format!(
+                "expected Geography or String, got {:?}",
                 other
             ))),
         }

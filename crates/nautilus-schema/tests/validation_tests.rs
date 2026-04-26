@@ -1169,7 +1169,7 @@ fn test_datasource_extensions_unknown_name_emits_warning() {
 datasource db {
   provider   = "postgresql"
   url        = "postgres://localhost/test"
-  extensions = [postgis]
+  extensions = [custom_geo_ext]
 }
 
 model User { id Int @id }
@@ -1183,8 +1183,34 @@ model User { id Int @id }
         result
             .diagnostics
             .iter()
-            .any(|d| d.severity == Severity::Warning && d.message.contains("postgis")),
+            .any(|d| d.severity == Severity::Warning && d.message.contains("custom_geo_ext")),
         "expected warning for unknown extension, got: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn test_datasource_postgis_extension_is_known() {
+    use nautilus_schema::analysis::analyze;
+    use nautilus_schema::Severity;
+
+    let source = r#"
+datasource db {
+  provider   = "postgresql"
+  url        = "postgres://localhost/test"
+  extensions = [postgis]
+}
+
+model User { id Int @id }
+"#;
+    let result = analyze(source);
+    assert!(result.ir.is_some(), "postgis extension should validate");
+    assert!(
+        !result
+            .diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Warning && d.message.contains("postgis")),
+        "postgis should be a known extension, got: {:?}",
         result.diagnostics
     );
 }
@@ -1286,6 +1312,33 @@ model Embedding {
 }
 
 #[test]
+fn test_postgis_types_rejected_for_mysql() {
+    let source = r#"
+datasource db {
+  provider = "mysql"
+  url      = "mysql://localhost/test"
+}
+
+model Place {
+  id   Int      @id
+  geom Geometry
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(
+                msg.contains("Geometry") && msg.contains("provider 'mysql'"),
+                "got: {}",
+                msg
+            );
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
 fn test_vector_dimension_must_be_positive() {
     let source = r#"
 datasource db {
@@ -1306,6 +1359,45 @@ model Embedding {
         }
         _ => panic!("Expected validation error"),
     }
+}
+
+#[test]
+fn test_postgis_types_emit_missing_extension_warning() {
+    use nautilus_schema::analysis::analyze;
+    use nautilus_schema::Severity;
+
+    let source = r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgres://localhost/test"
+}
+
+model Place {
+  id   Int        @id
+  geom Geometry
+  geog Geography?
+}
+"#;
+    let result = analyze(source);
+    assert!(result.ir.is_some(), "schema should still validate");
+    assert!(
+        result.diagnostics.iter().any(|d| {
+            d.severity == Severity::Warning
+                && d.message.contains("Geometry")
+                && d.message.contains("extensions = [postgis]")
+        }),
+        "expected missing-postgis warning for Geometry, got: {:?}",
+        result.diagnostics
+    );
+    assert!(
+        result.diagnostics.iter().any(|d| {
+            d.severity == Severity::Warning
+                && d.message.contains("Geography")
+                && d.message.contains("extensions = [postgis]")
+        }),
+        "expected missing-postgis warning for Geography, got: {:?}",
+        result.diagnostics
+    );
 }
 
 #[test]

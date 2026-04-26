@@ -44,12 +44,14 @@ before table/type DDL:
 datasource db {
   provider            = "postgresql"
   url                 = env("DATABASE_URL")
-  extensions          = [citext, hstore, ltree, vector]
+  extensions          = [citext, hstore, ltree, postgis, vector]
   preserve_extensions = true
 }
 ```
 
-Use `Vector(dim)` fields with the `vector` extension for pgvector embeddings.
+Use `Geometry`/`Geography` fields with the `postgis` extension for PostGIS
+columns, and `Vector(dim)` fields with the `vector` extension for pgvector
+embeddings.
 
 `db pull` writes installed PostgreSQL extensions back to the datasource block.
 The extension list is declarative: an extension that exists in the live database

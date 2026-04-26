@@ -38,4 +38,4 @@ pub use select::{
     JoinClause, JoinType, OrderBy, OrderByItem, OrderDir, Select, SelectBuilder, SelectItem,
 };
 pub use update::{Update, UpdateBuilder};
-pub use value::Value;
+pub use value::{Geography, Geometry, Value};

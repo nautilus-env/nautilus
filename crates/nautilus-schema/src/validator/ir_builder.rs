@@ -441,6 +441,8 @@ impl SchemaValidator {
             FieldType::Citext => Ok(ResolvedFieldType::Scalar(ScalarType::Citext)),
             FieldType::Hstore => Ok(ResolvedFieldType::Scalar(ScalarType::Hstore)),
             FieldType::Ltree => Ok(ResolvedFieldType::Scalar(ScalarType::Ltree)),
+            FieldType::Geometry => Ok(ResolvedFieldType::Scalar(ScalarType::Geometry)),
+            FieldType::Geography => Ok(ResolvedFieldType::Scalar(ScalarType::Geography)),
             FieldType::Vector { dimension } => Ok(ResolvedFieldType::Scalar(ScalarType::Vector {
                 dimension: *dimension,
             })),

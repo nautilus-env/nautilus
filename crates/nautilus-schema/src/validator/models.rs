@@ -229,6 +229,8 @@ impl SchemaValidator {
                     FieldType::Citext => Some(ScalarType::Citext),
                     FieldType::Hstore => Some(ScalarType::Hstore),
                     FieldType::Ltree => Some(ScalarType::Ltree),
+                    FieldType::Geometry => Some(ScalarType::Geometry),
+                    FieldType::Geography => Some(ScalarType::Geography),
                     FieldType::Vector { dimension } => Some(ScalarType::Vector {
                         dimension: *dimension,
                     }),
@@ -257,6 +259,7 @@ impl SchemaValidator {
                         FieldType::Citext => Some("citext"),
                         FieldType::Hstore => Some("hstore"),
                         FieldType::Ltree => Some("ltree"),
+                        FieldType::Geometry | FieldType::Geography => Some("postgis"),
                         FieldType::Vector { .. } => Some("vector"),
                         _ => None,
                     };

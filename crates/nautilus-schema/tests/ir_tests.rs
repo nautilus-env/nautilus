@@ -449,6 +449,8 @@ model Data {
   title Citext
   tags Hstore
   path Ltree
+  geom Geometry
+  geog Geography
   embedding Vector(1536)
 }
 "#;
@@ -484,6 +486,8 @@ model Data {
     check_scalar("title", ScalarType::Citext);
     check_scalar("tags", ScalarType::Hstore);
     check_scalar("path", ScalarType::Ltree);
+    check_scalar("geom", ScalarType::Geometry);
+    check_scalar("geog", ScalarType::Geography);
     check_scalar("embedding", ScalarType::Vector { dimension: 1536 });
 }
 

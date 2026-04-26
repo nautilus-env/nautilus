@@ -22,6 +22,10 @@ pub enum ValueHint {
     Json,
     /// Parse textual values into [`Value::Uuid`].
     Uuid,
+    /// Wrap textual values as [`Value::Geometry`].
+    Geometry,
+    /// Wrap textual values as [`Value::Geography`].
+    Geography,
 }
 
 /// Normalize a vector of rows using per-column schema hints.
@@ -97,6 +101,8 @@ fn normalize_value_with_hint(
         ValueHint::DateTime => normalize_datetime_value(column, index, value),
         ValueHint::Json => normalize_json_value(column, index, value),
         ValueHint::Uuid => normalize_uuid_value(column, index, value),
+        ValueHint::Geometry => normalize_geometry_value(column, index, value),
+        ValueHint::Geography => normalize_geography_value(column, index, value),
     }
 }
 
@@ -146,6 +152,32 @@ fn normalize_uuid_value(column: &str, index: usize, value: Value) -> Result<Valu
     }
 }
 
+fn normalize_geometry_value(column: &str, index: usize, value: Value) -> Result<Value> {
+    match value {
+        Value::Geometry(raw) => Ok(Value::Geometry(raw)),
+        Value::String(raw) => Ok(Value::Geometry(raw)),
+        other => Err(invalid_hint_value(
+            column,
+            index,
+            ValueHint::Geometry,
+            other,
+        )),
+    }
+}
+
+fn normalize_geography_value(column: &str, index: usize, value: Value) -> Result<Value> {
+    match value {
+        Value::Geography(raw) => Ok(Value::Geography(raw)),
+        Value::String(raw) => Ok(Value::Geography(raw)),
+        other => Err(invalid_hint_value(
+            column,
+            index,
+            ValueHint::Geography,
+            other,
+        )),
+    }
+}
+
 fn parse_decimal(column: &str, index: usize, raw: &str) -> Result<Value> {
     rust_decimal::Decimal::from_str(raw)
         .map(Value::Decimal)
@@ -188,6 +220,8 @@ fn hint_name(hint: ValueHint) -> &'static str {
         ValueHint::DateTime => "DateTime",
         ValueHint::Json => "Json",
         ValueHint::Uuid => "Uuid",
+        ValueHint::Geometry => "Geometry",
+        ValueHint::Geography => "Geography",
     }
 }
 

@@ -93,6 +93,14 @@ fn render_expr(ctx: &mut RenderContext, expr: &Expr) {
                     ctx.sql.push_str("::json");
                 } else if matches!(value, Value::Vector(_)) {
                     ctx.sql.push_str("::vector");
+                } else if matches!(value, Value::Geometry(_)) {
+                    ctx.sql.push_str("::geometry");
+                } else if matches!(value, Value::Geography(_)) {
+                    ctx.sql.push_str("::geography");
+                } else if is_homogeneous_geometry_array(value) {
+                    ctx.sql.push_str("::geometry[]");
+                } else if is_homogeneous_geography_array(value) {
+                    ctx.sql.push_str("::geography[]");
                 } else if let Value::Enum { type_name, .. } = value {
                     ctx.sql.push_str("::");
                     ctx.sql.push_str(type_name);
@@ -166,6 +174,20 @@ fn render_expr(ctx: &mut RenderContext, expr: &Expr) {
             ctx.sql.push(')');
         }
     });
+}
+
+fn is_homogeneous_geometry_array(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Array(items) if !items.is_empty() && items.iter().all(|item| matches!(item, Value::Geometry(_)))
+    )
+}
+
+fn is_homogeneous_geography_array(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Array(items) if !items.is_empty() && items.iter().all(|item| matches!(item, Value::Geography(_)))
+    )
 }
 
 #[cfg(test)]
@@ -311,6 +333,40 @@ mod tests {
             "SELECT * FROM \"embeddings\" WHERE (\"embeddings\".\"vector\" = $1::vector)"
         );
         assert_eq!(sql.params, vec![Value::Vector(vec![1.0, 2.0, 3.0])]);
+    }
+
+    #[test]
+    fn postgis_params_are_cast_to_spatial_types() {
+        let dialect = PostgresDialect;
+        let select = Select::from_table("places")
+            .filter(
+                Expr::column("places__geom")
+                    .eq(Expr::param(Value::Geometry("POINT(1 2)".to_string()))),
+            )
+            .build()
+            .unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM \"places\" WHERE (\"places\".\"geom\" = $1::geometry)"
+        );
+        assert_eq!(sql.params, vec![Value::Geometry("POINT(1 2)".to_string())]);
+
+        let select = Select::from_table("places")
+            .filter(
+                Expr::column("places__geog")
+                    .eq(Expr::param(Value::Geography("POINT(1 2)".to_string()))),
+            )
+            .build()
+            .unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM \"places\" WHERE (\"places\".\"geog\" = $1::geography)"
+        );
+        assert_eq!(sql.params, vec![Value::Geography("POINT(1 2)".to_string())]);
     }
 
     #[test]

@@ -1000,6 +1000,8 @@ fn base_java_type_name(field_type: &ResolvedFieldType) -> &'static str {
         ResolvedFieldType::Scalar(ScalarType::String)
         | ResolvedFieldType::Scalar(ScalarType::Citext)
         | ResolvedFieldType::Scalar(ScalarType::Ltree)
+        | ResolvedFieldType::Scalar(ScalarType::Geometry)
+        | ResolvedFieldType::Scalar(ScalarType::Geography)
         | ResolvedFieldType::Scalar(ScalarType::Xml)
         | ResolvedFieldType::Scalar(ScalarType::Char { .. })
         | ResolvedFieldType::Scalar(ScalarType::VarChar { .. }) => "String",
@@ -1024,6 +1026,8 @@ fn scalar_reader_for_type(scalar: &ScalarType) -> &'static str {
         ScalarType::String
         | ScalarType::Citext
         | ScalarType::Ltree
+        | ScalarType::Geometry
+        | ScalarType::Geography
         | ScalarType::Xml
         | ScalarType::Char { .. }
         | ScalarType::VarChar { .. } => "asString",
@@ -1046,6 +1050,8 @@ fn array_reader_for_scalar(scalar: &ScalarType) -> &'static str {
         ScalarType::String
         | ScalarType::Citext
         | ScalarType::Ltree
+        | ScalarType::Geometry
+        | ScalarType::Geography
         | ScalarType::Xml
         | ScalarType::Char { .. }
         | ScalarType::VarChar { .. } => "JsonSupport::asString",

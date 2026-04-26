@@ -98,7 +98,6 @@ class VectorFilter(TypedDict, total=False):
     equals: NotRequired[List[float]]
     not_: NotRequired[List[float]]
     is_null: NotRequired[bool]
-
 {% if has_vector_fields %}
 VectorMetric = Literal["l2", "innerProduct", "cosine"]
 {{ model_name }}VectorFieldKeys = Literal[{% for name in vector_field_names %}"{{ name }}"{% if not loop.last %}, {% endif %}{% endfor %}]
