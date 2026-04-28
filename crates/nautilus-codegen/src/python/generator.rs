@@ -3,12 +3,16 @@
 use heck::{ToPascalCase, ToSnakeCase};
 use nautilus_schema::ir::{CompositeTypeIr, EnumIr, ModelIr, ResolvedFieldType, SchemaIr};
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use tera::{Context, Tera};
 
+use crate::backend::LanguageBackend;
+use crate::extension_types::{
+    python_input_type_for_extension, ExtensionRegistry, ExtensionWireKind,
+};
+use crate::python::backend::PythonBackend;
 use crate::python::type_mapper::{
-    field_to_python_type, get_base_python_type, get_default_value, get_filter_operators_for_field,
-    is_auto_generated,
+    get_base_python_type, get_default_value, get_filter_operators_for_field, is_auto_generated,
 };
 
 /// Python template registry — loaded once at first use.
@@ -81,8 +85,11 @@ struct PythonFieldContext {
     logical_name: String,
     db_name: String,
     python_type: String,
+    input_python_type: String,
     model_python_type: String,
     base_type: String,
+    raw_base_type: String,
+    extension_coercer: String,
     is_optional: bool,
     is_array: bool,
     is_enum: bool,
@@ -147,6 +154,7 @@ struct FilterOperatorContext {
 struct WhereInputFieldContext {
     name: String,
     python_type: String,
+    where_python_type: String,
     is_vector: bool,
     operators: Vec<FilterOperatorContext>,
 }
@@ -187,11 +195,67 @@ struct AggregateFieldContext {
     python_type: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct ExtensionImportContext {
+    module: String,
+    types: Vec<String>,
+}
+
 fn optional_output_python_type(python_type: &str) -> String {
     if python_type.starts_with("Optional[") {
         python_type.to_string()
     } else {
         format!("Optional[{}]", python_type)
+    }
+}
+
+fn output_base_python_type(
+    field: &nautilus_schema::ir::FieldIr,
+    enums: &HashMap<String, EnumIr>,
+    extensions: &ExtensionRegistry,
+) -> String {
+    if let Some(ty) = extensions.type_for_field(field) {
+        return ty.type_name.to_string();
+    }
+
+    match &field.field_type {
+        ResolvedFieldType::Scalar(scalar) => {
+            crate::python::type_mapper::scalar_to_python_type(scalar).to_string()
+        }
+        ResolvedFieldType::Enum { enum_name } => {
+            if enums.contains_key(enum_name) {
+                enum_name.clone()
+            } else {
+                "str".to_string()
+            }
+        }
+        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+        ResolvedFieldType::Relation(rel) => rel.target_model.clone(),
+    }
+}
+
+fn input_base_python_type(
+    field: &nautilus_schema::ir::FieldIr,
+    enums: &HashMap<String, EnumIr>,
+    extensions: &ExtensionRegistry,
+) -> String {
+    if let Some(ty) = extensions.type_for_field(field) {
+        return python_input_type_for_extension(ty);
+    }
+
+    match &field.field_type {
+        ResolvedFieldType::Scalar(scalar) => {
+            crate::python::type_mapper::scalar_to_python_type(scalar).to_string()
+        }
+        ResolvedFieldType::Enum { enum_name } => {
+            if enums.contains_key(enum_name) {
+                enum_name.clone()
+            } else {
+                "str".to_string()
+            }
+        }
+        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+        ResolvedFieldType::Relation(rel) => rel.target_model.clone(),
     }
 }
 
@@ -205,6 +269,17 @@ pub fn generate_python_model(
     ir: &SchemaIr,
     is_async: bool,
     recursive_type_depth: usize,
+) -> (String, String) {
+    let extensions = ExtensionRegistry::from_schema(ir);
+    generate_python_model_with_registry(model, ir, is_async, recursive_type_depth, &extensions)
+}
+
+fn generate_python_model_with_registry(
+    model: &ModelIr,
+    ir: &SchemaIr,
+    is_async: bool,
+    recursive_type_depth: usize,
+    extensions: &ExtensionRegistry,
 ) -> (String, String) {
     let mut context = Context::new();
 
@@ -226,6 +301,7 @@ pub fn generate_python_model(
 
     let mut enum_imports = HashSet::new();
     let mut composite_type_imports = HashSet::new();
+    let mut extension_imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut has_datetime = false;
     let mut has_uuid = false;
     let mut has_decimal = false;
@@ -266,8 +342,27 @@ pub fn generate_python_model(
             _ => {}
         }
 
-        let python_type = field_to_python_type(field, &ir.enums);
-        let base_type = match &field.field_type {
+        let extension_type = extensions.type_for_field(field);
+        if let Some(ty) = extension_type {
+            extension_imports
+                .entry(ty.extension.to_string())
+                .or_default()
+                .insert(ty.type_name.to_string());
+            if ty.wire_kind == ExtensionWireKind::Hstore {
+                has_dict = true;
+            }
+        }
+
+        let output_base_type = output_base_python_type(field, &ir.enums, &extensions);
+        let input_base_type = input_base_python_type(field, &ir.enums, &extensions);
+        let python_type = PythonBackend.wrap_field_type(field, output_base_type.clone());
+        let input_python_type = if field.is_array {
+            format!("List[{}]", input_base_type)
+        } else {
+            input_base_type
+        };
+        let base_type = output_base_type;
+        let raw_base_type = match &field.field_type {
             ResolvedFieldType::Scalar(s) => {
                 crate::python::type_mapper::scalar_to_python_type(s).to_string()
             }
@@ -278,6 +373,18 @@ pub fn generate_python_model(
         let is_enum = matches!(field.field_type, ResolvedFieldType::Enum { .. });
         let auto_generated = is_auto_generated(field);
         let is_pk = pk_field_names.contains(&field.logical_name.as_str());
+        let extension_coercer = extension_type
+            .map(|ty| {
+                if field.is_array {
+                    format!(
+                        "lambda v: [{}.from_wire(item) for item in v] if isinstance(v, list) else v",
+                        ty.type_name
+                    )
+                } else {
+                    format!("{}.from_wire", ty.type_name)
+                }
+            })
+            .unwrap_or_default();
 
         // Render enum defaults as `EnumName.VARIANT`.
         let mut default_val = get_default_value(field);
@@ -306,8 +413,11 @@ pub fn generate_python_model(
             logical_name: field.logical_name.clone(),
             db_name: field.db_name.clone(),
             python_type: python_type.clone(),
+            input_python_type: input_python_type.clone(),
             model_python_type,
             base_type,
+            raw_base_type,
+            extension_coercer,
             is_optional: !field.is_required,
             is_array: field.is_array,
             is_enum,
@@ -332,6 +442,9 @@ pub fn generate_python_model(
             where_input_fields.push(WhereInputFieldContext {
                 name: field.logical_name.clone(),
                 python_type: base_python_type.clone(),
+                where_python_type: extension_type
+                    .map(|ty| ty.python_filter_input())
+                    .unwrap_or_default(),
                 is_vector,
                 operators: operators
                     .into_iter()
@@ -354,15 +467,9 @@ pub fn generate_python_model(
         }
 
         {
-            let input_base = base_python_type.clone();
-            let typed = if field.is_array {
-                format!("List[{}]", input_base)
-            } else {
-                input_base
-            };
             create_input_fields.push(CreateInputFieldContext {
                 name: field.logical_name.clone(),
-                python_type: typed,
+                python_type: input_python_type.clone(),
                 is_required: field.is_required
                     && field.default_value.is_none()
                     && !field.is_updated_at
@@ -372,15 +479,9 @@ pub fn generate_python_model(
 
         let is_auto_pk = auto_generated && pk_field_names.contains(&field.logical_name.as_str());
         if !is_auto_pk {
-            let input_base = base_python_type.clone();
-            let typed = if field.is_array {
-                format!("List[{}]", input_base)
-            } else {
-                input_base
-            };
             update_input_fields.push(UpdateInputFieldContext {
                 name: field.logical_name.clone(),
-                python_type: typed,
+                python_type: input_python_type,
             });
         }
 
@@ -431,6 +532,9 @@ pub fn generate_python_model(
     context.insert("has_uuid", &has_uuid);
     context.insert("has_decimal", &has_decimal);
     context.insert("has_dict", &has_dict);
+    for (flag, value) in extensions.template_flags() {
+        context.insert(&flag, &value);
+    }
     context.insert("has_enums", &!enum_imports.is_empty());
     context.insert(
         "enum_imports",
@@ -441,6 +545,18 @@ pub fn generate_python_model(
         "composite_type_imports",
         &composite_type_imports.into_iter().collect::<Vec<_>>(),
     );
+    let extension_import_contexts: Vec<ExtensionImportContext> = extension_imports
+        .into_iter()
+        .map(|(module, types)| ExtensionImportContext {
+            module,
+            types: types.into_iter().collect(),
+        })
+        .collect();
+    context.insert(
+        "has_extension_types",
+        &!extension_import_contexts.is_empty(),
+    );
+    context.insert("extension_imports", &extension_import_contexts);
     context.insert("has_relations", &!relation_imports.is_empty());
     context.insert(
         "relation_imports",
@@ -451,7 +567,10 @@ pub fn generate_python_model(
         .relation_fields()
         .enumerate()
         .map(|(idx, field)| {
-            let python_type = field_to_python_type(field, &ir.enums);
+            let python_type = PythonBackend.wrap_field_type(
+                field,
+                output_base_python_type(field, &ir.enums, &extensions),
+            );
             let default_val = if field.is_array {
                 "Field(default_factory=list)".to_string()
             } else {
@@ -463,8 +582,11 @@ pub fn generate_python_model(
                 logical_name: field.logical_name.clone(),
                 db_name: field.db_name.clone(),
                 python_type: python_type.clone(),
+                input_python_type: python_type.clone(),
                 model_python_type: python_type.clone(),
                 base_type: String::new(),
+                raw_base_type: String::new(),
+                extension_coercer: String::new(),
                 is_optional: true,
                 is_array: field.is_array,
                 is_enum: false,
@@ -597,9 +719,27 @@ pub fn generate_all_python_models(
     is_async: bool,
     recursive_type_depth: usize,
 ) -> Vec<(String, String)> {
+    let extensions = ExtensionRegistry::from_schema(ir);
+    generate_all_python_models_with_registry(ir, is_async, recursive_type_depth, &extensions)
+}
+
+pub(crate) fn generate_all_python_models_with_registry(
+    ir: &SchemaIr,
+    is_async: bool,
+    recursive_type_depth: usize,
+    extensions: &ExtensionRegistry,
+) -> Vec<(String, String)> {
     ir.models
         .values()
-        .map(|model| generate_python_model(model, ir, is_async, recursive_type_depth))
+        .map(|model| {
+            generate_python_model_with_registry(
+                model,
+                ir,
+                is_async,
+                recursive_type_depth,
+                extensions,
+            )
+        })
         .collect()
 }
 

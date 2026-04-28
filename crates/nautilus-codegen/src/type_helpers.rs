@@ -3,15 +3,22 @@
 use nautilus_schema::ir::DefaultValue;
 use nautilus_schema::ir::{FieldIr, ResolvedFieldType, ScalarType};
 
-/// Convert a `ScalarType` to its Rust type string.
-pub(crate) fn scalar_to_rust_type(scalar: &ScalarType) -> String {
-    scalar.rust_type().to_string()
+use crate::extension_types::ExtensionRegistry;
+
+/// Convert a `ScalarType` to its Rust type string. When the backing extension
+/// for the scalar is declared in the schema, the generated wrapper path is
+/// returned; otherwise the native scalar mapping is used.
+pub(crate) fn scalar_to_rust_type(scalar: &ScalarType, extensions: &ExtensionRegistry) -> String {
+    extensions
+        .type_for_scalar(scalar)
+        .map(|ty| ty.rust_type_path())
+        .unwrap_or_else(|| scalar.rust_type().to_string())
 }
 
-/// Get the base Rust type for a field without optional wrappers.
-pub(crate) fn field_to_rust_base_type(field: &FieldIr) -> String {
+/// Get the base Rust type for a field without optional / nullability wrappers.
+pub(crate) fn field_to_rust_base_type(field: &FieldIr, extensions: &ExtensionRegistry) -> String {
     let base_type = match &field.field_type {
-        ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar),
+        ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, extensions),
         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
         ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
         ResolvedFieldType::Relation(rel) => rel.target_model.clone(),
@@ -24,9 +31,9 @@ pub(crate) fn field_to_rust_base_type(field: &FieldIr) -> String {
     }
 }
 
-/// Get the Rust type for a field, including Option wrapper if nullable.
-pub fn field_to_rust_type(field: &FieldIr) -> String {
-    let base_type = field_to_rust_base_type(field);
+/// Get the Rust type for a field, including `Option` / `Box` wrappers.
+pub fn field_to_rust_type(field: &FieldIr, extensions: &ExtensionRegistry) -> String {
+    let base_type = field_to_rust_base_type(field, extensions);
 
     if matches!(field.field_type, ResolvedFieldType::Relation(_)) {
         return if field.is_array {
@@ -44,14 +51,14 @@ pub fn field_to_rust_type(field: &FieldIr) -> String {
 }
 
 /// Get the Rust type used by `SUM()` outputs for a numeric field.
-pub(crate) fn field_to_rust_sum_type(field: &FieldIr) -> String {
+pub(crate) fn field_to_rust_sum_type(field: &FieldIr, extensions: &ExtensionRegistry) -> String {
     match &field.field_type {
         ResolvedFieldType::Scalar(ScalarType::Int | ScalarType::BigInt) => "i64".to_string(),
         ResolvedFieldType::Scalar(ScalarType::Float) => "f64".to_string(),
         ResolvedFieldType::Scalar(ScalarType::Decimal { .. }) => {
             "rust_decimal::Decimal".to_string()
         }
-        _ => field_to_rust_base_type(field),
+        _ => field_to_rust_base_type(field, extensions),
     }
 }
 

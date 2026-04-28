@@ -31,6 +31,11 @@ from ..enums.enums import {% for e in enum_imports %}{{ e }}{% if not loop.last 
 
 from ..types.types import {% for t in composite_type_imports %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %}
 {%- endif %}
+{%- if has_extension_types %}
+{%- for ext in extension_imports %}
+from ..extensions.{{ ext.module }}.types import {% for t in ext.types %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %}
+{%- endfor %}
+{%- endif %}
 
 if TYPE_CHECKING:
 {%- if has_relations %}
@@ -130,6 +135,8 @@ _{{ table_name }}_scalar_coercers: Dict[str, Any] = {
 {%- for f in scalar_fields %}
 {%- if f.is_enum %}
     "{{ f.name }}": {{ f.base_type }},
+{%- elif f.extension_coercer %}
+    "{{ f.name }}": {{ f.extension_coercer }},
 {%- elif f.base_type == "bool" %}
     "{{ f.name }}": _coerce_boolean_value,
 {%- elif f.base_type == "datetime" %}
@@ -193,6 +200,9 @@ def _serialize_wire_value(value: Any) -> Any:
     """Convert generated client values into JSON-RPC-safe payloads."""
     if isinstance(value, Enum):
         return value.value
+    to_wire = getattr(value, "to_wire", None)
+    if callable(to_wire):
+        return _serialize_wire_value(to_wire())
     if is_dataclass(value):
         return {k: _serialize_wire_value(v) for k, v in asdict(value).items()}
     if isinstance(value, list):

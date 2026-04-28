@@ -5,6 +5,11 @@ import { NotFoundError } from '../_internal/_errors.js';
 {%- if has_enums %}
 import { {% for e in enum_imports %}{{ e }}{% if not loop.last %}, {% endif %}{% endfor %} } from '../enums.js';
 {%- endif %}
+{%- if has_extension_types %}
+{%- for ext in extension_imports %}
+import { {% for t in ext.types %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %} } from '../extensions/{{ ext.module }}/types.js';
+{%- endfor %}
+{%- endif %}
 {%- if has_includes %}
 {%- for field in include_fields %}
 {%- if field.target_model != model_name %}
@@ -130,6 +135,18 @@ function _objectEqualityRequiresExplicitEquals(fieldName) {
   );
 }
 
+function _toWireValue(value) {
+  if (value == null) return value;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return value;
+  if (typeof value.toWire === 'function') return _toWireValue(value.toWire());
+  if (Array.isArray(value)) return value.map(item => _toWireValue(item));
+  if (typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, _toWireValue(item)]));
+  }
+  return value;
+}
+
 export function _coerce{{ model_name }}(row) {
   const out = {};
 {%- for f in scalar_fields %}
@@ -145,6 +162,8 @@ export function _coerce{{ model_name }}(row) {
         if (typeof value === 'string') coerced = new Date(value);
 {%- elif f.base_type == "Buffer" %}
         if (typeof value === 'string') coerced = Buffer.from(value, 'base64');
+{%- elif f.extension_coercer %}
+        coerced = {{ f.extension_coercer }}(value);
 {%- endif %}
         out['{{ f.name }}'] = coerced;
       }
@@ -175,18 +194,24 @@ function _processWhereFilters(where, fieldToDb) {
       }
     } else {
       const dbKey = fieldToDb[k] ?? k;
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
+      if (
+        v instanceof Date
+        || (typeof Buffer !== 'undefined' && Buffer.isBuffer(v))
+        || (v && typeof v.toWire === 'function')
+      ) {
+        out[dbKey] = _toWireValue(v);
+      } else if (v && typeof v === 'object' && !Array.isArray(v)) {
         if (_{{ table_name }}ObjectValueDbFields.has(dbKey) && !_looksLikeFilterOperatorObject(v)) {
           _objectEqualityRequiresExplicitEquals(k);
         }
         const ops = {};
         for (const [op, opVal] of Object.entries(v)) {
           const actualOp = op === 'equals' ? 'eq' : op;
-          ops[actualOp] = opVal;
+          ops[actualOp] = _toWireValue(opVal);
         }
         if (Object.keys(ops).length > 0) out[dbKey] = ops;
       } else {
-        out[dbKey] = v;
+        out[dbKey] = _toWireValue(v);
       }
     }
   }
@@ -197,7 +222,7 @@ function _processCreateData(data, fieldToDb) {
   const out = {};
   for (const [k, v] of Object.entries(data)) {
     const dbKey = fieldToDb[k] ?? k;
-    out[dbKey] = v instanceof Date ? v.toISOString() : v;
+    out[dbKey] = _toWireValue(v);
   }
   return out;
 }

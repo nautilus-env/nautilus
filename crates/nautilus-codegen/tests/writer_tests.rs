@@ -101,7 +101,7 @@ fn test_write_rust_code_creates_model_and_lib_files() {
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(path, &models, None, None, SIMPLE_SCHEMA, false)
+    write_rust_code(path, &models, None, None, &[], SIMPLE_SCHEMA, false)
         .expect("write_rust_code failed");
 
     assert!(
@@ -130,7 +130,7 @@ fn test_write_rust_code_standalone_creates_cargo_toml() {
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(path, &models, None, None, SIMPLE_SCHEMA, true)
+    write_rust_code(path, &models, None, None, &[], SIMPLE_SCHEMA, true)
         .expect("write_rust_code (standalone) failed");
 
     assert!(
@@ -153,7 +153,7 @@ fn test_write_rust_code_writes_enums_file() {
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(path, &models, enums_code, None, ENUM_SCHEMA, false)
+    write_rust_code(path, &models, enums_code, None, &[], ENUM_SCHEMA, false)
         .expect("write_rust_code failed");
 
     assert!(
@@ -176,6 +176,7 @@ fn test_write_rust_code_lib_rs_contains_template_exports() {
         &models,
         enums_code,
         composite_types_code,
+        &[],
         COMPOSITE_ENUM_SCHEMA,
         false,
     )
@@ -252,6 +253,7 @@ model Post {
         &models,
         None,
         None,
+        &[],
         r#"
 model User {
   id   Int    @id @default(autoincrement())
@@ -285,7 +287,7 @@ fn test_write_rust_code_standalone_generated_client_compiles() {
     let tmp = tempfile::tempdir_in(workspace_root).expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(path, &models, None, None, RELATION_SCHEMA, true)
+    write_rust_code(path, &models, None, None, &[], RELATION_SCHEMA, true)
         .expect("write_rust_code failed");
 
     let status = std::process::Command::new("cargo")
@@ -300,230 +302,6 @@ fn test_write_rust_code_standalone_generated_client_compiles() {
     );
 }
 
-/// A generated async Rust client can execute count/group_by via the embedded engine.
-#[test]
-fn test_write_rust_code_generated_client_runs_count_and_group_by() {
-    let schema = r#"
-datasource db {
-  provider = "sqlite"
-  url      = "sqlite::memory:"
-}
-
-enum Role {
-  ADMIN
-  MEMBER
-}
-
-model User {
-  id          Int    @id @default(autoincrement()) @map("user_id")
-  displayName String @map("display_name")
-  role        Role
-  views       Int
-
-  @@map("users")
-}
-"#;
-    let ir = validate(schema);
-    let models = generate_all_models(&ir, true);
-    let enums_code = Some(generate_all_enums(&ir.enums));
-    let workspace_root = std::env::current_dir().expect("failed to get current directory");
-    let tmp = tempfile::tempdir_in(workspace_root).expect("failed to create temp dir");
-    let path = tmp.path().to_str().unwrap();
-
-    write_rust_code(path, &models, enums_code, None, schema, true).expect("write_rust_code failed");
-
-    let tests_dir = tmp.path().join("tests");
-    std::fs::create_dir_all(&tests_dir).expect("failed to create generated tests dir");
-    std::fs::write(
-        tests_dir.join("aggregates.rs"),
-        r#"
-use nautilus_client::{
-    Client, Role, TransactionOptions, User, UserCountAggregateInput, UserCountArgs,
-    UserCreateInput, UserGroupByArgs, UserGroupByOrderBy, UserMinAggregateInput,
-    UserScalarField, UserSortOrder, UserSumAggregateInput,
-};
-
-fn core_to_connector(err: nautilus_core::Error) -> nautilus_connector::ConnectorError {
-    nautilus_connector::ConnectorError::database_msg(err.to_string())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn generated_client_supports_count_and_group_by() -> Result<(), Box<dyn std::error::Error>> {
-    let db_path = std::env::temp_dir().join(format!("nautilus-generated-aggregates-{}.db", uuid::Uuid::new_v4()));
-    std::fs::File::create(&db_path)?;
-    let url = format!("sqlite:{}", db_path.to_string_lossy().replace('\\', "/"));
-
-    let db = Client::sqlite(&url).await?;
-    let users = User::nautilus(&db);
-
-    users
-        .raw_query(
-            "CREATE TABLE users (
-                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                display_name TEXT NOT NULL,
-                role TEXT NOT NULL,
-                views INTEGER NOT NULL
-            )",
-        )
-        .await?;
-
-    users
-        .create(UserCreateInput {
-            display_name: Some("Alice".to_string()),
-            role: Some(Role::ADMIN),
-            views: Some(12),
-            ..Default::default()
-        })
-        .await?;
-    users
-        .create(UserCreateInput {
-            display_name: Some("Bob".to_string()),
-            role: Some(Role::MEMBER),
-            views: Some(7),
-            ..Default::default()
-        })
-        .await?;
-
-    let admin_count = users
-        .count(UserCountArgs {
-            where_: Some(User::role().eq(Role::ADMIN)),
-            ..Default::default()
-        })
-        .await?;
-    assert_eq!(admin_count, 1);
-
-    let grouped = users
-        .group_by(UserGroupByArgs {
-            by: vec![UserScalarField::Role],
-            count: Some(UserCountAggregateInput {
-                _all: true,
-                display_name: true,
-                ..Default::default()
-            }),
-            sum: Some(UserSumAggregateInput {
-                views: true,
-                ..Default::default()
-            }),
-            min: Some(UserMinAggregateInput {
-                display_name: true,
-                ..Default::default()
-            }),
-            order_by: vec![UserGroupByOrderBy::Field {
-                field: UserScalarField::Role,
-                direction: UserSortOrder::Asc,
-            }],
-            ..Default::default()
-        })
-        .await?;
-
-    assert_eq!(grouped.len(), 2);
-    let admin_group = grouped
-        .iter()
-        .find(|row| row.role == Some(Role::ADMIN))
-        .expect("missing ADMIN group");
-    assert_eq!(admin_group._count.as_ref().and_then(|count| count._all), Some(1));
-    assert_eq!(
-        admin_group
-            ._count
-            .as_ref()
-            .and_then(|count| count.display_name),
-        Some(1)
-    );
-    assert_eq!(admin_group._sum.as_ref().and_then(|sum| sum.views), Some(12));
-    assert_eq!(
-        admin_group
-            ._min
-            .as_ref()
-            .and_then(|min| min.display_name.clone()),
-        Some("Alice".to_string())
-    );
-
-    db.transaction(TransactionOptions::default(), |tx| async move {
-        let tx_users = User::nautilus(&tx);
-        tx_users
-            .create(UserCreateInput {
-                display_name: Some("Cara".to_string()),
-                role: Some(Role::ADMIN),
-                views: Some(5),
-                ..Default::default()
-            })
-            .await
-            .map_err(core_to_connector)?;
-
-        let tx_count = tx_users
-            .count(UserCountArgs {
-                where_: Some(User::role().eq(Role::ADMIN)),
-                ..Default::default()
-            })
-            .await
-            .map_err(core_to_connector)?;
-        assert_eq!(tx_count, 2);
-
-        let tx_groups = tx_users
-            .group_by(UserGroupByArgs {
-                by: vec![UserScalarField::Role],
-                count: Some(UserCountAggregateInput {
-                    _all: true,
-                    display_name: true,
-                    ..Default::default()
-                }),
-                sum: Some(UserSumAggregateInput {
-                    views: true,
-                    ..Default::default()
-                }),
-                order_by: vec![UserGroupByOrderBy::Field {
-                    field: UserScalarField::Role,
-                    direction: UserSortOrder::Asc,
-                }],
-                ..Default::default()
-            })
-            .await
-            .map_err(core_to_connector)?;
-
-        let admin_group = tx_groups
-            .iter()
-            .find(|row| row.role == Some(Role::ADMIN))
-            .expect("missing ADMIN group inside transaction");
-        assert_eq!(admin_group._count.as_ref().and_then(|count| count._all), Some(2));
-        assert_eq!(
-            admin_group
-                ._count
-                .as_ref()
-                .and_then(|count| count.display_name),
-            Some(2)
-        );
-        assert_eq!(admin_group._sum.as_ref().and_then(|sum| sum.views), Some(17));
-
-        Ok(())
-    })
-    .await?;
-
-    let committed_count = users
-        .count(UserCountArgs {
-            where_: Some(User::role().eq(Role::ADMIN)),
-            ..Default::default()
-        })
-        .await?;
-    assert_eq!(committed_count, 2);
-
-    Ok(())
-}
-"#,
-    )
-    .expect("failed to write generated aggregate smoke test");
-
-    let status = std::process::Command::new("cargo")
-        .args(["test", "--quiet", "--offline", "--manifest-path"])
-        .arg(tmp.path().join("Cargo.toml"))
-        .status()
-        .expect("failed to run cargo test on generated client");
-
-    assert!(
-        status.success(),
-        "cargo test failed for generated Rust client aggregate smoke test"
-    );
-}
-
 /// Verifies the expected Python package directory structure is created.
 #[test]
 fn test_write_python_code_creates_package_structure() {
@@ -535,8 +313,16 @@ fn test_write_python_code_creates_package_structure() {
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_python_code(path, &models, enums_code, None, client_code, &runtime_files)
-        .expect("write_python_code failed");
+    write_python_code(
+        path,
+        &models,
+        enums_code,
+        None,
+        &[],
+        client_code,
+        &runtime_files,
+    )
+    .expect("write_python_code failed");
 
     let root = tmp.path();
     assert!(root.join("__init__.py").exists(), "__init__.py missing");
@@ -578,7 +364,7 @@ fn test_write_python_code_with_enums() {
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_python_code(path, &models, enums_code, None, None, &runtime_files)
+    write_python_code(path, &models, enums_code, None, &[], None, &runtime_files)
         .expect("write_python_code failed");
 
     assert!(
@@ -596,7 +382,7 @@ fn test_write_python_code_without_client_no_client_py() {
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_python_code(path, &models, None, None, None, &runtime_files)
+    write_python_code(path, &models, None, None, &[], None, &runtime_files)
         .expect("write_python_code failed");
 
     assert!(

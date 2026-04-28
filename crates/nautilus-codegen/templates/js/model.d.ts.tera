@@ -7,6 +7,11 @@ import type { {% for e in enum_imports %}{{ e }}{% if not loop.last %}, {% endif
 {%- if has_composite_types %}
 import type { {% for t in composite_type_imports %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %} } from '../types.js';
 {%- endif %}
+{%- if has_extension_types %}
+{%- for ext in extension_imports %}
+import type { {% for t in ext.types %}{{ t }}, {{ t }}Input{% if not loop.last %}, {% endif %}{% endfor %} } from '../extensions/{{ ext.module }}/types.js';
+{%- endfor %}
+{%- endif %}
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -55,14 +60,14 @@ export interface JsonFilter {
 }
 
 export interface HstoreFilter {
-  equals?: HstoreValue;
-  not?:    HstoreValue;
+  equals?: {% if has_hstore_extension %}HstoreInput{% else %}HstoreValue{% endif %};
+  not?:    {% if has_hstore_extension %}HstoreInput{% else %}HstoreValue{% endif %};
   isNull?: boolean;
 }
 
 export interface VectorFilter {
-  equals?: number[];
-  not?:    number[];
+  equals?: {% if has_vector_extension %}VectorInput{% else %}number[]{% endif %};
+  not?:    {% if has_vector_extension %}VectorInput{% else %}number[]{% endif %};
   isNull?: boolean;
 }
 
@@ -70,7 +75,7 @@ export type VectorMetric = 'l2' | 'innerProduct' | 'cosine';
 export type {{ model_name }}VectorFieldKeys = {% if has_vector_fields %}{% for name in vector_field_names %}'{{ name }}'{% if not loop.last %} | {% endif %}{% endfor %}{% else %}never{% endif %};
 export interface {{ model_name }}NearestInput {
   field:  {{ model_name }}VectorFieldKeys;
-  query:  number[];
+  query:  {% if has_vector_extension %}VectorInput{% else %}number[]{% endif %};
   metric: VectorMetric;
 }
 
@@ -87,7 +92,9 @@ export interface {{ model_name }}Model {
 
 export interface {{ model_name }}WhereInput {
 {%- for field in where_input_fields %}
-{%- if field.is_vector %}
+{%- if field.where_ts_type %}
+  {{ field.name }}?: {{ field.where_ts_type }};
+{%- elif field.is_vector %}
   {{ field.name }}?: number[] | VectorFilter;
 {%- elif field.base_type == "string" %}
   {{ field.name }}?: string | StringFilter;

@@ -1,0 +1,69 @@
+package {{ root_package }}.extensions.{{ extension }}.types;
+
+import {{ root_package }}.internal.JsonSupport;
+import {{ root_package }}.internal.WireSerializable;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.List;
+import java.util.Objects;
+
+public final class Vector implements WireSerializable {
+    private final List<Float> value;
+
+    public Vector(List<Float> value) {
+        this.value = value == null ? List.of() : List.copyOf(value);
+    }
+
+    public static Vector of(List<Float> value) {
+        return new Vector(value);
+    }
+
+    public static Vector fromJsonNode(JsonNode node) {
+        List<Float> value = JsonSupport.asFloatList(node);
+        return value == null ? null : new Vector(value);
+    }
+
+    public List<Float> value() {
+        return this.value;
+    }
+
+    public List<Float> toList() {
+        return this.value;
+    }
+
+    public List<Float> toWire() {
+        return this.value;
+    }
+
+    public boolean equals(List<Float> other) {
+        return Objects.equals(this.value, other);
+    }
+
+    @Override
+    public JsonNode toJsonNode() {
+        return JsonSupport.toJsonNode(this.value);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (other instanceof Vector typed) {
+            return Objects.equals(this.value, typed.value);
+        }
+        if (other instanceof List<?> raw) {
+            return Objects.equals(this.value, raw);
+        }
+        return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(this.value);
+    }
+
+    @Override
+    public String toString() {
+        return this.value.toString();
+    }
+}

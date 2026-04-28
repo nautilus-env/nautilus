@@ -11,9 +11,11 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use tera::{Context, Tera};
 
+use crate::extension_types::{generate_java_extension_files, ExtensionRegistry};
 use crate::java::type_mapper::{
-    composite_field_to_java_type, field_base_type, field_to_java_type, filter_operators_for_field,
-    is_numeric_field, is_orderable_field, is_writable_on_create, is_writable_on_update,
+    composite_field_to_java_type, extension_raw_java_type, field_base_type, field_to_java_type,
+    filter_operators_for_field, is_numeric_field, is_orderable_field, is_writable_on_create,
+    is_writable_on_update,
 };
 
 pub(crate) const JACKSON_VERSION: &str = "2.17.2";
@@ -154,6 +156,7 @@ struct JavaConfig {
     version: String,
     schema_path: String,
     is_async: bool,
+    extensions: ExtensionRegistry,
 }
 
 #[derive(Debug, Clone)]
@@ -218,6 +221,8 @@ struct DslScalarFieldCtx {
     db_name: String,
     /// Base Java type for the Where `equals` method parameter.
     java_type: String,
+    /// Raw compatibility type when `java_type` is a generated extension wrapper.
+    raw_java_type: String,
     filter_ops: Vec<DslFilterOpCtx>,
 }
 
@@ -229,6 +234,8 @@ struct DslWritableFieldCtx {
     db_name: String,
     /// Full Java type (e.g. `"List<String>"` for arrays).
     java_type: String,
+    /// Raw compatibility type when `java_type` is a generated extension wrapper.
+    raw_java_type: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -301,6 +308,16 @@ pub fn generate_java_client(
     schema_path: &str,
     is_async: bool,
 ) -> Result<Vec<(String, String)>> {
+    let extensions = ExtensionRegistry::from_schema(ir);
+    generate_java_client_with_registry(ir, schema_path, is_async, &extensions)
+}
+
+pub(crate) fn generate_java_client_with_registry(
+    ir: &SchemaIr,
+    schema_path: &str,
+    is_async: bool,
+    extensions: &ExtensionRegistry,
+) -> Result<Vec<(String, String)>> {
     let generator = ir
         .generator
         .as_ref()
@@ -322,6 +339,7 @@ pub fn generate_java_client(
         version: DEFAULT_MAVEN_VERSION.to_string(),
         schema_path: schema_path.to_string(),
         is_async,
+        extensions: extensions.clone(),
     };
 
     let models = sorted_model_meta(ir.models.values());
@@ -365,6 +383,10 @@ pub fn generate_java_client(
             "TransactionBatchOperation.java",
         ),
         render_pkg("java_transaction_batch_op.tera", &config.root_package),
+    ));
+    files.extend(generate_java_extension_files(
+        &config.extensions,
+        &config.root_package,
     ));
 
     for enum_ir in sorted_named(ir.enums.values(), |item| item.logical_name.clone()) {
@@ -611,15 +633,19 @@ fn generate_composite_file(config: &JavaConfig, composite: &CompositeTypeIr) -> 
         extra_imports,
         &composite.fields,
         |field| {
-            let (ty, field_imports) =
-                composite_field_to_java_type(field, &config.root_package, &composite.logical_name);
+            let (ty, field_imports) = composite_field_to_java_type(
+                field,
+                &config.root_package,
+                &composite.logical_name,
+                &config.extensions,
+            );
             RecordField {
                 component: RecordComponentContext {
                     ty,
                     name: field.logical_name.clone(),
                 },
                 imports: field_imports,
-                read: generate_composite_field_read(field),
+                read: generate_composite_field_read(config, field),
                 ctor_arg: field.logical_name.clone(),
             }
         },
@@ -644,15 +670,19 @@ fn generate_model_file(config: &JavaConfig, model: &ModelIr) -> String {
         extra_imports,
         &model.fields,
         |field| {
-            let (ty, field_imports) =
-                field_to_java_type(field, &config.root_package, &model.logical_name);
+            let (ty, field_imports) = field_to_java_type(
+                field,
+                &config.root_package,
+                &model.logical_name,
+                &config.extensions,
+            );
             RecordField {
                 component: RecordComponentContext {
                     ty,
                     name: field.logical_name.clone(),
                 },
                 imports: field_imports,
-                read: generate_model_field_read(model, field),
+                read: generate_model_field_read(config, model, field),
                 ctor_arg: field.logical_name.clone(),
             }
         },
@@ -726,8 +756,12 @@ fn generate_dsl_file(
     imports.insert("java.util.function.Consumer".to_string());
 
     for field in &model.fields {
-        let (_, field_imports) =
-            field_to_java_type(field, &config.root_package, &model.logical_name);
+        let (_, field_imports) = field_to_java_type(
+            field,
+            &config.root_package,
+            &model.logical_name,
+            &config.extensions,
+        );
         imports.extend(field_imports);
     }
 
@@ -740,7 +774,16 @@ fn generate_dsl_file(
     let mut all_scalar_field_names: Vec<String> = Vec::new();
 
     for field in model.scalar_fields() {
-        let (base_type, _) = field_base_type(field, &config.root_package, &model.logical_name);
+        let (base_type, _) = field_base_type(
+            field,
+            &config.root_package,
+            &model.logical_name,
+            &config.extensions,
+        );
+        let raw_java_type = extension_raw_java_type(field, &config.extensions)
+            .filter(|_| !field.is_array)
+            .map(|raw| raw.to_string())
+            .unwrap_or_default();
         let filter_ops: Vec<DslFilterOpCtx> = filter_operators_for_field(field, enums)
             .into_iter()
             .map(|(suffix, java_type)| DslFilterOpCtx {
@@ -755,6 +798,7 @@ fn generate_dsl_file(
             name: field.logical_name.clone(),
             db_name: field.db_name.clone(),
             java_type: base_type,
+            raw_java_type: raw_java_type.clone(),
             filter_ops,
         });
 
@@ -771,20 +815,22 @@ fn generate_dsl_file(
         }
 
         if is_writable_on_create(field) {
-            let (ty, _) = field_to_java_type(field, "", &model.logical_name);
+            let (ty, _) = field_to_java_type(field, "", &model.logical_name, &config.extensions);
             create_fields.push(DslWritableFieldCtx {
                 name: field.logical_name.clone(),
                 db_name: field.db_name.clone(),
                 java_type: ty,
+                raw_java_type: raw_java_type.clone(),
             });
         }
 
         if is_writable_on_update(field, &pk_fields) {
-            let (ty, _) = field_to_java_type(field, "", &model.logical_name);
+            let (ty, _) = field_to_java_type(field, "", &model.logical_name, &config.extensions);
             update_fields.push(DslWritableFieldCtx {
                 name: field.logical_name.clone(),
                 db_name: field.db_name.clone(),
                 java_type: ty,
+                raw_java_type: raw_java_type.clone(),
             });
         }
     }
@@ -805,7 +851,7 @@ fn generate_dsl_file(
         })
         .collect();
 
-    let context = Context::from_serialize(&DslTemplateContext {
+    let mut context = Context::from_serialize(&DslTemplateContext {
         package_name: config.root_package.clone(),
         imports: imports.into_iter().collect(),
         name: dsl_name,
@@ -819,6 +865,9 @@ fn generate_dsl_file(
         all_scalar_field_names,
     })
     .expect("Java DSL context should serialize");
+    for (flag, value) in config.extensions.template_flags() {
+        context.insert(&flag, &value);
+    }
     render("java_dsl.tera", &context)
 }
 
@@ -895,7 +944,7 @@ fn generate_nautilus_client(config: &JavaConfig, models: &[ModelMeta]) -> String
     render("java_nautilus.tera", &context)
 }
 
-fn generate_model_field_read(model: &ModelIr, field: &FieldIr) -> String {
+fn generate_model_field_read(config: &JavaConfig, model: &ModelIr, field: &FieldIr) -> String {
     match &field.field_type {
         ResolvedFieldType::Relation(rel) => {
             if field.is_array {
@@ -915,6 +964,7 @@ fn generate_model_field_read(model: &ModelIr, field: &FieldIr) -> String {
             }
         }
         _ => generate_regular_field_read(
+            config,
             &field.logical_name,
             &field.db_name,
             Some(&model.db_name),
@@ -924,8 +974,9 @@ fn generate_model_field_read(model: &ModelIr, field: &FieldIr) -> String {
     }
 }
 
-fn generate_composite_field_read(field: &CompositeFieldIr) -> String {
+fn generate_composite_field_read(config: &JavaConfig, field: &CompositeFieldIr) -> String {
     generate_regular_field_read(
+        config,
         &field.logical_name,
         &field.db_name,
         None,
@@ -935,6 +986,7 @@ fn generate_composite_field_read(field: &CompositeFieldIr) -> String {
 }
 
 fn generate_regular_field_read(
+    config: &JavaConfig,
     logical_name: &str,
     db_name: &str,
     table_name: Option<&str>,
@@ -955,10 +1007,17 @@ fn generate_regular_field_read(
     if is_array {
         match field_type {
             ResolvedFieldType::Scalar(scalar) => {
+                if let Some(ext) = config.extensions.type_for_scalar(scalar) {
+                    return format!(
+                        "        List<{ty}> {name} = JsonSupport.asList({source}, {ty}::fromJsonNode);\n",
+                        ty = ext.type_name,
+                        name = logical_name,
+                    );
+                }
                 let reader = array_reader_for_scalar(scalar);
                 format!(
                     "        List<{ty}> {name} = JsonSupport.asList({source}, {reader});\n",
-                    ty = base_java_type_name(field_type),
+                    ty = base_java_type_name(field_type, &config.extensions),
                     name = logical_name,
                 )
             }
@@ -975,10 +1034,17 @@ fn generate_regular_field_read(
     } else {
         match field_type {
             ResolvedFieldType::Scalar(scalar) => {
+                if let Some(ext) = config.extensions.type_for_scalar(scalar) {
+                    return format!(
+                        "        {ty} {name} = {ty}.fromJsonNode({source});\n",
+                        ty = ext.type_name,
+                        name = logical_name,
+                    );
+                }
                 let reader = scalar_reader_for_type(scalar);
                 format!(
                     "        {ty} {name} = JsonSupport.{reader}({source});\n",
-                    ty = base_java_type_name(field_type),
+                    ty = base_java_type_name(field_type, &config.extensions),
                     name = logical_name,
                 )
             }
@@ -995,7 +1061,16 @@ fn generate_regular_field_read(
     }
 }
 
-fn base_java_type_name(field_type: &ResolvedFieldType) -> &'static str {
+fn base_java_type_name(
+    field_type: &ResolvedFieldType,
+    extensions: &ExtensionRegistry,
+) -> &'static str {
+    if let ResolvedFieldType::Scalar(scalar) = field_type {
+        if let Some(ext) = extensions.type_for_scalar(scalar) {
+            return ext.type_name;
+        }
+    }
+
     match field_type {
         ResolvedFieldType::Scalar(ScalarType::String)
         | ResolvedFieldType::Scalar(ScalarType::Citext)

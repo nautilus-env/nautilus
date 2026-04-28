@@ -29,6 +29,7 @@ pub fn write_rust_code(
     models: &HashMap<String, String>,
     enums_code: Option<String>,
     composite_types_code: Option<String>,
+    extension_files: &[(String, String)],
     schema_source: &str,
     standalone: bool,
 ) -> Result<()> {
@@ -65,7 +66,24 @@ pub fn write_rust_code(
             .with_context(|| format!("Failed to write types file: {}", types_path.display()))?;
     }
 
-    let lib_content = generate_lib_rs(models, has_enums, has_composite_types, schema_source)?;
+    for (relative_path, content) in extension_files {
+        let file_path = src_dir.join(relative_path);
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+        fs::write(&file_path, content)
+            .with_context(|| format!("Failed to write file: {}", file_path.display()))?;
+    }
+
+    let has_extensions = !extension_files.is_empty();
+    let lib_content = generate_lib_rs(
+        models,
+        has_enums,
+        has_composite_types,
+        has_extensions,
+        schema_source,
+    )?;
     let lib_path = src_dir.join("lib.rs");
     fs::write(&lib_path, lib_content)
         .with_context(|| format!("Failed to write lib.rs: {}", lib_path.display()))?;
@@ -154,6 +172,7 @@ fn generate_lib_rs(
     models: &HashMap<String, String>,
     has_enums: bool,
     has_composite_types: bool,
+    has_extensions: bool,
     schema_source: &str,
 ) -> Result<String> {
     let mut model_names: Vec<_> = models.keys().cloned().collect();
@@ -167,6 +186,7 @@ fn generate_lib_rs(
     let mut context = TeraContext::new();
     context.insert("has_enums", &has_enums);
     context.insert("has_composite_types", &has_composite_types);
+    context.insert("has_extensions", &has_extensions);
     context.insert("model_modules", &model_modules);
     context.insert("schema_source_literal", &format!("{:?}", schema_source));
 
@@ -193,6 +213,7 @@ pub fn write_python_code(
     models: &[(String, String)],
     enums_code: Option<String>,
     composite_types_code: Option<String>,
+    extension_files: &[(String, String)],
     client_code: Option<String>,
     runtime_files: &[(&str, &str)],
 ) -> Result<()> {
@@ -230,6 +251,41 @@ pub fn write_python_code(
             internal_dir.display()
         )
     })?;
+
+    if !extension_files.is_empty() {
+        let extensions_dir = output_dir.join("extensions");
+        fs::create_dir_all(&extensions_dir).with_context(|| {
+            format!(
+                "Failed to create extensions directory: {}",
+                extensions_dir.display()
+            )
+        })?;
+        fs::write(
+            extensions_dir.join("__init__.py"),
+            "# Generated extension scalar packages.\n",
+        )
+        .with_context(|| "Failed to write extensions/__init__.py")?;
+
+        for (relative_path, code) in extension_files {
+            let file_path = extensions_dir.join(relative_path);
+            let ext_dir = file_path.parent().ok_or_else(|| {
+                anyhow::anyhow!("Invalid Python extension file path: {relative_path}")
+            })?;
+            fs::create_dir_all(ext_dir).with_context(|| {
+                format!(
+                    "Failed to create extension directory: {}",
+                    ext_dir.display()
+                )
+            })?;
+            fs::write(
+                ext_dir.join("__init__.py"),
+                "from .types import *  # noqa: F401, F403\n",
+            )
+            .with_context(|| "Failed to write extension __init__.py")?;
+            fs::write(&file_path, code)
+                .with_context(|| format!("Failed to write file: {}", file_path.display()))?;
+        }
+    }
 
     for (file_name, code) in models {
         let file_path = models_dir.join(file_name);
@@ -340,6 +396,8 @@ pub fn write_js_code(
     js_enums: Option<String>,
     dts_enums: Option<String>,
     dts_composite_types: Option<String>,
+    js_extension_files: &[(String, String)],
+    dts_extension_files: &[(String, String)],
     js_client: Option<String>,
     dts_client: Option<String>,
     js_models_index: Option<String>,
@@ -358,6 +416,26 @@ pub fn write_js_code(
 
     let internal_dir = output_dir.join("_internal");
     fs::create_dir_all(&internal_dir)?;
+
+    for (relative_path, code) in js_extension_files {
+        let file_path = output_dir.join(relative_path);
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+        fs::write(&file_path, code)
+            .with_context(|| format!("Failed to write file: {}", file_path.display()))?;
+    }
+
+    for (relative_path, code) in dts_extension_files {
+        let file_path = output_dir.join(relative_path);
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+        fs::write(&file_path, code)
+            .with_context(|| format!("Failed to write file: {}", file_path.display()))?;
+    }
 
     for (file_name, code) in js_models {
         let file_path = models_dir.join(file_name);

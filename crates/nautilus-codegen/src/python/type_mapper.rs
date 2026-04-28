@@ -36,26 +36,7 @@ pub fn field_to_python_type(
         ResolvedFieldType::Relation(rel) => rel.target_model.clone(),
     };
 
-    let with_array = if field.is_array {
-        format!("List[{}]", base_type)
-    } else {
-        base_type
-    };
-
-    // Relations (single, non-array) are always Optional for lazy-loading.
-    let is_relation = matches!(&field.field_type, ResolvedFieldType::Relation(_));
-
-    // Auto-generated fields (uuid(), now(), autoincrement()) are Optional even
-    // if required, because they are provided by the database, not the caller.
-    if !field.is_required || is_auto_generated(field) || (is_relation && !field.is_array) {
-        if !field.is_array {
-            format!("Optional[{}]", with_array)
-        } else {
-            with_array
-        }
-    } else {
-        with_array
-    }
+    PythonBackend.wrap_field_type(field, base_type)
 }
 
 /// Gets the base Python type for a field without `Optional` or `List` wrappers.

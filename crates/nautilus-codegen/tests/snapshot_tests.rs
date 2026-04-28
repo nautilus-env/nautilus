@@ -1227,19 +1227,22 @@ model User {
         .expect("user declaration missing");
     assert!(js_dts.contains("export interface HstoreFilter {"));
     assert!(js_dts.contains("export type HstoreValue = Record<string, string | null>;"));
-    assert!(js_dts.contains("equals?: HstoreValue;"));
-    assert!(js_dts.contains("not?:    HstoreValue;"));
+    // With the `hstore` extension declared, filter inputs accept the generated
+    // wrapper or the raw `HstoreValue` payload via the `HstoreInput` union.
+    assert!(js_dts.contains("equals?: HstoreInput;"));
+    assert!(js_dts.contains("not?:    HstoreInput;"));
     assert!(js_dts.contains("isNull?: boolean;"));
-    assert!(js_dts.contains("meta?: HstoreFilter;"));
+    assert!(js_dts.contains("meta?: Hstore | HstoreValue | HstoreFilter;"));
 
     let py_models = generate_all_python_models(&ir, false, 1);
     let py_model = generated_python_file(&py_models, "user.py");
     assert!(py_model.contains("HstoreValue = Dict[str, Optional[str]]"));
     assert!(py_model.contains("class HstoreFilter(TypedDict, total=False):"));
-    assert!(py_model.contains("equals: NotRequired[HstoreValue]"));
-    assert!(py_model.contains("not_: NotRequired[HstoreValue]"));
+    // With the `hstore` extension declared the filter accepts the wrapper too.
+    assert!(py_model.contains("equals: NotRequired[Union[Hstore, HstoreValue]]"));
+    assert!(py_model.contains("not_: NotRequired[Union[Hstore, HstoreValue]]"));
     assert!(py_model.contains("is_null: NotRequired[bool]"));
-    assert!(py_model.contains("meta: NotRequired[HstoreFilter]"));
+    assert!(py_model.contains("meta: NotRequired[Union[Hstore, HstoreValue, HstoreFilter]]"));
 }
 
 #[test]
@@ -1274,22 +1277,26 @@ model User {
         .map(|(_, code)| code.as_str())
         .expect("user declaration missing");
     assert!(js_dts.contains("export interface VectorFilter {"));
-    assert!(js_dts.contains("equals?: number[];"));
-    assert!(js_dts.contains("not?:    number[];"));
+    // With the `vector` extension declared, the filter accepts the wrapper
+    // `Vector` instance or the raw `number[]` via the `VectorInput` union.
+    assert!(js_dts.contains("equals?: VectorInput;"));
+    assert!(js_dts.contains("not?:    VectorInput;"));
     assert!(js_dts.contains("isNull?: boolean;"));
-    assert!(js_dts.contains("embedding?: number[] | VectorFilter;"));
+    assert!(js_dts.contains("embedding?: Vector | number[] | VectorFilter;"));
     assert!(js_dts.contains("export type VectorMetric = 'l2' | 'innerProduct' | 'cosine';"));
     assert!(js_dts.contains("export type UserVectorFieldKeys = 'embedding';"));
     assert!(js_dts.contains("export interface UserNearestInput {"));
     assert!(js_dts.contains("nearest?:  UserNearestInput;"));
+    // The Nearest input also widens its `query` to accept the wrapper.
+    assert!(js_dts.contains("query:  VectorInput;"));
 
     let py_models = generate_all_python_models(&ir, false, 1);
     let py_model = generated_python_file(&py_models, "user.py");
     assert!(py_model.contains("class VectorFilter(TypedDict, total=False):"));
-    assert!(py_model.contains("equals: NotRequired[List[float]]"));
-    assert!(py_model.contains("not_: NotRequired[List[float]]"));
+    assert!(py_model.contains("equals: NotRequired[Union[Vector, List[float]]]"));
+    assert!(py_model.contains("not_: NotRequired[Union[Vector, List[float]]]"));
     assert!(py_model.contains("is_null: NotRequired[bool]"));
-    assert!(py_model.contains("embedding: NotRequired[Union[List[float], VectorFilter]]"));
+    assert!(py_model.contains("embedding: NotRequired[Union[Vector, List[float], VectorFilter]]"));
     assert!(py_model.contains("VectorMetric = Literal[\"l2\", \"innerProduct\", \"cosine\"]"));
     assert!(py_model.contains("UserVectorFieldKeys = Literal[\"embedding\"]"));
     assert!(py_model.contains("class UserNearestInput(TypedDict):"));
@@ -1410,7 +1417,11 @@ model User {
     let user_model = generated_java_file(&java_files, "model/User.java");
     let json_support = generated_java_file(&java_files, "internal/JsonSupport.java");
 
-    assert!(user_model.contains("JsonSupport.Hstore meta"));
+    // With the `hstore` extension declared the model field uses the generated
+    // `Hstore` wrapper class (which itself wraps `JsonSupport.Hstore` to
+    // preserve null-aware key/value semantics on the wire).
+    assert!(user_model.contains("Hstore meta"));
+    assert!(user_model.contains("import com.acme.db.extensions.hstore.types.Hstore;"));
     assert!(json_support
         .contains("public static final class Hstore extends LinkedHashMap<String, String>"));
     assert!(json_support.contains("public static Hstore asHstore(JsonNode node)"));

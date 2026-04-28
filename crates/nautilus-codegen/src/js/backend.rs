@@ -35,6 +35,10 @@ impl LanguageBackend for JsBackend {
         format!("{}[]", inner)
     }
 
+    fn optional_type(&self, inner: &str) -> String {
+        format!("{} | null", inner)
+    }
+
     fn not_in_suffix(&self) -> &'static str {
         "notIn"
     }

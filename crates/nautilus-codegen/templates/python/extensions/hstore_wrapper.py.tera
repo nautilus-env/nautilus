@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, Dict, Optional
+
+
+class Hstore:
+    def __init__(self, value: Mapping[str, Optional[str]] | None = None) -> None:
+        self.value: Dict[str, Optional[str]] = dict(value or {})
+
+    @classmethod
+    def from_wire(cls, value: Any) -> "Hstore":
+        return value if isinstance(value, cls) else cls(value)
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any, *args: Any, **kwargs: Any) -> "Hstore":
+        return cls.from_wire(value)
+
+    def as_map(self) -> Dict[str, Optional[str]]:
+        return dict(self.value)
+
+    def to_wire(self) -> Dict[str, Optional[str]]:
+        return self.as_map()
+
+    def equals(self, other: Any) -> bool:
+        other_value = other.value if isinstance(other, Hstore) else dict(other)
+        return self.value == other_value
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Hstore):
+            return self.value == other.value
+        if isinstance(other, Mapping):
+            return self.value == dict(other)
+        return False
+
+    def __repr__(self) -> str:
+        return f"Hstore({self.value!r})"
+
+
+__all__ = ["Hstore"]

@@ -1,0 +1,68 @@
+package {{ root_package }}.extensions.{{ extension }}.types;
+
+import {{ root_package }}.internal.JsonSupport;
+import {{ root_package }}.internal.WireSerializable;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Objects;
+
+public final class {{ type_name }} implements WireSerializable {
+    private final String value;
+
+    public {{ type_name }}(String value) {
+        this.value = value;
+    }
+
+    public static {{ type_name }} of(String value) {
+        return new {{ type_name }}(value);
+    }
+
+    public static {{ type_name }} fromJsonNode(JsonNode node) {
+        String value = JsonSupport.asString(node);
+        return value == null ? null : new {{ type_name }}(value);
+    }
+
+    public String value() {
+        return this.value;
+    }
+
+    public String asString() {
+        return this.value;
+    }
+
+    public String toWire() {
+        return this.value;
+    }
+
+    public boolean equals(String other) {
+        return Objects.equals(this.value, other);
+    }
+
+    @Override
+    public JsonNode toJsonNode() {
+        return JsonSupport.toJsonNode(this.value);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (other instanceof {{ type_name }} typed) {
+            return Objects.equals(this.value, typed.value);
+        }
+        if (other instanceof String raw) {
+            return Objects.equals(this.value, raw);
+        }
+        return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(this.value);
+    }
+
+    @Override
+    public String toString() {
+        return this.value;
+    }
+}

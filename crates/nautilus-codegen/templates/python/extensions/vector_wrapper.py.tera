@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import Any, Iterator, List
+
+
+class Vector:
+    def __init__(self, value: Iterable[float]) -> None:
+        self.value: List[float] = [float(item) for item in value]
+
+    @classmethod
+    def from_wire(cls, value: Any) -> "Vector":
+        return value if isinstance(value, cls) else cls(value)
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any, *args: Any, **kwargs: Any) -> "Vector":
+        return cls.from_wire(value)
+
+    def to_list(self) -> List[float]:
+        return list(self.value)
+
+    def to_wire(self) -> List[float]:
+        return self.to_list()
+
+    def equals(self, other: Any) -> bool:
+        other_value = other.value if isinstance(other, Vector) else list(other)
+        return self.value == [float(item) for item in other_value]
+
+    def __iter__(self) -> Iterator[float]:
+        return iter(self.value)
+
+    def __len__(self) -> int:
+        return len(self.value)
+
+    def __getitem__(self, index: int) -> float:
+        return self.value[index]
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Vector):
+            return self.value == other.value
+        if isinstance(other, Iterable):
+            return self.equals(other)
+        return False
+
+    def __repr__(self) -> str:
+        return f"Vector({self.value!r})"
+
+
+__all__ = ["Vector"]

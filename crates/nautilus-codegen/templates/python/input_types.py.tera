@@ -88,15 +88,15 @@ class JsonFilter(TypedDict, total=False):
 
 class HstoreFilter(TypedDict, total=False):
     """Hstore field filter operations."""
-    equals: NotRequired[HstoreValue]
-    not_: NotRequired[HstoreValue]
+    equals: NotRequired[{% if has_hstore_extension %}Union[Hstore, HstoreValue]{% else %}HstoreValue{% endif %}]
+    not_: NotRequired[{% if has_hstore_extension %}Union[Hstore, HstoreValue]{% else %}HstoreValue{% endif %}]
     is_null: NotRequired[bool]
 
 
 class VectorFilter(TypedDict, total=False):
     """Vector field filter operations."""
-    equals: NotRequired[List[float]]
-    not_: NotRequired[List[float]]
+    equals: NotRequired[{% if has_vector_extension %}Union[Vector, List[float]]{% else %}List[float]{% endif %}]
+    not_: NotRequired[{% if has_vector_extension %}Union[Vector, List[float]]{% else %}List[float]{% endif %}]
     is_null: NotRequired[bool]
 {% if has_vector_fields %}
 VectorMetric = Literal["l2", "innerProduct", "cosine"]
@@ -106,7 +106,7 @@ VectorMetric = Literal["l2", "innerProduct", "cosine"]
 class {{ model_name }}NearestInput(TypedDict):
     """Nearest-neighbor search options for pgvector fields."""
     field: {{ model_name }}VectorFieldKeys
-    query: List[float]
+    query: {% if has_vector_extension %}Union[Vector, List[float]]{% else %}List[float]{% endif %}
     metric: VectorMetric
 
 
@@ -115,7 +115,9 @@ class {{ model_name }}NearestInput(TypedDict):
 class {{ model_name }}WhereInput(TypedDict, total=False):
     """Filter conditions for {{ model_name }} queries."""
     {% for field in where_input_fields %}
-    {% if field.is_vector %}
+    {% if field.where_python_type %}
+    {{ field.name }}: NotRequired[{{ field.where_python_type }}]
+    {% elif field.is_vector %}
     {{ field.name }}: NotRequired[Union[List[float], VectorFilter]]
     {% elif field.python_type == "str" %}
     {{ field.name }}: NotRequired[Union[str, StringFilter]]

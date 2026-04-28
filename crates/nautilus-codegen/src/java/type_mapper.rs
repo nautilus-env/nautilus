@@ -6,6 +6,7 @@ use nautilus_schema::ir::{
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::backend::LanguageBackend;
+use crate::extension_types::{ExtensionRegistry, ExtensionWireKind};
 use crate::java::backend::JavaBackend;
 
 fn backend() -> JavaBackend {
@@ -16,11 +17,19 @@ fn resolved_base_type(
     resolved: &ResolvedFieldType,
     root_package: &str,
     current_model_or_type: &str,
+    extensions: &ExtensionRegistry,
 ) -> (String, BTreeSet<String>) {
     let mut imports = BTreeSet::new();
 
     match resolved {
         ResolvedFieldType::Scalar(scalar) => {
+            if let Some(ty) = extensions.type_for_scalar(scalar) {
+                imports.insert(ty.java_import(root_package));
+                if ty.wire_kind == ExtensionWireKind::Vector {
+                    imports.insert("java.util.List".to_string());
+                }
+                return (ty.type_name.to_string(), imports);
+            }
             let ty = backend().scalar_to_type(scalar).to_string();
             imports.extend(imports_for_scalar(scalar));
             (ty, imports)
@@ -46,20 +55,22 @@ fn resolved_base_type(
     }
 }
 
-pub fn field_base_type(
+pub(crate) fn field_base_type(
     field: &FieldIr,
     root_package: &str,
     current_model: &str,
+    extensions: &ExtensionRegistry,
 ) -> (String, BTreeSet<String>) {
-    resolved_base_type(&field.field_type, root_package, current_model)
+    resolved_base_type(&field.field_type, root_package, current_model, extensions)
 }
 
-pub fn field_to_java_type(
+pub(crate) fn field_to_java_type(
     field: &FieldIr,
     root_package: &str,
     current_model: &str,
+    extensions: &ExtensionRegistry,
 ) -> (String, BTreeSet<String>) {
-    let (base, mut imports) = field_base_type(field, root_package, current_model);
+    let (base, mut imports) = field_base_type(field, root_package, current_model, extensions);
     if field.is_array {
         imports.insert("java.util.List".to_string());
         (format!("List<{base}>"), imports)
@@ -68,18 +79,29 @@ pub fn field_to_java_type(
     }
 }
 
-pub fn composite_field_to_java_type(
+pub(crate) fn composite_field_to_java_type(
     field: &CompositeFieldIr,
     root_package: &str,
     current_type: &str,
+    extensions: &ExtensionRegistry,
 ) -> (String, BTreeSet<String>) {
-    let (base, mut imports) = resolved_base_type(&field.field_type, root_package, current_type);
+    let (base, mut imports) =
+        resolved_base_type(&field.field_type, root_package, current_type, extensions);
     if field.is_array {
         imports.insert("java.util.List".to_string());
         (format!("List<{base}>"), imports)
     } else {
         (base, imports)
     }
+}
+
+pub(crate) fn extension_raw_java_type(
+    field: &FieldIr,
+    extensions: &ExtensionRegistry,
+) -> Option<&'static str> {
+    extensions
+        .type_for_field(field)
+        .map(|ty| ty.java_raw_type())
 }
 
 pub fn imports_for_scalar(scalar: &ScalarType) -> BTreeSet<String> {

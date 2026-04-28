@@ -5,7 +5,7 @@
 //! only the TypeScript-specific helpers: full-field type composition, base-type
 //! extraction, and default-value formatting.
 
-use nautilus_schema::ir::{FieldIr, ResolvedFieldType, ScalarType};
+use nautilus_schema::ir::{FieldIr, ScalarType};
 use std::collections::HashMap;
 
 use crate::backend::{FilterOperator, LanguageBackend};
@@ -22,25 +22,7 @@ pub fn field_to_ts_type(
     enums: &HashMap<String, nautilus_schema::ir::EnumIr>,
 ) -> String {
     let base = get_base_ts_type(field, enums);
-
-    let with_array = if field.is_array {
-        format!("{}[]", base)
-    } else {
-        base
-    };
-
-    // Relations (non-array, single) are always nullable (lazy-loaded).
-    let is_relation = matches!(&field.field_type, ResolvedFieldType::Relation(_));
-
-    if !field.is_required || is_auto_generated(field) || (is_relation && !field.is_array) {
-        if field.is_array {
-            with_array
-        } else {
-            format!("{} | null", with_array)
-        }
-    } else {
-        with_array
-    }
+    JsBackend.wrap_field_type(field, base)
 }
 
 /// Returns the bare base TypeScript type without wrappers (e.g. `string`, `Date`).

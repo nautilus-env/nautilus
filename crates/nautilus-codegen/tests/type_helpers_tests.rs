@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use nautilus_codegen::{
     backend::LanguageBackend,
+    extension_types::ExtensionRegistry,
     java::backend::JavaBackend,
     python::type_mapper::{
         field_to_python_type, get_base_python_type, get_default_value,
@@ -134,62 +135,83 @@ fn empty_enums() -> HashMap<String, EnumIr> {
 #[test]
 fn test_rust_scalar_required_string() {
     let f = scalar_field(ScalarType::String, true, false);
-    assert_eq!(field_to_rust_type(&f), "String");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "String"
+    );
 }
 
 #[test]
 fn test_rust_scalar_optional_string() {
     let f = scalar_field(ScalarType::String, false, false);
-    assert_eq!(field_to_rust_type(&f), "Option<String>");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "Option<String>"
+    );
 }
 
 #[test]
 fn test_rust_scalar_array_string() {
     let f = scalar_field(ScalarType::String, true, true);
-    assert_eq!(field_to_rust_type(&f), "Vec<String>");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "Vec<String>"
+    );
 }
 
 #[test]
 fn test_rust_scalar_int() {
     let f = scalar_field(ScalarType::Int, true, false);
-    assert_eq!(field_to_rust_type(&f), "i32");
+    assert_eq!(field_to_rust_type(&f, &ExtensionRegistry::default()), "i32");
 }
 
 #[test]
 fn test_rust_scalar_bigint() {
     let f = scalar_field(ScalarType::BigInt, true, false);
-    assert_eq!(field_to_rust_type(&f), "i64");
+    assert_eq!(field_to_rust_type(&f, &ExtensionRegistry::default()), "i64");
 }
 
 #[test]
 fn test_rust_scalar_float() {
     let f = scalar_field(ScalarType::Float, true, false);
-    assert_eq!(field_to_rust_type(&f), "f64");
+    assert_eq!(field_to_rust_type(&f, &ExtensionRegistry::default()), "f64");
 }
 
 #[test]
 fn test_rust_scalar_boolean() {
     let f = scalar_field(ScalarType::Boolean, true, false);
-    assert_eq!(field_to_rust_type(&f), "bool");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "bool"
+    );
 }
 
 #[test]
 fn test_rust_scalar_datetime() {
     let f = scalar_field(ScalarType::DateTime, true, false);
-    assert_eq!(field_to_rust_type(&f), "chrono::NaiveDateTime");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "chrono::NaiveDateTime"
+    );
 }
 
 #[test]
 fn test_rust_scalar_uuid() {
     let f = scalar_field(ScalarType::Uuid, true, false);
-    assert_eq!(field_to_rust_type(&f), "uuid::Uuid");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "uuid::Uuid"
+    );
 }
 
 #[test]
 fn test_rust_extension_backed_postgres_scalars_map_to_string() {
     for scalar in [ScalarType::Citext, ScalarType::Ltree] {
         let f = scalar_field(scalar, true, false);
-        assert_eq!(field_to_rust_type(&f), "String");
+        assert_eq!(
+            field_to_rust_type(&f, &ExtensionRegistry::default()),
+            "String"
+        );
     }
 }
 
@@ -197,7 +219,7 @@ fn test_rust_extension_backed_postgres_scalars_map_to_string() {
 fn test_rust_hstore_maps_to_btree_map() {
     let f = scalar_field(ScalarType::Hstore, true, false);
     assert_eq!(
-        field_to_rust_type(&f),
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
         "std::collections::BTreeMap<String, Option<String>>"
     );
 }
@@ -207,8 +229,14 @@ fn test_rust_postgis_scalars_map_to_spatial_newtypes() {
     let geom = scalar_field(ScalarType::Geometry, true, false);
     let geog = scalar_field(ScalarType::Geography, true, false);
 
-    assert_eq!(field_to_rust_type(&geom), "nautilus_core::Geometry");
-    assert_eq!(field_to_rust_type(&geog), "nautilus_core::Geography");
+    assert_eq!(
+        field_to_rust_type(&geom, &ExtensionRegistry::default()),
+        "nautilus_core::Geometry"
+    );
+    assert_eq!(
+        field_to_rust_type(&geog, &ExtensionRegistry::default()),
+        "nautilus_core::Geography"
+    );
 }
 
 #[test]
@@ -221,19 +249,28 @@ fn test_rust_scalar_decimal() {
         true,
         false,
     );
-    assert_eq!(field_to_rust_type(&f), "rust_decimal::Decimal");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "rust_decimal::Decimal"
+    );
 }
 
 #[test]
 fn test_rust_scalar_bytes() {
     let f = scalar_field(ScalarType::Bytes, true, false);
-    assert_eq!(field_to_rust_type(&f), "Vec<u8>");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "Vec<u8>"
+    );
 }
 
 #[test]
 fn test_rust_scalar_json() {
     let f = scalar_field(ScalarType::Json, true, false);
-    assert_eq!(field_to_rust_type(&f), "serde_json::Value");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "serde_json::Value"
+    );
 }
 
 #[test]
@@ -263,19 +300,28 @@ fn test_rust_enum_type() {
         check: None,
         span: no_span(),
     };
-    assert_eq!(field_to_rust_type(&field), "Role");
+    assert_eq!(
+        field_to_rust_type(&field, &ExtensionRegistry::default()),
+        "Role"
+    );
 }
 
 #[test]
 fn test_rust_relation_single() {
     let f = relation_field("Post", false, vec!["postId".into()], vec!["id".into()]);
-    assert_eq!(field_to_rust_type(&f), "Option<Box<Post>>");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "Option<Box<Post>>"
+    );
 }
 
 #[test]
 fn test_rust_relation_array() {
     let f = relation_field("Post", true, vec![], vec![]);
-    assert_eq!(field_to_rust_type(&f), "Vec<Post>");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "Vec<Post>"
+    );
 }
 
 #[test]
@@ -382,7 +428,10 @@ fn test_vector_type_mappings() {
     let scalar = ScalarType::Vector { dimension: 1536 };
     let f = scalar_field(scalar, true, false);
 
-    assert_eq!(field_to_rust_type(&f), "Vec<f32>");
+    assert_eq!(
+        field_to_rust_type(&f, &ExtensionRegistry::default()),
+        "Vec<f32>"
+    );
     assert_eq!(scalar_to_python_type(&scalar), "List[float]");
     assert_eq!(JavaBackend.scalar_to_type(&scalar), "List<Float>");
 }

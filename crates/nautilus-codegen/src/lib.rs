@@ -9,6 +9,7 @@
 pub mod backend;
 pub mod composite_type_gen;
 pub mod enum_gen;
+pub mod extension_types;
 pub mod generator;
 pub mod java;
 pub mod js;
@@ -22,18 +23,19 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::composite_type_gen::generate_all_composite_types;
+use crate::composite_type_gen::generate_all_composite_types_with_registry;
 use crate::enum_gen::generate_all_enums;
-use crate::generator::generate_all_models;
-use crate::java::{build_java_bundle, generate_java_client};
+use crate::extension_types::{
+    generate_js_extension_files, generate_python_extension_files, generate_rust_extension_files,
+    ExtensionRegistry,
+};
+use crate::generator::generate_all_models_with_registry;
+use crate::java::build_java_bundle;
 use crate::js::{
-    generate_all_js_models, generate_js_client, generate_js_composite_types, generate_js_enums,
-    generate_js_models_index, js_runtime_files,
+    generate_js_client, generate_js_composite_types, generate_js_enums, generate_js_models_index,
+    js_runtime_files,
 };
-use crate::python::{
-    generate_all_python_models, generate_python_composite_types, generate_python_enums,
-    python_runtime_files,
-};
+use crate::python::{generate_python_composite_types, generate_python_enums, python_runtime_files};
 use crate::writer::{write_java_code, write_js_code, write_python_code, write_rust_code};
 use nautilus_schema::ir::{JavaGenerationMode, ResolvedFieldType, SchemaIr};
 use nautilus_schema::{parse_schema_source, validate_schema_source};
@@ -207,13 +209,14 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
         .as_ref()
         .map(|g| g.recursive_type_depth)
         .unwrap_or(5);
+    let extension_registry = ExtensionRegistry::from_schema(&ir);
 
     let final_output: String;
     let client_name: &str;
 
     match provider {
         "nautilus-client-rs" => {
-            let models = generate_all_models(&ir, is_async);
+            let models = generate_all_models_with_registry(&ir, is_async, &extension_registry);
             client_name = "Rust";
 
             let enums_code = if !ir.enums.is_empty() {
@@ -222,7 +225,9 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
                 None
             };
 
-            let composite_types_code = generate_all_composite_types(&ir);
+            let composite_types_code =
+                generate_all_composite_types_with_registry(&ir, &extension_registry);
+            let extension_files = generate_rust_extension_files(&extension_registry);
 
             // Rust integration always needs a persistent output path because
             // `integrate_rust_package` adds a Cargo path-dependency pointing to
@@ -237,6 +242,7 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
                 &models,
                 enums_code,
                 composite_types_code,
+                &extension_files,
                 &source,
                 standalone,
             )?;
@@ -248,7 +254,12 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
             final_output = output_path;
         }
         "nautilus-client-py" => {
-            let models = generate_all_python_models(&ir, is_async, recursive_type_depth);
+            let models = crate::python::generator::generate_all_python_models_with_registry(
+                &ir,
+                is_async,
+                recursive_type_depth,
+                &extension_registry,
+            );
             client_name = "Python";
 
             let enums_code = if !ir.enums.is_empty() {
@@ -258,6 +269,7 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
             };
 
             let composite_types_code = generate_python_composite_types(&ir.composite_types);
+            let extension_files = generate_python_extension_files(&extension_registry);
 
             let abs_path = schema_path
                 .canonicalize()
@@ -278,6 +290,7 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
                         &models,
                         enums_code,
                         composite_types_code,
+                        &extension_files,
                         Some(client_code),
                         &runtime,
                     )?;
@@ -298,6 +311,7 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
                             &models,
                             enums_code,
                             composite_types_code,
+                            &extension_files,
                             Some(client_code),
                             &runtime,
                         )?;
@@ -314,7 +328,11 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
             }
         }
         "nautilus-client-js" => {
-            let (js_models, dts_models) = generate_all_js_models(&ir);
+            let (js_models, dts_models) =
+                crate::js::generator::generate_all_js_models_with_registry(
+                    &ir,
+                    &extension_registry,
+                );
             client_name = "JavaScript";
 
             let (js_enums, dts_enums) = if !ir.enums.is_empty() {
@@ -325,6 +343,8 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
             };
 
             let dts_composite_types = generate_js_composite_types(&ir.composite_types);
+            let (js_extension_files, dts_extension_files) =
+                generate_js_extension_files(&extension_registry);
 
             let abs_path = schema_path
                 .canonicalize()
@@ -347,6 +367,8 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
                         js_enums,
                         dts_enums,
                         dts_composite_types,
+                        &js_extension_files,
+                        &dts_extension_files,
                         Some(js_client),
                         Some(dts_client),
                         Some(js_models_index),
@@ -372,6 +394,8 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
                             js_enums,
                             dts_enums,
                             dts_composite_types,
+                            &js_extension_files,
+                            &dts_extension_files,
                             Some(js_client),
                             Some(dts_client),
                             Some(js_models_index),
@@ -420,7 +444,12 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
             let output_path = output_path_opt
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("Java generation requires generator.output"))?;
-            let files = generate_java_client(&ir, &schema_path_str, is_async)?;
+            let files = crate::java::generator::generate_java_client_with_registry(
+                &ir,
+                &schema_path_str,
+                is_async,
+                &extension_registry,
+            )?;
             write_java_code(output_path, &files)?;
 
             final_output = if java_mode == JavaGenerationMode::Jar {
@@ -656,6 +685,7 @@ const PYTHON_GENERATED_PACKAGE_ENTRIES: &[&str] = &[
     "errors",
     "_internal",
     "types",
+    "extensions",
 ];
 
 fn clear_generated_python_package(dst: &Path) -> Result<()> {

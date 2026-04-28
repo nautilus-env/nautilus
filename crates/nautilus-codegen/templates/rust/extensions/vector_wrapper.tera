@@ -1,0 +1,73 @@
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct Vector(Vec<f32>);
+
+impl Vector {
+    pub fn new(value: impl Into<Vec<f32>>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn value(&self) -> &[f32] {
+        self.as_slice()
+    }
+
+    pub fn as_slice(&self) -> &[f32] {
+        &self.0
+    }
+
+    pub fn to_list(&self) -> Vec<f32> {
+        self.0.clone()
+    }
+
+    pub fn into_inner(self) -> Vec<f32> {
+        self.0
+    }
+
+    pub fn to_wire(&self) -> &[f32] {
+        self.as_slice()
+    }
+
+    pub fn equals(&self, other: impl AsRef<[f32]>) -> bool {
+        self.as_slice() == other.as_ref()
+    }
+}
+
+impl From<Vec<f32>> for Vector {
+    fn from(value: Vec<f32>) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&[f32]> for Vector {
+    fn from(value: &[f32]) -> Self {
+        Self::new(value.to_vec())
+    }
+}
+
+impl AsRef<[f32]> for Vector {
+    fn as_ref(&self) -> &[f32] {
+        self.as_slice()
+    }
+}
+
+impl From<Vector> for nautilus_core::Value {
+    fn from(value: Vector) -> Self {
+        nautilus_core::Value::Vector(value.into_inner())
+    }
+}
+
+impl From<Option<Vector>> for nautilus_core::Value {
+    fn from(value: Option<Vector>) -> Self {
+        value.map(nautilus_core::Value::from).unwrap_or(nautilus_core::Value::Null)
+    }
+}
+
+impl nautilus_core::FromValue for Vector {
+    fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
+        <Vec<f32> as nautilus_core::FromValue>::from_value(value).map(Self::new)
+    }
+
+    fn from_value_owned(value: nautilus_core::Value) -> nautilus_core::Result<Self> {
+        <Vec<f32> as nautilus_core::FromValue>::from_value_owned(value).map(Self::new)
+    }
+}

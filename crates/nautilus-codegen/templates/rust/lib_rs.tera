@@ -13,11 +13,13 @@ pub(crate) const SCHEMA_SOURCE: &str = {{ schema_source_literal }};
 mod runtime;
 pub use runtime::Client;
 
-{% if has_composite_types %}pub mod types;
+{% if has_extensions %}pub mod extensions;
+{% endif %}{% if has_composite_types %}pub mod types;
 {% endif %}{% if has_enums %}pub mod enums;
 {% endif %}{% for module_name in model_modules %}pub mod {{ module_name }};
 {% endfor %}
-{% if has_composite_types %}pub use types::*;
+{% if has_extensions %}pub use extensions::*;
+{% endif %}{% if has_composite_types %}pub use types::*;
 {% endif %}{% if has_enums %}pub use enums::*;
 {% endif %}{% for module_name in model_modules %}pub use {{ module_name }}::*;
 {% endfor %}

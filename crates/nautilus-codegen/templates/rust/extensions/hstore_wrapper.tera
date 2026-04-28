@@ -1,0 +1,72 @@
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct Hstore(std::collections::BTreeMap<String, Option<String>>);
+
+impl Hstore {
+    pub fn new(value: std::collections::BTreeMap<String, Option<String>>) -> Self {
+        Self(value)
+    }
+
+    pub fn value(&self) -> &std::collections::BTreeMap<String, Option<String>> {
+        self.as_map()
+    }
+
+    pub fn as_map(&self) -> &std::collections::BTreeMap<String, Option<String>> {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> std::collections::BTreeMap<String, Option<String>> {
+        self.0
+    }
+
+    pub fn to_wire(&self) -> &std::collections::BTreeMap<String, Option<String>> {
+        self.as_map()
+    }
+
+    pub fn equals(&self, other: &Self) -> bool {
+        self.as_map() == other.as_map()
+    }
+}
+
+impl From<std::collections::BTreeMap<String, Option<String>>> for Hstore {
+    fn from(value: std::collections::BTreeMap<String, Option<String>>) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Hstore> for nautilus_core::Value {
+    fn from(value: Hstore) -> Self {
+        nautilus_core::Value::Hstore(value.into_inner())
+    }
+}
+
+impl From<Option<Hstore>> for nautilus_core::Value {
+    fn from(value: Option<Hstore>) -> Self {
+        value.map(nautilus_core::Value::from).unwrap_or(nautilus_core::Value::Null)
+    }
+}
+
+impl From<Vec<Hstore>> for nautilus_core::Value {
+    fn from(values: Vec<Hstore>) -> Self {
+        nautilus_core::Value::Array(values.into_iter().map(nautilus_core::Value::from).collect())
+    }
+}
+
+impl nautilus_core::FromValue for Hstore {
+    fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
+        <std::collections::BTreeMap<String, Option<String>> as nautilus_core::FromValue>::from_value(value)
+            .map(Self::new)
+    }
+
+    fn from_value_owned(value: nautilus_core::Value) -> nautilus_core::Result<Self> {
+        <std::collections::BTreeMap<String, Option<String>> as nautilus_core::FromValue>::from_value_owned(value)
+            .map(Self::new)
+    }
+}
+
+impl nautilus_core::FromValue for Vec<Hstore> {
+    fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
+        <Vec<std::collections::BTreeMap<String, Option<String>>> as nautilus_core::FromValue>::from_value(value)
+            .map(|values| values.into_iter().map(Self::new).collect())
+    }
+}

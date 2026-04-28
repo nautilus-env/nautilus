@@ -5,12 +5,15 @@ use nautilus_schema::ir::{
     CompositeTypeIr, EnumIr, ModelIr, ResolvedFieldType, ScalarType, SchemaIr,
 };
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use tera::{Context, Tera};
 
+use crate::backend::LanguageBackend;
+use crate::extension_types::{ts_input_type_for_extension, ExtensionRegistry};
+use crate::js::backend::JsBackend;
 use crate::js::type_mapper::{
-    field_to_ts_type, get_base_ts_type, get_filter_operators_for_field, get_ts_default_value,
-    is_auto_generated, scalar_to_ts_type,
+    get_base_ts_type, get_filter_operators_for_field, get_ts_default_value, is_auto_generated,
+    scalar_to_ts_type,
 };
 
 /// JS/TS template registry — loaded once at first use.
@@ -72,8 +75,11 @@ struct JsFieldContext {
     db_name: String,
     /// Full TypeScript type, e.g. `string | null`, `number[]`.
     ts_type: String,
+    input_ts_type: String,
     /// Inner base type without wrappers, e.g. `string`, `number`, `Date`.
     base_type: String,
+    raw_base_type: String,
+    extension_coercer: String,
     is_optional: bool,
     is_array: bool,
     is_enum: bool,
@@ -95,6 +101,7 @@ struct JsWhereInputFieldContext {
     /// Base TS type used by the template to pick the right filter interface.
     base_type: String,
     ts_type: String,
+    where_ts_type: String,
     is_vector: bool,
     operators: Vec<JsFilterOperatorContext>,
 }
@@ -133,10 +140,65 @@ struct JsAggregateFieldContext {
     ts_type: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct JsExtensionImportContext {
+    module: String,
+    types: Vec<String>,
+    input_types: Vec<String>,
+}
+
+fn output_base_ts_type(
+    field: &nautilus_schema::ir::FieldIr,
+    enums: &HashMap<String, EnumIr>,
+    extensions: &ExtensionRegistry,
+) -> String {
+    if let Some(ty) = extensions.type_for_field(field) {
+        return ty.type_name.to_string();
+    }
+
+    match &field.field_type {
+        ResolvedFieldType::Scalar(scalar) => scalar_to_ts_type(scalar).to_string(),
+        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+        ResolvedFieldType::Relation(rel) => {
+            if enums.contains_key(&rel.target_model) {
+                rel.target_model.clone()
+            } else {
+                format!("{}Model", rel.target_model)
+            }
+        }
+    }
+}
+
+fn input_base_ts_type(
+    field: &nautilus_schema::ir::FieldIr,
+    extensions: &ExtensionRegistry,
+) -> String {
+    if let Some(ty) = extensions.type_for_field(field) {
+        return ts_input_type_for_extension(ty);
+    }
+
+    match &field.field_type {
+        ResolvedFieldType::Scalar(scalar) => scalar_to_ts_type(scalar).to_string(),
+        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+        ResolvedFieldType::Relation(rel) => format!("{}Model", rel.target_model),
+    }
+}
+
 /// Generate JavaScript + declaration code for a single model.
 ///
 /// Returns `((js_filename, js_code), (dts_filename, dts_code))`.
 pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (String, String)) {
+    let extensions = ExtensionRegistry::from_schema(ir);
+    generate_js_model_with_registry(model, ir, &extensions)
+}
+
+fn generate_js_model_with_registry(
+    model: &ModelIr,
+    ir: &SchemaIr,
+    extensions: &ExtensionRegistry,
+) -> ((String, String), (String, String)) {
     let mut context = Context::new();
 
     context.insert("model_name", &model.logical_name);
@@ -149,6 +211,7 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
 
     let mut enum_imports: HashSet<String> = HashSet::new();
     let mut composite_type_imports: HashSet<String> = HashSet::new();
+    let mut extension_imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     let mut scalar_fields: Vec<JsFieldContext> = Vec::new();
     let mut where_input_fields: Vec<JsWhereInputFieldContext> = Vec::new();
@@ -175,8 +238,35 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
             _ => {}
         }
 
-        let ts_type = field_to_ts_type(field, &ir.enums);
-        let base_type = get_base_ts_type(field, &ir.enums);
+        let extension_type = extensions.type_for_field(field);
+        if let Some(ty) = extension_type {
+            extension_imports
+                .entry(ty.extension.to_string())
+                .or_default()
+                .insert(ty.type_name.to_string());
+        }
+
+        let base_type = output_base_ts_type(field, &ir.enums, &extensions);
+        let input_base_type = input_base_ts_type(field, &extensions);
+        let ts_type = JsBackend.wrap_field_type(field, base_type.clone());
+        let input_ts_type = if field.is_array {
+            format!("{}[]", input_base_type)
+        } else {
+            input_base_type
+        };
+        let raw_base_type = get_base_ts_type(field, &ir.enums);
+        let extension_coercer = extension_type
+            .map(|ty| {
+                if field.is_array {
+                    format!(
+                        "(value) => Array.isArray(value) ? value.map(item => {}.from(item)) : value",
+                        ty.type_name
+                    )
+                } else {
+                    format!("{}.from", ty.type_name)
+                }
+            })
+            .unwrap_or_default();
         let is_enum = matches!(field.field_type, ResolvedFieldType::Enum { .. });
         let auto_generated = is_auto_generated(field);
         let default_val = get_ts_default_value(field);
@@ -187,7 +277,10 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
             logical_name: field.logical_name.clone(),
             db_name: field.db_name.clone(),
             ts_type: ts_type.clone(),
+            input_ts_type: input_ts_type.clone(),
             base_type: base_type.clone(),
+            raw_base_type: raw_base_type.clone(),
+            extension_coercer,
             is_optional: !field.is_required,
             is_array: field.is_array,
             is_enum,
@@ -205,8 +298,11 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
             }
             where_input_fields.push(JsWhereInputFieldContext {
                 name: field.logical_name.clone(),
-                base_type: base_type.clone(),
+                base_type: raw_base_type.clone(),
                 ts_type: ts_type.clone(),
+                where_ts_type: extension_type
+                    .map(|ty| ty.ts_filter_input())
+                    .unwrap_or_default(),
                 is_vector,
                 operators: operators
                     .into_iter()
@@ -229,15 +325,9 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
         }
 
         if !auto_generated {
-            let input_base = base_type.clone();
-            let typed = if field.is_array {
-                format!("{}[]", input_base)
-            } else {
-                input_base
-            };
             create_input_fields.push(JsCreateInputFieldContext {
                 name: field.logical_name.clone(),
-                ts_type: typed,
+                ts_type: input_ts_type.clone(),
                 is_required: field.is_required
                     && field.default_value.is_none()
                     && !field.is_updated_at,
@@ -252,11 +342,10 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
                     | ResolvedFieldType::Scalar(ScalarType::BigInt)
             );
         if !is_auto_pk {
-            let input_base = base_type.clone();
             let typed = if field.is_array {
-                format!("{}[]", input_base)
+                input_ts_type
             } else {
-                format!("{} | null", input_base)
+                format!("{} | null", input_ts_type)
             };
             update_input_fields.push(JsUpdateInputFieldContext {
                 name: field.logical_name.clone(),
@@ -328,8 +417,11 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
                 name: field.logical_name.clone(),
                 logical_name: field.logical_name.clone(),
                 db_name: field.db_name.clone(),
-                ts_type,
-                base_type,
+                ts_type: ts_type.clone(),
+                input_ts_type: ts_type,
+                base_type: base_type.clone(),
+                raw_base_type: base_type,
+                extension_coercer: String::new(),
                 is_optional: true,
                 is_array: field.is_array,
                 is_enum: false,
@@ -380,6 +472,9 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
     context.insert("has_numeric_fields", &has_numeric_fields);
     context.insert("has_vector_fields", &!vector_field_names.is_empty());
     context.insert("vector_field_names", &vector_field_names);
+    for (flag, value) in extensions.template_flags() {
+        context.insert(&flag, &value);
+    }
     context.insert("has_enums", &has_enums);
     context.insert(
         "enum_imports",
@@ -390,6 +485,26 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
         "composite_type_imports",
         &composite_type_imports.into_iter().collect::<Vec<_>>(),
     );
+    let extension_import_contexts: Vec<JsExtensionImportContext> = extension_imports
+        .into_iter()
+        .map(|(module, types)| {
+            let types: Vec<String> = types.into_iter().collect();
+            let input_types = types
+                .iter()
+                .map(|name| format!("{name}Input"))
+                .collect::<Vec<_>>();
+            JsExtensionImportContext {
+                module,
+                types,
+                input_types,
+            }
+        })
+        .collect();
+    context.insert(
+        "has_extension_types",
+        &!extension_import_contexts.is_empty(),
+    );
+    context.insert("extension_imports", &extension_import_contexts);
 
     let snake = model.logical_name.to_snake_case();
     let js_code = render("model.js.tera", &context);
@@ -406,10 +521,19 @@ pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (
 /// Returns `(js_models, dts_models)`, each sorted by filename.
 #[allow(clippy::type_complexity)]
 pub fn generate_all_js_models(ir: &SchemaIr) -> (Vec<(String, String)>, Vec<(String, String)>) {
+    let extensions = ExtensionRegistry::from_schema(ir);
+    generate_all_js_models_with_registry(ir, &extensions)
+}
+
+#[allow(clippy::type_complexity)]
+pub(crate) fn generate_all_js_models_with_registry(
+    ir: &SchemaIr,
+    extensions: &ExtensionRegistry,
+) -> (Vec<(String, String)>, Vec<(String, String)>) {
     let pairs: Vec<((String, String), (String, String))> = ir
         .models
         .values()
-        .map(|model| generate_js_model(model, ir))
+        .map(|model| generate_js_model_with_registry(model, ir, extensions))
         .collect();
 
     let mut js_models: Vec<(String, String)> = pairs.iter().map(|(js, _)| js.clone()).collect();

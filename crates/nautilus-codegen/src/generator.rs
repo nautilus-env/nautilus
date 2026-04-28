@@ -7,8 +7,10 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use tera::{Context, Tera};
 
+use crate::extension_types::ExtensionRegistry;
 use crate::type_helpers::{
     field_to_rust_avg_type, field_to_rust_base_type, field_to_rust_sum_type, field_to_rust_type,
+    scalar_to_rust_type,
 };
 
 pub static TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
@@ -194,6 +196,16 @@ fn field_read_hint_expr(field: &FieldIr) -> String {
 /// `is_async` determines whether the generated delegate methods and internal
 /// builders use `async fn`/`.await` (`true`) or blocking sync wrappers (`false`).
 pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> String {
+    let extensions = ExtensionRegistry::from_schema(ir);
+    generate_model_with_registry(model, ir, is_async, &extensions)
+}
+
+fn generate_model_with_registry(
+    model: &ModelIr,
+    ir: &SchemaIr,
+    is_async: bool,
+    extensions: &ExtensionRegistry,
+) -> String {
     let mut context = Context::new();
 
     context.insert("model_name", &model.logical_name);
@@ -252,18 +264,18 @@ pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> String 
         }
 
         let column_type = match &field.field_type {
-            ResolvedFieldType::Scalar(scalar) => scalar.rust_type().to_string(),
+            ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, &extensions),
             ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
             _ => String::new(),
         };
         let is_pk = pk_field_names.contains(&field.logical_name.as_str());
-        let base_rust_type = field_to_rust_base_type(field);
+        let base_rust_type = field_to_rust_base_type(field, &extensions);
 
         let field_ctx = FieldContext {
             name: field.logical_name.to_snake_case(),
             logical_name: field.logical_name.clone(),
             db_name: field.db_name.clone(),
-            rust_type: field_to_rust_type(field),
+            rust_type: field_to_rust_type(field, &extensions),
             base_rust_type: base_rust_type.clone(),
             column_type,
             read_hint_expr: field_read_hint_expr(field),
@@ -297,7 +309,7 @@ pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> String 
                 logical_name: field.logical_name.clone(),
                 rust_type: base_rust_type.clone(),
                 avg_rust_type: field_to_rust_avg_type(field),
-                sum_rust_type: field_to_rust_sum_type(field),
+                sum_rust_type: field_to_rust_sum_type(field, &extensions),
                 variant_name: field.logical_name.to_pascal_case(),
             });
         }
@@ -354,8 +366,8 @@ pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> String 
             name: field.logical_name.to_snake_case(),
             logical_name: field.logical_name.clone(),
             db_name: field.db_name.clone(),
-            rust_type: field_to_rust_type(field),
-            base_rust_type: field_to_rust_base_type(field),
+            rust_type: field_to_rust_type(field, &extensions),
+            base_rust_type: field_to_rust_base_type(field, &extensions),
             column_type: String::new(),
             read_hint_expr: "None".to_string(),
             variant_name: field.logical_name.to_pascal_case(),
@@ -382,7 +394,9 @@ pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> String 
                 .enumerate()
                 .map(|(idx, f)| {
                     let column_type = match &f.field_type {
-                        ResolvedFieldType::Scalar(scalar) => scalar.rust_type().to_string(),
+                        ResolvedFieldType::Scalar(scalar) => {
+                            scalar_to_rust_type(scalar, &extensions)
+                        }
                         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
                         _ => String::new(),
                     };
@@ -391,8 +405,8 @@ pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> String 
                         name: f.logical_name.to_snake_case(),
                         logical_name: f.logical_name.clone(),
                         db_name: f.db_name.clone(),
-                        rust_type: field_to_rust_type(f),
-                        base_rust_type: field_to_rust_base_type(f),
+                        rust_type: field_to_rust_type(f, &extensions),
+                        base_rust_type: field_to_rust_base_type(f, &extensions),
                         column_type,
                         read_hint_expr: field_read_hint_expr(f),
                         variant_name: f.logical_name.to_pascal_case(),
@@ -471,10 +485,19 @@ pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> String 
 ///
 /// `is_async` is forwarded to every [`generate_model`] call.
 pub fn generate_all_models(ir: &SchemaIr, is_async: bool) -> HashMap<String, String> {
+    let extensions = ExtensionRegistry::from_schema(ir);
+    generate_all_models_with_registry(ir, is_async, &extensions)
+}
+
+pub(crate) fn generate_all_models_with_registry(
+    ir: &SchemaIr,
+    is_async: bool,
+    extensions: &ExtensionRegistry,
+) -> HashMap<String, String> {
     let mut generated = HashMap::new();
 
     for (model_name, model_ir) in &ir.models {
-        let code = generate_model(model_ir, ir, is_async);
+        let code = generate_model_with_registry(model_ir, ir, is_async, extensions);
         generated.insert(model_name.clone(), code);
     }
 

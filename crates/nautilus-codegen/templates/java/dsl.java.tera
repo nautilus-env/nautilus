@@ -77,6 +77,12 @@ public final class {{ name }} {
             return this;
         }
 
+{%- if field.raw_java_type %}
+        public Where {{ field.name }}({{ field.raw_java_type }} value) {
+            return {{ field.name }}(new {{ field.java_type }}(value));
+        }
+
+{%- endif %}
 {%- for op in field.filter_ops %}
         public Where {{ field.name }}{{ op.suffix_pascal }}({{ op.java_type }} value) {
             Filters.operator(this.node, "{{ field.db_name }}", "{{ op.suffix }}", value);
@@ -172,6 +178,13 @@ public final class {{ name }} {
             return this;
         }
 
+{% if has_vector_extension %}
+        public Nearest query(Vector value) {
+            this.node.set("query", JsonSupport.toJsonNode(value));
+            return this;
+        }
+
+{% endif %}
         public Nearest metric(VectorMetric metric) {
             this.node.put("metric", metric.wireValue());
             return this;
@@ -198,6 +211,12 @@ public final class {{ name }} {
             return this;
         }
 
+{%- if field.raw_java_type %}
+        public CreateInput {{ field.name }}({{ field.raw_java_type }} value) {
+            return {{ field.name }}(new {{ field.java_type }}(value));
+        }
+
+{%- endif %}
 {%- endfor %}
 {{ m::serializable_tail() }}
     }
@@ -219,6 +238,12 @@ public final class {{ name }} {
             return this;
         }
 
+{%- if field.raw_java_type %}
+        public UpdateInput {{ field.name }}({{ field.raw_java_type }} value) {
+            return {{ field.name }}(new {{ field.java_type }}(value));
+        }
+
+{%- endif %}
 {%- endfor %}
 {{ m::serializable_tail() }}
     }

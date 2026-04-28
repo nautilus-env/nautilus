@@ -5,7 +5,9 @@ use nautilus_schema::ir::{ResolvedFieldType, SchemaIr};
 use serde::Serialize;
 use tera::Context;
 
+use crate::extension_types::ExtensionRegistry;
 use crate::generator::TEMPLATES;
+use crate::type_helpers::scalar_to_rust_type;
 
 #[derive(Debug, Clone, Serialize)]
 struct CompositeFieldContext {
@@ -17,9 +19,10 @@ fn composite_field_rust_type(
     field_type: &ResolvedFieldType,
     is_required: bool,
     is_array: bool,
+    extensions: &ExtensionRegistry,
 ) -> String {
     let base = match field_type {
-        ResolvedFieldType::Scalar(scalar) => scalar.rust_type().to_string(),
+        ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, extensions),
         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
         ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
         ResolvedFieldType::Relation(_) => "serde_json::Value".to_string(),
@@ -38,6 +41,14 @@ fn composite_field_rust_type(
 ///
 /// Returns `None` when there are no composite types.
 pub fn generate_all_composite_types(ir: &SchemaIr) -> Option<String> {
+    let extensions = ExtensionRegistry::from_schema(ir);
+    generate_all_composite_types_with_registry(ir, &extensions)
+}
+
+pub(crate) fn generate_all_composite_types_with_registry(
+    ir: &SchemaIr,
+    extensions: &ExtensionRegistry,
+) -> Option<String> {
     if ir.composite_types.is_empty() {
         return None;
     }
@@ -58,7 +69,12 @@ pub fn generate_all_composite_types(ir: &SchemaIr) -> Option<String> {
             .iter()
             .map(|f| CompositeFieldContext {
                 name: f.logical_name.to_snake_case(),
-                rust_type: composite_field_rust_type(&f.field_type, f.is_required, f.is_array),
+                rust_type: composite_field_rust_type(
+                    &f.field_type,
+                    f.is_required,
+                    f.is_array,
+                    extensions,
+                ),
             })
             .collect();
 

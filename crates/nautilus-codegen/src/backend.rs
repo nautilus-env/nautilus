@@ -43,6 +43,11 @@ pub trait LanguageBackend {
     /// Examples: `"List[T]"` (Python) vs `"T[]"` (TypeScript).
     fn array_type(&self, inner: &str) -> String;
 
+    /// Wraps a type name in the language's nullable / optional syntax.
+    ///
+    /// Examples: `"Optional[T]"` (Python) vs `"T | null"` (TypeScript).
+    fn optional_type(&self, inner: &str) -> String;
+
     /// Suffix for the "not in collection" operator.
     ///
     /// Python: `"not_in"` — TypeScript: `"notIn"`
@@ -332,6 +337,27 @@ pub trait LanguageBackend {
             Some(self.null_literal().to_string())
         } else {
             None
+        }
+    }
+
+    /// Wraps a base type in the language's array and optional syntax for the
+    /// field's cardinality and nullability rules.
+    fn wrap_field_type(&self, field: &FieldIr, base_type: String) -> String {
+        let with_array = if field.is_array {
+            self.array_type(&base_type)
+        } else {
+            base_type
+        };
+
+        let is_relation = matches!(&field.field_type, ResolvedFieldType::Relation(_));
+        if !field.is_required || self.is_auto_generated(field) || (is_relation && !field.is_array) {
+            if field.is_array {
+                with_array
+            } else {
+                self.optional_type(&with_array)
+            }
+        } else {
+            with_array
         }
     }
 }

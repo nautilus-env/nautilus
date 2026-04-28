@@ -1,0 +1,102 @@
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct {{ type_name }}(String);
+
+impl {{ type_name }} {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn value(&self) -> &str {
+        self.as_str()
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+
+    pub fn to_wire(&self) -> &str {
+        self.as_str()
+    }
+
+    pub fn equals(&self, other: impl AsRef<str>) -> bool {
+        self.as_str() == other.as_ref()
+    }
+}
+
+impl From<String> for {{ type_name }} {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&str> for {{ type_name }} {
+    fn from(value: &str) -> Self {
+        Self::new(value)
+    }
+}
+
+impl AsRef<str> for {{ type_name }} {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for {{ type_name }} {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<{{ type_name }}> for nautilus_core::Value {
+    fn from(value: {{ type_name }}) -> Self {
+        nautilus_core::Value::{{ value_variant }}(value.into_inner())
+    }
+}
+
+impl From<Option<{{ type_name }}>> for nautilus_core::Value {
+    fn from(value: Option<{{ type_name }}>) -> Self {
+        value.map(nautilus_core::Value::from).unwrap_or(nautilus_core::Value::Null)
+    }
+}
+
+impl From<Vec<{{ type_name }}>> for nautilus_core::Value {
+    fn from(values: Vec<{{ type_name }}>) -> Self {
+        nautilus_core::Value::Array(values.into_iter().map(nautilus_core::Value::from).collect())
+    }
+}
+
+impl nautilus_core::FromValue for {{ type_name }} {
+    fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
+        match value {
+            {{ match_pattern }} => Ok(Self::new(value.clone())),
+            nautilus_core::Value::Null => Err(nautilus_core::Error::TypeError("NULL value for {{ error_name }}".to_string())),
+            other => Err(nautilus_core::Error::TypeError(format!("expected {{ error_name }} or String, got {:?}", other))),
+        }
+    }
+
+    fn from_value_owned(value: nautilus_core::Value) -> nautilus_core::Result<Self> {
+        match value {
+            {{ match_pattern }} => Ok(Self::new(value)),
+            nautilus_core::Value::Null => Err(nautilus_core::Error::TypeError("NULL value for {{ error_name }}".to_string())),
+            other => Err(nautilus_core::Error::TypeError(format!("expected {{ error_name }} or String, got {:?}", other))),
+        }
+    }
+}
+
+impl nautilus_core::FromValue for Vec<{{ type_name }}> {
+    fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
+        match value {
+            nautilus_core::Value::Array(items) => items
+                .iter()
+                .map(<{{ type_name }} as nautilus_core::FromValue>::from_value)
+                .collect(),
+            other => <Vec<String> as nautilus_core::FromValue>::from_value(other)
+                .map(|values| values.into_iter().map(Self::new).collect()),
+        }
+    }
+}

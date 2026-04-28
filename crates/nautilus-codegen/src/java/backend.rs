@@ -36,6 +36,10 @@ impl LanguageBackend for JavaBackend {
         format!("List<{inner}>")
     }
 
+    fn optional_type(&self, inner: &str) -> String {
+        inner.to_string()
+    }
+
     fn not_in_suffix(&self) -> &'static str {
         "notIn"
     }

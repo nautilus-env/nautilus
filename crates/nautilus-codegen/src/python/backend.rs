@@ -35,6 +35,10 @@ impl LanguageBackend for PythonBackend {
         format!("List[{}]", inner)
     }
 
+    fn optional_type(&self, inner: &str) -> String {
+        format!("Optional[{}]", inner)
+    }
+
     fn not_in_suffix(&self) -> &'static str {
         "not_in"
     }

@@ -1,0 +1,42 @@
+@dataclass(frozen=True)
+class {{ type_name }}:
+    value: str
+
+    def __init__(self, value: Any) -> None:
+        object.__setattr__(self, "value", str(value))
+
+    @classmethod
+    def from_wire(cls, value: Any) -> "{{ type_name }}":
+        return value if isinstance(value, cls) else cls(value)
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value: Any, *args: Any, **kwargs: Any) -> "{{ type_name }}":
+        return cls.from_wire(value)
+
+    def as_str(self) -> str:
+        return self.value
+
+    def to_wire(self) -> str:
+        return self.value
+
+    def equals(self, other: Any) -> bool:
+        other_value = other.value if isinstance(other, {{ type_name }}) else str(other)
+        return self.value == other_value
+
+    def __str__(self) -> str:
+        return self.value
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, {{ type_name }}):
+            return self.value == other.value
+        if isinstance(other, str):
+            return self.value == other
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.value)
+
