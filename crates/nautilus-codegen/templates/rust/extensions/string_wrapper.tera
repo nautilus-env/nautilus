@@ -7,6 +7,48 @@ impl {{ type_name }} {
         Self(value.into())
     }
 
+    pub fn of(value: impl Into<String>) -> Self {
+        Self::new(value)
+    }
+
+{%- if is_spatial %}
+    pub fn wkt(value: impl Into<String>) -> Self {
+        Self::new(value)
+    }
+
+    pub fn wkt_with_srid(value: impl Into<String>, srid: i32) -> Self {
+        Self::new(format!("SRID={srid};{}", value.into()))
+    }
+
+{%- if is_geometry %}
+    pub fn point(x: impl std::fmt::Display, y: impl std::fmt::Display) -> Self {
+        Self::new(format!("POINT({x} {y})"))
+    }
+
+    pub fn point_with_srid(
+        x: impl std::fmt::Display,
+        y: impl std::fmt::Display,
+        srid: i32,
+    ) -> Self {
+        Self::wkt_with_srid(format!("POINT({x} {y})"), srid)
+    }
+
+{%- endif %}
+{%- if is_geography %}
+    pub fn point(lon: impl std::fmt::Display, lat: impl std::fmt::Display) -> Self {
+        Self::new(format!("POINT({lon} {lat})"))
+    }
+
+    pub fn point_with_srid(
+        lon: impl std::fmt::Display,
+        lat: impl std::fmt::Display,
+        srid: i32,
+    ) -> Self {
+        Self::wkt_with_srid(format!("POINT({lon} {lat})"), srid)
+    }
+
+{%- endif %}
+{%- endif %}
     pub fn value(&self) -> &str {
         self.as_str()
     }
@@ -25,6 +67,10 @@ impl {{ type_name }} {
 
     pub fn equals(&self, other: impl AsRef<str>) -> bool {
         self.as_str() == other.as_ref()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 

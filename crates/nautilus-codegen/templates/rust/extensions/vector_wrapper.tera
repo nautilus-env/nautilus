@@ -7,6 +7,18 @@ impl Vector {
         Self(value.into())
     }
 
+    pub fn of<I, N>(values: I) -> Self
+    where
+        I: IntoIterator<Item = N>,
+        N: Into<f64>,
+    {
+        Self(values.into_iter().map(|value| value.into() as f32).collect())
+    }
+
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
     pub fn value(&self) -> &[f32] {
         self.as_slice()
     }
@@ -27,14 +39,47 @@ impl Vector {
         self.as_slice()
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &f32> + '_ {
+        self.0.iter()
+    }
+
+    pub fn push(&mut self, value: f32) {
+        self.0.push(value);
+    }
+
+    pub fn with(mut self, value: f32) -> Self {
+        self.push(value);
+        self
+    }
+
     pub fn equals(&self, other: impl AsRef<[f32]>) -> bool {
         self.as_slice() == other.as_ref()
+    }
+}
+
+impl Default for Vector {
+    fn default() -> Self {
+        Self(Vec::new())
     }
 }
 
 impl From<Vec<f32>> for Vector {
     fn from(value: Vec<f32>) -> Self {
         Self::new(value)
+    }
+}
+
+impl<const N: usize> From<[f32; N]> for Vector {
+    fn from(value: [f32; N]) -> Self {
+        Self::new(Vec::from(value))
     }
 }
 
@@ -47,6 +92,12 @@ impl From<&[f32]> for Vector {
 impl AsRef<[f32]> for Vector {
     fn as_ref(&self) -> &[f32] {
         self.as_slice()
+    }
+}
+
+impl std::iter::FromIterator<f32> for Vector {
+    fn from_iter<T: IntoIterator<Item = f32>>(iter: T) -> Self {
+        Self::new(iter.into_iter().collect::<Vec<_>>())
     }
 }
 

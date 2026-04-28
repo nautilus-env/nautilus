@@ -80,6 +80,7 @@ struct JsFieldContext {
     base_type: String,
     raw_base_type: String,
     extension_coercer: String,
+    extension_input_serializer: String,
     is_optional: bool,
     is_array: bool,
     is_enum: bool,
@@ -267,6 +268,18 @@ fn generate_js_model_with_registry(
                 }
             })
             .unwrap_or_default();
+        let extension_input_serializer = extension_type
+            .map(|ty| {
+                if field.is_array {
+                    format!(
+                        "(value) => Array.isArray(value) ? value.map(item => {}.toWireInput(item)) : value",
+                        ty.type_name
+                    )
+                } else {
+                    format!("{}.toWireInput", ty.type_name)
+                }
+            })
+            .unwrap_or_default();
         let is_enum = matches!(field.field_type, ResolvedFieldType::Enum { .. });
         let auto_generated = is_auto_generated(field);
         let default_val = get_ts_default_value(field);
@@ -281,6 +294,7 @@ fn generate_js_model_with_registry(
             base_type: base_type.clone(),
             raw_base_type: raw_base_type.clone(),
             extension_coercer,
+            extension_input_serializer,
             is_optional: !field.is_required,
             is_array: field.is_array,
             is_enum,
@@ -422,6 +436,7 @@ fn generate_js_model_with_registry(
                 base_type: base_type.clone(),
                 raw_base_type: base_type,
                 extension_coercer: String::new(),
+                extension_input_serializer: String::new(),
                 is_optional: true,
                 is_array: field.is_array,
                 is_enum: false,

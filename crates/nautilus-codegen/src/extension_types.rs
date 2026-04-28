@@ -174,6 +174,18 @@ const VECTOR: ExtensionType = ExtensionType {
 };
 
 impl ExtensionType {
+    pub fn is_geometry(self) -> bool {
+        matches!(self.scalar, ExtensionScalar::Geometry)
+    }
+
+    pub fn is_geography(self) -> bool {
+        matches!(self.scalar, ExtensionScalar::Geography)
+    }
+
+    pub fn is_spatial(self) -> bool {
+        self.is_geometry() || self.is_geography()
+    }
+
     pub fn rust_type_path(self) -> String {
         format!(
             "crate::extensions::{}::types::{}",
@@ -210,35 +222,23 @@ impl ExtensionType {
 
     pub fn python_filter_input(self) -> String {
         match self.wire_kind {
-            ExtensionWireKind::String => {
-                format!("Union[{}, str, StringFilter]", self.type_name)
-            }
-            ExtensionWireKind::Hstore => {
-                format!("Union[{}, HstoreValue, HstoreFilter]", self.type_name)
-            }
-            ExtensionWireKind::Vector => {
-                format!("Union[{}, List[float], VectorFilter]", self.type_name)
-            }
+            ExtensionWireKind::String => format!("Union[{}, StringFilter]", self.input_alias()),
+            ExtensionWireKind::Hstore => format!("Union[{}, HstoreFilter]", self.input_alias()),
+            ExtensionWireKind::Vector => format!("Union[{}, VectorFilter]", self.input_alias()),
         }
     }
 
     pub fn ts_filter_input(self) -> String {
         match self.wire_kind {
-            ExtensionWireKind::String => {
-                format!("{} | string | StringFilter", self.type_name)
-            }
-            ExtensionWireKind::Hstore => {
-                format!("{} | HstoreValue | HstoreFilter", self.type_name)
-            }
-            ExtensionWireKind::Vector => {
-                format!("{} | number[] | VectorFilter", self.type_name)
-            }
+            ExtensionWireKind::String => format!("{} | StringFilter", self.input_alias()),
+            ExtensionWireKind::Hstore => format!("{} | HstoreFilter", self.input_alias()),
+            ExtensionWireKind::Vector => format!("{} | VectorFilter", self.input_alias()),
         }
     }
 }
 
 pub(crate) fn python_input_type_for_extension(ty: ExtensionType) -> String {
-    format!("Union[{}, {}]", ty.type_name, ty.python_raw_type())
+    ty.input_alias()
 }
 
 pub(crate) fn ts_input_type_for_extension(ty: ExtensionType) -> String {
@@ -361,7 +361,7 @@ fn rust_types_for_extension(extension: &str) -> String {
     let sections = types_for_extension(extension)
         .map(|ty| match ty.render {
             ExtensionRender::StringWrapper { value_variant } => {
-                render_rust_string_wrapper(ty.type_name, value_variant)
+                render_rust_string_wrapper(ty, value_variant)
             }
             ExtensionRender::Hstore => render_ext("rust/hstore_wrapper.tera", &Context::new()),
             ExtensionRender::Vector => render_ext("rust/vector_wrapper.tera", &Context::new()),
@@ -371,7 +371,7 @@ fn rust_types_for_extension(extension: &str) -> String {
     code
 }
 
-fn render_rust_string_wrapper(type_name: &str, value_variant: &str) -> String {
+fn render_rust_string_wrapper(ty: ExtensionType, value_variant: &str) -> String {
     let match_pattern = if value_variant == "String" {
         "nautilus_core::Value::String(value)".to_string()
     } else {
@@ -380,10 +380,13 @@ fn render_rust_string_wrapper(type_name: &str, value_variant: &str) -> String {
         )
     };
     let mut ctx = Context::new();
-    ctx.insert("type_name", type_name);
+    ctx.insert("type_name", ty.type_name);
     ctx.insert("value_variant", value_variant);
     ctx.insert("match_pattern", &match_pattern);
-    ctx.insert("error_name", type_name);
+    ctx.insert("error_name", ty.type_name);
+    ctx.insert("is_geometry", &ty.is_geometry());
+    ctx.insert("is_geography", &ty.is_geography());
+    ctx.insert("is_spatial", &ty.is_spatial());
     render_ext("rust/string_wrapper.tera", &ctx)
 }
 
@@ -405,7 +408,7 @@ fn python_types_for_extension(extension: &str) -> String {
     let mut string_wrappers = Vec::new();
 
     let flush_string_wrappers =
-        |sections: &mut Vec<String>, string_wrappers: &mut Vec<&'static str>| {
+        |sections: &mut Vec<String>, string_wrappers: &mut Vec<ExtensionType>| {
             if !string_wrappers.is_empty() {
                 sections.push(render_python_string_wrappers(string_wrappers));
                 string_wrappers.clear();
@@ -414,7 +417,7 @@ fn python_types_for_extension(extension: &str) -> String {
 
     for ty in types_for_extension(extension) {
         match ty.render {
-            ExtensionRender::StringWrapper { .. } => string_wrappers.push(ty.type_name),
+            ExtensionRender::StringWrapper { .. } => string_wrappers.push(ty),
             ExtensionRender::Hstore => {
                 flush_string_wrappers(&mut sections, &mut string_wrappers);
                 sections.push(render_ext("python/hstore_wrapper.py.tera", &Context::new()));
@@ -430,19 +433,27 @@ fn python_types_for_extension(extension: &str) -> String {
     sections.join("\n")
 }
 
-fn render_python_string_wrappers(type_names: &[&str]) -> String {
+fn render_python_string_wrappers(types: &[ExtensionType]) -> String {
     let mut code = format!(
-        "from __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom typing import Any\n\n"
+        "from __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom typing import Any, NotRequired, TypedDict, Union\n\n"
     );
-    for type_name in type_names {
+    for ty in types {
         let mut ctx = Context::new();
-        ctx.insert("type_name", type_name);
+        ctx.insert("type_name", ty.type_name);
+        ctx.insert("is_geometry", &ty.is_geometry());
+        ctx.insert("is_geography", &ty.is_geography());
+        ctx.insert("is_spatial", &ty.is_spatial());
         code.push_str(&render_ext("python/string_wrapper_class.py.tera", &ctx));
         code.push('\n');
     }
-    let all_names = type_names
+    let all_names = types
         .iter()
-        .map(|name| format!("{name:?}"))
+        .flat_map(|ty| {
+            [
+                format!("{:?}", ty.type_name),
+                format!("{:?}", ty.input_alias()),
+            ]
+        })
         .collect::<Vec<_>>()
         .join(", ");
     code.push_str(&format!("\n__all__ = [{all_names}]\n"));
@@ -470,7 +481,7 @@ pub fn generate_js_extension_files(
 fn js_types_for_extension(extension: &str) -> String {
     types_for_extension(extension)
         .map(|ty| match ty.render {
-            ExtensionRender::StringWrapper { .. } => render_js_string_wrapper(ty.type_name),
+            ExtensionRender::StringWrapper { .. } => render_js_string_wrapper(ty),
             ExtensionRender::Hstore => render_ext("js/hstore_wrapper.js.tera", &Context::new()),
             ExtensionRender::Vector => render_ext("js/vector_wrapper.js.tera", &Context::new()),
         })
@@ -481,7 +492,7 @@ fn js_types_for_extension(extension: &str) -> String {
 fn ts_types_for_extension(extension: &str) -> String {
     types_for_extension(extension)
         .map(|ty| match ty.render {
-            ExtensionRender::StringWrapper { .. } => render_ts_string_wrapper(ty.type_name),
+            ExtensionRender::StringWrapper { .. } => render_ts_string_wrapper(ty),
             ExtensionRender::Hstore => render_ext("js/hstore_wrapper.d.ts.tera", &Context::new()),
             ExtensionRender::Vector => render_ext("js/vector_wrapper.d.ts.tera", &Context::new()),
         })
@@ -489,15 +500,21 @@ fn ts_types_for_extension(extension: &str) -> String {
         .join("\n")
 }
 
-fn render_js_string_wrapper(type_name: &str) -> String {
+fn render_js_string_wrapper(ty: ExtensionType) -> String {
     let mut ctx = Context::new();
-    ctx.insert("type_name", type_name);
+    ctx.insert("type_name", ty.type_name);
+    ctx.insert("is_geometry", &ty.is_geometry());
+    ctx.insert("is_geography", &ty.is_geography());
+    ctx.insert("is_spatial", &ty.is_spatial());
     render_ext("js/string_wrapper.js.tera", &ctx)
 }
 
-fn render_ts_string_wrapper(type_name: &str) -> String {
+fn render_ts_string_wrapper(ty: ExtensionType) -> String {
     let mut ctx = Context::new();
-    ctx.insert("type_name", type_name);
+    ctx.insert("type_name", ty.type_name);
+    ctx.insert("is_geometry", &ty.is_geometry());
+    ctx.insert("is_geography", &ty.is_geography());
+    ctx.insert("is_spatial", &ty.is_spatial());
     render_ext("js/string_wrapper.d.ts.tera", &ctx)
 }
 
@@ -510,7 +527,7 @@ pub fn generate_java_extension_files(
         for ty in types_for_extension(extension) {
             let code = match ty.render {
                 ExtensionRender::StringWrapper { .. } => {
-                    render_java_string_wrapper(root_package, extension, ty.type_name)
+                    render_java_string_wrapper(root_package, extension, ty)
                 }
                 ExtensionRender::Hstore => render_java_hstore_wrapper(root_package, extension),
                 ExtensionRender::Vector => render_java_vector_wrapper(root_package, extension),
@@ -539,11 +556,14 @@ fn java_extension_file(
     )
 }
 
-fn render_java_string_wrapper(root_package: &str, extension: &str, type_name: &str) -> String {
+fn render_java_string_wrapper(root_package: &str, extension: &str, ty: ExtensionType) -> String {
     let mut ctx = Context::new();
     ctx.insert("root_package", root_package);
     ctx.insert("extension", extension);
-    ctx.insert("type_name", type_name);
+    ctx.insert("type_name", ty.type_name);
+    ctx.insert("is_geometry", &ty.is_geometry());
+    ctx.insert("is_geography", &ty.is_geography());
+    ctx.insert("is_spatial", &ty.is_spatial());
     render_ext("java/string_wrapper.java.tera", &ctx)
 }
 

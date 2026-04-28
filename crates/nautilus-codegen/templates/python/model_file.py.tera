@@ -33,7 +33,7 @@ from ..types.types import {% for t in composite_type_imports %}{{ t }}{% if not 
 {%- endif %}
 {%- if has_extension_types %}
 {%- for ext in extension_imports %}
-from ..extensions.{{ ext.module }}.types import {% for t in ext.types %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %}
+from ..extensions.{{ ext.module }}.types import {% for symbol in ext.symbols %}{{ symbol }}{% if not loop.last %}, {% endif %}{% endfor %}
 {%- endfor %}
 {%- endif %}
 
@@ -166,6 +166,16 @@ _{{ table_name }}_object_value_db_fields: frozenset = frozenset({
     "{{ db_name }}",
 {%- endfor %}
 })
+_{{ table_name }}_extension_input_serializers: Dict[str, Any] = {
+{%- for f in scalar_fields %}
+{%- if f.extension_input_serializer %}
+    "{{ f.logical_name }}": {{ f.extension_input_serializer }},
+{%- if f.name != f.logical_name %}
+    "{{ f.name }}": {{ f.extension_input_serializer }},
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+}
 _FILTER_OPERATOR_KEYS: frozenset = frozenset({
     "contains",
     "endsWith",
@@ -223,12 +233,35 @@ def _object_equality_requires_explicit_equals(field_name: str) -> None:
     )
 
 
+def _serialize_scalar_input(field_name: str, value: Any) -> Any:
+    serializer = _{{ table_name }}_extension_input_serializers.get(field_name)
+    coerced = serializer(value) if serializer is not None else value
+    return _serialize_wire_value(coerced)
+
+
+def _serialize_filter_input(field_name: str, operator: str, value: Any) -> Any:
+    serializer = _{{ table_name }}_extension_input_serializers.get(field_name)
+    if serializer is None:
+        return _serialize_wire_value(value)
+    if operator in ("in", "notIn") and isinstance(value, list):
+        return [_serialize_wire_value(serializer(item)) for item in value]
+    return _serialize_wire_value(serializer(value))
+
+
+def _serialize_nearest_input(nearest: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(nearest)
+    field_name = result.get("field")
+    if isinstance(field_name, str) and "query" in result:
+        result["query"] = _serialize_scalar_input(field_name, result["query"])
+    return result
+
+
 def _process_create_data(data: Dict[str, Any], py_to_db: Dict[str, str]) -> Dict[str, Any]:
     """Convert CreateInput/UpdateInput dict to DB column names."""
     result = {}
     for key, value in data.items():
         db_key = py_to_db.get(key, key)
-        result[db_key] = _serialize_wire_value(value)
+        result[db_key] = _serialize_scalar_input(key, value)
     return result
 
 
@@ -244,6 +277,13 @@ def _process_where_filters(where: Dict[str, Any], py_to_db: Dict[str, str]) -> D
         else:
             db_key = py_to_db.get(key, key)
             if isinstance(value, dict):
+                if (
+                    key in _{{ table_name }}_extension_input_serializers
+                    and db_key not in _{{ table_name }}_object_value_db_fields
+                    and not _looks_like_filter_operator_dict(value)
+                ):
+                    result[db_key] = _serialize_scalar_input(key, value)
+                    continue
                 if (
                     db_key in _{{ table_name }}_object_value_db_fields
                     and not _looks_like_filter_operator_dict(value)
@@ -270,12 +310,12 @@ def _process_where_filters(where: Dict[str, Any], py_to_db: Dict[str, str]) -> D
                         "is_not_null": "isNotNull",
                         "is_null": "isNull",
                     }.get(op, op)
-                    coerced = _serialize_wire_value(op_value)
+                    coerced = _serialize_filter_input(key, actual_op, op_value)
                     ops[actual_op] = coerced
                 if ops:
                     result[db_key] = ops
             else:
-                result[db_key] = _serialize_wire_value(value)
+                result[db_key] = _serialize_scalar_input(key, value)
     return result
 
 
@@ -462,7 +502,7 @@ class {{ delegate_name }}:
                 args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
 {% if has_vector_fields -%}
         if nearest is not None:
-            args["nearest"] = nearest
+            args["nearest"] = _serialize_nearest_input(nearest)
 {% endif %}        if take is not None:
             args["take"] = take
         if skip is not None:

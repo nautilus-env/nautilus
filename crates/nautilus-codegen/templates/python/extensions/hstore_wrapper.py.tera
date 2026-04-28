@@ -1,16 +1,65 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, Dict, Optional
+from collections.abc import Iterable, ItemsView, KeysView, Mapping, ValuesView
+from typing import Any, Dict, Optional, TypedDict, Union
+
+HstoreEntry = tuple[str, Optional[str]]
+HstoreEntriesInput = Iterable[HstoreEntry]
+HstoreSource = Mapping[str, Optional[str]] | HstoreEntriesInput
+
+
+class HstoreEntriesBuilderInput(TypedDict):
+    entries: HstoreEntriesInput
+
+
+HstoreInput = Union["Hstore", HstoreSource, HstoreEntriesBuilderInput]
+
+
+def _normalize_hstore_value(value: Any) -> Optional[str]:
+    return None if value is None else str(value)
+
+
+def _coerce_hstore_mapping(value: HstoreInput | HstoreSource | None) -> Dict[str, Optional[str]]:
+    if value is None:
+        return {}
+    if isinstance(value, Hstore):
+        return value.as_map()
+    if isinstance(value, dict) and "entries" in value:
+        return _coerce_hstore_mapping(value["entries"])
+    if isinstance(value, Mapping):
+        return {
+            str(key): _normalize_hstore_value(item)
+            for key, item in value.items()
+        }
+    return {
+        str(key): _normalize_hstore_value(item)
+        for key, item in value
+    }
 
 
 class Hstore:
-    def __init__(self, value: Mapping[str, Optional[str]] | None = None) -> None:
-        self.value: Dict[str, Optional[str]] = dict(value or {})
+    def __init__(self, value: HstoreInput | HstoreSource | None = None) -> None:
+        self.value: Dict[str, Optional[str]] = _coerce_hstore_mapping(value)
+
+    @classmethod
+    def empty(cls) -> "Hstore":
+        return cls()
+
+    @classmethod
+    def from_entries(cls, entries: Iterable[HstoreEntry]) -> "Hstore":
+        return cls(entries)
 
     @classmethod
     def from_wire(cls, value: Any) -> "Hstore":
         return value if isinstance(value, cls) else cls(value)
+
+    @classmethod
+    def from_input(cls, value: HstoreInput) -> "Hstore":
+        return value if isinstance(value, cls) else cls(value)
+
+    @classmethod
+    def to_wire_input(cls, value: HstoreInput) -> Dict[str, Optional[str]]:
+        return _coerce_hstore_mapping(value)
 
     @classmethod
     def __get_validators__(cls):
@@ -26,19 +75,61 @@ class Hstore:
     def to_wire(self) -> Dict[str, Optional[str]]:
         return self.as_map()
 
+    def get(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        return self.value.get(key, default)
+
+    def contains(self, key: str) -> bool:
+        return key in self.value
+
+    def with_(self, key: str, value: Optional[str]) -> "Hstore":
+        next_value = self.as_map()
+        next_value[key] = _normalize_hstore_value(value)
+        return Hstore(next_value)
+
+    def with_null(self, key: str) -> "Hstore":
+        return self.with_(key, None)
+
+    def keys(self) -> KeysView[str]:
+        return self.value.keys()
+
+    def values(self) -> ValuesView[Optional[str]]:
+        return self.value.values()
+
+    def items(self) -> ItemsView[str, Optional[str]]:
+        return self.value.items()
+
     def equals(self, other: Any) -> bool:
-        other_value = other.value if isinstance(other, Hstore) else dict(other)
+        other_value = other.value if isinstance(other, Hstore) else _coerce_hstore_mapping(other)
         return self.value == other_value
+
+    def __contains__(self, key: object) -> bool:
+        return key in self.value
+
+    def __getitem__(self, key: str) -> Optional[str]:
+        return self.value[key]
+
+    def __iter__(self):
+        return iter(self.value)
+
+    def __len__(self) -> int:
+        return len(self.value)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Hstore):
             return self.value == other.value
         if isinstance(other, Mapping):
-            return self.value == dict(other)
+            return self.value == _coerce_hstore_mapping(other)
         return False
 
     def __repr__(self) -> str:
         return f"Hstore({self.value!r})"
 
 
-__all__ = ["Hstore"]
+__all__ = [
+    "Hstore",
+    "HstoreEntry",
+    "HstoreEntriesInput",
+    "HstoreEntriesBuilderInput",
+    "HstoreSource",
+    "HstoreInput",
+]

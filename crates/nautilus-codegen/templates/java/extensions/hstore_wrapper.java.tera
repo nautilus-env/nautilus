@@ -18,6 +18,23 @@ public final class Hstore implements WireSerializable {
         return new Hstore(value);
     }
 
+    @SafeVarargs
+    public static Hstore ofEntries(Map.Entry<String, String>... entries) {
+        LinkedHashMap<String, String> values = new LinkedHashMap<>();
+        if (entries != null) {
+            for (Map.Entry<String, String> entry : entries) {
+                if (entry != null) {
+                    values.put(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+        return new Hstore(values);
+    }
+
+    public static Hstore empty() {
+        return new Hstore(new LinkedHashMap<>());
+    }
+
     public static Hstore fromJsonNode(JsonNode node) {
         JsonSupport.Hstore value = JsonSupport.asHstore(node);
         return value == null ? null : new Hstore(value);
@@ -29,6 +46,32 @@ public final class Hstore implements WireSerializable {
 
     public Map<String, String> asMap() {
         return value();
+    }
+
+    public String get(String key) {
+        return this.value.get(key);
+    }
+
+    public boolean containsKey(String key) {
+        return this.value.containsKey(key);
+    }
+
+    public int size() {
+        return this.value.size();
+    }
+
+    public boolean isEmpty() {
+        return this.value.isEmpty();
+    }
+
+    public Hstore with(String key, String value) {
+        LinkedHashMap<String, String> next = new LinkedHashMap<>(this.value);
+        next.put(key, value);
+        return new Hstore(next);
+    }
+
+    public Hstore withNull(String key) {
+        return with(key, null);
     }
 
     public JsonSupport.Hstore toWire() {

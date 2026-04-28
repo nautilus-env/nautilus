@@ -12,6 +12,10 @@ use std::{path::PathBuf, sync::OnceLock};
 
 use nautilus_codegen::{
     enum_gen::generate_all_enums,
+    extension_types::{
+        generate_java_extension_files, generate_js_extension_files,
+        generate_python_extension_files, generate_rust_extension_files, ExtensionRegistry,
+    },
     generator::generate_all_models,
     java::generate_java_client,
     js::{generate_all_js_models, generate_js_client, js_runtime_files},
@@ -93,6 +97,14 @@ fn generated_python_file<'a>(files: &'a [(String, String)], file_name: &str) -> 
         .find(|(path, _)| path == file_name)
         .map(|(_, code)| code.as_str())
         .unwrap_or_else(|| panic!("missing generated Python file '{file_name}'"))
+}
+
+fn generated_named_file<'a>(files: &'a [(String, String)], file_name: &str) -> &'a str {
+    files
+        .iter()
+        .find(|(path, _)| path == file_name)
+        .map(|(_, code)| code.as_str())
+        .unwrap_or_else(|| panic!("missing generated file '{file_name}'"))
 }
 
 #[test]
@@ -769,8 +781,8 @@ model User {
         "expected composite array write inputs to use List[Address]:\n{code}"
     );
     assert!(
-        code.contains("result[db_key] = _serialize_wire_value(value)"),
-        "expected composite payload serialization to flow through _serialize_wire_value:\n{code}"
+        code.contains("result[db_key] = _serialize_scalar_input(key, value)"),
+        "expected composite payload serialization to flow through _serialize_scalar_input:\n{code}"
     );
 }
 
@@ -1232,17 +1244,17 @@ model User {
     assert!(js_dts.contains("equals?: HstoreInput;"));
     assert!(js_dts.contains("not?:    HstoreInput;"));
     assert!(js_dts.contains("isNull?: boolean;"));
-    assert!(js_dts.contains("meta?: Hstore | HstoreValue | HstoreFilter;"));
+    assert!(js_dts.contains("meta?: HstoreInput | HstoreFilter;"));
 
     let py_models = generate_all_python_models(&ir, false, 1);
     let py_model = generated_python_file(&py_models, "user.py");
     assert!(py_model.contains("HstoreValue = Dict[str, Optional[str]]"));
     assert!(py_model.contains("class HstoreFilter(TypedDict, total=False):"));
     // With the `hstore` extension declared the filter accepts the wrapper too.
-    assert!(py_model.contains("equals: NotRequired[Union[Hstore, HstoreValue]]"));
-    assert!(py_model.contains("not_: NotRequired[Union[Hstore, HstoreValue]]"));
+    assert!(py_model.contains("equals: NotRequired[HstoreInput]"));
+    assert!(py_model.contains("not_: NotRequired[HstoreInput]"));
     assert!(py_model.contains("is_null: NotRequired[bool]"));
-    assert!(py_model.contains("meta: NotRequired[Union[Hstore, HstoreValue, HstoreFilter]]"));
+    assert!(py_model.contains("meta: NotRequired[Union[HstoreInput, HstoreFilter]]"));
 }
 
 #[test]
@@ -1282,7 +1294,7 @@ model User {
     assert!(js_dts.contains("equals?: VectorInput;"));
     assert!(js_dts.contains("not?:    VectorInput;"));
     assert!(js_dts.contains("isNull?: boolean;"));
-    assert!(js_dts.contains("embedding?: Vector | number[] | VectorFilter;"));
+    assert!(js_dts.contains("embedding?: VectorInput | VectorFilter;"));
     assert!(js_dts.contains("export type VectorMetric = 'l2' | 'innerProduct' | 'cosine';"));
     assert!(js_dts.contains("export type UserVectorFieldKeys = 'embedding';"));
     assert!(js_dts.contains("export interface UserNearestInput {"));
@@ -1293,10 +1305,10 @@ model User {
     let py_models = generate_all_python_models(&ir, false, 1);
     let py_model = generated_python_file(&py_models, "user.py");
     assert!(py_model.contains("class VectorFilter(TypedDict, total=False):"));
-    assert!(py_model.contains("equals: NotRequired[Union[Vector, List[float]]]"));
-    assert!(py_model.contains("not_: NotRequired[Union[Vector, List[float]]]"));
+    assert!(py_model.contains("equals: NotRequired[VectorInput]"));
+    assert!(py_model.contains("not_: NotRequired[VectorInput]"));
     assert!(py_model.contains("is_null: NotRequired[bool]"));
-    assert!(py_model.contains("embedding: NotRequired[Union[Vector, List[float], VectorFilter]]"));
+    assert!(py_model.contains("embedding: NotRequired[Union[VectorInput, VectorFilter]]"));
     assert!(py_model.contains("VectorMetric = Literal[\"l2\", \"innerProduct\", \"cosine\"]"));
     assert!(py_model.contains("UserVectorFieldKeys = Literal[\"embedding\"]"));
     assert!(py_model.contains("class UserNearestInput(TypedDict):"));
@@ -1312,6 +1324,133 @@ model User {
     assert!(java_dsl.contains("public enum VectorMetric {"));
     assert!(java_dsl.contains("public Nearest embedding() {"));
     assert!(java_dsl.contains("public FindManyArgs nearest(Consumer<Nearest> spec) {"));
+}
+
+#[test]
+fn test_extension_input_builders_are_generated_across_codegens() {
+    let ir = validate(
+        r#"
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [citext, hstore, ltree, postgis, vector]
+}
+
+model Example {
+  id          Int        @id @default(autoincrement())
+  email       Citext
+  path        Ltree?
+  meta        Hstore?
+  footprint   Geometry?
+  serviceArea Geography?
+  embedding   Vector(3)
+}
+"#,
+    );
+
+    let extensions = ExtensionRegistry::from_schema(&ir);
+
+    let py_ext_files = generate_python_extension_files(&extensions);
+    let citext_py = generated_named_file(&py_ext_files, "citext/types.py");
+    let hstore_py = generated_named_file(&py_ext_files, "hstore/types.py");
+    let ltree_py = generated_named_file(&py_ext_files, "ltree/types.py");
+    let postgis_py = generated_named_file(&py_ext_files, "postgis/types.py");
+    let vector_py = generated_named_file(&py_ext_files, "vector/types.py");
+    assert!(citext_py.contains("CitextInput = Union[\"Citext\", str, CitextBuilderInput]"));
+    assert!(citext_py.contains("class CitextValueInput(TypedDict):"));
+    assert!(ltree_py.contains("LtreeInput = Union[\"Ltree\", str, LtreeBuilderInput]"));
+    assert!(hstore_py
+        .contains("HstoreInput = Union[\"Hstore\", HstoreSource, HstoreEntriesBuilderInput]"));
+    assert!(hstore_py.contains("class HstoreEntriesBuilderInput(TypedDict):"));
+    assert!(postgis_py.contains("class GeometryPointInput(TypedDict, total=False):"));
+    assert!(postgis_py.contains("class GeographyPointInput(TypedDict, total=False):"));
+    assert!(postgis_py.contains("GeometryInput = Union[\"Geometry\", str, GeometryBuilderInput]"));
+    assert!(
+        postgis_py.contains("GeographyInput = Union[\"Geography\", str, GeographyBuilderInput]")
+    );
+    assert!(vector_py.contains("class VectorValuesInput(TypedDict):"));
+    assert!(vector_py.contains("VectorInput = Union[\"Vector\", VectorSource, VectorValuesInput]"));
+
+    let (_, js_ext_dts) = generate_js_extension_files(&extensions);
+    let citext_dts = generated_named_file(&js_ext_dts, "extensions/citext/types.d.ts");
+    let hstore_dts = generated_named_file(&js_ext_dts, "extensions/hstore/types.d.ts");
+    let ltree_dts = generated_named_file(&js_ext_dts, "extensions/ltree/types.d.ts");
+    let postgis_dts = generated_named_file(&js_ext_dts, "extensions/postgis/types.d.ts");
+    let vector_dts = generated_named_file(&js_ext_dts, "extensions/vector/types.d.ts");
+    assert!(citext_dts.contains("export interface CitextValueInput {"));
+    assert!(citext_dts.contains("export type CitextInput = Citext | string | CitextBuilderInput;"));
+    assert!(ltree_dts.contains("export type LtreeInput = Ltree | string | LtreeBuilderInput;"));
+    assert!(hstore_dts.contains("export interface HstoreEntriesBuilderInput {"));
+    assert!(hstore_dts.contains("export type HstoreInput = Hstore | HstoreBuilderInput;"));
+    assert!(postgis_dts.contains("export interface GeometryPointInput {"));
+    assert!(postgis_dts.contains("export interface GeographyPointInput {"));
+    assert!(postgis_dts
+        .contains("export type GeometryInput = Geometry | string | GeometryBuilderInput;"));
+    assert!(postgis_dts
+        .contains("export type GeographyInput = Geography | string | GeographyBuilderInput;"));
+    assert!(vector_dts.contains("export interface VectorValuesInput {"));
+    assert!(vector_dts.contains("export type VectorInput = Vector | VectorBuilderInput;"));
+
+    let py_models = generate_all_python_models(&ir, false, 1);
+    let py_model = generated_python_file(&py_models, "example.py");
+    assert!(py_model.contains("email: CitextInput"));
+    assert!(py_model.contains("path: NotRequired[LtreeInput]"));
+    assert!(py_model.contains("meta: NotRequired[HstoreInput]"));
+    assert!(py_model.contains("footprint: NotRequired[GeometryInput]"));
+    assert!(py_model.contains("serviceArea: NotRequired[GeographyInput]"));
+    assert!(py_model.contains("embedding: VectorInput"));
+    assert!(py_model.contains("footprint: NotRequired[Union[GeometryInput, StringFilter]]"));
+    assert!(py_model.contains("serviceArea: NotRequired[Union[GeographyInput, StringFilter]]"));
+    assert!(py_model.contains("embedding: NotRequired[Union[VectorInput, VectorFilter]]"));
+
+    let (_, js_models) = generate_all_js_models(&ir);
+    let js_model = js_models
+        .iter()
+        .find(|(name, _)| name == "example.d.ts")
+        .map(|(_, code)| code.as_str())
+        .expect("example.d.ts missing");
+    assert!(js_model.contains("email: CitextInput;"));
+    assert!(js_model.contains("path?: LtreeInput;"));
+    assert!(js_model.contains("meta?: HstoreInput | null;"));
+    assert!(js_model.contains("footprint?: GeometryInput | null;"));
+    assert!(js_model.contains("serviceArea?: GeographyInput | null;"));
+    assert!(js_model.contains("embedding: VectorInput;"));
+    assert!(js_model.contains("footprint?: GeometryInput | StringFilter;"));
+    assert!(js_model.contains("serviceArea?: GeographyInput | StringFilter;"));
+    assert!(js_model.contains("embedding?: VectorInput | VectorFilter;"));
+
+    let java_ext_files = generate_java_extension_files(&extensions, "com.acme.db");
+    let geometry_java = generated_java_file(&java_ext_files, "Geometry.java");
+    let geography_java = generated_java_file(&java_ext_files, "Geography.java");
+    let hstore_java = generated_java_file(&java_ext_files, "Hstore.java");
+    let vector_java = generated_java_file(&java_ext_files, "Vector.java");
+    let citext_java = generated_java_file(&java_ext_files, "Citext.java");
+    let ltree_java = generated_java_file(&java_ext_files, "Ltree.java");
+    assert!(citext_java.contains("public static Citext of(String value)"));
+    assert!(ltree_java.contains("public static Ltree of(String value)"));
+    assert!(geometry_java.contains("public static Geometry point(double x, double y)"));
+    assert!(geography_java.contains("public static Geography point(double lon, double lat)"));
+    assert!(hstore_java
+        .contains("public static Hstore ofEntries(Map.Entry<String, String>... entries)"));
+    assert!(vector_java.contains("public static Vector of(double... values)"));
+
+    let rust_ext_files = generate_rust_extension_files(&extensions);
+    let postgis_rust = generated_named_file(&rust_ext_files, "extensions/postgis/types.rs");
+    let hstore_rust = generated_named_file(&rust_ext_files, "extensions/hstore/types.rs");
+    let vector_rust = generated_named_file(&rust_ext_files, "extensions/vector/types.rs");
+    let citext_rust = generated_named_file(&rust_ext_files, "extensions/citext/types.rs");
+    let ltree_rust = generated_named_file(&rust_ext_files, "extensions/ltree/types.rs");
+    assert!(citext_rust.contains("pub fn of(value: impl Into<String>) -> Self"));
+    assert!(ltree_rust.contains("pub fn of(value: impl Into<String>) -> Self"));
+    assert!(postgis_rust.contains("impl Geometry {"));
+    assert!(postgis_rust
+        .contains("pub fn point(x: impl std::fmt::Display, y: impl std::fmt::Display) -> Self"));
+    assert!(postgis_rust.contains("impl Geography {"));
+    assert!(postgis_rust.contains(
+        "pub fn point(lon: impl std::fmt::Display, lat: impl std::fmt::Display) -> Self"
+    ));
+    assert!(hstore_rust.contains("pub fn from_entries<K, V, I>(entries: I) -> Self"));
+    assert!(vector_rust.contains("pub fn of<I, N>(values: I) -> Self"));
 }
 
 #[test]

@@ -16,6 +16,36 @@ public final class {{ type_name }} implements WireSerializable {
         return new {{ type_name }}(value);
     }
 
+{%- if is_spatial %}
+    public static {{ type_name }} wkt(String value) {
+        return new {{ type_name }}(value);
+    }
+
+    public static {{ type_name }} wkt(String value, Integer srid) {
+        return srid == null ? new {{ type_name }}(value) : new {{ type_name }}("SRID=" + srid + ";" + value);
+    }
+
+{%- if is_geometry %}
+    public static {{ type_name }} point(double x, double y) {
+        return wkt("POINT(" + x + " " + y + ")");
+    }
+
+    public static {{ type_name }} point(double x, double y, Integer srid) {
+        return wkt("POINT(" + x + " " + y + ")", srid);
+    }
+
+{%- endif %}
+{%- if is_geography %}
+    public static {{ type_name }} point(double lon, double lat) {
+        return wkt("POINT(" + lon + " " + lat + ")");
+    }
+
+    public static {{ type_name }} point(double lon, double lat, Integer srid) {
+        return wkt("POINT(" + lon + " " + lat + ")", srid);
+    }
+
+{%- endif %}
+{%- endif %}
     public static {{ type_name }} fromJsonNode(JsonNode node) {
         String value = JsonSupport.asString(node);
         return value == null ? null : new {{ type_name }}(value);
@@ -35,6 +65,10 @@ public final class {{ type_name }} implements WireSerializable {
 
     public boolean equals(String other) {
         return Objects.equals(this.value, other);
+    }
+
+    public boolean isEmpty() {
+        return this.value == null || this.value.isEmpty();
     }
 
     @Override

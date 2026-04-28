@@ -88,15 +88,15 @@ class JsonFilter(TypedDict, total=False):
 
 class HstoreFilter(TypedDict, total=False):
     """Hstore field filter operations."""
-    equals: NotRequired[{% if has_hstore_extension %}Union[Hstore, HstoreValue]{% else %}HstoreValue{% endif %}]
-    not_: NotRequired[{% if has_hstore_extension %}Union[Hstore, HstoreValue]{% else %}HstoreValue{% endif %}]
+    equals: NotRequired[{% if has_hstore_extension %}HstoreInput{% else %}HstoreValue{% endif %}]
+    not_: NotRequired[{% if has_hstore_extension %}HstoreInput{% else %}HstoreValue{% endif %}]
     is_null: NotRequired[bool]
 
 
 class VectorFilter(TypedDict, total=False):
     """Vector field filter operations."""
-    equals: NotRequired[{% if has_vector_extension %}Union[Vector, List[float]]{% else %}List[float]{% endif %}]
-    not_: NotRequired[{% if has_vector_extension %}Union[Vector, List[float]]{% else %}List[float]{% endif %}]
+    equals: NotRequired[{% if has_vector_extension %}VectorInput{% else %}List[float]{% endif %}]
+    not_: NotRequired[{% if has_vector_extension %}VectorInput{% else %}List[float]{% endif %}]
     is_null: NotRequired[bool]
 {% if has_vector_fields %}
 VectorMetric = Literal["l2", "innerProduct", "cosine"]
@@ -106,7 +106,7 @@ VectorMetric = Literal["l2", "innerProduct", "cosine"]
 class {{ model_name }}NearestInput(TypedDict):
     """Nearest-neighbor search options for pgvector fields."""
     field: {{ model_name }}VectorFieldKeys
-    query: {% if has_vector_extension %}Union[Vector, List[float]]{% else %}List[float]{% endif %}
+    query: {% if has_vector_extension %}VectorInput{% else %}List[float]{% endif %}
     metric: VectorMetric
 
 

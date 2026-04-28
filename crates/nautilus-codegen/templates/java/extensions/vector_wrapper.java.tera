@@ -3,6 +3,7 @@ package {{ root_package }}.extensions.{{ extension }}.types;
 import {{ root_package }}.internal.JsonSupport;
 import {{ root_package }}.internal.WireSerializable;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -17,6 +18,30 @@ public final class Vector implements WireSerializable {
         return new Vector(value);
     }
 
+    public static Vector of(float... values) {
+        ArrayList<Float> items = new ArrayList<>();
+        if (values != null) {
+            for (float value : values) {
+                items.add(value);
+            }
+        }
+        return new Vector(items);
+    }
+
+    public static Vector of(double... values) {
+        ArrayList<Float> items = new ArrayList<>();
+        if (values != null) {
+            for (double value : values) {
+                items.add((float) value);
+            }
+        }
+        return new Vector(items);
+    }
+
+    public static Vector empty() {
+        return new Vector(List.of());
+    }
+
     public static Vector fromJsonNode(JsonNode node) {
         List<Float> value = JsonSupport.asFloatList(node);
         return value == null ? null : new Vector(value);
@@ -28,6 +53,28 @@ public final class Vector implements WireSerializable {
 
     public List<Float> toList() {
         return this.value;
+    }
+
+    public Float get(int index) {
+        return this.value.get(index);
+    }
+
+    public int size() {
+        return this.value.size();
+    }
+
+    public boolean isEmpty() {
+        return this.value.isEmpty();
+    }
+
+    public Vector concat(Iterable<? extends Number> other) {
+        ArrayList<Float> next = new ArrayList<>(this.value);
+        if (other != null) {
+            for (Number item : other) {
+                next.add(item.floatValue());
+            }
+        }
+        return new Vector(next);
     }
 
     public List<Float> toWire() {

@@ -1,13 +1,116 @@
+class {{ type_name }}ValueInput(TypedDict):
+    value: str
+
+
+{%- if is_spatial %}
+class {{ type_name }}WktInput(TypedDict, total=False):
+    wkt: str
+    srid: NotRequired[int]
+
+
+{%- if is_geometry %}
+class {{ type_name }}PointInput(TypedDict, total=False):
+    x: float
+    y: float
+    srid: NotRequired[int]
+
+
+{%- endif %}
+{%- if is_geography %}
+class {{ type_name }}PointInput(TypedDict, total=False):
+    lon: float
+    lat: float
+    srid: NotRequired[int]
+
+
+{%- endif %}
+{{ type_name }}BuilderInput = Union[
+    {{ type_name }}ValueInput,
+    {{ type_name }}WktInput,
+    {{ type_name }}PointInput,
+]
+{%- else %}
+{{ type_name }}BuilderInput = {{ type_name }}ValueInput
+{%- endif %}
+{{ type_name }}Input = Union["{{ type_name }}", str, {{ type_name }}BuilderInput]
+
+
+def _format_{{ type_name | lower }}_wkt(value: Any, srid: int | None = None) -> str:
+    raw = str(value)
+    return raw if srid is None else f"SRID={int(srid)};{raw}"
+
+
+def _coerce_{{ type_name | lower }}_input(value: {{ type_name }}Input | Any) -> str:
+    if isinstance(value, {{ type_name }}):
+        return value.value
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        if "value" in value:
+            return str(value["value"])
+{%- if is_spatial %}
+        if "wkt" in value:
+            return _format_{{ type_name | lower }}_wkt(value["wkt"], value.get("srid"))
+{%- if is_geometry %}
+        if "x" in value and "y" in value:
+            return _format_{{ type_name | lower }}_wkt(
+                f"POINT({float(value['x'])} {float(value['y'])})",
+                value.get("srid"),
+            )
+{%- endif %}
+{%- if is_geography %}
+        if "lon" in value and "lat" in value:
+            return _format_{{ type_name | lower }}_wkt(
+                f"POINT({float(value['lon'])} {float(value['lat'])})",
+                value.get("srid"),
+            )
+{%- endif %}
+{%- endif %}
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    raise TypeError("Unsupported {{ type_name }} input")
+
+
 @dataclass(frozen=True)
 class {{ type_name }}:
     value: str
 
     def __init__(self, value: Any) -> None:
-        object.__setattr__(self, "value", str(value))
+        object.__setattr__(self, "value", _coerce_{{ type_name | lower }}_input(value))
+
+    @classmethod
+    def of(cls, value: Any) -> "{{ type_name }}":
+        return cls(value)
+
+{%- if is_spatial %}
+    @classmethod
+    def wkt(cls, value: Any, srid: int | None = None) -> "{{ type_name }}":
+        return cls(_format_{{ type_name | lower }}_wkt(value, srid))
+
+{%- if is_geometry %}
+    @classmethod
+    def point(cls, x: float, y: float, srid: int | None = None) -> "{{ type_name }}":
+        return cls.wkt(f"POINT({float(x)} {float(y)})", srid)
+
+{%- endif %}
+{%- if is_geography %}
+    @classmethod
+    def point(cls, lon: float, lat: float, srid: int | None = None) -> "{{ type_name }}":
+        return cls.wkt(f"POINT({float(lon)} {float(lat)})", srid)
+
+{%- endif %}
+{%- endif %}
+    @classmethod
+    def from_input(cls, value: {{ type_name }}Input) -> "{{ type_name }}":
+        return value if isinstance(value, cls) else cls(value)
 
     @classmethod
     def from_wire(cls, value: Any) -> "{{ type_name }}":
         return value if isinstance(value, cls) else cls(value)
+
+    @classmethod
+    def to_wire_input(cls, value: {{ type_name }}Input) -> str:
+        return _coerce_{{ type_name | lower }}_input(value)
 
     @classmethod
     def __get_validators__(cls):
@@ -24,8 +127,11 @@ class {{ type_name }}:
         return self.value
 
     def equals(self, other: Any) -> bool:
-        other_value = other.value if isinstance(other, {{ type_name }}) else str(other)
+        other_value = _coerce_{{ type_name | lower }}_input(other)
         return self.value == other_value
+
+    def is_empty(self) -> bool:
+        return self.value == ""
 
     def __str__(self) -> str:
         return self.value
@@ -39,4 +145,3 @@ class {{ type_name }}:
 
     def __hash__(self) -> int:
         return hash(self.value)
-

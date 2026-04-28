@@ -7,6 +7,19 @@ impl Hstore {
         Self(value)
     }
 
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    pub fn from_entries<K, V, I>(entries: I) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+        I: IntoIterator<Item = (K, Option<V>)>,
+    {
+        entries.into_iter().collect()
+    }
+
     pub fn value(&self) -> &std::collections::BTreeMap<String, Option<String>> {
         self.as_map()
     }
@@ -23,14 +36,78 @@ impl Hstore {
         self.as_map()
     }
 
+    pub fn get(&self, key: &str) -> Option<Option<&str>> {
+        self.0.get(key).map(|value| value.as_deref())
+    }
+
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.0.contains_key(key)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Option<String>)> + '_ {
+        self.0.iter()
+    }
+
+    pub fn insert<K, V>(&mut self, key: K, value: Option<V>) -> Option<Option<String>>
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.0.insert(key.into(), value.map(Into::into))
+    }
+
+    pub fn with<K, V>(mut self, key: K, value: Option<V>) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.insert(key, value);
+        self
+    }
+
+    pub fn with_null<K>(self, key: K) -> Self
+    where
+        K: Into<String>,
+    {
+        self.with(key, Option::<String>::None)
+    }
+
     pub fn equals(&self, other: &Self) -> bool {
         self.as_map() == other.as_map()
+    }
+}
+
+impl Default for Hstore {
+    fn default() -> Self {
+        Self(std::collections::BTreeMap::new())
     }
 }
 
 impl From<std::collections::BTreeMap<String, Option<String>>> for Hstore {
     fn from(value: std::collections::BTreeMap<String, Option<String>>) -> Self {
         Self::new(value)
+    }
+}
+
+impl<K, V> std::iter::FromIterator<(K, Option<V>)> for Hstore
+where
+    K: Into<String>,
+    V: Into<String>,
+{
+    fn from_iter<T: IntoIterator<Item = (K, Option<V>)>>(iter: T) -> Self {
+        let values = iter
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.map(Into::into)))
+            .collect();
+        Self::new(values)
     }
 }
 

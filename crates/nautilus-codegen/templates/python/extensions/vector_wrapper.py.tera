@@ -1,16 +1,51 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any, Iterator, List
+from typing import Any, Iterator, List, TypedDict, Union
+
+VectorSource = Iterable[float]
+
+
+class VectorValuesInput(TypedDict):
+    values: VectorSource
+
+
+VectorInput = Union["Vector", VectorSource, VectorValuesInput]
+
+
+def _coerce_vector_values(value: VectorInput | VectorSource | None = None) -> List[float]:
+    if value is None:
+        return []
+    if isinstance(value, Vector):
+        return value.to_list()
+    if isinstance(value, dict) and "values" in value:
+        return _coerce_vector_values(value["values"])
+    return [float(item) for item in value]
 
 
 class Vector:
-    def __init__(self, value: Iterable[float]) -> None:
-        self.value: List[float] = [float(item) for item in value]
+    def __init__(self, value: VectorInput | VectorSource) -> None:
+        self.value: List[float] = _coerce_vector_values(value)
+
+    @classmethod
+    def empty(cls) -> "Vector":
+        return cls(())
+
+    @classmethod
+    def of(cls, *values: float) -> "Vector":
+        return cls(values)
 
     @classmethod
     def from_wire(cls, value: Any) -> "Vector":
         return value if isinstance(value, cls) else cls(value)
+
+    @classmethod
+    def from_input(cls, value: VectorInput) -> "Vector":
+        return value if isinstance(value, cls) else cls(value)
+
+    @classmethod
+    def to_wire_input(cls, value: VectorInput) -> List[float]:
+        return _coerce_vector_values(value)
 
     @classmethod
     def __get_validators__(cls):
@@ -25,6 +60,17 @@ class Vector:
 
     def to_wire(self) -> List[float]:
         return self.to_list()
+
+    def at(self, index: int) -> float | None:
+        if index < 0 or index >= len(self.value):
+            return None
+        return self.value[index]
+
+    def is_empty(self) -> bool:
+        return not self.value
+
+    def concat(self, other: VectorSource) -> "Vector":
+        return Vector([*self.value, *_coerce_vector_values(other)])
 
     def equals(self, other: Any) -> bool:
         other_value = other.value if isinstance(other, Vector) else list(other)
@@ -50,4 +96,4 @@ class Vector:
         return f"Vector({self.value!r})"
 
 
-__all__ = ["Vector"]
+__all__ = ["Vector", "VectorSource", "VectorValuesInput", "VectorInput"]

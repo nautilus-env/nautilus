@@ -57,6 +57,17 @@ const _{{ table_name }}FieldToDb = {
 {%- endfor %}
 };
 
+const _{{ table_name }}FieldExtensionToWire = {
+{%- for f in scalar_fields %}
+{%- if f.extension_input_serializer %}
+  '{{ f.logical_name }}': {{ f.extension_input_serializer }},
+{%- if f.name != f.logical_name %}
+  '{{ f.name }}': {{ f.extension_input_serializer }},
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+};
+
 const _{{ table_name }}ObjectValueDbFields = new Set([
 {%- for db_name in object_value_db_fields %}
   '{{ db_name }}',
@@ -135,6 +146,29 @@ function _objectEqualityRequiresExplicitEquals(fieldName) {
   );
 }
 
+function _serializeScalarInput(fieldName, value) {
+  const serializer = _{{ table_name }}FieldExtensionToWire[fieldName];
+  return _toWireValue(serializer ? serializer(value) : value);
+}
+
+function _serializeFilterInput(fieldName, operator, value) {
+  const serializer = _{{ table_name }}FieldExtensionToWire[fieldName];
+  if (!serializer) return _toWireValue(value);
+  if ((operator === 'in' || operator === 'notIn') && Array.isArray(value)) {
+    return value.map(item => _toWireValue(serializer(item)));
+  }
+  return _toWireValue(serializer(value));
+}
+
+function _serializeNearestInput(nearest) {
+  if (!nearest || typeof nearest !== 'object' || Array.isArray(nearest)) return nearest;
+  const result = { ...nearest };
+  if (typeof result.field === 'string' && Object.prototype.hasOwnProperty.call(result, 'query')) {
+    result.query = _serializeScalarInput(result.field, result.query);
+  }
+  return result;
+}
+
 function _toWireValue(value) {
   if (value == null) return value;
   if (value instanceof Date) return value.toISOString();
@@ -194,6 +228,7 @@ function _processWhereFilters(where, fieldToDb) {
       }
     } else {
       const dbKey = fieldToDb[k] ?? k;
+      const hasExtensionSerializer = Object.prototype.hasOwnProperty.call(_{{ table_name }}FieldExtensionToWire, k);
       if (
         v instanceof Date
         || (typeof Buffer !== 'undefined' && Buffer.isBuffer(v))
@@ -201,17 +236,25 @@ function _processWhereFilters(where, fieldToDb) {
       ) {
         out[dbKey] = _toWireValue(v);
       } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+        if (
+          hasExtensionSerializer
+          && !_{{ table_name }}ObjectValueDbFields.has(dbKey)
+          && !_looksLikeFilterOperatorObject(v)
+        ) {
+          out[dbKey] = _serializeScalarInput(k, v);
+          continue;
+        }
         if (_{{ table_name }}ObjectValueDbFields.has(dbKey) && !_looksLikeFilterOperatorObject(v)) {
           _objectEqualityRequiresExplicitEquals(k);
         }
         const ops = {};
         for (const [op, opVal] of Object.entries(v)) {
           const actualOp = op === 'equals' ? 'eq' : op;
-          ops[actualOp] = _toWireValue(opVal);
+          ops[actualOp] = _serializeFilterInput(k, actualOp, opVal);
         }
         if (Object.keys(ops).length > 0) out[dbKey] = ops;
       } else {
-        out[dbKey] = _toWireValue(v);
+        out[dbKey] = _serializeScalarInput(k, v);
       }
     }
   }
@@ -222,7 +265,7 @@ function _processCreateData(data, fieldToDb) {
   const out = {};
   for (const [k, v] of Object.entries(data)) {
     const dbKey = fieldToDb[k] ?? k;
-    out[dbKey] = _toWireValue(v);
+    out[dbKey] = _serializeScalarInput(k, v);
   }
   return out;
 }
@@ -255,6 +298,9 @@ export class {{ delegate_name }} {
       const ob = args.orderBy;
       rpcArgs['orderBy'] = Array.isArray(ob) ? ob : [ob];
     }
+{%- if has_vector_fields %}
+    if (args?.nearest  != null) rpcArgs['nearest'] = _serializeNearestInput(args.nearest);
+{%- endif %}
     if (args?.take     != null) rpcArgs['take']    = args.take;
     if (args?.skip     != null) rpcArgs['skip']    = args.skip;
     if (args?.select   != null) rpcArgs['select']  = args.select;
@@ -272,7 +318,7 @@ export class {{ delegate_name }} {
   }
 
   async findFirst(args) {
-    const rows = await this.findMany({ where: args?.where, orderBy: args?.orderBy, take: 1, select: args?.select, include: args?.include });
+    const rows = await this.findMany({ where: args?.where, orderBy: args?.orderBy,{% if has_vector_fields %} nearest: args?.nearest,{% endif %} take: 1, select: args?.select, include: args?.include });
     return rows[0] ?? null;
   }
 

@@ -90,6 +90,7 @@ struct PythonFieldContext {
     base_type: String,
     raw_base_type: String,
     extension_coercer: String,
+    extension_input_serializer: String,
     is_optional: bool,
     is_array: bool,
     is_enum: bool,
@@ -198,7 +199,9 @@ struct AggregateFieldContext {
 #[derive(Debug, Clone, Serialize)]
 struct ExtensionImportContext {
     module: String,
+    symbols: Vec<String>,
     types: Vec<String>,
+    input_types: Vec<String>,
 }
 
 fn optional_output_python_type(python_type: &str) -> String {
@@ -385,6 +388,18 @@ fn generate_python_model_with_registry(
                 }
             })
             .unwrap_or_default();
+        let extension_input_serializer = extension_type
+            .map(|ty| {
+                if field.is_array {
+                    format!(
+                        "lambda v: [{}.to_wire_input(item) for item in v] if isinstance(v, list) else v",
+                        ty.type_name
+                    )
+                } else {
+                    format!("{}.to_wire_input", ty.type_name)
+                }
+            })
+            .unwrap_or_default();
 
         // Render enum defaults as `EnumName.VARIANT`.
         let mut default_val = get_default_value(field);
@@ -418,6 +433,7 @@ fn generate_python_model_with_registry(
             base_type,
             raw_base_type,
             extension_coercer,
+            extension_input_serializer,
             is_optional: !field.is_required,
             is_array: field.is_array,
             is_enum,
@@ -547,9 +563,20 @@ fn generate_python_model_with_registry(
     );
     let extension_import_contexts: Vec<ExtensionImportContext> = extension_imports
         .into_iter()
-        .map(|(module, types)| ExtensionImportContext {
-            module,
-            types: types.into_iter().collect(),
+        .map(|(module, types)| {
+            let types: Vec<String> = types.into_iter().collect();
+            let input_types = types
+                .iter()
+                .map(|name| format!("{name}Input"))
+                .collect::<Vec<_>>();
+            let mut symbols = types.clone();
+            symbols.extend(input_types.clone());
+            ExtensionImportContext {
+                module,
+                symbols,
+                types,
+                input_types,
+            }
         })
         .collect();
     context.insert(
@@ -587,6 +614,7 @@ fn generate_python_model_with_registry(
                 base_type: String::new(),
                 raw_base_type: String::new(),
                 extension_coercer: String::new(),
+                extension_input_serializer: String::new(),
                 is_optional: true,
                 is_array: field.is_array,
                 is_enum: false,
