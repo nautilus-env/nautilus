@@ -247,8 +247,8 @@ fn generate_js_model_with_registry(
                 .insert(ty.type_name.to_string());
         }
 
-        let base_type = output_base_ts_type(field, &ir.enums, &extensions);
-        let input_base_type = input_base_ts_type(field, &extensions);
+        let base_type = output_base_ts_type(field, &ir.enums, extensions);
+        let input_base_type = input_base_ts_type(field, extensions);
         let ts_type = JsBackend.wrap_field_type(field, base_type.clone());
         let input_ts_type = if field.is_array {
             format!("{}[]", input_base_type)

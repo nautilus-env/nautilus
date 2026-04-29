@@ -4,6 +4,9 @@ use nautilus_schema::ir::{FieldIr, ResolvedFieldType, ScalarType, SchemaIr};
 use std::collections::{BTreeSet, HashMap};
 use tera::{Context, Tera};
 
+type GeneratedFile = (String, String);
+type GeneratedJsExtensionFiles = (Vec<GeneratedFile>, Vec<GeneratedFile>);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtensionWireKind {
     String,
@@ -434,9 +437,9 @@ fn python_types_for_extension(extension: &str) -> String {
 }
 
 fn render_python_string_wrappers(types: &[ExtensionType]) -> String {
-    let mut code = format!(
+    let mut code =
         "from __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom typing import Any, NotRequired, TypedDict, Union\n\n"
-    );
+            .to_string();
     for ty in types {
         let mut ctx = Context::new();
         ctx.insert("type_name", ty.type_name);
@@ -460,9 +463,7 @@ fn render_python_string_wrappers(types: &[ExtensionType]) -> String {
     code
 }
 
-pub fn generate_js_extension_files(
-    registry: &ExtensionRegistry,
-) -> (Vec<(String, String)>, Vec<(String, String)>) {
+pub fn generate_js_extension_files(registry: &ExtensionRegistry) -> GeneratedJsExtensionFiles {
     let mut js_files = Vec::new();
     let mut dts_files = Vec::new();
     for extension in registry.active_extensions() {

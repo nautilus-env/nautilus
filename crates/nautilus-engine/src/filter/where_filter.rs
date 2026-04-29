@@ -189,7 +189,7 @@ pub(super) fn parse_field_operators(
                     op
                 )
             };
-            return Err(ProtocolError::InvalidFilter(format!("{}", message)));
+            return Err(ProtocolError::InvalidFilter(message.to_string()));
         }
 
         let condition = match op.as_str() {

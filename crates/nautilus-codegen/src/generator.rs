@@ -264,18 +264,18 @@ fn generate_model_with_registry(
         }
 
         let column_type = match &field.field_type {
-            ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, &extensions),
+            ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, extensions),
             ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
             _ => String::new(),
         };
         let is_pk = pk_field_names.contains(&field.logical_name.as_str());
-        let base_rust_type = field_to_rust_base_type(field, &extensions);
+        let base_rust_type = field_to_rust_base_type(field, extensions);
 
         let field_ctx = FieldContext {
             name: field.logical_name.to_snake_case(),
             logical_name: field.logical_name.clone(),
             db_name: field.db_name.clone(),
-            rust_type: field_to_rust_type(field, &extensions),
+            rust_type: field_to_rust_type(field, extensions),
             base_rust_type: base_rust_type.clone(),
             column_type,
             read_hint_expr: field_read_hint_expr(field),
@@ -309,7 +309,7 @@ fn generate_model_with_registry(
                 logical_name: field.logical_name.clone(),
                 rust_type: base_rust_type.clone(),
                 avg_rust_type: field_to_rust_avg_type(field),
-                sum_rust_type: field_to_rust_sum_type(field, &extensions),
+                sum_rust_type: field_to_rust_sum_type(field, extensions),
                 variant_name: field.logical_name.to_pascal_case(),
             });
         }
@@ -366,8 +366,8 @@ fn generate_model_with_registry(
             name: field.logical_name.to_snake_case(),
             logical_name: field.logical_name.clone(),
             db_name: field.db_name.clone(),
-            rust_type: field_to_rust_type(field, &extensions),
-            base_rust_type: field_to_rust_base_type(field, &extensions),
+            rust_type: field_to_rust_type(field, extensions),
+            base_rust_type: field_to_rust_base_type(field, extensions),
             column_type: String::new(),
             read_hint_expr: "None".to_string(),
             variant_name: field.logical_name.to_pascal_case(),
@@ -395,7 +395,7 @@ fn generate_model_with_registry(
                 .map(|(idx, f)| {
                     let column_type = match &f.field_type {
                         ResolvedFieldType::Scalar(scalar) => {
-                            scalar_to_rust_type(scalar, &extensions)
+                            scalar_to_rust_type(scalar, extensions)
                         }
                         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
                         _ => String::new(),
@@ -405,8 +405,8 @@ fn generate_model_with_registry(
                         name: f.logical_name.to_snake_case(),
                         logical_name: f.logical_name.clone(),
                         db_name: f.db_name.clone(),
-                        rust_type: field_to_rust_type(f, &extensions),
-                        base_rust_type: field_to_rust_base_type(f, &extensions),
+                        rust_type: field_to_rust_type(f, extensions),
+                        base_rust_type: field_to_rust_base_type(f, extensions),
                         column_type,
                         read_hint_expr: field_read_hint_expr(f),
                         variant_name: f.logical_name.to_pascal_case(),

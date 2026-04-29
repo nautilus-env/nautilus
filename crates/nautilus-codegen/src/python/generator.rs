@@ -356,8 +356,8 @@ fn generate_python_model_with_registry(
             }
         }
 
-        let output_base_type = output_base_python_type(field, &ir.enums, &extensions);
-        let input_base_type = input_base_python_type(field, &ir.enums, &extensions);
+        let output_base_type = output_base_python_type(field, &ir.enums, extensions);
+        let input_base_type = input_base_python_type(field, &ir.enums, extensions);
         let python_type = PythonBackend.wrap_field_type(field, output_base_type.clone());
         let input_python_type = if field.is_array {
             format!("List[{}]", input_base_type)
@@ -594,10 +594,8 @@ fn generate_python_model_with_registry(
         .relation_fields()
         .enumerate()
         .map(|(idx, field)| {
-            let python_type = PythonBackend.wrap_field_type(
-                field,
-                output_base_python_type(field, &ir.enums, &extensions),
-            );
+            let python_type = PythonBackend
+                .wrap_field_type(field, output_base_python_type(field, &ir.enums, extensions));
             let default_val = if field.is_array {
                 "Field(default_factory=list)".to_string()
             } else {
