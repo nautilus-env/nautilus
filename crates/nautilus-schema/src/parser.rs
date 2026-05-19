@@ -387,6 +387,14 @@ impl<'a> Parser<'a> {
                 let mut on_delete = None;
                 let mut on_update = None;
 
+                if matches!(self.peek_kind(), Some(TokenKind::String(_))) {
+                    rel_name = Some(self.parse_string()?);
+
+                    if self.check(TokenKind::Comma) {
+                        self.advance();
+                    }
+                }
+
                 while !self.check(TokenKind::RParen) && !self.is_at_end() {
                     let arg_name = self.parse_ident()?;
                     self.expect(TokenKind::Colon)?;

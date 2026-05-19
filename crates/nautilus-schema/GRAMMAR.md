@@ -370,7 +370,7 @@ status Status @check(status IN [ACTIVE, PENDING])
 - It cannot be applied to relation, array, or computed fields
 
 #### @relation(...)
-Defines relationship with named arguments. The `name` parameter is optional but required when multiple relations exist between the same models.
+Defines relationship with named arguments. The relation name can also be supplied as the first positional string argument. The `name` parameter is optional but required when multiple relations exist between the same models.
 
 ```prisma
 author User @relation(
@@ -380,10 +380,12 @@ author User @relation(
   onDelete: Cascade,
   onUpdate: Restrict
 )
+
+reviewer User @relation("ReviewedPosts", fields: [reviewerId], references: [id])
 ```
 
 **Supported parameters:**
-- `name` (optional): Unique identifier for the relation, required when multiple relations exist between the same two models
+- `name` (optional): Unique identifier for the relation, required when multiple relations exist between the same two models. Equivalent shorthand: first positional string argument, e.g. `@relation("AuthoredPosts", ...)`
 - `fields`: Array of field names in the current model that form the foreign key
 - `references`: Array of field names in the referenced model (must be primary key or unique)
 - `onDelete` (optional): Referential action on delete
