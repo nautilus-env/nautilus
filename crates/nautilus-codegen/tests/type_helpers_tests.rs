@@ -542,6 +542,19 @@ fn test_get_default_value_array_field_default_factory() {
 }
 
 #[test]
+fn test_get_default_value_array_literal() {
+    let mut f = scalar_field(ScalarType::String, true, true);
+    f.default_value = Some(DefaultValue::Array(vec![
+        DefaultValue::String("hello".to_string()),
+        DefaultValue::String("world".to_string()),
+    ]));
+    assert_eq!(
+        get_default_value(&f),
+        Some("[\"hello\", \"world\"]".to_string())
+    );
+}
+
+#[test]
 fn test_get_default_value_required_no_default_is_none() {
     let f = scalar_field(ScalarType::String, true, false);
     assert_eq!(get_default_value(&f), None);

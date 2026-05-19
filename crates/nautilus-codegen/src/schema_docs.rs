@@ -5,6 +5,10 @@ fn format_default_value(default: &DefaultValue) -> String {
         DefaultValue::String(value) => format!("\"{}\"", value),
         DefaultValue::Number(value) => value.clone(),
         DefaultValue::Boolean(value) => value.to_string(),
+        DefaultValue::Array(values) => {
+            let rendered: Vec<_> = values.iter().map(format_default_value).collect();
+            format!("[{}]", rendered.join(", "))
+        }
         DefaultValue::EnumVariant(value) => value.clone(),
         DefaultValue::Function(call) if call.args.is_empty() => format!("{}()", call.name),
         DefaultValue::Function(call) => format!("{}({})", call.name, call.args.join(", ")),

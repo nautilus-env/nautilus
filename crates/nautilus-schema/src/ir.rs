@@ -457,6 +457,8 @@ pub enum DefaultValue {
     Number(String),
     /// A literal boolean value.
     Boolean(bool),
+    /// An array literal value.
+    Array(Vec<DefaultValue>),
     /// An enum variant name.
     EnumVariant(String),
     /// A function call (autoincrement, uuid, now, etc.).

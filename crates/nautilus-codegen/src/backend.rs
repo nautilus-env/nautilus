@@ -280,9 +280,39 @@ pub trait LanguageBackend {
     /// The empty-array factory expression (Python: `"Field(default_factory=list)"`, TS: `"[]"`).
     fn empty_array_literal(&self) -> &'static str;
 
+    /// Format a concrete array literal from already-rendered element literals.
+    fn array_literal(&self, elements: &[String]) -> String {
+        format!("[{}]", elements.join(", "))
+    }
+
     /// Format an enum variant as a default value (Python: unquoted, TS: single-quoted).
     fn enum_variant_literal(&self, variant: &str) -> String {
         variant.to_string()
+    }
+
+    /// Format an explicit schema default value as a target-language literal.
+    fn default_value_literal(&self, default: &DefaultValue) -> Option<String> {
+        match default {
+            DefaultValue::Function(FunctionCall { name, .. })
+                if matches!(name.as_str(), "now" | "uuid" | "autoincrement") =>
+            {
+                Some(self.null_literal().to_string())
+            }
+            DefaultValue::Function(_) => None,
+            DefaultValue::String(s) => Some(self.string_literal(s)),
+            DefaultValue::Number(n) => Some(n.clone()),
+            DefaultValue::Boolean(b) => Some(if *b {
+                self.true_literal().to_string()
+            } else {
+                self.false_literal().to_string()
+            }),
+            DefaultValue::Array(values) => values
+                .iter()
+                .map(|value| self.default_value_literal(value))
+                .collect::<Option<Vec<_>>>()
+                .map(|values| self.array_literal(&values)),
+            DefaultValue::EnumVariant(v) => Some(self.enum_variant_literal(v)),
+        }
     }
 
     /// Resolves the base type name for a relation field.
@@ -311,24 +341,7 @@ pub trait LanguageBackend {
     /// Returns the default value expression for a field, or `None` if no default.
     fn get_default_value(&self, field: &FieldIr) -> Option<String> {
         if let Some(default) = &field.default_value {
-            match default {
-                DefaultValue::Function(FunctionCall { name, .. })
-                    if matches!(name.as_str(), "now" | "uuid" | "autoincrement") =>
-                {
-                    return Some(self.null_literal().to_string());
-                }
-                DefaultValue::Function(_) => return None,
-                DefaultValue::String(s) => return Some(self.string_literal(s)),
-                DefaultValue::Number(n) => return Some(n.clone()),
-                DefaultValue::Boolean(b) => {
-                    return Some(if *b {
-                        self.true_literal().to_string()
-                    } else {
-                        self.false_literal().to_string()
-                    });
-                }
-                DefaultValue::EnumVariant(v) => return Some(self.enum_variant_literal(v)),
-            }
+            return self.default_value_literal(default);
         }
 
         if field.is_array {

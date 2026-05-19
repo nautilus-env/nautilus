@@ -55,6 +55,30 @@ model User {
 }
 
 #[test]
+fn test_generate_postgres_ddl_with_array_default() {
+    let source = r#"
+model Post {
+  id   Int      @id
+  tags String[] @default(["TEST", "TEST2"])
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let generator = DdlGenerator::new(DatabaseProvider::Postgres);
+    let statements = generator.generate_create_tables(&ir).unwrap();
+    let table_stmt = statements
+        .iter()
+        .find(|sql| sql.contains("CREATE TABLE"))
+        .expect("missing create table statement");
+
+    assert!(
+        table_stmt.contains(r#""tags" TEXT[] DEFAULT ARRAY['TEST', 'TEST2']::TEXT[]"#),
+        "sql: {}",
+        table_stmt
+    );
+}
+
+#[test]
 fn test_generate_postgres_ddl_with_extension_backed_scalar_types() {
     let source = r#"
 datasource db {

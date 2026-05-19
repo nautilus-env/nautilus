@@ -224,6 +224,34 @@ model User {
 }
 
 #[test]
+fn test_parse_array_default_expression() {
+    let source = r#"
+model Post {
+  tags String[] @default(["TEST", "TEST2"])
+}
+"#;
+
+    let schema = parse(source).unwrap();
+    let model = schema.models().next().unwrap();
+    let tags = model.find_field("tags").unwrap();
+
+    match tags.find_attribute("default").unwrap() {
+        FieldAttribute::Default(Expr::Array { elements, .. }, _) => {
+            assert_eq!(elements.len(), 2);
+            assert!(matches!(
+                &elements[0],
+                Expr::Literal(Literal::String(value, _)) if value == "TEST"
+            ));
+            assert!(matches!(
+                &elements[1],
+                Expr::Literal(Literal::String(value, _)) if value == "TEST2"
+            ));
+        }
+        other => panic!("Expected array default expression, got {:?}", other),
+    }
+}
+
+#[test]
 fn test_parse_optional_and_array_fields() {
     let source = r#"
 model User {

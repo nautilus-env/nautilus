@@ -75,4 +75,8 @@ impl LanguageBackend for JavaBackend {
     fn empty_array_literal(&self) -> &'static str {
         "List.of()"
     }
+
+    fn array_literal(&self, elements: &[String]) -> String {
+        format!("List.of({})", elements.join(", "))
+    }
 }

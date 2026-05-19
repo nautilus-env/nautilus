@@ -317,6 +317,7 @@ model User {
   name String @default("John")
   count Int @default(42)
   active Boolean @default(true)
+  tags String[] @default(["TEST", "TEST2"])
 }
 "#;
     let ast = parse(source).unwrap();
@@ -358,6 +359,16 @@ model User {
     match active.default_value.as_ref().unwrap() {
         DefaultValue::Boolean(b) => assert!(*b),
         _ => panic!("Expected boolean default"),
+    }
+
+    let tags = user_model.find_field("tags").unwrap();
+    match tags.default_value.as_ref().unwrap() {
+        DefaultValue::Array(values) => {
+            assert_eq!(values.len(), 2);
+            assert_eq!(values[0], DefaultValue::String("TEST".to_string()));
+            assert_eq!(values[1], DefaultValue::String("TEST2".to_string()));
+        }
+        _ => panic!("Expected array default"),
     }
 }
 

@@ -8,7 +8,7 @@ impl SchemaValidator<'_> {
                 for attr in &field.attributes {
                     if let FieldAttribute::Default(expr, _) = attr {
                         self.validate_default_value(
-                            &field.field_type,
+                            field,
                             expr,
                             &field.name.value,
                             &model.name.value,
@@ -21,11 +21,33 @@ impl SchemaValidator<'_> {
 
     pub(super) fn validate_default_value(
         &mut self,
-        field_type: &FieldType,
+        field: &FieldDecl,
         expr: &Expr,
         field_name: &str,
         model_name: &str,
     ) {
+        let field_type = &field.field_type;
+
+        if field.is_array() {
+            match expr {
+                Expr::Array { elements, span } => {
+                    self.validate_array_default(
+                        field_type, elements, *span, field_name, model_name,
+                    );
+                }
+                _ => {
+                    self.errors.push_back(SchemaError::Validation(
+                        format!(
+                            "Default value for array field '{}' in model '{}' must be an array literal",
+                            field_name, model_name
+                        ),
+                        expr.span(),
+                    ));
+                }
+            }
+            return;
+        }
+
         match expr {
             Expr::Literal(lit) => {
                 self.validate_literal_default(field_type, lit, field_name, model_name);
@@ -43,6 +65,15 @@ impl SchemaValidator<'_> {
                     model_name,
                 );
             }
+            Expr::Array { .. } => {
+                self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "Array default value can only be used with array field '{}' in model '{}'",
+                        field_name, model_name
+                    ),
+                    expr.span(),
+                ));
+            }
             _ => {
                 self.errors.push_back(SchemaError::Validation(
                     format!(
@@ -51,6 +82,59 @@ impl SchemaValidator<'_> {
                     ),
                     expr.span(),
                 ));
+            }
+        }
+    }
+
+    fn validate_array_default(
+        &mut self,
+        field_type: &FieldType,
+        elements: &[Expr],
+        span: Span,
+        field_name: &str,
+        model_name: &str,
+    ) {
+        if let FieldType::UserType(type_name) = field_type {
+            if self.models.contains_key(type_name) {
+                self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "Relation field '{}' in model '{}' cannot use @default",
+                        field_name, model_name
+                    ),
+                    span,
+                ));
+                return;
+            }
+
+            if self.composite_types.contains_key(type_name) {
+                self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "Array default for composite type field '{}' in model '{}' is not supported",
+                        field_name, model_name
+                    ),
+                    span,
+                ));
+                return;
+            }
+        }
+
+        for element in elements {
+            match element {
+                Expr::Literal(lit) => {
+                    self.validate_literal_default(field_type, lit, field_name, model_name);
+                }
+                Expr::Ident(ident) => {
+                    self.validate_ident_default(field_type, ident, field_name, model_name);
+                }
+                _ => {
+                    self.errors.push_back(SchemaError::Validation(
+                        format!(
+                            "Array default for field '{}' in model '{}' can only contain literal values",
+                            field_name, model_name
+                        ),
+                        element.span(),
+                    ));
+                }
             }
         }
     }

@@ -371,7 +371,12 @@ impl SchemaValidator<'_> {
         storage_strategy: Option<StorageStrategy>,
         datasource_provider: Option<&str>,
     ) -> Result<()> {
-        if !is_array || !matches!(field_type, ResolvedFieldType::Scalar(_)) {
+        if !is_array
+            || !matches!(
+                field_type,
+                ResolvedFieldType::Scalar(_) | ResolvedFieldType::Enum { .. }
+            )
+        {
             return Ok(());
         }
 
@@ -528,6 +533,12 @@ impl SchemaValidator<'_> {
             Expr::Literal(Literal::Number(n, _)) => Ok(DefaultValue::Number(n.clone())),
             Expr::Literal(Literal::Boolean(b, _)) => Ok(DefaultValue::Boolean(*b)),
             Expr::Ident(ident) => Ok(DefaultValue::EnumVariant(ident.value.clone())),
+            Expr::Array { elements, .. } => Ok(DefaultValue::Array(
+                elements
+                    .iter()
+                    .map(|element| self.expr_to_default_value(element))
+                    .collect::<Result<Vec<_>>>()?,
+            )),
             Expr::FunctionCall { name, args, .. } => Ok(DefaultValue::Function(FunctionCall {
                 name: name.value.clone(),
                 args: args

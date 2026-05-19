@@ -67,6 +67,16 @@ fn test_format_optional_and_array_fields() {
 }
 
 #[test]
+fn test_format_array_default_literal() {
+    let source = r#"model Post {
+  id   Int      @id
+  tags String[] @default(["TEST","TEST2"])
+}"#;
+    let out = round_trip(source);
+    assert!(out.contains(r#"tags String[] @default(["TEST", "TEST2"])"#));
+}
+
+#[test]
 fn test_format_relation() {
     let source = r#"model Post {
   id       Int  @id
