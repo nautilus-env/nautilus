@@ -14,7 +14,13 @@ use std::sync::{
 use std::time::Duration;
 use zip::ZipArchive;
 
-use crate::tui;
+use crate::{
+    github_release::{
+        fetch_latest_release as fetch_github_latest_release, latest_release_page_url, same_version,
+        GitHubLatestReleaseNotFound, GitHubRelease, GitHubReleaseAsset, LatestReleaseResponse,
+    },
+    local_paths, tui,
+};
 
 pub static STUDIO_GITHUB_REPO: &str = "nautilus-env/nautilus-orm-studio";
 pub static STUDIO_RELEASE_ASSET_PREFIX: &str = "nautilus-orm-studio-";
@@ -35,20 +41,8 @@ pub struct StudioArgs {
 }
 
 #[derive(Debug, Deserialize)]
-struct GitHubRelease {
-    tag_name: String,
-    assets: Vec<GitHubReleaseAsset>,
-}
-
-#[derive(Debug, Deserialize)]
 struct StudioPackageManifest {
     version: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-struct GitHubReleaseAsset {
-    name: String,
-    browser_download_url: String,
 }
 
 #[derive(Debug)]
@@ -181,34 +175,21 @@ fn install_or_update_from_release(
 }
 
 fn fetch_latest_release() -> Result<GitHubRelease> {
-    let client = Client::builder()
-        .build()
-        .context("Failed to create HTTP client for Studio release lookup")?;
-
-    let response = client
-        .get(format!(
-            "https://api.github.com/repos/{}/releases/latest",
-            STUDIO_GITHUB_REPO
-        ))
-        .header(reqwest::header::USER_AGENT, "nautilus-cli")
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-        .send()
-        .context("Failed to request the latest Nautilus Studio release")?;
-
-    let status = response.status();
-    if status == reqwest::StatusCode::NOT_FOUND {
-        return Err(StudioReleaseUnavailable::new(format!(
-            "No published Nautilus Studio release was found for https://github.com/{}/releases/latest. Publish a release first or update STUDIO_GITHUB_REPO.",
-            STUDIO_GITHUB_REPO
-        ))
-        .into());
+    match fetch_github_latest_release(STUDIO_GITHUB_REPO, None, None) {
+        Ok(LatestReleaseResponse::Found { release, .. }) => Ok(release),
+        Ok(LatestReleaseResponse::NotModified) => {
+            bail!("GitHub returned 304 Not Modified without an ETag request")
+        }
+        Err(err) if err.downcast_ref::<GitHubLatestReleaseNotFound>().is_some() => {
+            Err(StudioReleaseUnavailable::new(format!(
+                "No published Nautilus Studio release was found for {}. Publish a release first or update STUDIO_GITHUB_REPO.",
+                latest_release_page_url(STUDIO_GITHUB_REPO)
+            ))
+            .into())
+        }
+        Err(err) => Err(err)
+            .context("Could not resolve or decode the latest Nautilus Studio release metadata"),
     }
-
-    response
-        .error_for_status()
-        .context("Could not resolve the latest Nautilus Studio release")?
-        .json()
-        .context("Failed to decode the latest Nautilus Studio release metadata")
 }
 
 fn latest_release_asset() -> Result<GitHubReleaseAsset> {
@@ -272,35 +253,13 @@ fn read_app_package_version(app_root: &Path) -> Option<String> {
     }
 }
 
-fn normalize_version_label(version: &str) -> &str {
-    version.trim().trim_start_matches(['v', 'V'])
-}
-
-fn same_version(left: &str, right: &str) -> bool {
-    normalize_version_label(left) == normalize_version_label(right)
-}
-
 fn fetch_latest_release_tag_silently() -> Option<String> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .ok()?;
-
-    let response = client
-        .get(format!(
-            "https://api.github.com/repos/{}/releases/latest",
-            STUDIO_GITHUB_REPO
-        ))
-        .header(reqwest::header::USER_AGENT, "nautilus-cli")
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-        .send()
-        .ok()?;
-
-    if !response.status().is_success() {
-        return None;
+    match fetch_github_latest_release(STUDIO_GITHUB_REPO, Some(Duration::from_secs(5)), None)
+        .ok()?
+    {
+        LatestReleaseResponse::Found { release, .. } => Some(release.tag_name),
+        LatestReleaseResponse::NotModified => None,
     }
-
-    response.json::<GitHubRelease>().ok().map(|r| r.tag_name)
 }
 
 fn check_for_update_tip(app_root: &Path) {
@@ -657,30 +616,7 @@ fn format_command(command: &Command) -> String {
 }
 
 fn studio_install_root() -> Result<PathBuf> {
-    Ok(nautilus_home()?.join(STUDIO_DIR_NAME))
-}
-
-fn nautilus_home() -> Result<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        let base = std::env::var("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| dirs_home().expect("home dir required").join(".nautilus"));
-        Ok(base.join("nautilus"))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Ok(dirs_home()?.join(".nautilus"))
-    }
-}
-
-fn dirs_home() -> Result<PathBuf> {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map(PathBuf::from)
-        .map_err(|_| {
-            anyhow::anyhow!("Could not determine home directory (HOME / USERPROFILE not set)")
-        })
+    Ok(local_paths::nautilus_home()?.join(STUDIO_DIR_NAME))
 }
 
 #[cfg(test)]
@@ -688,8 +624,8 @@ mod tests {
     use super::{
         collect_app_roots, expected_release_asset_name_for_platform, is_interrupt_exit_code,
         next_cli_path, read_installed_version, release_asset_platform, resolve_app_root,
-        same_version, select_release_asset, select_release_asset_for_platform, GitHubRelease,
-        GitHubReleaseAsset, StudioReleaseUnavailable, STUDIO_GITHUB_REPO,
+        select_release_asset, select_release_asset_for_platform, GitHubRelease, GitHubReleaseAsset,
+        StudioReleaseUnavailable, STUDIO_GITHUB_REPO,
     };
     use std::path::{Path, PathBuf};
 
@@ -705,6 +641,7 @@ mod tests {
     fn release_asset_selection_matches_release_workflow_naming() {
         let release = GitHubRelease {
             tag_name: "v0.1.0".to_string(),
+            html_url: None,
             assets: vec![
                 GitHubReleaseAsset {
                     name: "checksums.txt".to_string(),
@@ -726,6 +663,7 @@ mod tests {
     fn release_asset_selection_uses_current_platform() {
         let release = GitHubRelease {
             tag_name: "v0.1.0".to_string(),
+            html_url: None,
             assets: vec![
                 GitHubReleaseAsset {
                     name: "nautilus-orm-studio-v0.1.0-linux.zip".to_string(),
@@ -759,6 +697,7 @@ mod tests {
     fn release_asset_selection_reports_missing_zip() {
         let release = GitHubRelease {
             tag_name: "v0.1.0".to_string(),
+            html_url: None,
             assets: vec![GitHubReleaseAsset {
                 name: "checksums.txt".to_string(),
                 browser_download_url: "https://example.com/checksums.txt".to_string(),
@@ -820,13 +759,6 @@ mod tests {
         let version = read_installed_version(&app_root).expect("version");
 
         assert_eq!(version, "0.1.0");
-    }
-
-    #[test]
-    fn version_comparison_ignores_optional_v_prefix() {
-        assert!(same_version("0.1.0", "v0.1.0"));
-        assert!(same_version("V0.1.0", "0.1.0"));
-        assert!(!same_version("0.1.0", "v0.2.0"));
     }
 
     #[test]

@@ -3,6 +3,8 @@ use clap::Subcommand;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::local_paths;
+
 #[derive(Subcommand)]
 pub enum PythonCommand {
     /// Install a .pth file so `import nautilus` works without pip
@@ -143,7 +145,7 @@ fn query_site_packages(python: &str) -> Result<PathBuf> {
 /// Write the shim package to `~/.nautilus/python/nautilus/` and return the
 /// parent directory (`~/.nautilus/python/`) that the .pth file should point to.
 fn write_shim_package() -> Result<PathBuf> {
-    let base = nautilus_home()?.join("python");
+    let base = local_paths::nautilus_home()?.join("python");
     let pkg = base.join("nautilus");
     std::fs::create_dir_all(&pkg).with_context(|| format!("Failed to create {}", pkg.display()))?;
 
@@ -160,30 +162,6 @@ fn write_if_changed(path: &Path, content: &str) -> Result<()> {
             .with_context(|| format!("Failed to write {}", path.display()))?;
     }
     Ok(())
-}
-
-/// Platform-specific base directory for nautilus data.
-fn nautilus_home() -> anyhow::Result<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        let base = std::env::var("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| dirs_home().expect("home dir required").join(".nautilus"));
-        Ok(base.join("nautilus"))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Ok(dirs_home()?.join(".nautilus"))
-    }
-}
-
-fn dirs_home() -> anyhow::Result<PathBuf> {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map(PathBuf::from)
-        .map_err(|_| {
-            anyhow::anyhow!("Could not determine home directory (HOME / USERPROFILE not set)")
-        })
 }
 
 #[cfg(test)]

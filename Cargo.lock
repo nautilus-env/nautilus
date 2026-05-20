@@ -1543,6 +1543,7 @@ dependencies = [
  "nautilus-orm-migrate",
  "nautilus-orm-schema",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "sqlx",

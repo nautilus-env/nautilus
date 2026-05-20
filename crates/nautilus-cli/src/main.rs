@@ -3,9 +3,12 @@
 use clap::{Parser, Subcommand};
 
 mod commands;
+mod github_release;
+mod local_paths;
 #[cfg(test)]
 mod test_support;
 mod tui;
+mod update_check;
 
 #[derive(Parser)]
 #[command(
@@ -15,6 +18,10 @@ mod tui;
     propagate_version = true
 )]
 struct Cli {
+    /// Skip the best-effort GitHub release version check
+    #[arg(long, global = true)]
+    no_update_check: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -70,9 +77,24 @@ enum Command {
     Studio(commands::studio::StudioArgs),
 }
 
+impl Command {
+    fn skips_update_check(&self) -> bool {
+        matches!(
+            self,
+            Command::Engine {
+                subcommand: commands::engine::EngineCommand::Serve { .. }
+            }
+        )
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
+    if !cli.no_update_check && !cli.command.skips_update_check() {
+        let _ = tokio::task::spawn_blocking(update_check::check_for_update).await;
+    }
 
     let result = match cli.command {
         Command::Db { subcommand } => commands::db::run(subcommand).await,
@@ -193,6 +215,23 @@ mod tests {
         assert!(help.contains("engine"));
         assert!(help.contains("python"));
         assert!(help.contains("studio"));
+    }
+
+    #[test]
+    fn cli_accepts_global_no_update_check_flag() {
+        let cli = Cli::try_parse_from(["nautilus", "--no-update-check", "validate"])
+            .expect("global update-check opt-out should parse");
+
+        assert!(cli.no_update_check);
+        assert!(matches!(cli.command, Command::Validate { schema: None }));
+    }
+
+    #[test]
+    fn engine_serve_skips_update_check() {
+        let cli = Cli::try_parse_from(["nautilus", "engine", "serve"])
+            .expect("engine serve should parse");
+
+        assert!(cli.command.skips_update_check());
     }
 
     #[test]
