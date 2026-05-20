@@ -1530,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "nautilus-orm"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "nautilus-orm-codegen"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -1571,7 +1571,7 @@ dependencies = [
 
 [[package]]
 name = "nautilus-orm-connector"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "async-stream",
  "chrono",
@@ -1589,7 +1589,7 @@ dependencies = [
 
 [[package]]
 name = "nautilus-orm-core"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "base64",
  "chrono",
@@ -1602,14 +1602,14 @@ dependencies = [
 
 [[package]]
 name = "nautilus-orm-dialect"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "nautilus-orm-core",
 ]
 
 [[package]]
 name = "nautilus-orm-engine"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "chrono",
  "console 0.16.3",
@@ -1631,7 +1631,7 @@ dependencies = [
 
 [[package]]
 name = "nautilus-orm-lsp"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "dashmap 6.1.0",
  "nautilus-orm-schema",
@@ -1641,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "nautilus-orm-migrate"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "chrono",
  "nautilus-orm-schema",
@@ -1655,7 +1655,7 @@ dependencies = [
 
 [[package]]
 name = "nautilus-orm-protocol"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -1664,7 +1664,7 @@ dependencies = [
 
 [[package]]
 name = "nautilus-orm-schema"
-version = "1.2.2"
+version = "1.2.3"
 
 [[package]]
 name = "nix"
