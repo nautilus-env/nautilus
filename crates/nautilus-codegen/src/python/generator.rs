@@ -770,7 +770,7 @@ pub(crate) fn generate_all_python_models_with_registry(
         .collect()
 }
 
-/// Generate `types/types.py` — dataclasses for all composite types.
+/// Generate `types/types.py` — TypedDict declarations for all composite types.
 ///
 /// Returns `None` when there are no composite types.
 pub fn generate_python_composite_types(

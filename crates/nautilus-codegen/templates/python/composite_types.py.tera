@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, TypedDict
 
 
 {%- for ctype in composite_types %}
 
 
-@dataclass
-class {{ ctype.name }}:
+class {{ ctype.name }}(TypedDict):
     """{{ ctype.name }} composite type."""
 
 {%- for f in ctype.fields %}
