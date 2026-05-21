@@ -150,15 +150,15 @@ export interface {{ model_name }}Model {
 export interface {{ model_name }}WhereInput {
 {%- for field in where_input_fields %}
 {%- if field.is_vector %}
-  {{ field.name }}?: number[] | VectorFilter;
+  {{ field.name }}?: number[]{% if field.is_nullable %} | null{% endif %} | VectorFilter;
 {%- elif field.base_type == "string" %}
-  {{ field.name }}?: string | StringFilter;
+  {{ field.name }}?: string{% if field.is_nullable %} | null{% endif %} | StringFilter;
 {%- elif field.base_type == "number" %}
-  {{ field.name }}?: number | NumberFilter;
+  {{ field.name }}?: number{% if field.is_nullable %} | null{% endif %} | NumberFilter;
 {%- elif field.base_type == "Date" %}
-  {{ field.name }}?: Date | DateFilter;
+  {{ field.name }}?: Date{% if field.is_nullable %} | null{% endif %} | DateFilter;
 {%- elif field.base_type == "boolean" %}
-  {{ field.name }}?: boolean;
+  {{ field.name }}?: boolean{% if field.is_nullable %} | null{% endif %};
 {%- else %}
   {{ field.name }}?: {{ field.ts_type }};
 {%- endif %}

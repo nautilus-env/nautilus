@@ -157,6 +157,7 @@ struct WhereInputFieldContext {
     name: String,
     python_type: String,
     where_python_type: String,
+    is_nullable: bool,
     is_vector: bool,
     operators: Vec<FilterOperatorContext>,
 }
@@ -237,6 +238,28 @@ fn exact_output_python_type(field: &nautilus_schema::ir::FieldIr, base_type: Str
         format!("Optional[{}]", base_type)
     } else {
         base_type
+    }
+}
+
+fn exact_input_python_type(field: &nautilus_schema::ir::FieldIr, base_type: String) -> String {
+    if field.is_array {
+        format!("List[{}]", base_type)
+    } else if !field.is_required {
+        format!("Optional[{}]", base_type)
+    } else {
+        base_type
+    }
+}
+
+fn add_none_to_python_union(type_expr: String) -> String {
+    let trimmed = type_expr.trim();
+    if let Some(inner) = trimmed
+        .strip_prefix("Union[")
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        format!("Union[{inner}, None]")
+    } else {
+        format!("Optional[{trimmed}]")
     }
 }
 
@@ -363,11 +386,7 @@ fn generate_python_model_with_registry(
         let output_base_type = output_base_python_type(field, &ir.enums, extensions);
         let input_base_type = input_base_python_type(field, &ir.enums, extensions);
         let python_type = exact_output_python_type(field, output_base_type.clone());
-        let input_python_type = if field.is_array {
-            format!("List[{}]", input_base_type)
-        } else {
-            input_base_type
-        };
+        let input_python_type = exact_input_python_type(field, input_base_type);
         let base_type = output_base_type;
         let raw_base_type = match &field.field_type {
             ResolvedFieldType::Scalar(s) => {
@@ -461,8 +480,16 @@ fn generate_python_model_with_registry(
                 name: field.logical_name.clone(),
                 python_type: base_python_type.clone(),
                 where_python_type: extension_type
-                    .map(|ty| ty.python_filter_input())
+                    .map(|ty| {
+                        let type_expr = ty.python_filter_input();
+                        if !field.is_required && !field.is_array {
+                            add_none_to_python_union(type_expr)
+                        } else {
+                            type_expr
+                        }
+                    })
                     .unwrap_or_default(),
+                is_nullable: !field.is_required && !field.is_array,
                 is_vector,
                 operators: operators
                     .into_iter()

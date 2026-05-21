@@ -118,27 +118,27 @@ class {{ model_name }}WhereInput(TypedDict, total=False):
     {% if field.where_python_type %}
     {{ field.name }}: NotRequired[{{ field.where_python_type }}]
     {% elif field.is_vector %}
-    {{ field.name }}: NotRequired[Union[List[float], VectorFilter]]
+    {{ field.name }}: NotRequired[Union[List[float]{% if field.is_nullable %}, None{% endif %}, VectorFilter]]
     {% elif field.python_type == "str" %}
-    {{ field.name }}: NotRequired[Union[str, StringFilter]]
+    {{ field.name }}: NotRequired[Union[str{% if field.is_nullable %}, None{% endif %}, StringFilter]]
     {% elif field.python_type == "int" %}
-    {{ field.name }}: NotRequired[Union[int, IntFilter]]
+    {{ field.name }}: NotRequired[Union[int{% if field.is_nullable %}, None{% endif %}, IntFilter]]
     {% elif field.python_type == "float" %}
-    {{ field.name }}: NotRequired[Union[float, FloatFilter]]
+    {{ field.name }}: NotRequired[Union[float{% if field.is_nullable %}, None{% endif %}, FloatFilter]]
     {% elif field.python_type == "Decimal" %}
-    {{ field.name }}: NotRequired[Union[Decimal, DecimalFilter]]
+    {{ field.name }}: NotRequired[Union[Decimal{% if field.is_nullable %}, None{% endif %}, DecimalFilter]]
     {% elif field.python_type == "datetime" %}
-    {{ field.name }}: NotRequired[Union[datetime, DateTimeFilter]]
+    {{ field.name }}: NotRequired[Union[datetime{% if field.is_nullable %}, None{% endif %}, DateTimeFilter]]
     {% elif field.python_type == "UUID" %}
-    {{ field.name }}: NotRequired[Union[UUID, UuidFilter]]
+    {{ field.name }}: NotRequired[Union[UUID{% if field.is_nullable %}, None{% endif %}, UuidFilter]]
     {% elif field.python_type == "bool" %}
-    {{ field.name }}: NotRequired[Union[bool, BoolFilter]]
+    {{ field.name }}: NotRequired[Union[bool{% if field.is_nullable %}, None{% endif %}, BoolFilter]]
     {% elif field.python_type == "JsonValue" %}
     {{ field.name }}: NotRequired[Union[JsonScalarOrArray, JsonFilter]]
     {% elif field.python_type == "HstoreValue" %}
-    {{ field.name }}: NotRequired[HstoreFilter]
+    {{ field.name }}: NotRequired[{% if field.is_nullable %}Union[None, HstoreFilter]{% else %}HstoreFilter{% endif %}]
     {% else %}
-    {{ field.name }}: NotRequired[{{ field.python_type }}]
+    {{ field.name }}: NotRequired[{% if field.is_nullable %}Optional[{{ field.python_type }}]{% else %}{{ field.python_type }}{% endif %}]
     {% endif %}
     {% endfor %}
     AND: NotRequired[Union[{{ model_name }}WhereInput, List[{{ model_name }}WhereInput]]]
@@ -150,7 +150,7 @@ class {{ model_name }}CreateInput(TypedDict{% if create_input_fields %}, total=F
     """Input data for creating a {{ model_name }}."""
     {% for field in create_input_fields %}
     {% if field.is_required %}
-    {{ field.name }}: {{ field.python_type }}
+    {{ field.name }}: Required[{{ field.python_type }}]
     {% else %}
     {{ field.name }}: NotRequired[{{ field.python_type }}]
     {% endif %}

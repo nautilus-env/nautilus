@@ -584,6 +584,7 @@ fn test_python_optional_field_is_optional_type() {
         r#"
 model Post {
   id      Int     @id @default(autoincrement())
+  title   String
   content String?
 }
 "#,
@@ -593,6 +594,22 @@ model Post {
         .iter()
         .find(|(name, _)| name == "post.py")
         .expect("post missing");
+    assert!(
+        code.contains("content: Optional[str]"),
+        "expected nullable output field to be Optional[str]:\n{code}"
+    );
+    assert!(
+        code.contains("content: NotRequired[Optional[str]]"),
+        "expected nullable create/update input fields to allow explicit None:\n{code}"
+    );
+    assert!(
+        code.contains("content: NotRequired[Union[str, None, StringFilter]]"),
+        "expected nullable where input fields to allow explicit None equality:\n{code}"
+    );
+    assert!(
+        code.contains("title: Required[str]"),
+        "expected required create input fields to stay required inside total=False TypedDicts:\n{code}"
+    );
     assert_local_snapshot!(code);
 }
 
@@ -963,12 +980,12 @@ model User {
         .expect("user model missing");
 
     assert!(
-        code.contains("shippingAddress: NotRequired[Address]"),
-        "expected composite create/update inputs to use the generated Address type:\n{code}"
+        code.contains("shippingAddress: NotRequired[Optional[Address]]"),
+        "expected nullable composite create/update inputs to use Optional[Address]:\n{code}"
     );
     assert!(
         code.contains("shippingAddresses: NotRequired[List[Address]]"),
-        "expected composite array write inputs to use List[Address]:\n{code}"
+        "expected composite array update inputs to use List[Address]:\n{code}"
     );
     assert!(
         code.contains("result[db_key] = _serialize_scalar_input(key, value)"),
@@ -999,8 +1016,8 @@ model User {
         .expect("user declaration missing");
 
     assert!(
-        code.contains("shippingAddress?: Address;"),
-        "expected composite create input to use Address instead of object:\n{code}"
+        code.contains("shippingAddress?: Address | null;"),
+        "expected nullable composite create/update input to use Address | null:\n{code}"
     );
     assert!(
         code.contains("shippingAddresses?: Address[];"),
@@ -1009,6 +1026,38 @@ model User {
     assert!(
         code.contains("shippingAddress?: Address | null;"),
         "expected composite update input to use Address instead of object:\n{code}"
+    );
+}
+
+#[test]
+fn test_js_nullable_input_fields_match_schema_nullability() {
+    let ir = validate(
+        r#"
+model User {
+  id       Int     @id @default(autoincrement())
+  name     String
+  nickname String?
+}
+"#,
+    );
+    let (_js_models, dts_models) = generate_all_js_models(&ir);
+    let code = generated_named_file(&dts_models, "user.d.ts");
+
+    assert!(
+        code.contains(
+            "export interface UserCreateInput {\n  name: string;\n  nickname?: string | null;"
+        ),
+        "expected create input to require name and allow null for nullable nickname:\n{code}"
+    );
+    assert!(
+        code.contains("nickname?: string | null | StringFilter;"),
+        "expected nullable where input fields to allow explicit null equality:\n{code}"
+    );
+    assert!(
+        code.contains(
+            "export interface UserUpdateInput {\n  name?: string;\n  nickname?: string | null;"
+        ),
+        "expected update input to allow omission separately from schema nullability:\n{code}"
     );
 }
 
@@ -1754,7 +1803,7 @@ model User {
     assert!(js_dts.contains("equals?: HstoreInput;"));
     assert!(js_dts.contains("not?:    HstoreInput;"));
     assert!(js_dts.contains("isNull?: boolean;"));
-    assert!(js_dts.contains("meta?: HstoreInput | HstoreFilter;"));
+    assert!(js_dts.contains("meta?: HstoreInput | HstoreFilter | null;"));
 
     let py_models = generate_all_python_models(&ir, false, 1);
     let py_model = generated_python_file(&py_models, "user.py");
@@ -1764,7 +1813,7 @@ model User {
     assert!(py_model.contains("equals: NotRequired[HstoreInput]"));
     assert!(py_model.contains("not_: NotRequired[HstoreInput]"));
     assert!(py_model.contains("is_null: NotRequired[bool]"));
-    assert!(py_model.contains("meta: NotRequired[Union[HstoreInput, HstoreFilter]]"));
+    assert!(py_model.contains("meta: NotRequired[Union[HstoreInput, HstoreFilter, None]]"));
 }
 
 #[test]
@@ -1903,14 +1952,16 @@ model Example {
 
     let py_models = generate_all_python_models(&ir, false, 1);
     let py_model = generated_python_file(&py_models, "example.py");
-    assert!(py_model.contains("email: CitextInput"));
-    assert!(py_model.contains("path: NotRequired[LtreeInput]"));
-    assert!(py_model.contains("meta: NotRequired[HstoreInput]"));
-    assert!(py_model.contains("footprint: NotRequired[GeometryInput]"));
-    assert!(py_model.contains("serviceArea: NotRequired[GeographyInput]"));
-    assert!(py_model.contains("embedding: VectorInput"));
-    assert!(py_model.contains("footprint: NotRequired[Union[GeometryInput, StringFilter]]"));
-    assert!(py_model.contains("serviceArea: NotRequired[Union[GeographyInput, StringFilter]]"));
+    assert!(py_model.contains("email: Required[CitextInput]"));
+    assert!(py_model.contains("path: NotRequired[Optional[LtreeInput]]"));
+    assert!(py_model.contains("meta: NotRequired[Optional[HstoreInput]]"));
+    assert!(py_model.contains("footprint: NotRequired[Optional[GeometryInput]]"));
+    assert!(py_model.contains("serviceArea: NotRequired[Optional[GeographyInput]]"));
+    assert!(py_model.contains("embedding: Required[VectorInput]"));
+    assert!(py_model.contains("footprint: NotRequired[Union[GeometryInput, StringFilter, None]]"));
+    assert!(
+        py_model.contains("serviceArea: NotRequired[Union[GeographyInput, StringFilter, None]]")
+    );
     assert!(py_model.contains("embedding: NotRequired[Union[VectorInput, VectorFilter]]"));
 
     let (_, js_models) = generate_all_js_models(&ir);
@@ -1920,13 +1971,13 @@ model Example {
         .map(|(_, code)| code.as_str())
         .expect("example.d.ts missing");
     assert!(js_model.contains("email: CitextInput;"));
-    assert!(js_model.contains("path?: LtreeInput;"));
+    assert!(js_model.contains("path?: LtreeInput | null;"));
     assert!(js_model.contains("meta?: HstoreInput | null;"));
     assert!(js_model.contains("footprint?: GeometryInput | null;"));
     assert!(js_model.contains("serviceArea?: GeographyInput | null;"));
     assert!(js_model.contains("embedding: VectorInput;"));
-    assert!(js_model.contains("footprint?: GeometryInput | StringFilter;"));
-    assert!(js_model.contains("serviceArea?: GeographyInput | StringFilter;"));
+    assert!(js_model.contains("footprint?: GeometryInput | StringFilter | null;"));
+    assert!(js_model.contains("serviceArea?: GeographyInput | StringFilter | null;"));
     assert!(js_model.contains("embedding?: VectorInput | VectorFilter;"));
 
     let java_ext_files = generate_java_extension_files(&extensions, "com.acme.db");

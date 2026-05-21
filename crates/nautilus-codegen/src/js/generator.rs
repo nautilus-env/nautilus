@@ -102,6 +102,7 @@ struct JsWhereInputFieldContext {
     base_type: String,
     ts_type: String,
     where_ts_type: String,
+    is_nullable: bool,
     is_vector: bool,
     operators: Vec<JsFilterOperatorContext>,
 }
@@ -196,6 +197,16 @@ fn exact_output_ts_type(field: &nautilus_schema::ir::FieldIr, base_type: String)
     }
 }
 
+fn exact_input_ts_type(field: &nautilus_schema::ir::FieldIr, base_type: String) -> String {
+    if field.is_array {
+        format!("{}[]", base_type)
+    } else if !field.is_required {
+        format!("{} | null", base_type)
+    } else {
+        base_type
+    }
+}
+
 /// Generate JavaScript + declaration code for a single model.
 ///
 /// Returns `((js_filename, js_code), (dts_filename, dts_code))`.
@@ -260,11 +271,7 @@ fn generate_js_model_with_registry(
         let base_type = output_base_ts_type(field, &ir.enums, extensions);
         let input_base_type = input_base_ts_type(field, extensions);
         let ts_type = exact_output_ts_type(field, base_type.clone());
-        let input_ts_type = if field.is_array {
-            format!("{}[]", input_base_type)
-        } else {
-            input_base_type
-        };
+        let input_ts_type = exact_input_ts_type(field, input_base_type);
         let raw_base_type = get_base_ts_type(field, &ir.enums);
         let extension_coercer = extension_type
             .map(|ty| {
@@ -326,8 +333,16 @@ fn generate_js_model_with_registry(
                 base_type: raw_base_type.clone(),
                 ts_type: ts_type.clone(),
                 where_ts_type: extension_type
-                    .map(|ty| ty.ts_filter_input())
+                    .map(|ty| {
+                        let type_expr = ty.ts_filter_input();
+                        if !field.is_required && !field.is_array {
+                            format!("{type_expr} | null")
+                        } else {
+                            type_expr
+                        }
+                    })
                     .unwrap_or_default(),
+                is_nullable: !field.is_required && !field.is_array,
                 is_vector,
                 operators: operators
                     .into_iter()
@@ -367,14 +382,9 @@ fn generate_js_model_with_registry(
                     | ResolvedFieldType::Scalar(ScalarType::BigInt)
             );
         if !is_auto_pk {
-            let typed = if field.is_array {
-                input_ts_type
-            } else {
-                format!("{} | null", input_ts_type)
-            };
             update_input_fields.push(JsUpdateInputFieldContext {
                 name: field.logical_name.clone(),
-                ts_type: typed,
+                ts_type: input_ts_type,
             });
         }
 
