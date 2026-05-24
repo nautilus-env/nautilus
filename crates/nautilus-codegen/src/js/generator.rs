@@ -769,5 +769,13 @@ pub fn js_runtime_files() -> Vec<(String, String)> {
             "_transaction.d.ts".to_string(),
             include_str!("../../templates/js/runtime/_transaction.d.ts").to_string(),
         ),
+        (
+            "_events.js".to_string(),
+            include_str!("../../templates/js/runtime/_events.js").to_string(),
+        ),
+        (
+            "_events.d.ts".to_string(),
+            include_str!("../../templates/js/runtime/_events.d.ts").to_string(),
+        ),
     ]
 }

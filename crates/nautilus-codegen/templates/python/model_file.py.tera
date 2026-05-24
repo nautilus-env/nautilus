@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from pydantic import BaseModel, Field
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, ClassVar, Union, overload
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, NotRequired, Optional, Required, ClassVar, TypedDict, Union, overload
 {%- if needs_typeddict %}
-from typing import TypedDict, NotRequired, Required, Literal
 from datetime import datetime
 from uuid import UUID
 from decimal import Decimal
@@ -23,6 +22,15 @@ from decimal import Decimal
 {%- endif %}
 from enum import Enum
 from .._internal.descriptors import classproperty
+from .._internal.events import (
+    CrudEventContext,
+    EventPhase,
+    default_cud_result,
+    model_event_decorator,
+    resolve_stop_result,
+    run_crud_event,
+    run_crud_event_sync,
+)
 from .._internal.protocol import PROTOCOL_VERSION
 {% if has_enums %}
 
@@ -64,6 +72,7 @@ HstoreValue = Dict[str, Optional[str]]
 
 class {{ model_name }}(BaseModel):
     """{{ model_name }} model mapped to '{{ table_name }}' table."""
+    __nautilus_model_name__: ClassVar[str] = "{{ model_name }}"
 {%- for f in scalar_fields %}
 {%- if f.doc_comment %}
     # {{ f.doc_comment }}
@@ -109,6 +118,111 @@ class {{ model_name }}(BaseModel):
                     f"Create one with: Nautilus(auto_register=True)"
                 )
             return client.get_delegate("{{ snake_name }}")
+
+    @classmethod
+    @overload
+    def onCreate(
+        cls,
+        handler: Callable[["{{ model_name }}CreateEventContext"], Any],
+    ) -> Callable[["{{ model_name }}CreateEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onCreate(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+    ) -> Callable[
+        [Callable[["{{ model_name }}CreateEventContext"], Any]],
+        Callable[["{{ model_name }}CreateEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onCreate(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
+        return model_event_decorator(cls, "create", phase_or_handler)
+
+    @classmethod
+    @overload
+    def onCreateMany(
+        cls,
+        handler: Callable[["{{ model_name }}CreateManyEventContext"], Any],
+    ) -> Callable[["{{ model_name }}CreateManyEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onCreateMany(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+    ) -> Callable[
+        [Callable[["{{ model_name }}CreateManyEventContext"], Any]],
+        Callable[["{{ model_name }}CreateManyEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onCreateMany(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
+        return model_event_decorator(cls, "createMany", phase_or_handler)
+
+    @classmethod
+    @overload
+    def onUpdate(
+        cls,
+        handler: Callable[["{{ model_name }}UpdateEventContext"], Any],
+    ) -> Callable[["{{ model_name }}UpdateEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onUpdate(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+    ) -> Callable[
+        [Callable[["{{ model_name }}UpdateEventContext"], Any]],
+        Callable[["{{ model_name }}UpdateEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onUpdate(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
+        return model_event_decorator(cls, "update", phase_or_handler)
+
+    @classmethod
+    @overload
+    def onDelete(
+        cls,
+        handler: Callable[["{{ model_name }}DeleteEventContext"], Any],
+    ) -> Callable[["{{ model_name }}DeleteEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onDelete(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+    ) -> Callable[
+        [Callable[["{{ model_name }}DeleteEventContext"], Any]],
+        Callable[["{{ model_name }}DeleteEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onDelete(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
+        return model_event_decorator(cls, "delete", phase_or_handler)
+
+    @classmethod
+    @overload
+    def onDeleteMany(
+        cls,
+        handler: Callable[["{{ model_name }}DeleteManyEventContext"], Any],
+    ) -> Callable[["{{ model_name }}DeleteManyEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onDeleteMany(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+    ) -> Callable[
+        [Callable[["{{ model_name }}DeleteManyEventContext"], Any]],
+        Callable[["{{ model_name }}DeleteManyEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onDeleteMany(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
+        return model_event_decorator(cls, "deleteMany", phase_or_handler)
 
 
 class {{ model_name }}Projection(TypedDict, total=False):
@@ -227,6 +341,116 @@ _MISSING = object()
 {% include "input_types.py.tera" %}
 
 
+class {{ model_name }}CreateEventArgs(TypedDict):
+    data: {{ model_name }}CreateInput
+    return_data: bool
+
+
+class {{ model_name }}CreateManyEventArgs(TypedDict):
+    data: List[{{ model_name }}CreateInput]
+    return_data: bool
+
+
+class {{ model_name }}UpdateEventArgs(TypedDict):
+    where: Optional[{{ model_name }}WhereInput]
+    data: {{ model_name }}UpdateInput
+    return_data: bool
+
+
+class {{ model_name }}DeleteEventArgs(TypedDict):
+    where: {{ model_name }}WhereInput
+    return_data: bool
+
+
+class {{ model_name }}DeleteManyEventArgs(TypedDict):
+    where: Optional[{{ model_name }}WhereInput]
+    return_data: bool
+
+
+class {{ model_name }}CreateEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    data: Dict[str, Any]
+    returnData: bool
+
+
+class {{ model_name }}CreateManyEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    data: List[Dict[str, Any]]
+    returnData: bool
+
+
+class {{ model_name }}UpdateEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    filter: Dict[str, Any]
+    data: Dict[str, Any]
+    returnData: bool
+
+
+class {{ model_name }}DeleteEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    filter: Dict[str, Any]
+    returnData: bool
+
+
+{{ model_name }}DeleteManyEventPayload = {{ model_name }}DeleteEventPayload
+{{ model_name }}CreateEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["create"],
+    {{ model_name }}CreateEventArgs,
+    {{ model_name }}CreateEventPayload,
+    Optional[{{ model_name }}],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}CreateManyEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["createMany"],
+    {{ model_name }}CreateManyEventArgs,
+    {{ model_name }}CreateManyEventPayload,
+    Optional[List[{{ model_name }}]],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}UpdateEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["update"],
+    {{ model_name }}UpdateEventArgs,
+    {{ model_name }}UpdateEventPayload,
+    Optional[Union[List[{{ model_name }}], int]],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}DeleteEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["delete"],
+    {{ model_name }}DeleteEventArgs,
+    {{ model_name }}DeleteEventPayload,
+    Optional[{{ model_name }}],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}DeleteManyEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["deleteMany"],
+    {{ model_name }}DeleteManyEventArgs,
+    {{ model_name }}DeleteManyEventPayload,
+    Optional[Union[List[{{ model_name }}], int]],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}EventContext = Union[
+    {{ model_name }}CreateEventContext,
+    {{ model_name }}CreateManyEventContext,
+    {{ model_name }}UpdateEventContext,
+    {{ model_name }}DeleteEventContext,
+    {{ model_name }}DeleteManyEventContext,
+]
+
+
 def _serialize_wire_value(value: Any) -> Any:
     """Convert generated client values into JSON-RPC-safe payloads."""
     if isinstance(value, Enum):
@@ -285,6 +509,31 @@ def _first_data_row(result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not isinstance(row, dict):
         return None
     return row
+
+
+def _{{ snake_name }}_event_context(
+    client: Any,
+    operation: str,
+    phase: EventPhase,
+    args: Dict[str, Any],
+    payload: Dict[str, Any],
+    state: Dict[str, Any],
+    *,
+    result: Any = None,
+    error: Optional[BaseException] = None,
+) -> CrudEventContext:
+    return CrudEventContext(
+        db=client,
+        model={{ model_name }},
+        model_name="{{ model_name }}",
+        operation=operation,
+        phase=phase,
+        args=args,
+        payload=payload,
+        result=result,
+        error=error,
+        state=state,
+    )
 
 
 def _process_create_data(data: Dict[str, Any], py_to_db: Dict[str, str]) -> Dict[str, Any]:
@@ -919,18 +1168,56 @@ class {{ delegate_name }}:
             The newly created ``{{ model_name }}`` instance, or ``None`` when
             ``return_data=False``.
         """
-        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.create", {
+        _args: Dict[str, Any] = {"data": data, "return_data": return_data}
+        _payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",
             "data": _process_create_data(data, _{{ table_name }}_py_to_db),
             "returnData": return_data,
-        })
-        if not return_data:
-            return None
-        data_rows = result.get("data", [])
-        if not data_rows:
-            raise RuntimeError("Create operation returned no data")
-        return _{{ table_name }}_from_row(data_rows[0])
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _{{ snake_name }}_event_context(
+                self._client, "create", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = {% if is_async %}await run_crud_event(_before_ctx){% else %}run_crud_event_sync(_before_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("create", return_data))
+
+            result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.create", _payload)
+            if not return_data:
+                _decoded = None
+            else:
+                data_rows = result.get("data", [])
+                if not data_rows:
+                    raise RuntimeError("Create operation returned no data")
+                _decoded = _{{ table_name }}_from_row(data_rows[0])
+
+            _after_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "create",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = {% if is_async %}await run_crud_event(_after_ctx){% else %}run_crud_event_sync(_after_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("create", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "create",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
+            raise
 
     {% if is_async %}async {% endif %}def create_many(
         self,
@@ -949,15 +1236,52 @@ class {{ delegate_name }}:
             The list of newly created ``{{ model_name }}`` instances, or an empty
             list when ``return_data=False``.
         """
-        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.createMany", {
+        _args: Dict[str, Any] = {"data": data, "return_data": return_data}
+        _payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",
             "data": [_process_create_data(_entry, _{{ table_name }}_py_to_db) for _entry in data],
             "returnData": return_data,
-        })
-        if not return_data:
-            return []
-        return [_{{ table_name }}_from_row(row) for row in result.get("data", [])]
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _{{ snake_name }}_event_context(
+                self._client, "createMany", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = {% if is_async %}await run_crud_event(_before_ctx){% else %}run_crud_event_sync(_before_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("createMany", return_data))
+
+            result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.createMany", _payload)
+            _decoded = [] if not return_data else [
+                _{{ table_name }}_from_row(row) for row in result.get("data", [])
+            ]
+
+            _after_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "createMany",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = {% if is_async %}await run_crud_event(_after_ctx){% else %}run_crud_event_sync(_after_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("createMany", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "createMany",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
+            raise
 
     {% if is_async %}async {% endif %}def update(
         self,
@@ -979,16 +1303,58 @@ class {{ delegate_name }}:
             ``List[{{ model_name }}]`` when ``return_data=True``, or ``int``
             (affected-row count) when ``return_data=False``.
         """
-        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.update", {
+        _args: Dict[str, Any] = {
+            "where": where,
+            "data": data,
+            "return_data": return_data,
+        }
+        _payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",
             "filter": _process_where_filters(where or {}, _{{ table_name }}_py_to_db),
             "data": _process_create_data(data, _{{ table_name }}_py_to_db),
             "returnData": return_data,
-        })
-        if not return_data:
-            return result.get("count", 0)
-        return [_{{ table_name }}_from_row(row) for row in result.get("data", [])]
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _{{ snake_name }}_event_context(
+                self._client, "update", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = {% if is_async %}await run_crud_event(_before_ctx){% else %}run_crud_event_sync(_before_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("update", return_data))
+
+            result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.update", _payload)
+            if not return_data:
+                _decoded = result.get("count", 0)
+            else:
+                _decoded = [_{{ table_name }}_from_row(row) for row in result.get("data", [])]
+
+            _after_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "update",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = {% if is_async %}await run_crud_event(_after_ctx){% else %}run_crud_event_sync(_after_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("update", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "update",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
+            raise
 
     {% if is_async %}async {% endif %}def delete(
         self,
@@ -1024,18 +1390,57 @@ class {{ delegate_name }}:
             "{{ pk }}": getattr(record, "{{ pk }}"),
 {%- endfor %}
         }
-        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.delete", {
+        _args: Dict[str, Any] = {"where": where, "return_data": return_data}
+        _payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",
             "filter": _process_where_filters(pk_filter, _{{ table_name }}_py_to_db),
             "returnData": return_data,
-        })
-        if return_data:
-            data_rows = result.get("data", [])
-            if data_rows:
-                return _{{ table_name }}_from_row(data_rows[0])
-            return record
-        return None
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _{{ snake_name }}_event_context(
+                self._client, "delete", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = {% if is_async %}await run_crud_event(_before_ctx){% else %}run_crud_event_sync(_before_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("delete", return_data))
+
+            result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.delete", _payload)
+            if return_data:
+                data_rows = result.get("data", [])
+                if data_rows:
+                    _decoded = _{{ table_name }}_from_row(data_rows[0])
+                else:
+                    _decoded = record
+            else:
+                _decoded = None
+
+            _after_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "delete",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = {% if is_async %}await run_crud_event(_after_ctx){% else %}run_crud_event_sync(_after_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("delete", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "delete",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
+            raise
 
     {% if is_async %}async {% endif %}def delete_many(
         self,
@@ -1054,15 +1459,53 @@ class {{ delegate_name }}:
             ``int`` (affected-row count) when ``return_data=False`` (default),
             or ``List[{{ model_name }}]`` when ``return_data=True``.
         """
-        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.delete", {
+        _args: Dict[str, Any] = {"where": where, "return_data": return_data}
+        _payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",
             "filter": _process_where_filters(where or {}, _{{ table_name }}_py_to_db),
             "returnData": return_data,
-        })
-        if return_data:
-            return [_{{ table_name }}_from_row(row) for row in result.get("data", [])]
-        return result.get("count", 0)
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _{{ snake_name }}_event_context(
+                self._client, "deleteMany", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = {% if is_async %}await run_crud_event(_before_ctx){% else %}run_crud_event_sync(_before_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("deleteMany", return_data))
+
+            result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.delete", _payload)
+            if return_data:
+                _decoded = [_{{ table_name }}_from_row(row) for row in result.get("data", [])]
+            else:
+                _decoded = result.get("count", 0)
+
+            _after_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "deleteMany",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = {% if is_async %}await run_crud_event(_after_ctx){% else %}run_crud_event_sync(_after_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("deleteMany", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "deleteMany",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
+            raise
 
     {% if is_async %}async {% endif %}def count(
         self,
@@ -1294,6 +1737,22 @@ __all__ = [
     "{{ model_name }}CreateInput",
     "{{ model_name }}UpdateInput",
     "{{ model_name }}UpsertInput",
+    "{{ model_name }}CreateEventArgs",
+    "{{ model_name }}CreateManyEventArgs",
+    "{{ model_name }}UpdateEventArgs",
+    "{{ model_name }}DeleteEventArgs",
+    "{{ model_name }}DeleteManyEventArgs",
+    "{{ model_name }}CreateEventPayload",
+    "{{ model_name }}CreateManyEventPayload",
+    "{{ model_name }}UpdateEventPayload",
+    "{{ model_name }}DeleteEventPayload",
+    "{{ model_name }}DeleteManyEventPayload",
+    "{{ model_name }}CreateEventContext",
+    "{{ model_name }}CreateManyEventContext",
+    "{{ model_name }}UpdateEventContext",
+    "{{ model_name }}DeleteEventContext",
+    "{{ model_name }}DeleteManyEventContext",
+    "{{ model_name }}EventContext",
     "{{ model_name }}OrderByInput",
     "{{ model_name }}SelectInput",
     "{{ model_name }}ScalarFieldKeys",

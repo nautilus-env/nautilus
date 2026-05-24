@@ -497,6 +497,167 @@ fn generated_js_stream_many_early_break_cleans_up() {
     assert_eq!(values.get("streams").map(String::as_str), Some("0"));
 }
 
+#[test]
+fn generated_python_cud_events_can_stop_propagation() {
+    if !command_exists("python3") {
+        eprintln!("skipping python CUD events e2e test: python3 not available");
+        return;
+    }
+
+    let fixture = create_fixture("python-cud-events-e2e");
+    let package_root = fixture.root.join("pyclient");
+    let schema_path = fixture.schema_path.to_string_lossy().replace('\\', "/");
+    generate_python_client_fixture(&package_root, &schema_path);
+    fs::write(fixture.root.join("pydantic.py"), PYDANTIC_STUB)
+        .expect("failed to write local pydantic stub");
+
+    let runner = fixture.root.join("run_python_cud_events.py");
+    fs::write(
+        &runner,
+        r#"
+import asyncio
+
+from pyclient import EventPhase, Nautilus, StopPropagation
+from pyclient.models import User, UserCreateEventContext, UserUpdateEventContext
+
+events = []
+
+
+@User.onCreate
+async def before_create(ctx: UserCreateEventContext):
+    events.append(f"before:{ctx.operation}:{ctx.model_name}:{ctx.args['data']['name']}")
+    ctx.state["marker"] = "shared"
+
+
+@User.onCreate(EventPhase.AFTER)
+async def after_create(ctx: UserCreateEventContext):
+    events.append(f"after:{ctx.state['marker']}:{ctx.result.name}")
+
+
+@User.onUpdate
+async def stop_update(ctx: UserUpdateEventContext):
+    events.append(f"stop:{ctx.payload['returnData']}")
+    raise StopPropagation(result=77)
+
+
+async def main():
+    db = Nautilus()
+    await db.connect()
+    try:
+        created = await db.user.create({"name": "Created"})
+        stopped = await db.user.update(
+            where={"id": created.id},
+            data={"name": "Blocked"},
+            return_data=False,
+        )
+        reloaded = await db.user.find_unique(where={"id": created.id})
+
+        print(f"created={created.name}")
+        print(f"stopped={stopped}")
+        print(f"reloaded={reloaded.name}")
+        print("events=" + "|".join(events))
+    finally:
+        await db.disconnect()
+
+
+asyncio.run(main())
+"#,
+    )
+    .expect("failed to write Python CUD events runner");
+
+    let stdout = run_checked(
+        Command::new("python3")
+            .arg(&runner)
+            .env("PYTHONPATH", &fixture.root)
+            .env("PATH", &fixture.path_env),
+        "python CUD events e2e",
+    );
+    let values = parse_key_values(&stdout);
+
+    assert_eq!(values.get("created").map(String::as_str), Some("Created"));
+    assert_eq!(values.get("stopped").map(String::as_str), Some("77"));
+    assert_eq!(values.get("reloaded").map(String::as_str), Some("Created"));
+    assert_eq!(
+        values.get("events").map(String::as_str),
+        Some("before:create:User:Created|after:shared:Created|stop:False")
+    );
+}
+
+#[test]
+fn generated_js_cud_events_can_stop_propagation() {
+    if !command_exists("node") {
+        eprintln!("skipping js CUD events e2e test: node not available");
+        return;
+    }
+
+    let fixture = create_fixture("js-cud-events-e2e");
+    let package_root = fixture.root.join("jsclient");
+    let schema_path = fixture.schema_path.to_string_lossy().replace('\\', "/");
+    generate_js_client_fixture(&package_root, &schema_path);
+    fs::write(fixture.root.join("package.json"), JS_PACKAGE_JSON)
+        .expect("failed to write package.json for JS fixture");
+
+    let runner = fixture.root.join("run_js_cud_events.mjs");
+    fs::write(
+        &runner,
+        r#"
+import { EventPhase, Nautilus, StopPropagation, User } from './jsclient/index.js';
+
+const events = [];
+
+User.onCreate((ctx) => {
+  events.push(`before:${ctx.operation}:${ctx.modelName}:${ctx.model_name}:${ctx.args.data.name}`);
+  ctx.state.marker = 'shared';
+});
+
+User.onCreate(EventPhase.After)((ctx) => {
+  events.push(`after:${ctx.state.marker}:${ctx.result.name}`);
+});
+
+User.onUpdate((ctx) => {
+  events.push(`stop:${ctx.payload.returnData}`);
+  throw new StopPropagation({ result: 77 });
+});
+
+const db = new Nautilus();
+await db.connect();
+try {
+  const created = await db.user.create({ data: { name: 'Created' } });
+  const stopped = await db.user.update({
+    where: { id: created.id },
+    data: { name: 'Blocked' },
+    returnData: false,
+  });
+  const reloaded = await db.user.findUnique({ where: { id: created.id } });
+
+  console.log(`created=${created.name}`);
+  console.log(`stopped=${stopped}`);
+  console.log(`reloaded=${reloaded.name}`);
+  console.log(`events=${events.join('|')}`);
+} finally {
+  await db.disconnect();
+}
+"#,
+    )
+    .expect("failed to write JS CUD events runner");
+
+    let stdout = run_checked(
+        Command::new("node")
+            .arg(&runner)
+            .env("PATH", &fixture.path_env),
+        "js CUD events e2e",
+    );
+    let values = parse_key_values(&stdout);
+
+    assert_eq!(values.get("created").map(String::as_str), Some("Created"));
+    assert_eq!(values.get("stopped").map(String::as_str), Some("77"));
+    assert_eq!(values.get("reloaded").map(String::as_str), Some("Created"));
+    assert_eq!(
+        values.get("events").map(String::as_str),
+        Some("before:create:User:User:Created|after:shared:Created|stop:false")
+    );
+}
+
 /// Java uses generated sources plus Jackson jars on the compile/runtime classpath.
 /// The test is skipped when that classpath is not available locally so the
 /// regular Rust suite stays offline-friendly.

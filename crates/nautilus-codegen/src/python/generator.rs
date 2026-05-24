@@ -63,6 +63,10 @@ pub static PYTHON_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::ne
             "transaction_init.py.tera",
             include_str!("../../templates/python/transaction_init.py.tera"),
         ),
+        (
+            "events.py.tera",
+            include_str!("../../templates/python/events.py.tera"),
+        ),
     ])
     .expect("embedded Python templates must parse");
     tera
@@ -975,6 +979,11 @@ pub fn generate_transaction_init() -> &'static str {
     include_str!("../../templates/python/transaction_init.py.tera")
 }
 
+/// Generate events.py at the package root.
+pub fn generate_events_init() -> &'static str {
+    include_str!("../../templates/python/events.py.tera")
+}
+
 /// Returns static runtime Python files to be written alongside generated code.
 /// These files implement the base client, engine process manager, protocol, and errors.
 pub fn python_runtime_files() -> Vec<(String, String)> {
@@ -1004,6 +1013,10 @@ pub fn python_runtime_files() -> Vec<(String, String)> {
         (
             "_transaction.py".to_string(),
             include_str!("../../templates/python/runtime/_transaction.py").to_string(),
+        ),
+        (
+            "_events.py".to_string(),
+            include_str!("../../templates/python/runtime/_events.py").to_string(),
         ),
     ]
 }

@@ -9,8 +9,8 @@ use tera::Context as TeraContext;
 
 use crate::generator::TEMPLATES;
 use crate::python::generator::{
-    generate_enums_init, generate_errors_init, generate_internal_init, generate_models_init,
-    generate_package_init, generate_transaction_init,
+    generate_enums_init, generate_errors_init, generate_events_init, generate_internal_init,
+    generate_models_init, generate_package_init, generate_transaction_init,
 };
 
 /// Write generated code to files in the output directory.
@@ -361,6 +361,11 @@ pub fn write_python_code(
             transaction_path.display()
         )
     })?;
+
+    let events_content = generate_events_init();
+    let events_path = output_dir.join("events.py");
+    fs::write(&events_path, events_content)
+        .with_context(|| format!("Failed to write events.py: {}", events_path.display()))?;
 
     let init_content = generate_package_init(has_enums);
     let init_path = output_dir.join("__init__.py");

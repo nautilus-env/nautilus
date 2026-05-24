@@ -858,6 +858,85 @@ model User {
 }
 
 #[test]
+fn test_generated_python_and_js_cud_event_api() {
+    let ir = validate(
+        r#"
+model User {
+  id   Int    @id @default(autoincrement())
+  name String
+}
+"#,
+    );
+
+    let py_models = generate_all_python_models(&ir, true, 0);
+    let py_user = generated_python_file(&py_models, "user.py");
+    let py_runtime = python_runtime_files();
+    let py_events_runtime = generated_named_file(&py_runtime, "_events.py");
+
+    assert!(
+        py_user.contains("__nautilus_model_name__")
+            && py_user.contains("def onDelete")
+            && py_user.contains("UserCreateEventContext = CrudEventContext")
+            && py_user.contains("Callable[[\"UserCreateEventContext\"], Any]")
+            && py_user.contains("model_event_decorator(cls, \"delete\"")
+            && py_user.contains("run_crud_event(_before_ctx)")
+            && py_user.contains(
+                "resolve_stop_result(_stop, default_cud_result(\"deleteMany\", return_data))"
+            ),
+        "expected generated Python model to expose and run CUD events:\n{py_user}"
+    );
+    assert!(
+        py_events_runtime.contains("class StopPropagation")
+            && py_events_runtime.contains("class EventPhase")
+            && py_events_runtime.contains("class CrudEventContext(")
+            && py_events_runtime.contains("Generic[ModelT, OperationT")
+            && py_events_runtime.contains("CrudEventHandler")
+            && py_events_runtime.contains("handle_stop_propagation: bool = True"),
+        "expected Python event runtime to expose phases, context, and StopPropagation:\n{py_events_runtime}"
+    );
+
+    let (js_models, js_dts_models) = generate_all_js_models(&ir);
+    let js_user = generated_named_file(&js_models, "user.js");
+    let js_user_dts = generated_named_file(&js_dts_models, "user.d.ts");
+    let (js_client, js_client_dts) = generate_js_client(&ir.models, "schema.nautilus");
+    let js_runtime = js_runtime_files();
+    let js_events_runtime = generated_named_file(&js_runtime, "_events.js");
+    let js_events_dts = generated_named_file(&js_runtime, "_events.d.ts");
+
+    assert!(
+        js_user.contains("export const User = createModelEvents('User')")
+            && js_user.contains("runCrudEvent(_UserEventContext")
+            && js_user
+                .contains("resolveStopResult(stop, defaultCrudResult('deleteMany', returnData))"),
+        "expected generated JS model to expose and run CUD events:\n{js_user}"
+    );
+    assert!(
+        js_user_dts.contains("export declare const User: ModelEventToken")
+            && js_user_dts.contains("UserCreateEventContext = CrudEventContext")
+            && js_user_dts.contains("UserEventContexts extends ModelEventContexts")
+            && js_user_dts.contains("data: UserCreateInput"),
+        "expected generated JS declarations to type the model event token:\n{js_user_dts}"
+    );
+    assert!(
+        js_client.contains("export { EventPhase, StopPropagation }")
+            && js_client.contains("export * from './models/index.js'")
+            && js_client_dts.contains("CrudEventContext")
+            && js_client_dts.contains("EventPhaseValue")
+            && js_client_dts.contains("ModelEventToken"),
+        "expected JS root client to re-export events and model tokens:\n{js_client}\n\n{js_client_dts}"
+    );
+    assert!(
+        js_events_runtime.contains("class StopPropagation")
+            && js_events_runtime.contains("createModelEvents")
+            && js_events_runtime.contains("runCrudEvent")
+            && js_events_runtime.contains("model_name")
+            && js_events_dts.contains("result?: TResult")
+            && js_events_dts.contains("interface ModelEventToken"),
+        "expected JS event runtime to expose phases, context, and StopPropagation:\n{js_events_runtime}\n\n{js_events_dts}"
+    );
+}
+
+#[test]
 fn test_python_create_many_normalizes_mapped_fields() {
     let ir = validate(
         r#"

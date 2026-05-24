@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 {%- for module_name in model_modules %}
+from . import {{ module_name }} as _{{ module_name }}
 from .{{ module_name }} import *
 {%- endfor %}
 
@@ -13,8 +14,17 @@ from .{{ module_name }} import *
 {{ class_name }}.model_rebuild()
 {%- endfor %}
 
-__all__ = [
-{%- for class_name in model_classes %}
-    "{{ class_name }}",
+__all__ = []
+for _module in (
+{%- for module_name in model_modules %}
+    _{{ module_name }},
 {%- endfor %}
-]
+):
+    __all__.extend(getattr(_module, "__all__", ()))
+
+{%- if model_modules | length > 0 %}
+del _module
+{%- for module_name in model_modules %}
+del _{{ module_name }}
+{%- endfor %}
+{%- endif %}

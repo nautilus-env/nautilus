@@ -2,6 +2,14 @@
 
 import { NautilusClient } from '../_internal/_client.js';
 import { NotFoundError } from '../_internal/_errors.js';
+import {
+  EventPhase,
+  createCrudEventContext,
+  createModelEvents,
+  defaultCrudResult,
+  resolveStopResult,
+  runCrudEvent,
+} from '../_internal/_events.js';
 import { PROTOCOL_VERSION } from '../_internal/_protocol.js';
 {%- if has_enums %}
 import { {% for e in enum_imports %}{{ e }}{% if not loop.last %}, {% endif %}{% endfor %} } from '../enums.js';
@@ -18,6 +26,23 @@ import { _coerce{{ field.target_model }} as _coerce{{ field.target_model }}_for_
 {%- endif %}
 {%- endfor %}
 {%- endif %}
+
+export const {{ model_name }} = createModelEvents('{{ model_name }}');
+
+function _{{ model_name }}EventContext(client, operation, phase, args, payload, state, result, error) {
+  return createCrudEventContext({
+    db: client,
+    model: {{ model_name }},
+    modelName: '{{ model_name }}',
+    operation,
+    phase,
+    args,
+    payload,
+    state,
+    result,
+    error,
+  });
+}
 
 /** Maps `table__dbColumn` keys returned by the engine to JS field names. */
 const _{{ table_name }}RowMap = {
@@ -428,39 +453,118 @@ export class {{ delegate_name }} {
   }
 
   async create(args) {
-    const result = await this.client._rpc('query.create', {
+    const returnData = args.returnData ?? true;
+    const eventArgs = { data: args.data, returnData };
+    const payload = {
       protocolVersion: PROTOCOL_VERSION,
       model:      '{{ model_name }}',
       data:       _processCreateData(args.data, _{{ table_name }}FieldToDb),
-      returnData: args.returnData ?? true,
-    });
-    if (!(args.returnData ?? true)) return null;
-    const rows = result['data'];
-    if (!rows?.length) throw new Error('create: engine returned no data');
-    return _coerce{{ model_name }}(rows[0]);
+      returnData,
+    };
+    const state = {};
+    try {
+      let stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'create', EventPhase.Before, eventArgs, payload, state,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('create', returnData));
+
+      const result = await this.client._rpc('query.create', payload);
+      let decoded = null;
+      if (returnData) {
+        const rows = result['data'];
+        if (!rows?.length) throw new Error('create: engine returned no data');
+        decoded = _coerce{{ model_name }}(rows[0]);
+      }
+
+      stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'create', EventPhase.After, eventArgs, payload, state, decoded,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('create', returnData));
+      return decoded;
+    } catch (error) {
+      await runCrudEvent(
+        _{{ model_name }}EventContext(
+          this.client, 'create', EventPhase.Error, eventArgs, payload, state, undefined, error,
+        ),
+        { handleStopPropagation: false },
+      );
+      throw error;
+    }
   }
 
   async createMany(args) {
-    const result = await this.client._rpc('query.createMany', {
+    const returnData = args.returnData ?? true;
+    const eventArgs = { data: args.data, returnData };
+    const payload = {
       protocolVersion: PROTOCOL_VERSION,
       model:      '{{ model_name }}',
       data:       args.data.map(d => _processCreateData(d, _{{ table_name }}FieldToDb)),
-      returnData: args.returnData ?? true,
-    });
-    if (!(args.returnData ?? true)) return [];
-    return ((result['data']) ?? []).map(r => _coerce{{ model_name }}(r));
+      returnData,
+    };
+    const state = {};
+    try {
+      let stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'createMany', EventPhase.Before, eventArgs, payload, state,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('createMany', returnData));
+
+      const result = await this.client._rpc('query.createMany', payload);
+      const decoded = returnData
+        ? ((result['data']) ?? []).map(r => _coerce{{ model_name }}(r))
+        : [];
+
+      stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'createMany', EventPhase.After, eventArgs, payload, state, decoded,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('createMany', returnData));
+      return decoded;
+    } catch (error) {
+      await runCrudEvent(
+        _{{ model_name }}EventContext(
+          this.client, 'createMany', EventPhase.Error, eventArgs, payload, state, undefined, error,
+        ),
+        { handleStopPropagation: false },
+      );
+      throw error;
+    }
   }
 
   async update(args) {
-    const result = await this.client._rpc('query.update', {
+    const returnData = args.returnData ?? true;
+    const eventArgs = { where: args.where, data: args.data, returnData };
+    const payload = {
       protocolVersion: PROTOCOL_VERSION,
       model:      '{{ model_name }}',
       filter:     _processWhereFilters((args.where ?? {}), _{{ table_name }}FieldToDb),
       data:       _processCreateData(args.data, _{{ table_name }}FieldToDb),
-      returnData: args.returnData ?? true,
-    });
-    if (!(args.returnData ?? true)) return result['count'] ?? 0;
-    return ((result['data']) ?? []).map(r => _coerce{{ model_name }}(r));
+      returnData,
+    };
+    const state = {};
+    try {
+      let stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'update', EventPhase.Before, eventArgs, payload, state,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('update', returnData));
+
+      const result = await this.client._rpc('query.update', payload);
+      const decoded = returnData
+        ? ((result['data']) ?? []).map(r => _coerce{{ model_name }}(r))
+        : (result['count'] ?? 0);
+
+      stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'update', EventPhase.After, eventArgs, payload, state, decoded,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('update', returnData));
+      return decoded;
+    } catch (error) {
+      await runCrudEvent(
+        _{{ model_name }}EventContext(
+          this.client, 'update', EventPhase.Error, eventArgs, payload, state, undefined, error,
+        ),
+        { handleStopPropagation: false },
+      );
+      throw error;
+    }
   }
 
   async delete(args) {
@@ -471,27 +575,79 @@ export class {{ delegate_name }} {
       '{{ pk }}': record['{{ pk }}'],
 {%- endfor %}
     };
-    const result = await this.client._rpc('query.delete', {
+    const returnData = args.returnData ?? true;
+    const eventArgs = { where: args.where, returnData };
+    const payload = {
       protocolVersion: PROTOCOL_VERSION,
       model:      '{{ model_name }}',
       filter:     _processWhereFilters(pkFilter, _{{ table_name }}FieldToDb),
-      returnData: args.returnData ?? true,
-    });
-    if (!(args.returnData ?? true)) return null;
-    const rows = result['data'];
-    return rows?.length ? _coerce{{ model_name }}(rows[0]) : record;
+      returnData,
+    };
+    const state = {};
+    try {
+      let stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'delete', EventPhase.Before, eventArgs, payload, state,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('delete', returnData));
+
+      const result = await this.client._rpc('query.delete', payload);
+      let decoded = null;
+      if (returnData) {
+        const rows = result['data'];
+        decoded = rows?.length ? _coerce{{ model_name }}(rows[0]) : record;
+      }
+
+      stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'delete', EventPhase.After, eventArgs, payload, state, decoded,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('delete', returnData));
+      return decoded;
+    } catch (error) {
+      await runCrudEvent(
+        _{{ model_name }}EventContext(
+          this.client, 'delete', EventPhase.Error, eventArgs, payload, state, undefined, error,
+        ),
+        { handleStopPropagation: false },
+      );
+      throw error;
+    }
   }
 
   async deleteMany(args) {
     const returnData = args?.returnData ?? false;
-    const result = await this.client._rpc('query.delete', {
+    const eventArgs = { where: args?.where, returnData };
+    const payload = {
       protocolVersion: PROTOCOL_VERSION,
       model:      '{{ model_name }}',
       filter:     _processWhereFilters((args?.where ?? {}), _{{ table_name }}FieldToDb),
       returnData,
-    });
-    if (returnData) return ((result['data']) ?? []).map(r => _coerce{{ model_name }}(r));
-    return result['count'] ?? 0;
+    };
+    const state = {};
+    try {
+      let stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'deleteMany', EventPhase.Before, eventArgs, payload, state,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('deleteMany', returnData));
+
+      const result = await this.client._rpc('query.delete', payload);
+      const decoded = returnData
+        ? ((result['data']) ?? []).map(r => _coerce{{ model_name }}(r))
+        : (result['count'] ?? 0);
+
+      stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'deleteMany', EventPhase.After, eventArgs, payload, state, decoded,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('deleteMany', returnData));
+      return decoded;
+    } catch (error) {
+      await runCrudEvent(
+        _{{ model_name }}EventContext(
+          this.client, 'deleteMany', EventPhase.Error, eventArgs, payload, state, undefined, error,
+        ),
+        { handleStopPropagation: false },
+      );
+      throw error;
+    }
   }
 
   async count(args) {

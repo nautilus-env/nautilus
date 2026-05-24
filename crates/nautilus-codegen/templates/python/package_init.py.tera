@@ -7,7 +7,9 @@ Do not edit manually.
 from __future__ import annotations
 
 from .client import Nautilus
+from .events import CrudEventContext, CrudEventHandler, EventPhase, StopPropagation
 from ._internal.transaction import IsolationLevel, TransactionClient
+from . import events
 from . import transaction
 from . import models
 
@@ -20,8 +22,13 @@ from . import errors
 
 __all__ = [
     "Nautilus",
+    "CrudEventContext",
+    "CrudEventHandler",
+    "EventPhase",
+    "StopPropagation",
     "IsolationLevel",
     "TransactionClient",
+    "events",
     "transaction",
     "models",
 {%- if has_enums %}
