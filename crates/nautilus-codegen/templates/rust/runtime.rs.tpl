@@ -87,6 +87,7 @@ pub struct Client<E: Executor> {
     engine_mode: EngineMode,
     transaction_id: Option<String>,
     embedded_transaction: Option<Arc<EmbeddedTransactionContext>>,
+    events: crate::EventRegistry,
 }
 
 impl<E> Clone for Client<E>
@@ -102,6 +103,7 @@ where
             engine_mode: self.engine_mode,
             transaction_id: self.transaction_id.clone(),
             embedded_transaction: self.embedded_transaction.clone(),
+            events: self.events.clone(),
         }
     }
 }
@@ -122,6 +124,7 @@ where
             engine_mode: EngineMode::Never,
             transaction_id: None,
             embedded_transaction: None,
+            events: crate::EventRegistry::default(),
         }
     }
 
@@ -133,6 +136,7 @@ where
         engine_mode: EngineMode,
         transaction_id: Option<String>,
         embedded_transaction: Option<Arc<EmbeddedTransactionContext>>,
+        events: crate::EventRegistry,
     ) -> Self {
         Self {
             inner,
@@ -142,6 +146,7 @@ where
             engine_mode,
             transaction_id,
             embedded_transaction,
+            events,
         }
     }
 
@@ -151,6 +156,10 @@ where
 
     pub fn executor(&self) -> &E {
         self.inner.executor()
+    }
+
+    pub fn events(&self) -> &crate::EventRegistry {
+        &self.events
     }
 
     /// Return the current embedded-engine routing policy.
@@ -206,7 +215,7 @@ where
         Ok(Some(Arc::clone(state)))
     }
 
-    fn transaction_id(&self) -> Option<String> {
+    pub(crate) fn transaction_id(&self) -> Option<String> {
         self.transaction_id.clone()
     }
 
@@ -253,6 +262,7 @@ impl Client<PgExecutor> {
             EngineMode::Auto,
             None,
             None,
+            crate::EventRegistry::default(),
         ))
     }
 
@@ -270,6 +280,7 @@ impl Client<PgExecutor> {
         let engine_state = Arc::clone(&self.engine_state);
         let pool_options = self.pool_options;
         let engine_mode = self.engine_mode;
+        let events = self.events.clone();
         let tx_id = engine_mode
             .allows_engine()
             .then(|| uuid::Uuid::new_v4().to_string());
@@ -281,6 +292,7 @@ impl Client<PgExecutor> {
             .transaction(opts, move |tx| {
                 let database_url = Arc::clone(&database_url);
                 let engine_state = Arc::clone(&engine_state);
+                let events = events.clone();
                 let tx_id = tx_id.clone();
                 let embedded_transaction = tx_id.as_ref().map(|_| {
                     Arc::new(EmbeddedTransactionContext::new(tx.clone(), timeout))
@@ -294,6 +306,7 @@ impl Client<PgExecutor> {
                         engine_mode,
                         tx_id,
                         embedded_transaction,
+                        events,
                     );
                     f(wrapped).await
                 }
@@ -328,6 +341,7 @@ impl Client<MysqlExecutor> {
             EngineMode::Auto,
             None,
             None,
+            crate::EventRegistry::default(),
         ))
     }
 
@@ -345,6 +359,7 @@ impl Client<MysqlExecutor> {
         let engine_state = Arc::clone(&self.engine_state);
         let pool_options = self.pool_options;
         let engine_mode = self.engine_mode;
+        let events = self.events.clone();
         let tx_id = engine_mode
             .allows_engine()
             .then(|| uuid::Uuid::new_v4().to_string());
@@ -356,6 +371,7 @@ impl Client<MysqlExecutor> {
             .transaction(opts, move |tx| {
                 let database_url = Arc::clone(&database_url);
                 let engine_state = Arc::clone(&engine_state);
+                let events = events.clone();
                 let tx_id = tx_id.clone();
                 let embedded_transaction = tx_id.as_ref().map(|_| {
                     Arc::new(EmbeddedTransactionContext::new(tx.clone(), timeout))
@@ -369,6 +385,7 @@ impl Client<MysqlExecutor> {
                         engine_mode,
                         tx_id,
                         embedded_transaction,
+                        events,
                     );
                     f(wrapped).await
                 }
@@ -403,6 +420,7 @@ impl Client<SqliteExecutor> {
             EngineMode::Auto,
             None,
             None,
+            crate::EventRegistry::default(),
         ))
     }
 
@@ -420,6 +438,7 @@ impl Client<SqliteExecutor> {
         let engine_state = Arc::clone(&self.engine_state);
         let pool_options = self.pool_options;
         let engine_mode = self.engine_mode;
+        let events = self.events.clone();
         let tx_id = engine_mode
             .allows_engine()
             .then(|| uuid::Uuid::new_v4().to_string());
@@ -431,6 +450,7 @@ impl Client<SqliteExecutor> {
             .transaction(opts, move |tx| {
                 let database_url = Arc::clone(&database_url);
                 let engine_state = Arc::clone(&engine_state);
+                let events = events.clone();
                 let tx_id = tx_id.clone();
                 let embedded_transaction = tx_id.as_ref().map(|_| {
                     Arc::new(EmbeddedTransactionContext::new(tx.clone(), timeout))
@@ -444,6 +464,7 @@ impl Client<SqliteExecutor> {
                         engine_mode,
                         tx_id,
                         embedded_transaction,
+                        events,
                     );
                     f(wrapped).await
                 }

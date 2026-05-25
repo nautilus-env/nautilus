@@ -100,6 +100,17 @@ pub struct {{ model_name }}UpsertArgs {
     pub return_data: bool,
 }
 
+pub type {{ model_name }}CreateEventContext =
+    crate::CrudEventContext<{{ model_name }}CreateInput, {{ model_name }}>;
+pub type {{ model_name }}CreateManyEventContext =
+    crate::CrudEventContext<Vec<{{ entry_name }}>, Vec<{{ model_name }}>>;
+pub type {{ model_name }}UpdateEventContext =
+    crate::CrudEventContext<{{ model_name }}UpdateArgs, Vec<{{ model_name }}>>;
+pub type {{ model_name }}DeleteEventContext =
+    crate::CrudEventContext<{{ model_name }}DeleteArgs, Option<{{ model_name }}>>;
+pub type {{ model_name }}DeleteManyEventContext =
+    crate::CrudEventContext<{{ model_name }}DeleteArgs, Vec<{{ model_name }}>>;
+
 /// Scalar fields on {{ model_name }} that can be referenced in generated aggregate APIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum {{ model_name }}ScalarField {
@@ -1187,31 +1198,101 @@ where
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
 {%- endif %}
-        if let Some(record) =
-            crate::runtime::try_create_via_engine::<_, {{ model_name }}>(
-                {% if is_async %}&self.client{% else %}&_c{% endif %},
-                "{{ model_name }}",
-                data.to_engine_data(),
-                |row| {
-                    decode_model_row_with_hints(
-                        row,
-                        all_scalar_decode_slots(),
-                        all_scalar_value_hints(),
-                    )
-                },
-            )
-            .await?
-        {
-            return Ok(record);
+        let _events = {% if is_async %}self.client.events().clone(){% else %}_c.events().clone(){% endif %};
+        let _transaction_id = {% if is_async %}self.client.transaction_id(){% else %}_c.transaction_id(){% endif %};
+        let _event_args = data.clone();
+        let _event_payload = data.to_engine_data();
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = {{ model_name }}CreateEventContext::new(
+            "{{ model_name }}",
+            crate::CrudOperation::Create,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<{{ model_name }}CreateEventContext, {{ model_name }}>(
+            "{{ model_name }}",
+            crate::CrudOperation::Create,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
         }
+        _event_state = _before_ctx.state;
 
-        let mut builder = {{ create_name }}::new({% if is_async %}self.client.clone(){% else %}_c{% endif %});
+        let _operation_result: nautilus_core::Result<{{ model_name }}> = async {
+            if let Some(record) =
+                crate::runtime::try_create_via_engine::<_, {{ model_name }}>(
+                    {% if is_async %}&self.client{% else %}&_c{% endif %},
+                    "{{ model_name }}",
+                    _event_payload.clone(),
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await?
+            {
+                Ok(record)
+            } else {
+                let mut builder = {{ create_name }}::new({% if is_async %}self.client.clone(){% else %}_c{% endif %});
 {%- for field in create_fields %}
-        if let Some(value) = data.{{ field.name }} {
-            builder = builder.{{ field.name }}(value);
-        }
+                if let Some(value) = data.{{ field.name }} {
+                    builder = builder.{{ field.name }}(value);
+                }
 {%- endfor %}
-        builder.exec().await
+                builder.exec().await
+            }
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = {{ model_name }}CreateEventContext::new(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<{{ model_name }}CreateEventContext, {{ model_name }}>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = {{ model_name }}CreateEventContext::new(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<{{ model_name }}CreateEventContext, {{ model_name }}>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
 {%- if not is_async %}
         }))
 {%- endif %}
@@ -1228,33 +1309,105 @@ where
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
 {%- endif %}
-        if entries.is_empty() {
-            return Ok(vec![]);
+        let _events = {% if is_async %}self.client.events().clone(){% else %}_c.events().clone(){% endif %};
+        let _transaction_id = {% if is_async %}self.client.transaction_id(){% else %}_c.transaction_id(){% endif %};
+        let _event_args = entries.clone();
+        let _event_payload = serde_json::Value::Array(
+            entries.iter().map({{ entry_name }}::to_engine_data).collect(),
+        );
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = {{ model_name }}CreateManyEventContext::new(
+            "{{ model_name }}",
+            crate::CrudOperation::CreateMany,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<{{ model_name }}CreateManyEventContext, Vec<{{ model_name }}>>(
+            "{{ model_name }}",
+            crate::CrudOperation::CreateMany,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
         }
+        _event_state = _before_ctx.state;
 
-        if let Some(rows) =
-            crate::runtime::try_create_many_via_engine::<_, {{ model_name }}>(
-                {% if is_async %}&self.client{% else %}&_c{% endif %},
-                "{{ model_name }}",
-                entries.iter().map({{ entry_name }}::to_engine_data).collect(),
-                |row| {
-                    decode_model_row_with_hints(
-                        row,
-                        all_scalar_decode_slots(),
-                        all_scalar_value_hints(),
-                    )
-                },
-            )
-            .await?
-        {
-            return Ok(rows);
-        }
+        let _operation_result: nautilus_core::Result<Vec<{{ model_name }}>> = async {
+            if entries.is_empty() {
+                return Ok(vec![]);
+            }
 
-        let mut builder = {{ create_many_name }}::new({% if is_async %}self.client.clone(){% else %}_c{% endif %});
-        for entry in entries {
-            builder = builder.entry(entry);
+            if let Some(rows) =
+                crate::runtime::try_create_many_via_engine::<_, {{ model_name }}>(
+                    {% if is_async %}&self.client{% else %}&_c{% endif %},
+                    "{{ model_name }}",
+                    entries.iter().map({{ entry_name }}::to_engine_data).collect(),
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await?
+            {
+                return Ok(rows);
+            }
+
+            let mut builder = {{ create_many_name }}::new({% if is_async %}self.client.clone(){% else %}_c{% endif %});
+            for entry in entries {
+                builder = builder.entry(entry);
+            }
+            builder.exec().await
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = {{ model_name }}CreateManyEventContext::new(
+                    "{{ model_name }}",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<{{ model_name }}CreateManyEventContext, Vec<{{ model_name }}>>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = {{ model_name }}CreateManyEventContext::new(
+                    "{{ model_name }}",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<{{ model_name }}CreateManyEventContext, Vec<{{ model_name }}>>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
         }
-        builder.exec().await
 {%- if not is_async %}
         }))
 {%- endif %}
@@ -1272,42 +1425,123 @@ where
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
 {%- endif %}
-        let engine_data = args.data.to_engine_data();
-        let no_assignments = engine_data
-            .as_object()
-            .is_some_and(|data| data.is_empty());
-        if no_assignments {
-            return Ok(vec![]);
+        let _events = {% if is_async %}self.client.events().clone(){% else %}_c.events().clone(){% endif %};
+        let _transaction_id = {% if is_async %}self.client.transaction_id(){% else %}_c.transaction_id(){% endif %};
+        let _event_args = args.clone();
+        let _engine_data = args.data.to_engine_data();
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            _payload.insert(
+                "filter".to_string(),
+                match serialize_update_filter_for_engine(args.where_.as_ref())? {
+                    Some(value) => value,
+                    None => serde_json::Value::Object(serde_json::Map::new()),
+                },
+            );
+            _payload.insert("data".to_string(), _engine_data.clone());
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = {{ model_name }}UpdateEventContext::new(
+            "{{ model_name }}",
+            crate::CrudOperation::Update,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<{{ model_name }}UpdateEventContext, Vec<{{ model_name }}>>(
+            "{{ model_name }}",
+            crate::CrudOperation::Update,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
         }
+        _event_state = _before_ctx.state;
 
-        if let Some(filter_json) = serialize_update_filter_for_engine(args.where_.as_ref())? {
-            if let Some(rows) =
-                crate::runtime::try_update_via_engine::<_, {{ model_name }}>(
-                    {% if is_async %}&self.client{% else %}&_c{% endif %},
+        let _operation_result: nautilus_core::Result<Vec<{{ model_name }}>> = async {
+            let no_assignments = _engine_data
+                .as_object()
+                .is_some_and(|data| data.is_empty());
+            if no_assignments {
+                return Ok(vec![]);
+            }
+
+            if let Some(filter_json) = serialize_update_filter_for_engine(args.where_.as_ref())? {
+                if let Some(rows) =
+                    crate::runtime::try_update_via_engine::<_, {{ model_name }}>(
+                        {% if is_async %}&self.client{% else %}&_c{% endif %},
+                        "{{ model_name }}",
+                        filter_json,
+                        _engine_data.clone(),
+                        |row| {
+                            decode_model_row_with_hints(
+                                row,
+                                all_scalar_decode_slots(),
+                                all_scalar_value_hints(),
+                            )
+                        },
+                    )
+                    .await?
+                {
+                    return Ok(rows);
+                }
+            }
+
+            let mut builder = {{ update_name }}::new({% if is_async %}self.client.clone(){% else %}_c{% endif %}).set_data(args.data);
+            if let Some(filter) = args.where_ {
+                builder = builder.where_(filter);
+            } else {
+                builder = builder.all();
+            }
+            builder.exec().await
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = {{ model_name }}UpdateEventContext::new(
                     "{{ model_name }}",
-                    filter_json,
-                    engine_data,
-                    |row| {
-                        decode_model_row_with_hints(
-                            row,
-                            all_scalar_decode_slots(),
-                            all_scalar_value_hints(),
-                        )
-                    },
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
                 )
-                .await?
-            {
-                return Ok(rows);
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<{{ model_name }}UpdateEventContext, Vec<{{ model_name }}>>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = {{ model_name }}UpdateEventContext::new(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<{{ model_name }}UpdateEventContext, Vec<{{ model_name }}>>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
             }
         }
-
-        let mut builder = {{ update_name }}::new({% if is_async %}self.client.clone(){% else %}_c{% endif %}).set_data(args.data);
-        if let Some(filter) = args.where_ {
-            builder = builder.where_(filter);
-        } else {
-            builder = builder.all();
-        }
-        builder.exec().await
 {%- if not is_async %}
         }))
 {%- endif %}
@@ -1321,58 +1555,122 @@ where
         &self,
         args: {{ model_name }}DeleteArgs,
     ) -> nautilus_core::Result<Option<{{ model_name }}>> {
-        if let Some(filter) = args.where_.clone() {
-            if self.client.dialect().supports_returning() && is_single_record_filter(&filter) {
 {%- if not is_async %}
-                let _c = self.client.clone();
-                return tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
-                    let deleted = {{ delete_name }}::new(_c).where_(filter).exec().await?;
-                    match deleted.len() {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        let _events = {% if is_async %}self.client.events().clone(){% else %}_c.events().clone(){% endif %};
+        let _transaction_id = {% if is_async %}self.client.transaction_id(){% else %}_c.transaction_id(){% endif %};
+        let _event_args = args.clone();
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            let _filter = match args.where_.as_ref() {
+                Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                    .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+                None => serde_json::Value::Object(serde_json::Map::new()),
+            };
+            _payload.insert("filter".to_string(), _filter);
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = {{ model_name }}DeleteEventContext::new(
+            "{{ model_name }}",
+            crate::CrudOperation::Delete,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<{{ model_name }}DeleteEventContext, Option<{{ model_name }}>>(
+            "{{ model_name }}",
+            crate::CrudOperation::Delete,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Option<{{ model_name }}>> = async {
+            if let Some(filter) = args.where_.clone() {
+                if {% if is_async %}self.client{% else %}_c{% endif %}.dialect().supports_returning() && is_single_record_filter(&filter) {
+                    let deleted = {{ delete_name }}::new({% if is_async %}self.client.clone(){% else %}_c.clone(){% endif %}).where_(filter).exec().await?;
+                    return match deleted.len() {
                         0 => Ok(None),
                         1 => Ok(deleted.into_iter().next()),
                         count => Err(nautilus_core::Error::Other(format!(
                             "expected at most one deleted {{ model_name }} row, got {}",
                             count
                         ))),
-                    }
-                }));
-{%- else %}
-                let deleted = {{ delete_name }}::new(self.client.clone()).where_(filter).exec().await?;
-                return match deleted.len() {
-                    0 => Ok(None),
-                    1 => Ok(deleted.into_iter().next()),
-                    count => Err(nautilus_core::Error::Other(format!(
-                        "expected at most one deleted {{ model_name }} row, got {}",
-                        count
-                    ))),
-                };
-{%- endif %}
+                    };
+                }
+            }
+
+            // Find the first matching record to get its primary key
+            let record = self.find_first(nautilus_core::FindManyArgs {
+                where_: args.where_,
+                ..Default::default()
+            }){% if is_async %}.await{% endif %}?;
+
+            let Some(record) = record else {
+                return Ok(None);
+            };
+
+            // Build a primary-key filter to delete exactly that one record
+            {%- set pk_fields = scalar_fields | filter(attribute="is_pk", value=true) %}
+            let pk_filter = {% for f in pk_fields %}{% if not loop.first %}.and({% endif %}nautilus_core::Expr::column("{{ table_name }}__{{ f.db_name }}").eq(nautilus_core::Expr::param(record.{{ f.name }}.clone())){% if not loop.first %}){% endif %}{% endfor %};
+            {{ delete_name }}::new({% if is_async %}self.client.clone(){% else %}_c.clone(){% endif %}).where_(pk_filter).exec().await?;
+            Ok(Some(record))
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = {{ model_name }}DeleteEventContext::new(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<{{ model_name }}DeleteEventContext, Option<{{ model_name }}>>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = {{ model_name }}DeleteEventContext::new(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<{{ model_name }}DeleteEventContext, Option<{{ model_name }}>>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
             }
         }
-
-        // Find the first matching record to get its primary key
-        let record = self.find_first(nautilus_core::FindManyArgs {
-            where_: args.where_,
-            ..Default::default()
-        }){% if is_async %}.await{% endif %}?;
-
-        let Some(record) = record else {
-            return Ok(None);
-        };
-
-        // Build a primary-key filter to delete exactly that one record
-        {%- set pk_fields = scalar_fields | filter(attribute="is_pk", value=true) %}
-        let pk_filter = {% for f in pk_fields %}{% if not loop.first %}.and({% endif %}nautilus_core::Expr::column("{{ table_name }}__{{ f.db_name }}").eq(nautilus_core::Expr::param(record.{{ f.name }}.clone())){% if not loop.first %}){% endif %}{% endfor %};
 {%- if not is_async %}
-        let _c = self.client.clone();
-        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
-            {{ delete_name }}::new(_c).where_(pk_filter).exec().await?;
-            nautilus_core::Result::<()>::Ok(())
-        }))?;
+        }))
 {%- else %}
-        {{ delete_name }}::new(self.client.clone()).where_(pk_filter).exec().await?;
 {%- endif %}
-        Ok(Some(record))
     }
 
     /// Delete all {{ model_name }} records matching `args.where_`.
@@ -1387,13 +1685,92 @@ where
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
 {%- endif %}
-        let mut builder = {{ delete_name }}::new({% if is_async %}self.client.clone(){% else %}_c{% endif %});
-        if let Some(expr) = args.where_ {
-            builder = builder.where_(expr);
-        } else {
-            builder = builder.all();
+        let _events = {% if is_async %}self.client.events().clone(){% else %}_c.events().clone(){% endif %};
+        let _transaction_id = {% if is_async %}self.client.transaction_id(){% else %}_c.transaction_id(){% endif %};
+        let _event_args = args.clone();
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            let _filter = match args.where_.as_ref() {
+                Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                    .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+                None => serde_json::Value::Object(serde_json::Map::new()),
+            };
+            _payload.insert("filter".to_string(), _filter);
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = {{ model_name }}DeleteManyEventContext::new(
+            "{{ model_name }}",
+            crate::CrudOperation::DeleteMany,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<{{ model_name }}DeleteManyEventContext, Vec<{{ model_name }}>>(
+            "{{ model_name }}",
+            crate::CrudOperation::DeleteMany,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
         }
-        builder.exec().await
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Vec<{{ model_name }}>> = async {
+            let mut builder = {{ delete_name }}::new({% if is_async %}self.client.clone(){% else %}_c{% endif %});
+            if let Some(expr) = args.where_ {
+                builder = builder.where_(expr);
+            } else {
+                builder = builder.all();
+            }
+            builder.exec().await
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = {{ model_name }}DeleteManyEventContext::new(
+                    "{{ model_name }}",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<{{ model_name }}DeleteManyEventContext, Vec<{{ model_name }}>>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = {{ model_name }}DeleteManyEventContext::new(
+                    "{{ model_name }}",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<{{ model_name }}DeleteManyEventContext, Vec<{{ model_name }}>>(
+                    "{{ model_name }}",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
 {%- if not is_async %}
         }))
 {%- endif %}

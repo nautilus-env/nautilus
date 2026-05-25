@@ -124,6 +124,8 @@ class {{ model_name }}(BaseModel):
     def onCreate(
         cls,
         handler: Callable[["{{ model_name }}CreateEventContext"], Any],
+        *,
+        priority: int = 0,
     ) -> Callable[["{{ model_name }}CreateEventContext"], Any]: ...
 
     @classmethod
@@ -131,20 +133,24 @@ class {{ model_name }}(BaseModel):
     def onCreate(
         cls,
         phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
     ) -> Callable[
         [Callable[["{{ model_name }}CreateEventContext"], Any]],
         Callable[["{{ model_name }}CreateEventContext"], Any],
     ]: ...
 
     @classmethod
-    def onCreate(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
-        return model_event_decorator(cls, "create", phase_or_handler)
+    def onCreate(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "create", phase_or_handler, priority=priority)
 
     @classmethod
     @overload
     def onCreateMany(
         cls,
         handler: Callable[["{{ model_name }}CreateManyEventContext"], Any],
+        *,
+        priority: int = 0,
     ) -> Callable[["{{ model_name }}CreateManyEventContext"], Any]: ...
 
     @classmethod
@@ -152,20 +158,24 @@ class {{ model_name }}(BaseModel):
     def onCreateMany(
         cls,
         phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
     ) -> Callable[
         [Callable[["{{ model_name }}CreateManyEventContext"], Any]],
         Callable[["{{ model_name }}CreateManyEventContext"], Any],
     ]: ...
 
     @classmethod
-    def onCreateMany(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
-        return model_event_decorator(cls, "createMany", phase_or_handler)
+    def onCreateMany(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "createMany", phase_or_handler, priority=priority)
 
     @classmethod
     @overload
     def onUpdate(
         cls,
         handler: Callable[["{{ model_name }}UpdateEventContext"], Any],
+        *,
+        priority: int = 0,
     ) -> Callable[["{{ model_name }}UpdateEventContext"], Any]: ...
 
     @classmethod
@@ -173,20 +183,24 @@ class {{ model_name }}(BaseModel):
     def onUpdate(
         cls,
         phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
     ) -> Callable[
         [Callable[["{{ model_name }}UpdateEventContext"], Any]],
         Callable[["{{ model_name }}UpdateEventContext"], Any],
     ]: ...
 
     @classmethod
-    def onUpdate(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
-        return model_event_decorator(cls, "update", phase_or_handler)
+    def onUpdate(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "update", phase_or_handler, priority=priority)
 
     @classmethod
     @overload
     def onDelete(
         cls,
         handler: Callable[["{{ model_name }}DeleteEventContext"], Any],
+        *,
+        priority: int = 0,
     ) -> Callable[["{{ model_name }}DeleteEventContext"], Any]: ...
 
     @classmethod
@@ -194,20 +208,24 @@ class {{ model_name }}(BaseModel):
     def onDelete(
         cls,
         phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
     ) -> Callable[
         [Callable[["{{ model_name }}DeleteEventContext"], Any]],
         Callable[["{{ model_name }}DeleteEventContext"], Any],
     ]: ...
 
     @classmethod
-    def onDelete(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
-        return model_event_decorator(cls, "delete", phase_or_handler)
+    def onDelete(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "delete", phase_or_handler, priority=priority)
 
     @classmethod
     @overload
     def onDeleteMany(
         cls,
         handler: Callable[["{{ model_name }}DeleteManyEventContext"], Any],
+        *,
+        priority: int = 0,
     ) -> Callable[["{{ model_name }}DeleteManyEventContext"], Any]: ...
 
     @classmethod
@@ -215,14 +233,16 @@ class {{ model_name }}(BaseModel):
     def onDeleteMany(
         cls,
         phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
     ) -> Callable[
         [Callable[["{{ model_name }}DeleteManyEventContext"], Any]],
         Callable[["{{ model_name }}DeleteManyEventContext"], Any],
     ]: ...
 
     @classmethod
-    def onDeleteMany(cls, phase_or_handler: Any = EventPhase.BEFORE) -> Any:
-        return model_event_decorator(cls, "deleteMany", phase_or_handler)
+    def onDeleteMany(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "deleteMany", phase_or_handler, priority=priority)
 
 
 class {{ model_name }}Projection(TypedDict, total=False):

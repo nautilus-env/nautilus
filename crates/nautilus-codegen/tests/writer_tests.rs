@@ -117,6 +117,10 @@ fn test_write_rust_code_creates_model_and_lib_files() {
         "src/runtime.rs not created"
     );
     assert!(
+        tmp.path().join("src").join("events.rs").exists(),
+        "src/events.rs not created"
+    );
+    assert!(
         !tmp.path().join("Cargo.toml").exists(),
         "Cargo.toml should not be created in non-standalone mode"
     );
@@ -141,6 +145,10 @@ fn test_write_rust_code_standalone_creates_cargo_toml() {
     assert!(
         cargo_content.contains("[package]"),
         "Cargo.toml missing [package] section:\n{cargo_content}"
+    );
+    assert!(
+        cargo_content.contains("nautilus-events-macros = { path = "),
+        "Cargo.toml missing generated events proc-macro dependency:\n{cargo_content}"
     );
 }
 
@@ -202,6 +210,10 @@ fn test_write_rust_code_lib_rs_contains_template_exports() {
         "lib.rs should declare model modules:\n{lib_content}"
     );
     assert!(
+        lib_content.contains("pub mod events;"),
+        "lib.rs should declare the event runtime module:\n{lib_content}"
+    );
+    assert!(
         lib_content.contains("pub use types::*;"),
         "lib.rs should re-export composite types:\n{lib_content}"
     );
@@ -226,6 +238,13 @@ fn test_write_rust_code_lib_rs_contains_template_exports() {
         lib_content.contains("pub use user::*;"),
         "lib.rs should re-export models:\n{lib_content}"
     );
+    assert!(
+        lib_content.contains("pub use events::{")
+            && lib_content.contains("CrudEventContext")
+            && lib_content.contains("EventControl")
+            && lib_content.contains("EventRegistry"),
+        "lib.rs should re-export generated event runtime types:\n{lib_content}"
+    );
 
     let types_idx = lib_content
         .find("pub mod types;")
@@ -239,6 +258,50 @@ fn test_write_rust_code_lib_rs_contains_template_exports() {
     assert!(
         types_idx < enums_idx && enums_idx < user_idx,
         "lib.rs module declarations should be ordered types -> enums -> models:\n{lib_content}"
+    );
+}
+
+#[test]
+fn test_write_rust_code_writes_event_runtime_and_client_hooks() {
+    let ir = validate(SIMPLE_SCHEMA);
+    let models = generate_all_models(&ir, false);
+    let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
+    let path = tmp.path().to_str().unwrap();
+
+    write_rust_code(path, &models, None, None, &[], SIMPLE_SCHEMA, false)
+        .expect("write_rust_code failed");
+
+    let events_content = std::fs::read_to_string(tmp.path().join("src").join("events.rs"))
+        .expect("missing events.rs");
+    let runtime_content = std::fs::read_to_string(tmp.path().join("src").join("runtime.rs"))
+        .expect("missing runtime.rs");
+    let user_content =
+        std::fs::read_to_string(tmp.path().join("src").join("user.rs")).expect("missing user.rs");
+
+    assert!(
+        events_content.contains("pub enum EventPhase")
+            && events_content.contains("pub enum EventControl<T>")
+            && events_content.contains("pub struct CrudEventContext<TArgs, TResult>")
+            && events_content.contains("pub struct EventRegistry")
+            && events_content.contains("pub fn on_update_with_priority")
+            && events_content
+                .contains("handlers.sort_by(|left, right| right.priority.cmp(&left.priority))")
+            && events_content.contains("pub async fn run<C, T>"),
+        "events.rs should expose the generated Rust event runtime:\n{events_content}"
+    );
+    assert!(
+        runtime_content.contains("events: crate::EventRegistry")
+            && runtime_content.contains("pub fn events(&self) -> &crate::EventRegistry")
+            && runtime_content.contains("events: crate::EventRegistry::default()"),
+        "runtime.rs should own and expose the generated event registry:\n{runtime_content}"
+    );
+    assert!(
+        user_content.contains("pub type UserCreateEventContext")
+            && user_content.contains("pub type UserUpdateEventContext")
+            && user_content.contains("crate::EventPhase::Before")
+            && user_content.contains("_events.run::<UserCreateEventContext, User>")
+            && user_content.contains("_events.run::<UserUpdateEventContext, Vec<User>>"),
+        "generated Rust delegates should type and run CRUD event hooks:\n{user_content}"
     );
 }
 
@@ -465,6 +528,101 @@ fn test_write_rust_code_standalone_generated_client_compiles() {
     assert!(
         status.success(),
         "cargo check failed for generated Rust client"
+    );
+}
+
+#[test]
+fn test_write_rust_code_standalone_event_macro_consumer_compiles() {
+    let ir = validate(SIMPLE_SCHEMA);
+    let models = generate_all_models(&ir, false);
+    let crate_dir = std::env::current_dir().expect("failed to get current directory");
+    let workspace_root = crate_dir
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("codegen crate should live under workspace/crates")
+        .to_path_buf();
+    let tmp = tempfile::tempdir_in(&workspace_root).expect("failed to create temp dir");
+    let generated_dir = tmp.path().join("client");
+    let consumer_dir = tmp.path().join("consumer");
+
+    write_rust_code(
+        generated_dir
+            .to_str()
+            .expect("generated path should be utf-8"),
+        &models,
+        None,
+        None,
+        &[],
+        SIMPLE_SCHEMA,
+        true,
+    )
+    .expect("write_rust_code failed");
+
+    std::fs::create_dir_all(consumer_dir.join("src")).expect("failed to create consumer src");
+    std::fs::write(
+        consumer_dir.join("Cargo.toml"),
+        format!(
+            r#"[package]
+name = "event-macro-consumer"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+db = {{ package = "nautilus-client", path = "{}" }}
+nautilus-events-macros = {{ path = "{}/crates/nautilus-events-macros" }}
+"#,
+            generated_dir.display(),
+            workspace_root.display()
+        ),
+    )
+    .expect("failed to write consumer Cargo.toml");
+    std::fs::write(
+        consumer_dir.join("src").join("main.rs"),
+        r#"
+use db::{Client, EventControl, User, UserCreateEventContext, UserUpdateEventContext};
+use nautilus_events_macros::events;
+
+#[events(client_crate = db)]
+mod app_events {
+    use super::*;
+
+    #[nautilus_events_macros::on_create(User)]
+    async fn before_create(ctx: &mut UserCreateEventContext) {
+        let _ = &ctx.args;
+    }
+
+    #[nautilus_events_macros::on_update(User, priority = 1)]
+    async fn lower_priority_update(_ctx: &mut UserUpdateEventContext) {}
+
+    #[nautilus_events_macros::on_update(User, priority = 2)]
+    async fn stop_update(_ctx: &mut UserUpdateEventContext) -> EventControl<Vec<User>> {
+        EventControl::StopPropagation(vec![])
+    }
+}
+
+pub fn install<E>(client: &Client<E>)
+where
+    E: db::Executor + 'static,
+{
+    app_events::register(client);
+}
+
+fn main() {}
+"#,
+    )
+    .expect("failed to write consumer main.rs");
+
+    let status = std::process::Command::new("cargo")
+        .args(["check", "--quiet", "--offline", "--manifest-path"])
+        .arg(consumer_dir.join("Cargo.toml"))
+        .status()
+        .expect("failed to run cargo check on generated event macro consumer");
+
+    assert!(
+        status.success(),
+        "cargo check failed for generated Rust event macro consumer"
     );
 }
 

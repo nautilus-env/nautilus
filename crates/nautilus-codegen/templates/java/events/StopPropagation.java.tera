@@ -1,0 +1,28 @@
+package {{ package_name }}.events;
+
+public final class StopPropagation extends RuntimeException {
+    private static final Object NO_RESULT = new Object();
+    private final Object result;
+
+    public StopPropagation() {
+        super("CRUD event propagation stopped");
+        this.result = NO_RESULT;
+    }
+
+    public StopPropagation(Object result) {
+        super("CRUD event propagation stopped");
+        this.result = result;
+    }
+
+    public boolean hasResult() {
+        return this.result != NO_RESULT;
+    }
+
+    public Object result() {
+        return this.hasResult() ? this.result : null;
+    }
+
+    public Object resolve(Object defaultResult) {
+        return this.hasResult() ? this.result : defaultResult;
+    }
+}

@@ -65,7 +65,15 @@ class CrudEventContext(
 
 CrudEventHandler = Callable[[CrudEventContext], Any]
 EventHandler = CrudEventHandler
-_REGISTRY: Dict[str, Dict[str, Dict[EventPhase, List[EventHandler]]]] = {}
+
+
+@dataclass(frozen=True)
+class _RegisteredEventHandler:
+    priority: int
+    handler: EventHandler
+
+
+_REGISTRY: Dict[str, Dict[str, Dict[EventPhase, List[_RegisteredEventHandler]]]] = {}
 _REGISTRY_LOCK = threading.RLock()
 
 
@@ -98,16 +106,20 @@ def register_event_handler(
     operation: str,
     phase: Any,
     handler: EventHandler,
+    priority: int = 0,
 ) -> EventHandler:
     if not callable(handler):
         raise TypeError("CRUD event handler must be callable")
     model_name = model_name_from_token(model)
     normalized_phase = normalize_event_phase(phase)
+    normalized_priority = normalize_event_priority(priority)
     with _REGISTRY_LOCK:
-        _REGISTRY.setdefault(model_name, {}).setdefault(operation, {}).setdefault(
+        handlers = _REGISTRY.setdefault(model_name, {}).setdefault(operation, {}).setdefault(
             normalized_phase,
             [],
-        ).append(handler)
+        )
+        handlers.append(_RegisteredEventHandler(normalized_priority, handler))
+        handlers.sort(key=lambda registered: registered.priority, reverse=True)
     return handler
 
 
@@ -115,6 +127,8 @@ def model_event_decorator(
     model: Any,
     operation: str,
     phase_or_handler: Any = EventPhase.BEFORE,
+    *,
+    priority: int = 0,
 ) -> Any:
     if callable(phase_or_handler):
         return register_event_handler(
@@ -122,19 +136,31 @@ def model_event_decorator(
             operation,
             EventPhase.BEFORE,
             phase_or_handler,
+            priority,
         )
 
     phase = normalize_event_phase(phase_or_handler)
 
     def decorator(handler: EventHandler) -> EventHandler:
-        return register_event_handler(model, operation, phase, handler)
+        return register_event_handler(model, operation, phase, handler, priority)
 
     return decorator
 
 
 def event_handlers(model_name: str, operation: str, phase: EventPhase) -> List[EventHandler]:
     with _REGISTRY_LOCK:
-        return list(_REGISTRY.get(model_name, {}).get(operation, {}).get(phase, ()))
+        return [
+            registered.handler
+            for registered in _REGISTRY.get(model_name, {}).get(operation, {}).get(phase, ())
+        ]
+
+
+def normalize_event_priority(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("CRUD event handler priority must be an int between 0 and 255")
+    if value < 0 or value > 255:
+        raise ValueError("CRUD event handler priority must be between 0 and 255")
+    return value
 
 
 async def run_crud_event(

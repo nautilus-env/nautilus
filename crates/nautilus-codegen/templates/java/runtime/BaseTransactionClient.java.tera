@@ -32,4 +32,14 @@ public abstract class BaseTransactionClient implements RpcCaller {
     public final Executor executor() {
         return this.parent.executor();
     }
+
+    @Override
+    public final EventRegistry eventRegistry() {
+        return this.parent.eventRegistry();
+    }
+
+    @Override
+    public final String transactionId() {
+        return this.transactionId;
+    }
 }

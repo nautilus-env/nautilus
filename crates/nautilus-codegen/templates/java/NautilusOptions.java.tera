@@ -1,5 +1,9 @@
 package {{ package_name }}.client;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 public final class NautilusOptions {
     private boolean migrate;
     private boolean autoRegister;
@@ -10,6 +14,7 @@ public final class NautilusOptions {
     private Long idleTimeoutMs;
     private boolean disableIdleTimeout;
     private Boolean testBeforeAcquire;
+    private final List<String> eventPackages = new ArrayList<>();
 
     public NautilusOptions migrate(boolean migrate) {
         this.migrate = migrate;
@@ -62,6 +67,18 @@ public final class NautilusOptions {
         return this;
     }
 
+    public NautilusOptions eventPackages(String... packageNames) {
+        this.eventPackages.clear();
+        if (packageNames != null) {
+            for (String packageName : packageNames) {
+                if (packageName != null && !packageName.isBlank()) {
+                    this.eventPackages.add(packageName.trim());
+                }
+            }
+        }
+        return this;
+    }
+
     public boolean migrate() {
         return this.migrate;
     }
@@ -96,5 +113,9 @@ public final class NautilusOptions {
 
     public Boolean testBeforeAcquire() {
         return this.testBeforeAcquire;
+    }
+
+    public List<String> eventPackages() {
+        return Collections.unmodifiableList(this.eventPackages);
     }
 }

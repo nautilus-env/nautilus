@@ -26,6 +26,7 @@ public final class Nautilus extends BaseNautilusClient {
         if (this.autoRegistered) {
             GlobalNautilusRegistry.register(this);
         }
+        eventRegistry().registerAnnotatedPackages(options().eventPackages().toArray(String[]::new));
         connect();
     }
 

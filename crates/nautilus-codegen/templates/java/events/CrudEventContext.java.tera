@@ -1,0 +1,96 @@
+package {{ package_name }}.events;
+
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.Map;
+
+public final class CrudEventContext {
+    private final Object db;
+    private final Class<?> model;
+    private final String modelName;
+    private final String operation;
+    private final EventPhase phase;
+    private final Map<String, Object> args;
+    private final ObjectNode payload;
+    private final Object result;
+    private final Throwable error;
+    private final String transactionId;
+    private final Map<String, Object> state;
+
+    public CrudEventContext(
+        Object db,
+        Class<?> model,
+        String modelName,
+        String operation,
+        EventPhase phase,
+        Map<String, Object> args,
+        ObjectNode payload,
+        Object result,
+        Throwable error,
+        String transactionId,
+        Map<String, Object> state
+    ) {
+        this.db = db;
+        this.model = model;
+        this.modelName = modelName;
+        this.operation = operation;
+        this.phase = phase;
+        this.args = args;
+        this.payload = payload;
+        this.result = result;
+        this.error = error;
+        this.transactionId = transactionId;
+        this.state = state;
+    }
+
+    public Object db() {
+        return this.db;
+    }
+
+    public Class<?> model() {
+        return this.model;
+    }
+
+    public String modelName() {
+        return this.modelName;
+    }
+
+    public String model_name() {
+        return this.modelName;
+    }
+
+    public String operation() {
+        return this.operation;
+    }
+
+    public EventPhase phase() {
+        return this.phase;
+    }
+
+    public Map<String, Object> args() {
+        return this.args;
+    }
+
+    public ObjectNode payload() {
+        return this.payload;
+    }
+
+    public Object result() {
+        return this.result;
+    }
+
+    public Throwable error() {
+        return this.error;
+    }
+
+    public String transactionId() {
+        return this.transactionId;
+    }
+
+    public String transaction_id() {
+        return this.transactionId;
+    }
+
+    public Map<String, Object> state() {
+        return this.state;
+    }
+}

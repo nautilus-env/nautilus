@@ -1,0 +1,241 @@
+package {{ package_name }}.internal;
+
+import {{ package_name }}.events.CrudEventContext;
+import {{ package_name }}.events.EventPhase;
+import {{ package_name }}.events.OnCreate;
+import {{ package_name }}.events.OnCreateMany;
+import {{ package_name }}.events.OnDelete;
+import {{ package_name }}.events.OnDeleteMany;
+import {{ package_name }}.events.OnUpdate;
+import {{ package_name }}.events.StopPropagation;
+import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+
+public final class EventRegistry {
+    private final Map<EventKey, List<EventHandler>> handlers = new HashMap<>();
+
+    public void registerAnnotatedPackages(String... packageNames) {
+        if (packageNames == null) {
+            return;
+        }
+        for (String packageName : packageNames) {
+            if (packageName == null || packageName.isBlank()) {
+                continue;
+            }
+            for (Class<?> candidate : scanPackage(packageName.trim())) {
+                registerAnnotatedClass(candidate);
+            }
+        }
+    }
+
+    public StopPropagation run(CrudEventContext context) {
+        return run(context, true);
+    }
+
+    public StopPropagation run(CrudEventContext context, boolean handleStopPropagation) {
+        EventKey key = new EventKey(context.modelName(), context.operation(), context.phase());
+        List<EventHandler> registered = this.handlers.getOrDefault(key, List.of());
+        for (EventHandler handler : registered) {
+            try {
+                handler.invoke(context);
+            } catch (StopPropagation stop) {
+                if (handleStopPropagation) {
+                    return stop;
+                }
+                continue;
+            }
+        }
+        return null;
+    }
+
+    private void registerAnnotatedClass(Class<?> candidate) {
+        Object instance = null;
+        for (Method method : candidate.getDeclaredMethods()) {
+            HandlerMeta meta = handlerMeta(method);
+            if (meta == null) {
+                continue;
+            }
+            if (method.getParameterCount() != 1 || method.getParameterTypes()[0] != CrudEventContext.class) {
+                throw new NautilusException(
+                    "CRUD event handler " + candidate.getName() + "." + method.getName()
+                        + " must accept exactly one CrudEventContext argument"
+                );
+            }
+            method.setAccessible(true);
+            Object target = null;
+            if (!Modifier.isStatic(method.getModifiers())) {
+                if (instance == null) {
+                    instance = instantiate(candidate);
+                }
+                target = instance;
+            }
+            EventKey key = new EventKey(meta.model().getSimpleName(), meta.operation(), meta.phase());
+            List<EventHandler> registered = this.handlers.computeIfAbsent(key, ignored -> new ArrayList<>());
+            registered.add(new EventHandler(target, method, meta.priority()));
+            registered.sort((left, right) -> Integer.compare(right.priority(), left.priority()));
+        }
+    }
+
+    private Object instantiate(Class<?> candidate) {
+        try {
+            Constructor<?> constructor = candidate.getConstructor();
+            return constructor.newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new NautilusException(
+                "CRUD event handler class " + candidate.getName()
+                    + " must expose a no-arg constructor for instance handlers",
+                e
+            );
+        }
+    }
+
+    private HandlerMeta handlerMeta(Method method) {
+        OnCreate onCreate = method.getAnnotation(OnCreate.class);
+        if (onCreate != null) return new HandlerMeta(onCreate.value(), "create", onCreate.phase(), normalizePriority(onCreate.priority()));
+        OnCreateMany onCreateMany = method.getAnnotation(OnCreateMany.class);
+        if (onCreateMany != null) return new HandlerMeta(onCreateMany.value(), "createMany", onCreateMany.phase(), normalizePriority(onCreateMany.priority()));
+        OnUpdate onUpdate = method.getAnnotation(OnUpdate.class);
+        if (onUpdate != null) return new HandlerMeta(onUpdate.value(), "update", onUpdate.phase(), normalizePriority(onUpdate.priority()));
+        OnDelete onDelete = method.getAnnotation(OnDelete.class);
+        if (onDelete != null) return new HandlerMeta(onDelete.value(), "delete", onDelete.phase(), normalizePriority(onDelete.priority()));
+        OnDeleteMany onDeleteMany = method.getAnnotation(OnDeleteMany.class);
+        if (onDeleteMany != null) return new HandlerMeta(onDeleteMany.value(), "deleteMany", onDeleteMany.phase(), normalizePriority(onDeleteMany.priority()));
+        return null;
+    }
+
+    private int normalizePriority(int priority) {
+        if (priority < 0 || priority > 255) {
+            throw new NautilusException("CRUD event handler priority must be between 0 and 255");
+        }
+        return priority;
+    }
+
+    private Set<Class<?>> scanPackage(String packageName) {
+        Set<Class<?>> classes = new HashSet<>();
+        String packagePath = packageName.replace('.', '/');
+        String classPath = System.getProperty("java.class.path", "");
+        String[] entries = classPath.split(File.pathSeparator);
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        if (loader == null) {
+            loader = EventRegistry.class.getClassLoader();
+        }
+
+        for (String entry : entries) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            File file = new File(entry);
+            if (file.isDirectory()) {
+                scanDirectory(classes, loader, file, packageName, packagePath);
+            } else if (entry.endsWith(".jar")) {
+                scanJar(classes, loader, file, packagePath);
+            }
+        }
+        return classes;
+    }
+
+    private void scanDirectory(
+        Set<Class<?>> classes,
+        ClassLoader loader,
+        File classpathRoot,
+        String packageName,
+        String packagePath
+    ) {
+        File packageDir = new File(classpathRoot, packagePath);
+        if (!packageDir.isDirectory()) {
+            return;
+        }
+        scanDirectoryRecursive(classes, loader, packageDir, packageName);
+    }
+
+    private void scanDirectoryRecursive(
+        Set<Class<?>> classes,
+        ClassLoader loader,
+        File directory,
+        String packageName
+    ) {
+        File[] files = directory.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            if (file.isDirectory()) {
+                scanDirectoryRecursive(classes, loader, file, packageName + "." + file.getName());
+            } else if (file.getName().endsWith(".class") && !file.getName().contains("$")) {
+                String simple = file.getName().substring(0, file.getName().length() - ".class".length());
+                loadClass(classes, loader, packageName + "." + simple);
+            }
+        }
+    }
+
+    private void scanJar(Set<Class<?>> classes, ClassLoader loader, File jarFile, String packagePath) {
+        try (JarFile jar = new JarFile(jarFile)) {
+            jar.stream()
+                .map(JarEntry::getName)
+                .filter(name -> name.startsWith(packagePath + "/"))
+                .filter(name -> name.endsWith(".class"))
+                .filter(name -> !name.contains("$"))
+                .forEach(name -> {
+                    String className = name.substring(0, name.length() - ".class".length()).replace('/', '.');
+                    loadClass(classes, loader, className);
+                });
+        } catch (IOException e) {
+            throw new NautilusException("Failed to scan jar for CRUD event handlers: " + jarFile, e);
+        }
+    }
+
+    private void loadClass(Set<Class<?>> classes, ClassLoader loader, String className) {
+        try {
+            classes.add(Class.forName(className, false, loader));
+        } catch (ClassNotFoundException | LinkageError ignored) {
+        }
+    }
+
+    private record HandlerMeta(Class<?> model, String operation, EventPhase phase, int priority) {}
+    private record EventKey(String modelName, String operation, EventPhase phase) {}
+
+    private static final class EventHandler {
+        private final Object target;
+        private final Method method;
+        private final int priority;
+
+        private EventHandler(Object target, Method method, int priority) {
+            this.target = target;
+            this.method = method;
+            this.priority = priority;
+        }
+
+        private int priority() {
+            return this.priority;
+        }
+
+        private void invoke(CrudEventContext context) {
+            try {
+                this.method.invoke(this.target, context);
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof StopPropagation stop) {
+                    throw stop;
+                }
+                if (cause instanceof RuntimeException runtime) {
+                    throw runtime;
+                }
+                throw new NautilusException("CRUD event handler failed", cause);
+            } catch (ReflectiveOperationException e) {
+                throw new NautilusException("CRUD event handler failed", e);
+            }
+        }
+    }
+}

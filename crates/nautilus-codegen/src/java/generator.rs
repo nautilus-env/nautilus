@@ -94,6 +94,38 @@ static JAVA_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
             "java_transaction_batch_op.tera",
             include_str!("../../templates/java/TransactionBatchOperation.java.tera"),
         ),
+        (
+            "java_event_phase.tera",
+            include_str!("../../templates/java/events/EventPhase.java.tera"),
+        ),
+        (
+            "java_event_context.tera",
+            include_str!("../../templates/java/events/CrudEventContext.java.tera"),
+        ),
+        (
+            "java_stop_propagation.tera",
+            include_str!("../../templates/java/events/StopPropagation.java.tera"),
+        ),
+        (
+            "java_on_create.tera",
+            include_str!("../../templates/java/events/OnCreate.java.tera"),
+        ),
+        (
+            "java_on_create_many.tera",
+            include_str!("../../templates/java/events/OnCreateMany.java.tera"),
+        ),
+        (
+            "java_on_update.tera",
+            include_str!("../../templates/java/events/OnUpdate.java.tera"),
+        ),
+        (
+            "java_on_delete.tera",
+            include_str!("../../templates/java/events/OnDelete.java.tera"),
+        ),
+        (
+            "java_on_delete_many.tera",
+            include_str!("../../templates/java/events/OnDeleteMany.java.tera"),
+        ),
         // runtime templates (need `package_name` and sometimes `version`)
         (
             "java_rt_wire_serializable.tera",
@@ -146,6 +178,10 @@ static JAVA_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
         (
             "java_rt_abstract_delegate.tera",
             include_str!("../../templates/java/runtime/AbstractDelegate.java.tera"),
+        ),
+        (
+            "java_rt_event_registry.tera",
+            include_str!("../../templates/java/runtime/EventRegistry.java.tera"),
         ),
     ])
     .expect("embedded Java templates must parse");
@@ -409,6 +445,7 @@ pub(crate) fn generate_java_client_with_registry(
         ),
         render_pkg("java_transaction_batch_op.tera", &config.root_package),
     ));
+    files.extend(java_event_files(&config.root_package));
     files.extend(generate_java_extension_files(
         &config.extensions,
         &config.root_package,
@@ -555,6 +592,48 @@ pub fn java_runtime_files(package_name: &str) -> Vec<(String, String)> {
         (
             java_source_path(pkg, "internal", "AbstractDelegate.java"),
             render("java_rt_abstract_delegate.tera", &ctx_pkg),
+        ),
+        (
+            java_source_path(pkg, "internal", "EventRegistry.java"),
+            render("java_rt_event_registry.tera", &ctx_pkg),
+        ),
+    ]
+}
+
+fn java_event_files(package_name: &str) -> Vec<(String, String)> {
+    let pkg = package_name;
+    vec![
+        (
+            java_source_path(pkg, "events", "EventPhase.java"),
+            render_pkg("java_event_phase.tera", pkg),
+        ),
+        (
+            java_source_path(pkg, "events", "CrudEventContext.java"),
+            render_pkg("java_event_context.tera", pkg),
+        ),
+        (
+            java_source_path(pkg, "events", "StopPropagation.java"),
+            render_pkg("java_stop_propagation.tera", pkg),
+        ),
+        (
+            java_source_path(pkg, "events", "OnCreate.java"),
+            render_pkg("java_on_create.tera", pkg),
+        ),
+        (
+            java_source_path(pkg, "events", "OnCreateMany.java"),
+            render_pkg("java_on_create_many.tera", pkg),
+        ),
+        (
+            java_source_path(pkg, "events", "OnUpdate.java"),
+            render_pkg("java_on_update.tera", pkg),
+        ),
+        (
+            java_source_path(pkg, "events", "OnDelete.java"),
+            render_pkg("java_on_delete.tera", pkg),
+        ),
+        (
+            java_source_path(pkg, "events", "OnDeleteMany.java"),
+            render_pkg("java_on_delete_many.tera", pkg),
         ),
     ]
 }
@@ -788,6 +867,9 @@ fn generate_delegate_file(config: &JavaConfig, model: &ModelIr) -> String {
         config.root_package
     ));
     imports.insert(format!("{}.internal.RpcCaller", config.root_package));
+    imports.insert(format!("{}.events.CrudEventContext", config.root_package));
+    imports.insert(format!("{}.events.EventPhase", config.root_package));
+    imports.insert(format!("{}.events.StopPropagation", config.root_package));
     imports.insert(format!(
         "{}.model.{}",
         config.root_package, model.logical_name
@@ -796,7 +878,9 @@ fn generate_delegate_file(config: &JavaConfig, model: &ModelIr) -> String {
     imports.insert("com.fasterxml.jackson.databind.JsonNode".to_string());
     imports.insert("com.fasterxml.jackson.databind.node.ArrayNode".to_string());
     imports.insert("com.fasterxml.jackson.databind.node.ObjectNode".to_string());
+    imports.insert("java.util.HashMap".to_string());
     imports.insert("java.util.List".to_string());
+    imports.insert("java.util.Map".to_string());
     imports.insert("java.util.Objects".to_string());
     imports.insert("java.util.stream.Stream".to_string());
     if config.is_async {

@@ -15,6 +15,7 @@ nautilus-dialect = { path = "{{ workspace_root_path }}/crates/nautilus-dialect",
 nautilus-engine = { path = "{{ workspace_root_path }}/crates/nautilus-engine", package = "nautilus-orm-engine" }
 nautilus-protocol = { path = "{{ workspace_root_path }}/crates/nautilus-protocol", package = "nautilus-orm-protocol" }
 nautilus-schema = { path = "{{ workspace_root_path }}/crates/nautilus-schema", package = "nautilus-orm-schema" }
+nautilus-events-macros = { path = "{{ workspace_root_path }}/crates/nautilus-events-macros" }
 
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures = "0.3"

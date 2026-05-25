@@ -79,25 +79,32 @@ export function resolveStopResult(stop, defaultResult) {
 }
 
 function modelEventRegistrar(modelName, operation) {
-  return function registerOrDecorate(phaseOrHandler = EventPhase.Before) {
+  return function registerOrDecorate(phaseOrHandler = EventPhase.Before, options = undefined) {
     if (typeof phaseOrHandler === 'function') {
-      registerEventHandler(modelName, operation, EventPhase.Before, phaseOrHandler);
+      registerEventHandler(
+        modelName,
+        operation,
+        EventPhase.Before,
+        phaseOrHandler,
+        eventPriority(options),
+      );
       return phaseOrHandler;
     }
 
-    const phase = normalizeEventPhase(phaseOrHandler);
+    const spec = eventRegistrationSpec(phaseOrHandler, options);
     return (handler) => {
-      registerEventHandler(modelName, operation, phase, handler);
+      registerEventHandler(modelName, operation, spec.phase, handler, spec.priority);
       return handler;
     };
   };
 }
 
-function registerEventHandler(modelName, operation, phase, handler) {
+function registerEventHandler(modelName, operation, phase, handler, priority = 0) {
   if (typeof handler !== 'function') {
     throw new TypeError('CRUD event handler must be a function');
   }
   const normalizedPhase = normalizeEventPhase(phase);
+  const normalizedPriority = normalizeEventPriority(priority);
   let byModel = registry.get(modelName);
   if (!byModel) {
     byModel = new Map();
@@ -113,13 +120,38 @@ function registerEventHandler(modelName, operation, phase, handler) {
     handlers = [];
     byOperation.set(normalizedPhase, handlers);
   }
-  handlers.push(handler);
+  handlers.push({ handler, priority: normalizedPriority });
+  handlers.sort((left, right) => right.priority - left.priority);
 }
 
 function eventHandlers(modelName, operation, phase) {
   return [
     ...(registry.get(modelName)?.get(operation)?.get(normalizeEventPhase(phase)) ?? []),
-  ];
+  ].map((registered) => registered.handler);
+}
+
+function eventRegistrationSpec(phaseOrSpec, options) {
+  if (phaseOrSpec && typeof phaseOrSpec === 'object' && !Array.isArray(phaseOrSpec)) {
+    return {
+      phase: normalizeEventPhase(phaseOrSpec.phase ?? EventPhase.Before),
+      priority: eventPriority(phaseOrSpec),
+    };
+  }
+  return {
+    phase: normalizeEventPhase(phaseOrSpec),
+    priority: eventPriority(options),
+  };
+}
+
+function eventPriority(options) {
+  return normalizeEventPriority(options?.priority ?? 0);
+}
+
+function normalizeEventPriority(value) {
+  if (!Number.isInteger(value) || value < 0 || value > 255) {
+    throw new TypeError('CRUD event handler priority must be an integer between 0 and 255');
+  }
+  return value;
 }
 
 function normalizeEventPhase(value) {

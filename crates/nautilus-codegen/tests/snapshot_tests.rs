@@ -491,9 +491,9 @@ model User {
         "expected composite unique constraints to participate in the delete fast path:\n{user_code}"
     );
     assert!(
-        user_code.contains(
-            "if self.client.dialect().supports_returning() && is_single_record_filter(&filter)"
-        ),
+        user_code.contains("supports_returning()")
+            && user_code.contains("is_single_record_filter(&filter)")
+            && user_code.contains("return match deleted.len()"),
         "expected delete() to use the single-query fast path for unique filters:\n{user_code}"
     );
 }
@@ -879,6 +879,7 @@ model User {
             && py_user.contains("UserCreateEventContext = CrudEventContext")
             && py_user.contains("Callable[[\"UserCreateEventContext\"], Any]")
             && py_user.contains("model_event_decorator(cls, \"delete\"")
+            && py_user.contains("priority: int = 0")
             && py_user.contains("run_crud_event(_before_ctx)")
             && py_user.contains(
                 "resolve_stop_result(_stop, default_cud_result(\"deleteMany\", return_data))"
@@ -891,7 +892,10 @@ model User {
             && py_events_runtime.contains("class CrudEventContext(")
             && py_events_runtime.contains("Generic[ModelT, OperationT")
             && py_events_runtime.contains("CrudEventHandler")
-            && py_events_runtime.contains("handle_stop_propagation: bool = True"),
+            && py_events_runtime.contains("handle_stop_propagation: bool = True")
+            && py_events_runtime.contains("normalize_event_priority")
+            && py_events_runtime
+                .contains("handlers.sort(key=lambda registered: registered.priority, reverse=True)"),
         "expected Python event runtime to expose phases, context, and StopPropagation:\n{py_events_runtime}"
     );
 
@@ -930,9 +934,93 @@ model User {
             && js_events_runtime.contains("createModelEvents")
             && js_events_runtime.contains("runCrudEvent")
             && js_events_runtime.contains("model_name")
+            && js_events_runtime.contains("normalizeEventPriority")
+            && js_events_runtime
+                .contains("handlers.sort((left, right) => right.priority - left.priority)")
             && js_events_dts.contains("result?: TResult")
+            && js_events_dts.contains("interface EventPriorityOptions")
             && js_events_dts.contains("interface ModelEventToken"),
         "expected JS event runtime to expose phases, context, and StopPropagation:\n{js_events_runtime}\n\n{js_events_dts}"
+    );
+}
+
+#[test]
+fn test_generated_java_cud_event_api() {
+    let ir = validate(
+        r#"
+generator client {
+  provider    = "nautilus-client-java"
+  output      = "./generated-java"
+  package     = "com.acme.db"
+  group_id    = "com.acme"
+  artifact_id = "db-client"
+}
+
+model User {
+  id   Int    @id @default(autoincrement())
+  name String
+}
+"#,
+    );
+
+    let java_files =
+        generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
+    let on_create = generated_java_file(&java_files, "events/OnCreate.java");
+    let context = generated_java_file(&java_files, "events/CrudEventContext.java");
+    let stop = generated_java_file(&java_files, "events/StopPropagation.java");
+    let options = generated_java_file(&java_files, "client/NautilusOptions.java");
+    let nautilus = generated_java_file(&java_files, "client/Nautilus.java");
+    let delegate = generated_java_file(&java_files, "client/UserDelegate.java");
+    let registry = generated_java_file(&java_files, "internal/EventRegistry.java");
+
+    assert!(
+        on_create.contains("@Retention(RetentionPolicy.RUNTIME)")
+            && on_create.contains("public @interface OnCreate")
+            && on_create.contains("Class<?> value();")
+            && on_create.contains("EventPhase phase() default EventPhase.BEFORE;")
+            && on_create.contains("int priority() default 0;"),
+        "expected generated Java @OnCreate annotation to be runtime-visible and model-scoped:\n{on_create}"
+    );
+    assert!(
+        context.contains("public final class CrudEventContext")
+            && context.contains("private final Map<String, Object> args;")
+            && context.contains("private final String transactionId;")
+            && context.contains("private final Map<String, Object> state;"),
+        "expected generated Java event context to expose args, transaction id, and shared state:\n{context}"
+    );
+    assert!(
+        stop.contains("public final class StopPropagation extends RuntimeException")
+            && stop.contains("public Object result()"),
+        "expected generated Java StopPropagation runtime type:\n{stop}"
+    );
+    assert!(
+        options.contains("public NautilusOptions eventPackages(String... packageNames)")
+            && options.contains("public List<String> eventPackages()")
+            && options.contains("Collections.unmodifiableList(this.eventPackages)"),
+        "expected NautilusOptions to expose opt-in event package scanning:\n{options}"
+    );
+    assert!(
+        nautilus.contains("eventRegistry().registerAnnotatedPackages(options().eventPackages().toArray(String[]::new));"),
+        "expected Nautilus client construction to register configured event packages:\n{nautilus}"
+    );
+    assert!(
+        delegate.contains("events().run(eventContext(\"create\", EventPhase.BEFORE")
+            && delegate.contains("events().run(eventContext(\"create\", EventPhase.AFTER")
+            && delegate.contains("events().run(eventContext(\"update\", EventPhase.BEFORE")
+            && delegate.contains("events().run(eventContext(\"deleteMany\", EventPhase.ERROR"),
+        "expected Java delegate mutations to run before/after/error CRUD events:\n{delegate}"
+    );
+    assert!(
+        registry.contains("public void registerAnnotatedPackages(String... packageNames)")
+            && registry.contains("scanDirectory(classes, loader")
+            && registry.contains("scanJar(classes, loader")
+            && registry.contains("Modifier.isStatic(method.getModifiers())")
+            && registry.contains("candidate.getConstructor()")
+            && registry.contains("constructor.newInstance()")
+            && registry.contains("normalizePriority(")
+            && registry.contains("registered.sort((left, right) -> Integer.compare(right.priority(), left.priority()))")
+            && registry.contains("catch (StopPropagation stop)"),
+        "expected Java EventRegistry to scan configured packages and invoke static/no-arg instance handlers:\n{registry}"
     );
 }
 

@@ -5,7 +5,9 @@ import type { EnginePoolOptions } from './_internal/_engine.js';
 import type {
   CrudEventContext,
   CrudEventHandler,
+  EventPriorityOptions,
   EventPhaseValue,
+  EventRegistrationOptions,
   ModelEventContexts,
   ModelEventToken,
 } from './_internal/_events.js';
@@ -40,7 +42,9 @@ export type {
   CrudEventContext,
   CrudEventHandler,
   EnginePoolOptions,
+  EventPriorityOptions,
   EventPhaseValue,
+  EventRegistrationOptions,
   ModelEventContexts,
   ModelEventToken,
   NautilusClientOptions,

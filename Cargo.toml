@@ -6,6 +6,7 @@ members = [
     "crates/nautilus-connector",
     "crates/nautilus-schema",
     "crates/nautilus-codegen",
+    "crates/nautilus-events-macros",
     "crates/nautilus-migrate",
     "crates/nautilus-protocol",
     "crates/nautilus-engine",

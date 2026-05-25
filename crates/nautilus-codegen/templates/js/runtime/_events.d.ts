@@ -9,6 +9,14 @@ export declare enum EventPhase {
 export type CrudOperation = 'create' | 'createMany' | 'update' | 'delete' | 'deleteMany';
 export type EventPhaseValue = EventPhase | `${EventPhase}`;
 
+export interface EventPriorityOptions {
+  priority?: number;
+}
+
+export interface EventRegistrationOptions extends EventPriorityOptions {
+  phase?: EventPhaseValue;
+}
+
 export interface StopPropagationOptions {
   result?: unknown;
 }
@@ -43,7 +51,17 @@ export type CrudEventHandler<TContext extends CrudEventContext = CrudEventContex
 
 export interface ModelEventRegistrar<TContext extends CrudEventContext = CrudEventContext> {
   (handler: CrudEventHandler<TContext>): CrudEventHandler<TContext>;
-  (phase: EventPhaseValue): (handler: CrudEventHandler<TContext>) => CrudEventHandler<TContext>;
+  (
+    handler: CrudEventHandler<TContext>,
+    options: EventPriorityOptions,
+  ): CrudEventHandler<TContext>;
+  (
+    phase: EventPhaseValue,
+    options?: EventPriorityOptions,
+  ): (handler: CrudEventHandler<TContext>) => CrudEventHandler<TContext>;
+  (
+    options: EventRegistrationOptions,
+  ): (handler: CrudEventHandler<TContext>) => CrudEventHandler<TContext>;
 }
 
 export interface ModelEventContexts {

@@ -9,4 +9,6 @@ public interface RpcCaller {
     JsonNode rpc(String method, ObjectNode params);
     Stream<JsonNode> streamRpc(String method, ObjectNode params);
     Executor executor();
+    EventRegistry eventRegistry();
+    String transactionId();
 }

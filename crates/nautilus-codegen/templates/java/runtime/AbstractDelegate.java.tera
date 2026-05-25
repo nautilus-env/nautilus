@@ -30,6 +30,18 @@ public abstract class AbstractDelegate<T> {
         return CompletableFuture.supplyAsync(supplier, this.client.executor());
     }
 
+    protected final EventRegistry events() {
+        return this.client.eventRegistry();
+    }
+
+    protected final RpcCaller client() {
+        return this.client;
+    }
+
+    protected final String transactionId() {
+        return this.client.transactionId();
+    }
+
     protected final <R> List<R> rows(JsonNode result, Function<JsonNode, R> mapper) {
         return JsonSupport.dataList(result, mapper);
     }

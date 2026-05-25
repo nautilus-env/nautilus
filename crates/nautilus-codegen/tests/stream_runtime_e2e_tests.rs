@@ -534,7 +534,12 @@ async def after_create(ctx: UserCreateEventContext):
     events.append(f"after:{ctx.state['marker']}:{ctx.result.name}")
 
 
-@User.onUpdate
+@User.onUpdate(priority=1)
+async def skipped_update(ctx: UserUpdateEventContext):
+    events.append("late")
+
+
+@User.onUpdate(priority=2)
 async def stop_update(ctx: UserUpdateEventContext):
     events.append(f"stop:{ctx.payload['returnData']}")
     raise StopPropagation(result=77)
@@ -614,7 +619,11 @@ User.onCreate(EventPhase.After)((ctx) => {
   events.push(`after:${ctx.state.marker}:${ctx.result.name}`);
 });
 
-User.onUpdate((ctx) => {
+User.onUpdate({ priority: 1 })((ctx) => {
+  events.push('late');
+});
+
+User.onUpdate({ priority: 2 })((ctx) => {
   events.push(`stop:${ctx.payload.returnData}`);
   throw new StopPropagation({ result: 77 });
 });
@@ -655,6 +664,159 @@ try {
     assert_eq!(
         values.get("events").map(String::as_str),
         Some("before:create:User:User:Created|after:shared:Created|stop:false")
+    );
+}
+
+#[test]
+fn generated_java_cud_events_can_stop_propagation() {
+    if !command_exists("javac") || !command_exists("java") {
+        eprintln!("skipping java CUD events e2e test: javac/java not available");
+        return;
+    }
+
+    let Some(classpath) = java_test_classpath() else {
+        eprintln!(
+            "skipping java CUD events e2e test: set NAUTILUS_JAVA_TEST_CLASSPATH or cache Jackson jars under target/test-jars/jackson-{JAVA_JACKSON_VERSION}"
+        );
+        return;
+    };
+
+    let fixture = create_fixture("java-cud-events-e2e");
+    let output_dir = fixture.root.join("javaclient");
+    let schema_path = fixture.schema_path.to_string_lossy().replace('\\', "/");
+    generate_java_client_fixture(&output_dir, &schema_path);
+
+    let runner_path = output_dir.join("src/main/java/com/acme/db/e2e/JavaCudEventsE2e.java");
+    fs::create_dir_all(
+        runner_path
+            .parent()
+            .expect("java CUD runner should have a parent directory"),
+    )
+    .expect("failed to create Java CUD runner directory");
+    fs::write(
+        &runner_path,
+        r#"
+package com.acme.db.e2e;
+
+import com.acme.db.client.Nautilus;
+import com.acme.db.client.NautilusOptions;
+import com.acme.db.events.CrudEventContext;
+import com.acme.db.events.EventPhase;
+import com.acme.db.events.OnCreate;
+import com.acme.db.events.OnUpdate;
+import com.acme.db.events.StopPropagation;
+import com.acme.db.model.User;
+import java.util.ArrayList;
+import java.util.List;
+
+public final class JavaCudEventsE2e {
+    private static final List<String> EVENTS = new ArrayList<>();
+
+    public JavaCudEventsE2e() {
+    }
+
+    @OnCreate(User.class)
+    public static void beforeCreate(CrudEventContext ctx) {
+        EVENTS.add("before:" + ctx.operation() + ":" + ctx.modelName() + ":" + ctx.payload().get("data").get("name").asText());
+        ctx.state().put("marker", "shared");
+    }
+
+    @OnCreate(value = User.class, phase = EventPhase.AFTER)
+    public void afterCreate(CrudEventContext ctx) {
+        User user = (User) ctx.result();
+        EVENTS.add("after:" + ctx.state().get("marker") + ":" + user.name());
+    }
+
+    @OnUpdate(value = User.class, priority = 1)
+    public static void skippedUpdate(CrudEventContext ctx) {
+        EVENTS.add("late");
+    }
+
+    @OnUpdate(value = User.class, priority = 2)
+    public static void stopUpdate(CrudEventContext ctx) {
+        String tx = ctx.transactionId();
+        EVENTS.add("stop:" + (tx == null || tx.isBlank() ? "no-tx" : "tx"));
+        throw new StopPropagation(List.of());
+    }
+
+    public static void main(String[] args) {
+        NautilusOptions options = new NautilusOptions()
+            .maxConnections(1)
+            .eventPackages("com.acme.db.e2e");
+        String enginePath = System.getenv("NAUTILUS_BIN");
+        if (enginePath != null && !enginePath.isBlank()) {
+            options.enginePath(enginePath);
+        }
+
+        try (Nautilus db = new Nautilus(options)) {
+            User created = db.user().create(input -> input.name("Created"));
+            List<User> stopped = db.user().update(update -> update
+                .where(where -> where.id(created.id()))
+                .data(data -> data.name("Blocked"))
+            );
+            User reloaded = db.user().findUnique(find -> find.where(where -> where.id(created.id())));
+
+            db.transaction(tx -> {
+                User txCreated = tx.user().create(input -> input.name("Tx Created"));
+                tx.user().update(update -> update
+                    .where(where -> where.id(txCreated.id()))
+                    .data(data -> data.name("Tx Blocked"))
+                );
+                return null;
+            });
+
+            System.out.println("created=" + created.name());
+            System.out.println("stopped=" + stopped.size());
+            System.out.println("reloaded=" + reloaded.name());
+            System.out.println("events=" + String.join("|", EVENTS));
+        }
+    }
+}
+"#,
+    )
+    .expect("failed to write Java CUD events runner");
+
+    let classes_dir = fixture.root.join("javaclient-classes");
+    fs::create_dir_all(&classes_dir).expect("failed to create javac output directory");
+
+    let sources = collect_java_sources(&output_dir.join("src/main/java"));
+    assert!(!sources.is_empty(), "expected generated Java sources");
+
+    let mut javac = Command::new("javac");
+    javac
+        .arg("--release")
+        .arg("21")
+        .arg("-cp")
+        .arg(&classpath)
+        .arg("-d")
+        .arg(&classes_dir);
+    for source in &sources {
+        javac.arg(source);
+    }
+    run_checked(&mut javac, "javac CUD events e2e");
+
+    let runtime_classpath =
+        env::join_paths(std::iter::once(classes_dir.clone()).chain(env::split_paths(&classpath)))
+            .expect("failed to build Java runtime classpath");
+
+    let stdout = run_checked(
+        Command::new("java")
+            .arg("-cp")
+            .arg(runtime_classpath)
+            .arg("com.acme.db.e2e.JavaCudEventsE2e")
+            .env("NAUTILUS_BIN", &fixture.bin_path),
+        "java CUD events e2e",
+    );
+    let values = parse_key_values(&stdout);
+
+    assert_eq!(values.get("created").map(String::as_str), Some("Created"));
+    assert_eq!(values.get("stopped").map(String::as_str), Some("0"));
+    assert_eq!(values.get("reloaded").map(String::as_str), Some("Created"));
+    assert_eq!(
+        values.get("events").map(String::as_str),
+        Some(
+            "before:create:User:Created|after:shared:Created|stop:no-tx|before:create:User:Tx Created|after:shared:Tx Created|stop:tx"
+        )
     );
 }
 

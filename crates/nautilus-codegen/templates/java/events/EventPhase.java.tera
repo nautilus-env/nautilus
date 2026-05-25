@@ -1,0 +1,7 @@
+package {{ package_name }}.events;
+
+public enum EventPhase {
+    BEFORE,
+    AFTER,
+    ERROR
+}

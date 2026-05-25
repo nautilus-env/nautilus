@@ -95,6 +95,13 @@ pub fn write_rust_code(
     )
     .with_context(|| format!("Failed to write runtime.rs: {}", runtime_path.display()))?;
 
+    let events_path = src_dir.join("events.rs");
+    fs::write(
+        &events_path,
+        include_str!("../templates/rust/events.rs.tpl"),
+    )
+    .with_context(|| format!("Failed to write events.rs: {}", events_path.display()))?;
+
     if standalone {
         // Walk up from the output directory to find the workspace root, then
         // compute how many `..` hops separate the output from it so generated

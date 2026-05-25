@@ -42,6 +42,7 @@ public abstract class BaseNautilusClient implements RpcCaller, AutoCloseable {
     private final Map<Long, CompletableFuture<JsonNode>> pending = new ConcurrentHashMap<>();
     private final Map<Long, ArrayNode> partialData = new ConcurrentHashMap<>();
     private final Map<Long, StreamState> streams = new ConcurrentHashMap<>();
+    private final EventRegistry eventRegistry = new EventRegistry();
     private final Object writeLock = new Object();
     private final ExecutorService executor = Executors.newCachedThreadPool(runnable -> {
         Thread thread = new Thread(runnable, "nautilus-java-client");
@@ -160,6 +161,20 @@ public abstract class BaseNautilusClient implements RpcCaller, AutoCloseable {
     @Override
     public final Executor executor() {
         return this.executor;
+    }
+
+    @Override
+    public final EventRegistry eventRegistry() {
+        return this.eventRegistry;
+    }
+
+    @Override
+    public String transactionId() {
+        return null;
+    }
+
+    protected final NautilusOptions options() {
+        return this.options;
     }
 
     public final String startTransaction(TransactionOptions options) {
