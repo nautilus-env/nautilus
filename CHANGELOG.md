@@ -1,6 +1,18 @@
 # Changelog
 
-## Version 1.2.4
+## Version 1.3.0
+
+### Added
+
+- Added a cross-language CRUD event system for generated JavaScript/TypeScript,
+  Python, Java, and Rust clients, with before, after, and error phases for
+  create, createMany, update, delete, and deleteMany operations.
+- Generated clients now expose typed event contexts and registration APIs with
+  shared per-operation state, transaction metadata, handler priorities, and
+  stop-propagation/default-result handling.
+- Java code generation now emits event annotations and an `EventRegistry` wired
+  through generated clients, while Rust code generation now emits an events
+  runtime and includes the new `nautilus-events-macros` workspace crate.
 
 ### Fixed
 
