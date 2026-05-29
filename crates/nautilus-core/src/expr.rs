@@ -71,6 +71,41 @@ pub enum BinaryOp {
     NotIn,
 }
 
+/// A SQL fragment emitted verbatim into the query text, **not** bound as a
+/// parameter (e.g. literal key names in `json_build_object`).
+///
+/// Because the contained text bypasses parameter binding, it must never carry
+/// untrusted user input. This newtype makes that contract explicit: a value can
+/// only be created through [`LiteralSql::from_static`] (compile-time safe) or
+/// [`LiteralSql::trusted`] (a deliberately-named, greppable assertion that the
+/// caller vetted the string). The inner `String` is private, so an
+/// `Expr::Literal` can never be built directly from a bare runtime string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiteralSql(String);
+
+impl LiteralSql {
+    /// Build from a compile-time string. Always safe: a `&'static str` baked into
+    /// the binary can never be untrusted user input.
+    #[must_use]
+    pub fn from_static(text: &'static str) -> Self {
+        Self(text.to_string())
+    }
+
+    /// Build from a runtime string the caller asserts is trusted (e.g. a schema
+    /// column name), never raw user input. Prefer [`Self::from_static`] when the
+    /// value is known at compile time.
+    #[must_use]
+    pub fn trusted(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// The underlying SQL text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Expression node for WHERE clauses and filters.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -128,8 +163,9 @@ pub enum Expr {
     ///
     /// Use this sparingly — only for values that must appear as SQL literals
     /// rather than positional parameters (e.g. keys in `json_build_object`).
-    /// Never pass untrusted user input through `Literal`.
-    Literal(String),
+    /// The [`LiteralSql`] newtype enforces that the text is trusted, never raw
+    /// user input.
+    Literal(LiteralSql),
     /// An ordered list of expressions for use in IN / NOT IN clauses.
     ///
     /// Rendered as a comma-separated sequence; the surrounding parentheses are
@@ -305,7 +341,7 @@ impl Expr {
     pub fn json_build_object(pairs: Vec<(String, Expr)>) -> Self {
         let args: Vec<Expr> = pairs
             .into_iter()
-            .flat_map(|(key, value)| vec![Expr::Literal(key), value])
+            .flat_map(|(key, value)| vec![Expr::Literal(LiteralSql::trusted(key)), value])
             .collect();
 
         Expr::FunctionCall {

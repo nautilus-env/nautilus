@@ -10,27 +10,9 @@ pub struct SqliteDialect;
 /// Renders query ASTs into SQLite-compatible SQL with `?` placeholders
 /// and double-quoted identifiers.
 impl Dialect for SqliteDialect {
-    fn render_select(&self, select: &Select) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_select_render(select));
-        render_select_body_core!(&mut ctx, select, '"', render_expr, false, false);
-        Ok(Sql {
-            text: ctx.sql,
-            params: ctx.params,
-        })
-    }
-
     fn render_select_owned(&self, mut select: Select) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_select_render(&select));
         render_select_body_core_mut!(&mut ctx, &mut select, '"', render_expr_owned, false, false);
-        Ok(Sql {
-            text: ctx.sql,
-            params: ctx.params,
-        })
-    }
-
-    fn render_insert(&self, insert: &Insert) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_insert_render(insert));
-        render_insert_body!(&mut ctx, insert, '"', true, false);
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,
@@ -46,27 +28,9 @@ impl Dialect for SqliteDialect {
         })
     }
 
-    fn render_update(&self, update: &Update) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_update_render(update));
-        render_update_body!(&mut ctx, update, '"', render_expr, true, false);
-        Ok(Sql {
-            text: ctx.sql,
-            params: ctx.params,
-        })
-    }
-
     fn render_update_owned(&self, mut update: Update) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_update_render(&update));
         render_update_body_mut!(&mut ctx, &mut update, '"', render_expr_owned, true, false);
-        Ok(Sql {
-            text: ctx.sql,
-            params: ctx.params,
-        })
-    }
-
-    fn render_delete(&self, delete: &Delete) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_delete_render(delete));
-        render_delete_body!(&mut ctx, delete, '"', render_expr, true);
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,
@@ -106,101 +70,8 @@ impl RenderContext {
     }
 }
 
-fn render_select_body(ctx: &mut RenderContext, select: &crate::Select) {
-    render_select_body_core!(ctx, select, '"', render_expr, false, false);
-}
-
 fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select) {
     render_select_body_core_mut!(ctx, select, '"', render_expr_owned, false, false);
-}
-
-fn render_expr(ctx: &mut RenderContext, expr: &Expr) {
-    render_expr_common!(ctx, expr, '"', render_expr, render_select_body, {
-        Expr::Param(value) => {
-            if matches!(value, Value::Null) {
-                ctx.sql.push_str("NULL");
-            } else {
-                ctx.push_param(value.clone());
-            }
-        }
-        Expr::Binary { left, op, right } => {
-            if matches!(op, BinaryOp::In | BinaryOp::NotIn) {
-                ctx.sql.push('(');
-                render_expr(ctx, left);
-                ctx.sql.push(' ');
-                ctx.sql.push_str(if matches!(op, BinaryOp::In) { "IN" } else { "NOT IN" });
-                ctx.sql.push_str(" (");
-                if let Expr::List(exprs) = right.as_ref() {
-                    for (i, e) in exprs.iter().enumerate() {
-                        if i > 0 { ctx.sql.push_str(", "); }
-                        render_expr(ctx, e);
-                    }
-                } else {
-                    render_expr(ctx, right);
-                }
-                ctx.sql.push(')');
-                ctx.sql.push(')');
-            } else if matches!(op, BinaryOp::ArrayContains | BinaryOp::ArrayContainedBy | BinaryOp::ArrayOverlaps) {
-                // Array operators emulated via SQLite JSON functions.
-                // Arrays are bound as JSON strings by the connector layer; json_each unpacks them.
-                match op {
-                    BinaryOp::ArrayContains => {
-                        // col @> rhs: every element of rhs exists in col.
-                        ctx.sql.push_str("NOT EXISTS (SELECT 1 FROM json_each(");
-                        render_expr(ctx, right);
-                        ctx.sql.push_str(") AS _rhs WHERE NOT EXISTS (SELECT 1 FROM json_each(");
-                        render_expr(ctx, left);
-                        ctx.sql.push_str(") AS _col WHERE _col.value IS _rhs.value))");
-                    }
-                    BinaryOp::ArrayContainedBy => {
-                        // col <@ rhs: every element of col exists in rhs.
-                        ctx.sql.push_str("NOT EXISTS (SELECT 1 FROM json_each(");
-                        render_expr(ctx, left);
-                        ctx.sql.push_str(") AS _col WHERE NOT EXISTS (SELECT 1 FROM json_each(");
-                        render_expr(ctx, right);
-                        ctx.sql.push_str(") AS _rhs WHERE _col.value IS _rhs.value))");
-                    }
-                    BinaryOp::ArrayOverlaps => {
-                        // col && rhs: at least one element in common.
-                        ctx.sql.push_str("EXISTS (SELECT 1 FROM json_each(");
-                        render_expr(ctx, left);
-                        ctx.sql.push_str(") AS _col WHERE EXISTS (SELECT 1 FROM json_each(");
-                        render_expr(ctx, right);
-                        ctx.sql.push_str(") AS _rhs WHERE _col.value IS _rhs.value))");
-                    }
-                    _ => unreachable!(),
-                }
-            } else {
-                ctx.sql.push('(');
-                render_expr(ctx, left);
-                ctx.sql.push(' ');
-                ctx.sql.push_str(crate::binary_op_sql(op));
-                ctx.sql.push(' ');
-                render_expr(ctx, right);
-                ctx.sql.push(')');
-            }
-        }
-        Expr::FunctionCall { name, args } => {
-            let sqlite_name = match name.as_str() {
-                "json_agg" => "json_group_array",
-                "json_build_object" => "json_object",
-                _ => name,
-            };
-            ctx.sql.push_str(sqlite_name);
-            ctx.sql.push('(');
-            for (i, arg) in args.iter().enumerate() {
-                if i > 0 { ctx.sql.push_str(", "); }
-                render_expr(ctx, arg);
-            }
-            ctx.sql.push(')');
-        }
-        Expr::Filter { expr, predicate } => {
-            render_expr(ctx, expr);
-            ctx.sql.push_str(" FILTER (WHERE ");
-            render_expr(ctx, predicate);
-            ctx.sql.push(')');
-        }
-    });
 }
 
 fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {

@@ -172,10 +172,11 @@ pub trait Executor: Send + Sync {
     {
         Box::pin(async move {
             let mut rows = self.execute_collect(sql).await?;
-            match rows.len() {
-                1 => Ok(rows.pop().expect("row count checked above")),
-                0 => Err(Error::database_msg("Expected exactly one row, got 0")),
-                count => Err(Error::database_msg(format!(
+            let count = rows.len();
+            match rows.pop() {
+                Some(row) if count == 1 => Ok(row),
+                None => Err(Error::database_msg("Expected exactly one row, got 0")),
+                _ => Err(Error::database_msg(format!(
                     "Expected exactly one row, got {}",
                     count
                 ))),

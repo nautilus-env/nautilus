@@ -4,8 +4,6 @@
 //! problems) are represented here as [`ConnectorError`], keeping `nautilus-core`
 //! free of any dependency on database driver concepts.
 
-use std::fmt;
-
 /// Classification of the underlying `sqlx::Error` discriminant.
 ///
 /// Enables programmatic inspection of the original error category without
@@ -120,16 +118,20 @@ impl SqlxErrorKind {
 /// Each variant that originates from a sqlx error carries a [`SqlxErrorKind`]
 /// discriminant for programmatic inspection (e.g. constraint violations vs I/O
 /// errors) without storing the non-`Clone` `sqlx::Error` itself.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ConnectorError {
     /// A query was executed successfully but the database returned an error.
+    #[error("Database error: {1}")]
     Database(SqlxErrorKind, String),
     /// Could not establish or acquire a database connection.
+    #[error("Connection error: {1}")]
     Connection(SqlxErrorKind, String),
     /// A row could not be decoded into the expected Rust types.
+    #[error("Row decode error: {1}")]
     RowDecode(SqlxErrorKind, String),
     /// A query-building error originating from `nautilus-core`.
-    Core(nautilus_core::Error),
+    #[error("Core error: {0}")]
+    Core(#[from] nautilus_core::Error),
 }
 
 impl ConnectorError {
@@ -171,32 +173,6 @@ impl ConnectorError {
             | ConnectorError::RowDecode(k, _) => *k,
             ConnectorError::Core(_) => SqlxErrorKind::None,
         }
-    }
-}
-
-impl fmt::Display for ConnectorError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ConnectorError::Database(_, msg) => write!(f, "Database error: {}", msg),
-            ConnectorError::Connection(_, msg) => write!(f, "Connection error: {}", msg),
-            ConnectorError::RowDecode(_, msg) => write!(f, "Row decode error: {}", msg),
-            ConnectorError::Core(e) => write!(f, "Core error: {}", e),
-        }
-    }
-}
-
-impl std::error::Error for ConnectorError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ConnectorError::Core(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<nautilus_core::Error> for ConnectorError {
-    fn from(e: nautilus_core::Error) -> Self {
-        ConnectorError::Core(e)
     }
 }
 

@@ -89,6 +89,34 @@ pub trait LanguageBackend {
         }
     }
 
+    /// Returns the standard string operators (`contains`, `startswith`/`startsWith`,
+    /// `endswith`/`endsWith`, `in`, `not_in`/`notIn`) for a string-like type.
+    fn string_operators(&self, type_name: &str) -> Vec<FilterOperator> {
+        let arr = self.array_type(type_name);
+        vec![
+            FilterOperator {
+                suffix: "contains".to_string(),
+                type_name: type_name.to_string(),
+            },
+            FilterOperator {
+                suffix: self.startswith_suffix().to_string(),
+                type_name: type_name.to_string(),
+            },
+            FilterOperator {
+                suffix: self.endswith_suffix().to_string(),
+                type_name: type_name.to_string(),
+            },
+            FilterOperator {
+                suffix: "in".to_string(),
+                type_name: arr.clone(),
+            },
+            FilterOperator {
+                suffix: self.not_in_suffix().to_string(),
+                type_name: arr,
+            },
+        ]
+    }
+
     /// Returns the standard comparison operators (`lt`, `lte`, `gt`, `gte`,
     /// `in`, `not_in`/`notIn`) for a numeric-like type.
     fn numeric_operators(&self, type_name: &str) -> Vec<FilterOperator> {
@@ -127,28 +155,7 @@ pub trait LanguageBackend {
 
         match scalar {
             ScalarType::String | ScalarType::Citext | ScalarType::Ltree => {
-                let str_t = self.scalar_to_type(&ScalarType::String);
-                let arr = self.array_type(str_t);
-                ops.push(FilterOperator {
-                    suffix: "contains".to_string(),
-                    type_name: str_t.to_string(),
-                });
-                ops.push(FilterOperator {
-                    suffix: self.startswith_suffix().to_string(),
-                    type_name: str_t.to_string(),
-                });
-                ops.push(FilterOperator {
-                    suffix: self.endswith_suffix().to_string(),
-                    type_name: str_t.to_string(),
-                });
-                ops.push(FilterOperator {
-                    suffix: "in".to_string(),
-                    type_name: arr.clone(),
-                });
-                ops.push(FilterOperator {
-                    suffix: self.not_in_suffix().to_string(),
-                    type_name: arr,
-                });
+                ops.extend(self.string_operators(self.scalar_to_type(&ScalarType::String)));
             }
             ScalarType::Hstore
             | ScalarType::Geometry
@@ -179,28 +186,7 @@ pub trait LanguageBackend {
                 });
             }
             ScalarType::Xml | ScalarType::Char { .. } | ScalarType::VarChar { .. } => {
-                let str_t = self.scalar_to_type(scalar);
-                let arr = self.array_type(str_t);
-                ops.push(FilterOperator {
-                    suffix: "contains".to_string(),
-                    type_name: str_t.to_string(),
-                });
-                ops.push(FilterOperator {
-                    suffix: self.startswith_suffix().to_string(),
-                    type_name: str_t.to_string(),
-                });
-                ops.push(FilterOperator {
-                    suffix: self.endswith_suffix().to_string(),
-                    type_name: str_t.to_string(),
-                });
-                ops.push(FilterOperator {
-                    suffix: "in".to_string(),
-                    type_name: arr.clone(),
-                });
-                ops.push(FilterOperator {
-                    suffix: self.not_in_suffix().to_string(),
-                    type_name: arr,
-                });
+                ops.extend(self.string_operators(self.scalar_to_type(scalar)));
             }
             // Boolean, Bytes, Json, Jsonb, Vector: only equality via the direct field value.
             ScalarType::Boolean | ScalarType::Bytes | ScalarType::Json | ScalarType::Jsonb => {}

@@ -237,7 +237,9 @@ impl Executor for MysqlExecutor {
             .await?;
 
             drop(conn);
-            Ok(row.expect("cardinality checked above"))
+            // `ExactlyOne` already validated row_count == 1, so `row` is always
+            // `Some` here; the fallback keeps this a graceful error, never a panic.
+            row.ok_or_else(|| Error::database_msg("Expected exactly one row, got 0"))
         })
     }
 

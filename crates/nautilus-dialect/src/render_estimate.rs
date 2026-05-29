@@ -305,7 +305,7 @@ fn estimate_expr_render(expr: &nautilus_core::Expr) -> RenderEstimate {
             estimate.merge(estimate_expr_render(inner));
             estimate
         }
-        Expr::Literal(value) => RenderEstimate::new(value.len() * 2 + 2, 0),
+        Expr::Literal(value) => RenderEstimate::new(value.as_str().len() * 2 + 2, 0),
         Expr::List(values) => {
             let mut estimate = RenderEstimate::default();
             for value in values {

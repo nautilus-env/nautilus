@@ -272,7 +272,9 @@ impl Executor for PgExecutor {
             .await?;
 
             drop(conn);
-            Ok(row.expect("cardinality checked above"))
+            // `ExactlyOne` already validated row_count == 1, so `row` is always
+            // `Some` here; the fallback keeps this a graceful error, never a panic.
+            row.ok_or_else(|| Error::database_msg("Expected exactly one row, got 0"))
         })
     }
 
@@ -319,182 +321,61 @@ enum PgArrayBinding {
     Bools(Vec<bool>),
 }
 
+/// Collect a homogeneous slice of [`Value`]s into a typed vector for array binding.
+///
+/// Matches every element against `Value::$variant`, applying `$elem => $map` to
+/// extract the bound element. A `Value::Null` element, or any element of a
+/// different variant, produces a descriptive `expected $expected` error.
+macro_rules! collect_pg_array {
+    ($items:expr, $variant:ident, $elem:pat => $map:expr, $expected:literal) => {{
+        let mut values = Vec::with_capacity($items.len());
+        for (idx, item) in $items.iter().enumerate() {
+            match item {
+                Value::$variant($elem) => values.push($map),
+                Value::Null => {
+                    return Err(Error::database_msg(format!(
+                        "PostgreSQL typed array binding does not support NULL element at index {}",
+                        idx
+                    )));
+                }
+                other => {
+                    return Err(Error::database_msg(format!(
+                        "PostgreSQL array element at index {} has type {:?}; expected {}",
+                        idx, other, $expected
+                    )));
+                }
+            }
+        }
+        values
+    }};
+}
+
 fn bindable_pg_array(items: &[Value]) -> Result<Option<PgArrayBinding>> {
     let Some(first) = items.first() else {
         return Ok(Some(PgArrayBinding::Strings(Vec::new())));
     };
 
-    match first {
+    let binding = match first {
         Value::String(_) => {
-            let mut values = Vec::with_capacity(items.len());
-            for (idx, item) in items.iter().enumerate() {
-                match item {
-                    Value::String(value) => values.push(value.clone()),
-                    Value::Null => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL typed array binding does not support NULL element at index {}",
-                            idx
-                        )));
-                    }
-                    other => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL array element at index {} has type {:?}; expected String",
-                            idx, other
-                        )));
-                    }
-                }
-            }
-            Ok(Some(PgArrayBinding::Strings(values)))
+            PgArrayBinding::Strings(collect_pg_array!(items, String, v => v.clone(), "String"))
         }
-        Value::Hstore(_) => {
-            let mut values = Vec::with_capacity(items.len());
-            for (idx, item) in items.iter().enumerate() {
-                match item {
-                    Value::Hstore(value) => values.push(PgHstore(value.clone())),
-                    Value::Null => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL typed array binding does not support NULL element at index {}",
-                            idx
-                        )));
-                    }
-                    other => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL array element at index {} has type {:?}; expected Hstore",
-                            idx, other
-                        )));
-                    }
-                }
-            }
-            Ok(Some(PgArrayBinding::Hstores(values)))
-        }
-        Value::Geometry(_) => {
-            let mut values = Vec::with_capacity(items.len());
-            for (idx, item) in items.iter().enumerate() {
-                match item {
-                    Value::Geometry(value) => values.push(value.clone()),
-                    Value::Null => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL typed array binding does not support NULL element at index {}",
-                            idx
-                        )));
-                    }
-                    other => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL array element at index {} has type {:?}; expected Geometry",
-                            idx, other
-                        )));
-                    }
-                }
-            }
-            Ok(Some(PgArrayBinding::Geometries(values)))
-        }
-        Value::Geography(_) => {
-            let mut values = Vec::with_capacity(items.len());
-            for (idx, item) in items.iter().enumerate() {
-                match item {
-                    Value::Geography(value) => values.push(value.clone()),
-                    Value::Null => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL typed array binding does not support NULL element at index {}",
-                            idx
-                        )));
-                    }
-                    other => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL array element at index {} has type {:?}; expected Geography",
-                            idx, other
-                        )));
-                    }
-                }
-            }
-            Ok(Some(PgArrayBinding::Geographies(values)))
-        }
-        Value::I32(_) => {
-            let mut values = Vec::with_capacity(items.len());
-            for (idx, item) in items.iter().enumerate() {
-                match item {
-                    Value::I32(value) => values.push(*value),
-                    Value::Null => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL typed array binding does not support NULL element at index {}",
-                            idx
-                        )));
-                    }
-                    other => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL array element at index {} has type {:?}; expected I32",
-                            idx, other
-                        )));
-                    }
-                }
-            }
-            Ok(Some(PgArrayBinding::I32s(values)))
-        }
-        Value::I64(_) => {
-            let mut values = Vec::with_capacity(items.len());
-            for (idx, item) in items.iter().enumerate() {
-                match item {
-                    Value::I64(value) => values.push(*value),
-                    Value::Null => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL typed array binding does not support NULL element at index {}",
-                            idx
-                        )));
-                    }
-                    other => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL array element at index {} has type {:?}; expected I64",
-                            idx, other
-                        )));
-                    }
-                }
-            }
-            Ok(Some(PgArrayBinding::I64s(values)))
-        }
-        Value::F64(_) => {
-            let mut values = Vec::with_capacity(items.len());
-            for (idx, item) in items.iter().enumerate() {
-                match item {
-                    Value::F64(value) => values.push(*value),
-                    Value::Null => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL typed array binding does not support NULL element at index {}",
-                            idx
-                        )));
-                    }
-                    other => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL array element at index {} has type {:?}; expected F64",
-                            idx, other
-                        )));
-                    }
-                }
-            }
-            Ok(Some(PgArrayBinding::F64s(values)))
-        }
-        Value::Bool(_) => {
-            let mut values = Vec::with_capacity(items.len());
-            for (idx, item) in items.iter().enumerate() {
-                match item {
-                    Value::Bool(value) => values.push(*value),
-                    Value::Null => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL typed array binding does not support NULL element at index {}",
-                            idx
-                        )));
-                    }
-                    other => {
-                        return Err(Error::database_msg(format!(
-                            "PostgreSQL array element at index {} has type {:?}; expected Bool",
-                            idx, other
-                        )));
-                    }
-                }
-            }
-            Ok(Some(PgArrayBinding::Bools(values)))
-        }
-        _ => Ok(None),
-    }
+        Value::Hstore(_) => PgArrayBinding::Hstores(
+            collect_pg_array!(items, Hstore, v => PgHstore(v.clone()), "Hstore"),
+        ),
+        Value::Geometry(_) => PgArrayBinding::Geometries(
+            collect_pg_array!(items, Geometry, v => v.clone(), "Geometry"),
+        ),
+        Value::Geography(_) => PgArrayBinding::Geographies(
+            collect_pg_array!(items, Geography, v => v.clone(), "Geography"),
+        ),
+        Value::I32(_) => PgArrayBinding::I32s(collect_pg_array!(items, I32, v => *v, "I32")),
+        Value::I64(_) => PgArrayBinding::I64s(collect_pg_array!(items, I64, v => *v, "I64")),
+        Value::F64(_) => PgArrayBinding::F64s(collect_pg_array!(items, F64, v => *v, "F64")),
+        Value::Bool(_) => PgArrayBinding::Bools(collect_pg_array!(items, Bool, v => *v, "Bool")),
+        _ => return Ok(None),
+    };
+
+    Ok(Some(binding))
 }
 
 /// Binds a [`Value`] to a PostgreSQL sqlx query as a typed parameter.
