@@ -1,5 +1,28 @@
 # Changelog
 
+## Version 1.3.1
+
+### Added
+
+- Added PostgreSQL native composite type support, including schema `type`
+  blocks, create/update binding, row decoding, and generated client type
+  support across Rust, JavaScript/TypeScript, Python, and Java.
+- Migrations can now create, drop, introspect, serialize, and reparse
+  PostgreSQL composite types and composite arrays, while SQLite and MySQL keep
+  composite fields on the JSON storage path.
+- Schema tooling now understands composite type declarations in parsing,
+  validation, formatting, completion, hover, and go-to-definition flows.
+
+### Fixed
+
+- Composite type `@@map` and field `@map` names are now preserved through IR,
+  DDL generation, migration serialization, runtime conversion, and generated
+  code.
+- PostgreSQL composite type names are now quoted consistently in generated DDL
+  and runtime casts, so mapped mixed-case SQL type names work correctly.
+- Composite type validation now rejects unsupported model/field attributes and
+  nested composite references with clearer diagnostics.
+
 ## Version 1.3.0
 
 ### Added
