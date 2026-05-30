@@ -68,10 +68,7 @@ impl SchemaValidator<'_> {
                 ModelAttribute::Map(_) => {
                     if seen_map {
                         self.errors.push_back(SchemaError::Validation(
-                            format!(
-                                "Duplicate @@map on type '{}'",
-                                type_decl.name.value
-                            ),
+                            format!("Duplicate @@map on type '{}'", type_decl.name.value),
                             type_decl.name.span,
                         ));
                     }
@@ -98,13 +95,15 @@ impl SchemaValidator<'_> {
                     ),
                     type_decl.name.span,
                 )),
-                ModelAttribute::Check { span, .. } => self.errors.push_back(SchemaError::Validation(
-                    format!(
-                        "@@check is not allowed on a composite type (type '{}')",
-                        type_decl.name.value
-                    ),
-                    *span,
-                )),
+                ModelAttribute::Check { span, .. } => {
+                    self.errors.push_back(SchemaError::Validation(
+                        format!(
+                            "@@check is not allowed on a composite type (type '{}')",
+                            type_decl.name.value
+                        ),
+                        *span,
+                    ))
+                }
             }
         }
     }

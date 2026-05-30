@@ -220,7 +220,9 @@ pub(crate) fn field_value_hint(
         // Native (PostgreSQL) composites come back as a record-literal string and
         // need schema-aware decoding; non-array fields only. JSON-stored
         // composites round-trip as ordinary JSON.
-        ResolvedFieldType::CompositeType { type_name, .. } if native_composites && !field.is_array => {
+        ResolvedFieldType::CompositeType { type_name, .. }
+            if native_composites && !field.is_array =>
+        {
             composite_types
                 .get(type_name)
                 .map(|composite| ValueHint::Composite(std::sync::Arc::new(composite.clone())))

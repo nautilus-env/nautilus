@@ -180,7 +180,7 @@ impl ParamCast {
             }
             Self::Enum(type_name) | Self::Composite(type_name) => {
                 sql.push_str("::");
-                sql.push_str(type_name);
+                crate::push_quoted_identifier(sql, type_name, '"');
             }
         }
     }
@@ -404,7 +404,7 @@ mod tests {
     fn composite_params_are_cast_to_their_type_name() {
         let dialect = PostgresDialect;
         let composite = Value::Composite {
-            type_name: "championstats".to_string(),
+            type_name: "ChampionStatsT".to_string(),
             fields: vec![Value::I32(0), Value::I32(0)],
         };
         let select = Select::from_table("champions")
@@ -415,7 +415,44 @@ mod tests {
 
         assert_eq!(
             sql.text,
-            "SELECT * FROM \"champions\" WHERE (\"champions\".\"stats\" = $1::championstats)"
+            "SELECT * FROM \"champions\" WHERE (\"champions\".\"stats\" = $1::\"ChampionStatsT\")"
+        );
+        assert_eq!(sql.params, vec![composite]);
+    }
+
+    #[test]
+    fn composite_insert_and_update_params_are_cast_to_their_type_name() {
+        let dialect = PostgresDialect;
+        let composite = Value::Composite {
+            type_name: "ChampionStatsT".to_string(),
+            fields: vec![Value::I32(0), Value::I32(0)],
+        };
+
+        let insert = Insert::into_table("champions")
+            .column(nautilus_core::ColumnMarker::new("champions", "stats"))
+            .values(vec![composite.clone()])
+            .build()
+            .unwrap();
+        let sql = dialect.render_insert(&insert).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "INSERT INTO \"champions\" (\"stats\") VALUES ($1::\"ChampionStatsT\")"
+        );
+        assert_eq!(sql.params, vec![composite.clone()]);
+
+        let update = Update::table("champions")
+            .set(
+                nautilus_core::ColumnMarker::new("champions", "stats"),
+                composite.clone(),
+            )
+            .build()
+            .unwrap();
+        let sql = dialect.render_update(&update).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "UPDATE \"champions\" SET \"stats\" = $1::\"ChampionStatsT\""
         );
         assert_eq!(sql.params, vec![composite]);
     }

@@ -395,7 +395,10 @@ type Address {
     assert_eq!(type_decl.mapped_name(), Some("address_t"));
     assert_eq!(type_decl.db_type_name(), "address_t");
     assert_eq!(type_decl.fields.len(), 2);
-    assert_eq!(type_decl.find_field("zip").unwrap().column_name(), "zip_code");
+    assert_eq!(
+        type_decl.find_field("zip").unwrap().column_name(),
+        "zip_code"
+    );
 }
 
 #[test]

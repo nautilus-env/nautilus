@@ -525,8 +525,10 @@ fn completion_after_atat_in_type_block_only_offers_map() {
         labels
     );
     assert!(
-        !labels.iter().any(|l| l.starts_with("id") || l.starts_with("index")
-            || l.starts_with("unique") || l.starts_with("check")),
+        !labels.iter().any(|l| l.starts_with("id")
+            || l.starts_with("index")
+            || l.starts_with("unique")
+            || l.starts_with("check")),
         "type block must not offer model-only @@ attributes: {:?}",
         labels
     );

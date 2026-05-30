@@ -290,7 +290,48 @@ model User {
         .find(|s| s.contains("CREATE TABLE"))
         .unwrap();
     assert!(table_stmt.contains("address_t"));
-    assert!(!table_stmt.to_lowercase().contains("\"address\" \"address\""));
+    assert!(!table_stmt
+        .to_lowercase()
+        .contains("\"address\" \"address\""));
+}
+
+#[test]
+fn test_composite_type_postgres_ddl_quotes_mapped_type_name() {
+    let source = r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgres://localhost/test"
+}
+
+type Address {
+  street String
+  @@map("AddressT")
+}
+
+model User {
+  id        Int       @id
+  address   Address
+  addresses Address[]
+}
+"#;
+    let ir = common::parse(source).unwrap();
+    let generator = DdlGenerator::new(DatabaseProvider::Postgres);
+    let statements = generator.generate_create_tables(&ir).unwrap();
+
+    let composite_stmt = statements
+        .iter()
+        .find(|s| s.contains("CREATE TYPE \"AddressT\" AS"))
+        .expect("Missing CREATE TYPE statement using quoted @@map name");
+    assert!(composite_stmt.contains("\"street\" TEXT"));
+
+    let table_stmt = statements
+        .iter()
+        .find(|s| s.contains("CREATE TABLE"))
+        .unwrap();
+    assert!(table_stmt.contains("\"address\" \"AddressT\""));
+    assert!(table_stmt.contains("\"addresses\" \"AddressT\"[]"));
+    assert!(!table_stmt.contains(" addressT"));
+    assert!(!table_stmt.contains(" AddressT"));
 }
 
 #[test]

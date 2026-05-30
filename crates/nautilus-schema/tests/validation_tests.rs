@@ -155,7 +155,11 @@ model User {
     let ir = validate_schema(ast).expect("schema with @@map/@map on composite should validate");
     let address = ir.composite_types.get("Address").unwrap();
     assert_eq!(address.db_name, "address_t");
-    let zip = address.fields.iter().find(|f| f.logical_name == "zip").unwrap();
+    let zip = address
+        .fields
+        .iter()
+        .find(|f| f.logical_name == "zip")
+        .unwrap();
     assert_eq!(zip.db_name, "zip_code");
 }
 

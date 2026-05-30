@@ -732,7 +732,7 @@ impl DdlGenerator {
                 ));
             } else if let ResolvedFieldType::CompositeType { type_name, db_name } = field_type {
                 if strategy.supports_user_defined_types() {
-                    return Ok(format!("{}[]", db_name));
+                    return Ok(format!("{}[]", self.quote_type_identifier(db_name)));
                 }
                 if let Some(storage_sql) = strategy.composite_storage_sql(storage_strategy) {
                     return Ok(storage_sql.to_string());
@@ -829,7 +829,7 @@ impl DdlGenerator {
             ResolvedFieldType::Relation(_) => return Ok("".to_string()),
             ResolvedFieldType::CompositeType { type_name, db_name } => {
                 if strategy.supports_user_defined_types() {
-                    return Ok(db_name.clone());
+                    return Ok(self.quote_type_identifier(db_name));
                 }
                 if let Some(storage_sql) = strategy.composite_storage_sql(storage_strategy) {
                     storage_sql

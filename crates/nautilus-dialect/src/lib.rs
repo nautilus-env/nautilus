@@ -60,8 +60,10 @@ macro_rules! render_insert_body_mut {
                 if matches!(value, nautilus_core::Value::Null) {
                     $ctx.sql.push_str("NULL");
                 } else {
-                    let enum_type_name = if $supports_enum_cast {
-                        if let nautilus_core::Value::Enum { type_name, .. } = value {
+                    let cast_type_name = if $supports_enum_cast {
+                        if let nautilus_core::Value::Enum { type_name, .. }
+                        | nautilus_core::Value::Composite { type_name, .. } = value
+                        {
                             Some(type_name.clone())
                         } else {
                             None
@@ -70,9 +72,9 @@ macro_rules! render_insert_body_mut {
                         None
                     };
                     $ctx.take_param(value);
-                    if let Some(type_name) = enum_type_name.as_deref() {
+                    if let Some(type_name) = cast_type_name.as_deref() {
                         $ctx.sql.push_str("::");
-                        $ctx.sql.push_str(type_name);
+                        crate::push_quoted_identifier(&mut $ctx.sql, type_name, $quote);
                     }
                 }
             }
@@ -101,8 +103,10 @@ macro_rules! render_update_body_mut {
             if matches!(value, nautilus_core::Value::Null) {
                 $ctx.sql.push_str("NULL");
             } else {
-                let enum_type_name = if $supports_enum_cast {
-                    if let nautilus_core::Value::Enum { type_name, .. } = value {
+                let cast_type_name = if $supports_enum_cast {
+                    if let nautilus_core::Value::Enum { type_name, .. }
+                    | nautilus_core::Value::Composite { type_name, .. } = value
+                    {
                         Some(type_name.clone())
                     } else {
                         None
@@ -111,9 +115,9 @@ macro_rules! render_update_body_mut {
                     None
                 };
                 $ctx.take_param(value);
-                if let Some(type_name) = enum_type_name.as_deref() {
+                if let Some(type_name) = cast_type_name.as_deref() {
                     $ctx.sql.push_str("::");
-                    $ctx.sql.push_str(type_name);
+                    crate::push_quoted_identifier(&mut $ctx.sql, type_name, $quote);
                 }
             }
         }
