@@ -21,8 +21,8 @@ use nautilus_codegen::{
     java::generate_java_client,
     js::{generate_all_js_models, generate_js_client, js_runtime_files},
     python::{
-        generate_all_python_models, generate_python_client, generate_python_enums,
-        python_runtime_files,
+        generate_all_python_models, generate_python_client, generate_python_composite_types,
+        generate_python_enums, python_runtime_files,
     },
 };
 use nautilus_schema::validate_schema_source;
@@ -1157,6 +1157,13 @@ model User {
     assert!(
         code.contains("result[db_key] = _serialize_scalar_input(key, value)"),
         "expected composite payload serialization to flow through _serialize_scalar_input:\n{code}"
+    );
+
+    let composite_types =
+        generate_python_composite_types(&ir.composite_types).expect("types should be generated");
+    assert!(
+        composite_types.contains("from typing_extensions import TypedDict"),
+        "expected Python composite TypedDicts to use typing_extensions on Python < 3.12:\n{composite_types}"
     );
 }
 

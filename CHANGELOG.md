@@ -1,5 +1,16 @@
 # Changelog
 
+## Version 1.3.2
+
+### Fixed
+
+- PostgreSQL composite columns returned in the binary protocol format are now
+  decoded before runtime normalization, fixing Python client reads and
+  `RETURNING` results for native composite fields.
+- Generated Python composite `TypedDict` helpers now import from
+  `typing_extensions` on Python versions before 3.12, keeping Pydantic v2
+  model construction compatible with Python 3.11.
+
 ## Version 1.3.1
 
 ### Added
