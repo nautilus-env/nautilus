@@ -230,7 +230,7 @@ fn output_base_python_type(
                 "str".to_string()
             }
         }
-        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+        ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         ResolvedFieldType::Relation(rel) => rel.target_model.clone(),
     }
 }
@@ -287,7 +287,7 @@ fn input_base_python_type(
                 "str".to_string()
             }
         }
-        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+        ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         ResolvedFieldType::Relation(rel) => rel.target_model.clone(),
     }
 }
@@ -361,7 +361,7 @@ fn generate_python_model_with_registry(
                     enum_imports.insert(enum_name.clone());
                 }
             }
-            ResolvedFieldType::CompositeType { type_name } => {
+            ResolvedFieldType::CompositeType { type_name, .. } => {
                 if ir.composite_types.contains_key(type_name) {
                     composite_type_imports.insert(type_name.clone());
                 }
@@ -835,7 +835,7 @@ pub fn generate_python_composite_types(
                             crate::python::type_mapper::scalar_to_python_type(s).to_string()
                         }
                         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
-                        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+                        ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
                         ResolvedFieldType::Relation(_) => "Any".to_string(),
                     };
                     let python_type = if f.is_array {

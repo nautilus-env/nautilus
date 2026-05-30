@@ -184,10 +184,16 @@ impl<'a> Parser<'a> {
         self.skip_newlines();
 
         let mut fields = Vec::new();
+        let mut attributes = Vec::new();
 
         while !self.check(TokenKind::RBrace) && !self.is_at_end() {
-            // Type blocks do not support @@ model-level attributes
-            fields.push(self.parse_field_decl()?);
+            // Composite types only allow `@@map`; the validator rejects any
+            // other type-level attribute parsed here.
+            if self.check(TokenKind::AtAt) {
+                attributes.push(self.parse_model_attribute()?);
+            } else {
+                fields.push(self.parse_field_decl()?);
+            }
             self.skip_newlines();
         }
 
@@ -195,6 +201,7 @@ impl<'a> Parser<'a> {
         Ok(TypeDecl {
             name,
             fields,
+            attributes,
             span: start.merge(end),
         })
     }

@@ -138,6 +138,65 @@ model User {
 }
 
 #[test]
+fn test_composite_type_map_attribute_ok() {
+    let source = r#"
+type Address {
+  street String
+  zip    String @map("zip_code")
+  @@map("address_t")
+}
+
+model User {
+  id      Int     @id
+  address Address @store(json)
+}
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).expect("schema with @@map/@map on composite should validate");
+    let address = ir.composite_types.get("Address").unwrap();
+    assert_eq!(address.db_name, "address_t");
+    let zip = address.fields.iter().find(|f| f.logical_name == "zip").unwrap();
+    assert_eq!(zip.db_name, "zip_code");
+}
+
+#[test]
+fn test_composite_type_rejects_id_attribute() {
+    let source = r#"
+type Address {
+  street String
+  @@id([street])
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(msg.contains("@@id is not allowed on a composite type"));
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn test_composite_type_rejects_duplicate_map() {
+    let source = r#"
+type Address {
+  street String
+  @@map("a")
+  @@map("b")
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(msg.contains("Duplicate @@map on type 'Address'"));
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
 fn test_composite_pk_array_field() {
     let source = r#"
 model User {

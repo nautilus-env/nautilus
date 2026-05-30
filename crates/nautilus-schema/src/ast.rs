@@ -616,6 +616,7 @@ pub struct EnumDecl {
 ///   street String
 ///   city   String
 ///   zip    String
+///   @@map("address_t")
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -624,6 +625,8 @@ pub struct TypeDecl {
     pub name: Ident,
     /// Field declarations (scalars, enums, and arrays — no relations).
     pub fields: Vec<FieldDecl>,
+    /// Type-level attributes. Only `@@map` is supported on composite types.
+    pub attributes: Vec<ModelAttribute>,
     /// Span covering the entire type block.
     pub span: Span,
 }
@@ -632,6 +635,24 @@ impl TypeDecl {
     /// Finds a field by name.
     pub fn find_field(&self, name: &str) -> Option<&FieldDecl> {
         self.fields.iter().find(|f| f.name.value == name)
+    }
+
+    /// Gets the explicit physical type name from a `@@map` attribute, if any.
+    pub fn mapped_name(&self) -> Option<&str> {
+        self.attributes.iter().find_map(|attr| match attr {
+            ModelAttribute::Map(name) => Some(name.as_str()),
+            _ => None,
+        })
+    }
+
+    /// Returns the physical SQL type name: the `@@map` value when present,
+    /// otherwise the lowercased logical name (PostgreSQL folds unquoted
+    /// identifiers to lower case, and the inspector reports `typname` in lower
+    /// case, so this keeps the schema/live-DB round-trip stable).
+    pub fn db_type_name(&self) -> String {
+        self.mapped_name()
+            .map(str::to_string)
+            .unwrap_or_else(|| self.name.value.to_lowercase())
     }
 }
 

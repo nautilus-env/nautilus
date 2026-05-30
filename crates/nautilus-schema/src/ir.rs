@@ -295,8 +295,10 @@ pub enum ResolvedFieldType {
     Relation(RelationIr),
     /// A composite type (embedded struct).
     CompositeType {
-        /// The logical name of the composite type.
+        /// The logical name of the composite type (used for generated code).
         type_name: String,
+        /// The physical SQL type name (`@@map` value or lowercased logical name).
+        db_name: String,
     },
 }
 
@@ -698,6 +700,8 @@ pub struct CompositeFieldIr {
 pub struct CompositeTypeIr {
     /// The logical type name as defined in the schema (e.g., "Address").
     pub logical_name: String,
+    /// The physical SQL type name (`@@map` value or lowercased logical name).
+    pub db_name: String,
     /// All fields of the composite type.
     pub fields: Vec<CompositeFieldIr>,
     /// Span of the type declaration.

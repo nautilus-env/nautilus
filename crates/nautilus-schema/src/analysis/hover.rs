@@ -412,7 +412,7 @@ fn field_attr_hover_text(name: &str, ast: Option<&Schema>, offset: usize) -> Str
 
 fn model_attr_hover_text(name: &str) -> String {
     match name {
-        "map"    => "**@@map(\"name\")** \nMaps this model to a different physical table name in the database.".to_string(),
+        "map"    => "**@@map(\"name\")** \nMaps this declaration to a different physical name in the database — the table name for a model, or the SQL composite type name for a `type`.".to_string(),
         "id"     => "**@@id([fields])**  \nDefines a composite primary key spanning multiple fields.".to_string(),
         "unique" => "**@@unique([fields])**  \nDefines a composite unique constraint spanning multiple fields.".to_string(),
         "index"  => "**@@index([fields], type?, opclass?, m?, ef_construction?, lists?, name?, map?)**  \nCreates a database index on the listed fields.  \n\nOptional arguments:  \n- `type:` — index access method: `BTree` (default, all DBs), `Hash` (PG/MySQL), `Gin` / `Gist` / `Brin` / `Hnsw` / `Ivfflat` (PostgreSQL only), `FullText` (MySQL only)  \n- `opclass:` — pgvector operator class for `Hnsw` / `Ivfflat`: `vector_l2_ops`, `vector_ip_ops`, `vector_cosine_ops`  \n- `m:` / `ef_construction:` — pgvector HNSW build parameters  \n- `lists:` — pgvector IVFFlat build parameter  \n- `name:` — logical developer name (ignored in DDL)  \n- `map:` — physical DDL index name override  \n\n**Examples:**  \n```  \n@@index([email])  \n@@index([email], type: Hash)  \n@@index([content], type: Gin)  \n@@index([embedding], type: Hnsw, opclass: vector_cosine_ops, m: 16, ef_construction: 64)  \n```".to_string(),
@@ -654,6 +654,9 @@ fn model_hover_content(
 /// Builds the full Markdown hover content for a `type` declaration.
 fn composite_type_hover_content(type_decl: &crate::ast::TypeDecl) -> String {
     let mut lines: Vec<String> = vec![format!("**type** `{}`", type_decl.name.value)];
+    if let Some(mapped) = type_decl.mapped_name() {
+        lines.push(format!("**SQL type:** `{}`", mapped));
+    }
     lines.push(format!("**Fields:** {}", type_decl.fields.len()));
     lines.push(String::new());
 

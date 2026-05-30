@@ -9,6 +9,8 @@ impl SchemaValidator<'_> {
     }
 
     pub(super) fn validate_composite_type(&mut self, type_decl: &TypeDecl) {
+        self.validate_composite_type_attributes(type_decl);
+
         let mut field_names: HashMap<String, Span> = HashMap::new();
         for field in &type_decl.fields {
             let name = &field.name.value;
@@ -52,6 +54,64 @@ impl SchemaValidator<'_> {
                 }
             }
 
+            self.validate_composite_field_attributes(field, type_decl);
+        }
+    }
+
+    /// Composite types only support a `@@map("name")` type-level attribute.
+    /// Any other `@@` attribute (`@@id`, `@@unique`, `@@index`, `@@check`) is
+    /// rejected, as is a duplicate `@@map`.
+    fn validate_composite_type_attributes(&mut self, type_decl: &TypeDecl) {
+        let mut seen_map = false;
+        for attr in &type_decl.attributes {
+            match attr {
+                ModelAttribute::Map(_) => {
+                    if seen_map {
+                        self.errors.push_back(SchemaError::Validation(
+                            format!(
+                                "Duplicate @@map on type '{}'",
+                                type_decl.name.value
+                            ),
+                            type_decl.name.span,
+                        ));
+                    }
+                    seen_map = true;
+                }
+                ModelAttribute::Id(_) => self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "@@id is not allowed on a composite type (type '{}')",
+                        type_decl.name.value
+                    ),
+                    type_decl.name.span,
+                )),
+                ModelAttribute::Unique(_) => self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "@@unique is not allowed on a composite type (type '{}')",
+                        type_decl.name.value
+                    ),
+                    type_decl.name.span,
+                )),
+                ModelAttribute::Index { .. } => self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "@@index is not allowed on a composite type (type '{}')",
+                        type_decl.name.value
+                    ),
+                    type_decl.name.span,
+                )),
+                ModelAttribute::Check { span, .. } => self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "@@check is not allowed on a composite type (type '{}')",
+                        type_decl.name.value
+                    ),
+                    *span,
+                )),
+            }
+        }
+    }
+
+    fn validate_composite_field_attributes(&mut self, field: &FieldDecl, type_decl: &TypeDecl) {
+        let name = &field.name.value;
+        {
             for attr in &field.attributes {
                 match attr {
                     FieldAttribute::Map(_) | FieldAttribute::Store { .. } => {}

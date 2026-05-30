@@ -1178,7 +1178,7 @@ fn projection_field_read_expr(config: &JavaConfig, model: &ModelIr, field: &Fiel
             ResolvedFieldType::Enum { enum_name } => {
                 format!("JsonSupport.asList({source}, value -> JsonSupport.asEnum(value, {enum_name}.class))")
             }
-            ResolvedFieldType::CompositeType { type_name } => {
+            ResolvedFieldType::CompositeType { type_name, .. } => {
                 format!("JsonSupport.asList({source}, {type_name}::fromJsonNode)")
             }
             ResolvedFieldType::Relation(_) => unreachable!(),
@@ -1203,7 +1203,7 @@ fn projection_field_read_expr(config: &JavaConfig, model: &ModelIr, field: &Fiel
             ResolvedFieldType::Enum { enum_name } => {
                 format!("JsonSupport.asEnum({source}, {enum_name}.class)")
             }
-            ResolvedFieldType::CompositeType { type_name } => {
+            ResolvedFieldType::CompositeType { type_name, .. } => {
                 format!("JsonSupport.asObject({source}, {type_name}::fromJsonNode)")
             }
             ResolvedFieldType::Relation(_) => unreachable!(),
@@ -1251,7 +1251,7 @@ fn generate_regular_field_read(
                 "        List<{enum_name}> {name} = JsonSupport.asList({source}, value -> JsonSupport.asEnum(value, {enum_name}.class));\n",
                 name = logical_name,
             ),
-            ResolvedFieldType::CompositeType { type_name } => format!(
+            ResolvedFieldType::CompositeType { type_name, .. } => format!(
                 "        List<{type_name}> {name} = JsonSupport.asList({source}, {type_name}::fromJsonNode);\n",
                 name = logical_name,
             ),
@@ -1278,7 +1278,7 @@ fn generate_regular_field_read(
                 "        {enum_name} {name} = JsonSupport.asEnum({source}, {enum_name}.class);\n",
                 name = logical_name,
             ),
-            ResolvedFieldType::CompositeType { type_name } => format!(
+            ResolvedFieldType::CompositeType { type_name, .. } => format!(
                 "        {type_name} {name} = JsonSupport.asObject({source}, {type_name}::fromJsonNode);\n",
                 name = logical_name,
             ),

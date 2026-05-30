@@ -253,6 +253,47 @@ model User {
 }
 
 #[test]
+fn test_composite_type_postgres_ddl_with_map_and_type_map() {
+    let source = r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgres://localhost/test"
+}
+
+type Address {
+  street String
+  zip    String @map("zip_code")
+  @@map("address_t")
+}
+
+model User {
+  id      Int     @id
+  address Address
+}
+"#;
+    let ir = common::parse(source).unwrap();
+    let generator = DdlGenerator::new(DatabaseProvider::Postgres);
+    let statements = generator.generate_create_tables(&ir).unwrap();
+
+    // @@map renames the SQL composite type; @map renames the inner column.
+    let composite_stmt = statements
+        .iter()
+        .find(|s| s.contains("CREATE TYPE \"address_t\" AS"))
+        .expect("Missing CREATE TYPE statement using @@map name");
+    assert!(composite_stmt.contains("\"street\" TEXT"));
+    assert!(composite_stmt.contains("\"zip_code\" TEXT"));
+    assert!(!composite_stmt.contains("\"zip\" TEXT"));
+
+    // The model column references the mapped SQL type name, not the logical one.
+    let table_stmt = statements
+        .iter()
+        .find(|s| s.contains("CREATE TABLE"))
+        .unwrap();
+    assert!(table_stmt.contains("address_t"));
+    assert!(!table_stmt.to_lowercase().contains("\"address\" \"address\""));
+}
+
+#[test]
 fn test_composite_type_sqlite_json_ddl() {
     let source = r#"
 datasource db {

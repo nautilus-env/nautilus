@@ -120,6 +120,10 @@ pub fn completion_with_analysis(
         return field_attribute_completions();
     }
     if attr_ctx == AttributeContext::ModelAttr {
+        // Composite types only support `@@map`; restrict the suggestion list.
+        if declaration_context_at_tokens(tokens, offset) == DeclarationContext::Type {
+            return type_attribute_completions();
+        }
         return model_attribute_completions();
     }
 
@@ -945,6 +949,15 @@ fn field_attribute_completions() -> Vec<CompletionItem> {
             Some("Add a CHECK constraint on this field".to_string()),
         ),
     ]
+}
+
+/// Type-level attribute completions (composite types only support `@@map`).
+fn type_attribute_completions() -> Vec<CompletionItem> {
+    vec![CompletionItem::new(
+        "map(\"\")",
+        CompletionKind::ModelAttribute,
+        Some("Override the SQL composite type name".to_string()),
+    )]
 }
 
 fn model_attribute_completions() -> Vec<CompletionItem> {

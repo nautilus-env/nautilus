@@ -40,7 +40,7 @@ fn resolved_base_type(
             }
             (enum_name.clone(), imports)
         }
-        ResolvedFieldType::CompositeType { type_name } => {
+        ResolvedFieldType::CompositeType { type_name, .. } => {
             if type_name != current_model_or_type {
                 imports.insert(format!("{root_package}.types.{type_name}"));
             }

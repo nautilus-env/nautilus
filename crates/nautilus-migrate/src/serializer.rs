@@ -123,6 +123,8 @@ pub fn serialize_live_schema_with_options(
                 ));
             }
         }
+        // Keep @@map explicit so the type/SQL-type mapping survives round-trips.
+        lines.push(format!("  @@map(\"{}\")", escape_schema_string(ct_db_name)));
         lines.push("}".to_string());
         parts.push(lines.join("\n"));
     }

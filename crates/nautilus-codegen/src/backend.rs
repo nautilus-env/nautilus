@@ -319,7 +319,7 @@ pub trait LanguageBackend {
                     self.scalar_to_type(&ScalarType::String).to_string()
                 }
             }
-            ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+            ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
             ResolvedFieldType::Relation(rel) => self.relation_type(&rel.target_model),
         }
     }

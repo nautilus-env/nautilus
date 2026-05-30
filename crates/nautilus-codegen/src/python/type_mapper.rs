@@ -32,7 +32,7 @@ pub fn field_to_python_type(
                 "str".to_string()
             }
         }
-        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+        ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         ResolvedFieldType::Relation(rel) => rel.target_model.clone(),
     };
 

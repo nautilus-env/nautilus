@@ -112,7 +112,7 @@ impl DdlGenerator {
             for composite_type in schema.composite_types.values() {
                 statements.push(format!(
                     "DROP TYPE IF EXISTS {}",
-                    self.quote_type_identifier(&composite_type.logical_name.to_lowercase())
+                    self.quote_type_identifier(&composite_type.db_name)
                 ));
             }
             for enum_def in schema.enums.values() {
@@ -378,7 +378,7 @@ impl DdlGenerator {
         Ok(format!(
             "DO $$ BEGIN CREATE TYPE {} AS ({}); \
              EXCEPTION WHEN duplicate_object THEN NULL; END $$",
-            self.quote_type_identifier(&ct.logical_name.to_lowercase()),
+            self.quote_type_identifier(&ct.db_name),
             columns.join(", ")
         ))
     }
@@ -730,9 +730,9 @@ impl DdlGenerator {
                 return Err(MigrationError::ValidationError(
                     strategy.native_array_support_error(),
                 ));
-            } else if let ResolvedFieldType::CompositeType { type_name } = field_type {
+            } else if let ResolvedFieldType::CompositeType { type_name, db_name } = field_type {
                 if strategy.supports_user_defined_types() {
-                    return Ok(format!("{}[]", type_name.to_lowercase()));
+                    return Ok(format!("{}[]", db_name));
                 }
                 if let Some(storage_sql) = strategy.composite_storage_sql(storage_strategy) {
                     return Ok(storage_sql.to_string());
@@ -827,9 +827,9 @@ impl DdlGenerator {
                 DatabaseProvider::Sqlite | DatabaseProvider::Mysql => "TEXT",
             },
             ResolvedFieldType::Relation(_) => return Ok("".to_string()),
-            ResolvedFieldType::CompositeType { type_name } => {
+            ResolvedFieldType::CompositeType { type_name, db_name } => {
                 if strategy.supports_user_defined_types() {
-                    return Ok(type_name.to_lowercase());
+                    return Ok(db_name.clone());
                 }
                 if let Some(storage_sql) = strategy.composite_storage_sql(storage_strategy) {
                     storage_sql
@@ -921,8 +921,8 @@ impl DdlGenerator {
             ResolvedFieldType::Enum { enum_name } => {
                 Ok(self.quote_type_identifier(&enum_name.to_lowercase()))
             }
-            ResolvedFieldType::CompositeType { type_name } => {
-                Ok(self.quote_type_identifier(&type_name.to_lowercase()))
+            ResolvedFieldType::CompositeType { db_name, .. } => {
+                Ok(self.quote_type_identifier(db_name))
             }
             ResolvedFieldType::Relation(_) => Err(MigrationError::ValidationError(
                 "Relation fields cannot have array defaults".to_string(),

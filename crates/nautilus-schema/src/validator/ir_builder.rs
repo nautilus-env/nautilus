@@ -154,6 +154,7 @@ impl SchemaValidator<'_> {
 
         Ok(CompositeTypeIr {
             logical_name: type_decl.name.value.clone(),
+            db_name: type_decl.db_type_name(),
             fields,
             span: type_decl.span,
         })
@@ -467,8 +468,15 @@ impl SchemaValidator<'_> {
                 }
 
                 if self.composite_types.contains_key(type_name) {
+                    let db_name = self
+                        .schema
+                        .types()
+                        .find(|t| &t.name.value == type_name)
+                        .map(|t| t.db_type_name())
+                        .unwrap_or_else(|| type_name.to_lowercase());
                     return Ok(ResolvedFieldType::CompositeType {
                         type_name: type_name.clone(),
+                        db_name,
                     });
                 }
 

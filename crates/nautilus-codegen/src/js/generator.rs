@@ -160,7 +160,7 @@ fn output_base_ts_type(
     match &field.field_type {
         ResolvedFieldType::Scalar(scalar) => scalar_to_ts_type(scalar).to_string(),
         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
-        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+        ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         ResolvedFieldType::Relation(rel) => {
             if enums.contains_key(&rel.target_model) {
                 rel.target_model.clone()
@@ -182,7 +182,7 @@ fn input_base_ts_type(
     match &field.field_type {
         ResolvedFieldType::Scalar(scalar) => scalar_to_ts_type(scalar).to_string(),
         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
-        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+        ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         ResolvedFieldType::Relation(rel) => format!("{}Model", rel.target_model),
     }
 }
@@ -252,7 +252,7 @@ fn generate_js_model_with_registry(
                     enum_imports.insert(enum_name.clone());
                 }
             }
-            ResolvedFieldType::CompositeType { type_name } => {
+            ResolvedFieldType::CompositeType { type_name, .. } => {
                 if ir.composite_types.contains_key(type_name) {
                     composite_type_imports.insert(type_name.clone());
                 }
@@ -614,7 +614,7 @@ pub fn generate_js_composite_types(
                     let base = match &f.field_type {
                         ResolvedFieldType::Scalar(s) => scalar_to_ts_type(s).to_string(),
                         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
-                        ResolvedFieldType::CompositeType { type_name } => type_name.clone(),
+                        ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
                         ResolvedFieldType::Relation(_) => "unknown".to_string(),
                     };
                     let ts_type = if f.is_array {

@@ -134,9 +134,9 @@ pub fn json_to_value_field(
 /// The incoming object is projected onto the composite type's fields **in their
 /// declared order** so the resulting record literal lines up with the column's
 /// structure. Missing keys become `Value::Null` (an empty slot in the literal).
-/// The carried type name is lowercased to match the generated PostgreSQL type
-/// name (e.g. `ChampionStats` -> `championstats`) so the dialect can emit the
-/// required `$n::championstats` cast.
+/// The carried type name is the composite's physical SQL name (`@@map` value or
+/// the lowercased logical name, e.g. `ChampionStats` -> `championstats`) so the
+/// dialect can emit the required `$n::championstats` cast.
 pub fn json_to_value_composite(
     json: &serde_json::Value,
     composite: &CompositeTypeIr,
@@ -153,7 +153,7 @@ pub fn json_to_value_composite(
                 fields.push(json_to_value_field(raw, &field.field_type)?);
             }
             Ok(Value::Composite {
-                type_name: composite.logical_name.to_lowercase(),
+                type_name: composite.db_name.clone(),
                 fields,
             })
         }
@@ -762,6 +762,48 @@ model User {
                     Value::String("Main".to_string()),
                     Value::I32(3),
                     Value::F64(1.5)
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn composite_uses_mapped_type_name_for_cast() {
+        let schema = r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgres://localhost/test"
+}
+
+type Address {
+  street String
+  zip    String @map("zip_code")
+  @@map("address_t")
+}
+
+model User {
+  id      Int     @id @default(autoincrement())
+  address Address
+}
+"#;
+        let composite = validate_schema_source(schema)
+            .expect("schema should validate")
+            .ir
+            .composite_types
+            .remove("Address")
+            .expect("Address composite type missing");
+
+        // Input keyed by the @map'd db name is also accepted.
+        let json = serde_json::json!({ "street": "Main", "zip_code": "12345" });
+        let value = json_to_value_composite(&json, &composite).expect("should convert");
+
+        assert_eq!(
+            value,
+            Value::Composite {
+                type_name: "address_t".to_string(),
+                fields: vec![
+                    Value::String("Main".to_string()),
+                    Value::String("12345".to_string()),
                 ],
             }
         );

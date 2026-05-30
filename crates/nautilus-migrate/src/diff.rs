@@ -445,7 +445,7 @@ impl SchemaDiff {
             }
 
             for ct in target.composite_types.values() {
-                let db_name = ct.logical_name.to_lowercase();
+                let db_name = ct.db_name.clone();
                 if !live.composite_types.contains_key(&db_name) {
                     pre_type_changes.push(Change::CreateCompositeType { name: db_name });
                 }
@@ -455,7 +455,7 @@ impl SchemaDiff {
                 let still_in_target = target
                     .composite_types
                     .values()
-                    .any(|ct| ct.logical_name.to_lowercase() == *live_ct_name);
+                    .any(|ct| ct.db_name == *live_ct_name);
                 if !still_in_target {
                     post_type_changes.push(Change::DropCompositeType {
                         name: live_ct_name.clone(),
@@ -464,7 +464,7 @@ impl SchemaDiff {
             }
 
             for ct in target.composite_types.values() {
-                let db_name = ct.logical_name.to_lowercase();
+                let db_name = ct.db_name.clone();
                 if let Some(live_ct) = live.composite_types.get(&db_name) {
                     let live_field_map: std::collections::HashMap<&str, &str> = live_ct
                         .fields

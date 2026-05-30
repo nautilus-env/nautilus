@@ -121,7 +121,7 @@ fn validate_ir_references(ir: &SchemaIr) -> Result<()> {
                         ));
                     }
                 }
-                ResolvedFieldType::CompositeType { type_name } => {
+                ResolvedFieldType::CompositeType { type_name, .. } => {
                     if !ir.composite_types.contains_key(type_name) {
                         return Err(anyhow::anyhow!(
                             "Model '{}' field '{}' references unknown composite type '{}'",

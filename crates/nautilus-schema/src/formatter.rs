@@ -397,6 +397,13 @@ fn format_type_decl(type_decl: &TypeDecl, source: &str) -> String {
         lines.push(line);
     }
 
+    if !type_decl.attributes.is_empty() && !type_decl.fields.is_empty() {
+        lines.push(String::new());
+    }
+    for attr in &type_decl.attributes {
+        lines.push(format!("  {}", format_model_attr(attr)));
+    }
+
     lines.push("}".to_string());
     lines.join("\n")
 }

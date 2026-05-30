@@ -109,6 +109,19 @@ fn test_format_composite_primary_key() {
 }
 
 #[test]
+fn test_format_composite_type_with_map() {
+    let source = r#"type Address {
+  street String
+  zip    String @map("zip_code")
+
+  @@map("address_t")
+}"#;
+    let formatted = round_trip(source);
+    assert!(formatted.contains("@map(\"zip_code\")"));
+    assert!(formatted.contains("@@map(\"address_t\")"));
+}
+
+#[test]
 fn test_format_full_schema() {
     let source = r#"datasource db {
   provider = "postgresql"

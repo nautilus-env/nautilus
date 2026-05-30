@@ -300,7 +300,7 @@ fn generate_model_with_registry(
                     enum_imports.insert(enum_name.clone());
                 }
             }
-            ResolvedFieldType::CompositeType { type_name } => {
+            ResolvedFieldType::CompositeType { type_name, .. } => {
                 if ir.composite_types.contains_key(type_name) {
                     composite_type_imports.insert(type_name.clone());
                 }

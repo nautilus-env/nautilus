@@ -514,6 +514,37 @@ fn completion_after_atat_returns_model_attributes() {
 }
 
 #[test]
+fn completion_after_atat_in_type_block_only_offers_map() {
+    let src = "type Address {\n  street String\n  @@\n}";
+    let offset = src.find("@@").unwrap() + 2;
+    let items = completion(src, offset);
+    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(
+        labels.iter().any(|l| l.starts_with("map")),
+        "expected @@map suggestion in type block: {:?}",
+        labels
+    );
+    assert!(
+        !labels.iter().any(|l| l.starts_with("id") || l.starts_with("index")
+            || l.starts_with("unique") || l.starts_with("check")),
+        "type block must not offer model-only @@ attributes: {:?}",
+        labels
+    );
+}
+
+#[test]
+fn hover_on_mapped_composite_type_shows_sql_type_name() {
+    let src = "type Address {\n  street String\n  @@map(\"address_t\")\n}";
+    let offset = src.find("Address").unwrap() + 2;
+    let h = hover(src, offset).expect("hover returned None for composite type");
+    assert!(
+        h.content.contains("address_t"),
+        "composite hover should show the @@map SQL type name: {}",
+        h.content
+    );
+}
+
+#[test]
 fn hover_on_model_field_returns_type_info() {
     let offset = VALID.find("email").unwrap() + 2;
     let h = hover(VALID, offset);

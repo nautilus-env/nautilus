@@ -171,8 +171,10 @@ Composite `type` blocks define reusable embedded structures.
 ```prisma
 type Address {
   street String
-  city   String
+  zip    String      @map("zip_code")
   kind   AddressKind
+
+  @@map("address_t")
 }
 ```
 
@@ -180,6 +182,9 @@ type Address {
 - Fields inside `type` blocks may be scalar or enum types
 - Nested composite types and model relations are not allowed
 - Only `@map` and `@store(...)` are allowed on composite-type fields
+- `@map("name")` renames the field inside the SQL composite type
+- `@@map("name")` renames the SQL composite type itself (the only type-level
+  attribute allowed); without it the type name is lower-cased
 
 ### Enum
 

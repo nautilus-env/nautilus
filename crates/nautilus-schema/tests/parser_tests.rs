@@ -379,6 +379,26 @@ model User {
 }
 
 #[test]
+fn test_parse_composite_type_with_map_attributes() {
+    let source = r#"
+type Address {
+  street String
+  zip    String @map("zip_code")
+
+  @@map("address_t")
+}
+"#;
+
+    let schema = parse(source).unwrap();
+    let type_decl = schema.types().next().unwrap();
+
+    assert_eq!(type_decl.mapped_name(), Some("address_t"));
+    assert_eq!(type_decl.db_type_name(), "address_t");
+    assert_eq!(type_decl.fields.len(), 2);
+    assert_eq!(type_decl.find_field("zip").unwrap().column_name(), "zip_code");
+}
+
+#[test]
 fn test_field_helper_methods() {
     let source = r#"
 model User {

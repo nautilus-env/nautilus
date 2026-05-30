@@ -401,7 +401,7 @@ impl<'a> DiffApplier<'a> {
                     .schema
                     .composite_types
                     .values()
-                    .find(|ct| ct.logical_name.to_lowercase() == *name)
+                    .find(|ct| ct.db_name == *name)
                     .ok_or_else(|| {
                         MigrationError::Other(format!(
                             "Composite type definition not found for '{}'",

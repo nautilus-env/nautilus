@@ -901,14 +901,14 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
     let primary_address = profiles.find_field("primary_address").unwrap();
     assert!(matches!(
         &primary_address.field_type,
-        ResolvedFieldType::CompositeType { type_name } if type_name == "Address"
+        ResolvedFieldType::CompositeType { type_name, .. } if type_name == "Address"
     ));
     assert!(!primary_address.is_array);
 
     let previous_addresses = profiles.find_field("previous_addresses").unwrap();
     assert!(matches!(
         &previous_addresses.field_type,
-        ResolvedFieldType::CompositeType { type_name } if type_name == "Address"
+        ResolvedFieldType::CompositeType { type_name, .. } if type_name == "Address"
     ));
     assert!(previous_addresses.is_array);
 
