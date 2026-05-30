@@ -152,6 +152,19 @@ pub enum Value {
         /// Lowercase PostgreSQL type name (e.g. `"role"`, `"poststatus"`).
         type_name: String,
     },
+    /// A PostgreSQL native composite type value.
+    ///
+    /// Carries the lowercase PG type name (e.g. `"championstats"`) together
+    /// with the field values in their declared order. The PostgreSQL dialect
+    /// emits the required explicit cast (`$1::championstats`) and the connector
+    /// encodes the fields as a record literal (`("0","0",…)`). Backends that
+    /// store composites as JSON never receive this variant.
+    Composite {
+        /// Lowercase PostgreSQL type name (e.g. `"championstats"`).
+        type_name: String,
+        /// Field values in the composite type's declared order.
+        fields: Vec<Value>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -174,7 +187,14 @@ enum SerdeValue {
     Bytes(String),
     Array(Vec<Value>),
     Array2D(Vec<Vec<Value>>),
-    Enum { value: String, type_name: String },
+    Enum {
+        value: String,
+        type_name: String,
+    },
+    Composite {
+        type_name: String,
+        fields: Vec<Value>,
+    },
 }
 
 fn format_datetime(value: chrono::NaiveDateTime) -> String {
@@ -216,6 +236,10 @@ impl From<&Value> for SerdeValue {
                 value: value.clone(),
                 type_name: type_name.clone(),
             },
+            Value::Composite { type_name, fields } => SerdeValue::Composite {
+                type_name: type_name.clone(),
+                fields: fields.clone(),
+            },
         }
     }
 }
@@ -253,6 +277,9 @@ impl TryFrom<SerdeValue> for Value {
             SerdeValue::Array(v) => Ok(Value::Array(v)),
             SerdeValue::Array2D(v) => Ok(Value::Array2D(v)),
             SerdeValue::Enum { value, type_name } => Ok(Value::Enum { value, type_name }),
+            SerdeValue::Composite { type_name, fields } => {
+                Ok(Value::Composite { type_name, fields })
+            }
         }
     }
 }
@@ -488,6 +515,9 @@ impl Value {
                     .collect(),
             ),
             Value::Enum { value, .. } => serde_json::Value::String(value.clone()),
+            Value::Composite { fields, .. } => {
+                serde_json::Value::Array(fields.iter().map(Value::to_json_plain).collect())
+            }
         }
     }
 }

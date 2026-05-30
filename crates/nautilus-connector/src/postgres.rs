@@ -428,7 +428,67 @@ pub(crate) fn bind_value<'q>(
         // The PG dialect already appends `::type_name` to the placeholder, so
         // we only need to bind the underlying string value here.
         Value::Enum { value, .. } => Ok(query.bind(value.as_str())),
+        // The PG dialect appends `::type_name`; we bind the composite as its
+        // record-literal text form and let PostgreSQL parse and cast it.
+        Value::Composite { fields, .. } => Ok(query.bind(encode_pg_composite_literal(fields)?)),
     }
+}
+
+/// Encode composite-type field values as a PostgreSQL record literal, e.g.
+/// `("0","0","")`. Every non-NULL field is double-quoted (PostgreSQL strips the
+/// quotes and re-parses each field with the target column's input function), and
+/// NULL fields are emitted as an empty slot. This keeps the encoder free of
+/// per-type quoting heuristics.
+fn encode_pg_composite_literal(fields: &[Value]) -> Result<String> {
+    let mut out = String::with_capacity(fields.len().saturating_mul(8) + 2);
+    out.push('(');
+    for (idx, field) in fields.iter().enumerate() {
+        if idx > 0 {
+            out.push(',');
+        }
+        if let Some(text) = composite_field_text(field)? {
+            push_quoted_composite_field(&mut out, &text);
+        }
+        // `None` => SQL NULL => empty slot.
+    }
+    out.push(')');
+    Ok(out)
+}
+
+/// Render a single composite field value to the text PostgreSQL expects inside a
+/// record literal. Returns `None` for NULL fields.
+fn composite_field_text(value: &Value) -> Result<Option<String>> {
+    let text = match value {
+        Value::Null => return Ok(None),
+        Value::Bool(b) => if *b { "t" } else { "f" }.to_string(),
+        Value::I32(i) => i.to_string(),
+        Value::I64(i) => i.to_string(),
+        Value::F64(f) => f.to_string(),
+        Value::Decimal(d) => d.to_string(),
+        Value::DateTime(dt) => dt.format("%Y-%m-%d %H:%M:%S%.f").to_string(),
+        Value::Uuid(u) => u.to_string(),
+        Value::String(s) => s.clone(),
+        Value::Enum { value, .. } => value.clone(),
+        Value::Geometry(raw) | Value::Geography(raw) => raw.clone(),
+        Value::Vector(values) => format_pg_vector(values)?,
+        Value::Json(j) => j.to_string(),
+        Value::Composite { fields, .. } => encode_pg_composite_literal(fields)?,
+        other => crate::utils::value_to_json(other).to_string(),
+    };
+    Ok(Some(text))
+}
+
+/// Append `text` as a double-quoted composite field, escaping `"` and `\`.
+fn push_quoted_composite_field(out: &mut String, text: &str) {
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\"\""),
+            '\\' => out.push_str("\\\\"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
 }
 
 fn format_pg_vector(values: &[f32]) -> Result<String> {
@@ -475,6 +535,36 @@ mod tests {
     fn bindable_pg_array_rejects_nulls_in_typed_arrays() {
         let err = bindable_pg_array(&[Value::I32(1), Value::Null]).unwrap_err();
         assert!(err.to_string().contains("NULL element"));
+    }
+
+    #[test]
+    fn composite_literal_encodes_scalar_fields() {
+        let literal = encode_pg_composite_literal(&[
+            Value::I32(0),
+            Value::I32(3),
+            Value::F64(1.5),
+            Value::Bool(true),
+        ])
+        .expect("composite should encode");
+
+        assert_eq!(literal, "(\"0\",\"3\",\"1.5\",\"t\")");
+    }
+
+    #[test]
+    fn composite_literal_emits_empty_slot_for_null() {
+        let literal =
+            encode_pg_composite_literal(&[Value::I32(7), Value::Null, Value::String("x".into())])
+                .expect("composite should encode");
+
+        assert_eq!(literal, "(\"7\",,\"x\")");
+    }
+
+    #[test]
+    fn composite_literal_escapes_quotes_and_backslashes() {
+        let literal =
+            encode_pg_composite_literal(&[Value::String("a\"b\\c".into())]).expect("should encode");
+
+        assert_eq!(literal, "(\"a\"\"b\\\\c\")");
     }
 
     #[test]

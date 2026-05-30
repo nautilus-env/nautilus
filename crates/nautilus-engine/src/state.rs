@@ -235,12 +235,6 @@ impl EngineState {
         direct_url: Option<String>,
         pool_options: EnginePoolOptions,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let models = schema.models.clone();
-        let model_metadata = models
-            .iter()
-            .map(|(name, model)| (name.clone(), ModelMetadata::new(model)))
-            .collect();
-
         let datasource = schema
             .datasource
             .as_ref()
@@ -248,6 +242,20 @@ impl EngineState {
 
         let provider = DatabaseProvider::from_schema_provider(&datasource.provider)
             .ok_or_else(|| format!("Unsupported database provider: {}", datasource.provider))?;
+
+        // Only PostgreSQL stores composite types as native (non-JSON) values,
+        // which require record-literal decoding on read.
+        let native_composites = matches!(provider, DatabaseProvider::Postgres);
+        let models = schema.models.clone();
+        let model_metadata = models
+            .iter()
+            .map(|(name, model)| {
+                (
+                    name.clone(),
+                    ModelMetadata::new(model, &schema.composite_types, native_composites),
+                )
+            })
+            .collect();
 
         let resolved_url = resolve_database_url(&database_url)?;
         let (dialect, client) = Self::build_client(provider, &resolved_url, pool_options).await?;
@@ -276,6 +284,13 @@ impl EngineState {
     /// Read-plan cache shared by hot read paths.
     pub(crate) fn plan_cache(&self) -> &PlanCache {
         &self.plan_cache
+    }
+
+    /// Whether the active backend stores composite types as native PostgreSQL
+    /// composite types (and therefore needs `Value::Composite` binding) rather
+    /// than as JSON. Only PostgreSQL supports user-defined composite types.
+    pub(crate) fn uses_native_composite_types(&self) -> bool {
+        matches!(self.client, DatabaseClient::Postgres(_))
     }
 
     /// Return cached metadata for a validated model.

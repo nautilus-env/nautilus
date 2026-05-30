@@ -168,6 +168,7 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
 enum ParamCast {
     Static(&'static str),
     Enum(String),
+    Composite(String),
 }
 
 impl ParamCast {
@@ -177,7 +178,7 @@ impl ParamCast {
                 sql.push_str("::");
                 sql.push_str(name);
             }
-            Self::Enum(type_name) => {
+            Self::Enum(type_name) | Self::Composite(type_name) => {
                 sql.push_str("::");
                 sql.push_str(type_name);
             }
@@ -195,6 +196,7 @@ fn postgres_param_cast(value: &Value) -> Option<ParamCast> {
         value if is_homogeneous_geometry_array(value) => Some(ParamCast::Static("geometry[]")),
         value if is_homogeneous_geography_array(value) => Some(ParamCast::Static("geography[]")),
         Value::Enum { type_name, .. } => Some(ParamCast::Enum(type_name.clone())),
+        Value::Composite { type_name, .. } => Some(ParamCast::Composite(type_name.clone())),
         _ => None,
     }
 }
@@ -396,6 +398,26 @@ mod tests {
             "SELECT * FROM \"places\" WHERE (\"places\".\"geog\" = $1::geography)"
         );
         assert_eq!(sql.params, vec![Value::Geography("POINT(1 2)".to_string())]);
+    }
+
+    #[test]
+    fn composite_params_are_cast_to_their_type_name() {
+        let dialect = PostgresDialect;
+        let composite = Value::Composite {
+            type_name: "championstats".to_string(),
+            fields: vec![Value::I32(0), Value::I32(0)],
+        };
+        let select = Select::from_table("champions")
+            .filter(Expr::column("champions__stats").eq(Expr::param(composite.clone())))
+            .build()
+            .unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM \"champions\" WHERE (\"champions\".\"stats\" = $1::championstats)"
+        );
+        assert_eq!(sql.params, vec![composite]);
     }
 
     #[test]

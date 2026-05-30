@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use nautilus_core::ColumnMarker;
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ast::StorageStrategy;
-use nautilus_schema::ir::{FieldIr, ModelIr, ResolvedFieldType, ScalarType};
+use nautilus_schema::ir::{CompositeTypeIr, FieldIr, ModelIr, ResolvedFieldType, ScalarType};
 
 use crate::conversion::ValueHint;
 use crate::filter::{FieldTypeMap, RelationMap};
@@ -31,7 +31,7 @@ impl ScalarFieldMetadata {
     }
 
     pub(crate) fn hint(&self) -> Option<ValueHint> {
-        self.hint
+        self.hint.clone()
     }
 }
 
@@ -69,14 +69,18 @@ pub(crate) struct ModelMetadata {
 }
 
 impl ModelMetadata {
-    pub(crate) fn new(model: &ModelIr) -> Self {
+    pub(crate) fn new(
+        model: &ModelIr,
+        composite_types: &HashMap<String, CompositeTypeIr>,
+        native_composites: bool,
+    ) -> Self {
         let scalar_fields: Vec<_> = model
             .scalar_fields()
             .map(|field| ScalarFieldMetadata {
                 logical_name: field.logical_name.clone(),
                 db_name: field.db_name.clone(),
                 marker: ColumnMarker::new(&model.db_name, &field.db_name),
-                hint: field_value_hint(field),
+                hint: field_value_hint(field, composite_types, native_composites),
             })
             .collect();
 
@@ -197,7 +201,11 @@ pub(crate) fn build_db_to_logical_map(model: &ModelIr) -> HashMap<String, String
         .collect()
 }
 
-pub(crate) fn field_value_hint(field: &FieldIr) -> Option<ValueHint> {
+pub(crate) fn field_value_hint(
+    field: &FieldIr,
+    composite_types: &HashMap<String, CompositeTypeIr>,
+    native_composites: bool,
+) -> Option<ValueHint> {
     if field.is_array && field.storage_strategy == Some(StorageStrategy::Json) {
         return Some(ValueHint::Json);
     }
@@ -209,6 +217,14 @@ pub(crate) fn field_value_hint(field: &FieldIr) -> Option<ValueHint> {
         ResolvedFieldType::Scalar(ScalarType::Uuid) => Some(ValueHint::Uuid),
         ResolvedFieldType::Scalar(ScalarType::Geometry) => Some(ValueHint::Geometry),
         ResolvedFieldType::Scalar(ScalarType::Geography) => Some(ValueHint::Geography),
+        // Native (PostgreSQL) composites come back as a record-literal string and
+        // need schema-aware decoding; non-array fields only. JSON-stored
+        // composites round-trip as ordinary JSON.
+        ResolvedFieldType::CompositeType { type_name } if native_composites && !field.is_array => {
+            composite_types
+                .get(type_name)
+                .map(|composite| ValueHint::Composite(std::sync::Arc::new(composite.clone())))
+        }
         ResolvedFieldType::CompositeType { .. }
             if field.storage_strategy == Some(StorageStrategy::Json) =>
         {
@@ -247,7 +263,7 @@ model Profile {
 "#,
         );
         let user_model = ir.models.get("User").expect("User model missing");
-        let metadata = ModelMetadata::new(user_model);
+        let metadata = ModelMetadata::new(user_model, &ir.composite_types, false);
 
         assert_eq!(
             metadata

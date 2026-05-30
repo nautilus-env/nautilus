@@ -37,6 +37,7 @@ enum FieldInputMode {
 }
 
 fn field_input_value(
+    state: &EngineState,
     data_obj: &JsonMap<String, JsonValue>,
     field: &FieldIr,
     mode: FieldInputMode,
@@ -44,7 +45,7 @@ fn field_input_value(
     if field.is_updated_at {
         return match row_field_json(data_obj, field) {
             Some(json_val) if !json_val.is_null() => {
-                Ok(Some(json_to_value_field(json_val, &field.field_type)?))
+                Ok(Some(convert_field_input(state, json_val, field)?))
             }
             _ => Ok(Some(updated_at_now_value())),
         };
@@ -61,7 +62,26 @@ fn field_input_value(
         return Ok(None);
     }
 
-    Ok(Some(json_to_value_field(json_val, &field.field_type)?))
+    Ok(Some(convert_field_input(state, json_val, field)?))
+}
+
+/// Convert a single field's JSON input into a [`Value`], routing PostgreSQL
+/// native composite-type fields through [`json_to_value_composite`] so they bind
+/// as a record literal instead of an untyped text/JSON value. On backends that
+/// store composites as JSON, the regular [`json_to_value_field`] path is used.
+fn convert_field_input(
+    state: &EngineState,
+    json_val: &JsonValue,
+    field: &FieldIr,
+) -> Result<Value, ProtocolError> {
+    if let ResolvedFieldType::CompositeType { type_name } = &field.field_type {
+        if state.uses_native_composite_types() && !json_val.is_null() {
+            if let Some(composite) = state.schema.get_composite_type(type_name) {
+                return crate::conversion::json_to_value_composite(json_val, composite);
+            }
+        }
+    }
+    json_to_value_field(json_val, &field.field_type)
 }
 
 fn should_omit_server_default(json_val: &JsonValue, field: &FieldIr) -> bool {
@@ -120,7 +140,7 @@ async fn execute_create(
         if matches!(field.field_type, ResolvedFieldType::Relation(_)) {
             continue;
         }
-        if let Some(value) = field_input_value(data_obj, field, FieldInputMode::Create)? {
+        if let Some(value) = field_input_value(state, data_obj, field, FieldInputMode::Create)? {
             columns.push(field_marker(model, field));
             values.push(value);
         }
@@ -223,7 +243,8 @@ async fn execute_create_many(
 
         let mut row_values = Vec::with_capacity(relevant_fields.len());
         for field in &relevant_fields {
-            if let Some(value) = field_input_value(data_obj, field, FieldInputMode::Create)? {
+            if let Some(value) = field_input_value(state, data_obj, field, FieldInputMode::Create)?
+            {
                 row_values.push(value);
             } else {
                 row_values.push(Value::Null);
@@ -291,7 +312,7 @@ async fn execute_update(
         if matches!(field.field_type, ResolvedFieldType::Relation(_)) {
             continue;
         }
-        if let Some(value) = field_input_value(data_obj, field, FieldInputMode::Update)? {
+        if let Some(value) = field_input_value(state, data_obj, field, FieldInputMode::Update)? {
             assignments.push((field_marker(model, field), value));
         }
     }

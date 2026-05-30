@@ -305,5 +305,8 @@ pub(crate) fn bind_value<'q>(
         Value::Array(_) => Ok(query.bind(crate::utils::value_to_json(value).to_string())),
         Value::Enum { value, .. } => Ok(query.bind(value.as_str())),
         Value::Array2D(_) => Ok(query.bind(crate::utils::value_to_json(value).to_string())),
+        Value::Composite { .. } => Err(Error::database_msg(
+            "native composite-type values are only supported on PostgreSQL",
+        )),
     }
 }
