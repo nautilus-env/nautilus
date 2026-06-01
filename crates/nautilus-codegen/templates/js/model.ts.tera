@@ -186,7 +186,11 @@ export interface {{ model_name }}UpdateInput {
 
 export interface {{ model_name }}OrderByInput {
 {%- for field in order_by_fields %}
+{%- if field.is_dotted %}
+  '{{ field.name }}'?: SortOrder;
+{%- else %}
   {{ field.name }}?: SortOrder;
+{%- endif %}
 {%- endfor %}
 }
 

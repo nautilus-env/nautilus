@@ -79,6 +79,27 @@ model User {
 "#
 }
 
+fn composite_order_schema_source() -> &'static str {
+    r#"
+datasource db {
+  provider = "sqlite"
+  url      = "sqlite::memory:"
+}
+
+type DeliveryEstimate {
+  etaMinutes      Int @map("eta_minutes_db")
+  weekendDelivery Boolean
+  carrierMetadata Json
+}
+
+model Shipment {
+  id           Int              @id @default(autoincrement())
+  trackingCode String           @unique
+  delivery     DeliveryEstimate @store(json)
+}
+"#
+}
+
 fn decimal_string(value: &serde_json::Value) -> rust_decimal::Decimal {
     value
         .as_str()
@@ -95,6 +116,67 @@ fn parse_wire_datetime(value: &serde_json::Value) -> chrono::NaiveDateTime {
     )
     .expect("datetime string should parse")
     .naive_utc()
+}
+
+#[tokio::test]
+async fn sqlite_find_many_orders_by_composite_field_path() {
+    let (state, temp_dir) =
+        sqlite_state("schema-aware-tests", composite_order_schema_source()).await;
+
+    for (tracking_code, eta_minutes) in [("slow-truck", 10), ("same-day", 2), ("courier", 1)] {
+        let created = call_rpc_json(
+            &state,
+            QUERY_CREATE,
+            json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "model": "Shipment",
+                "data": {
+                    "trackingCode": tracking_code,
+                    "delivery": {
+                        "etaMinutes": eta_minutes,
+                        "weekendDelivery": true,
+                        "carrierMetadata": {
+                            "service": "local-courier"
+                        }
+                    }
+                }
+            }),
+        )
+        .await;
+
+        assert_eq!(created["count"], json!(1));
+    }
+
+    let found = call_rpc_json(
+        &state,
+        QUERY_FIND_MANY,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Shipment",
+            "args": {
+                "orderBy": [
+                    { "delivery.etaMinutes": "asc" }
+                ]
+            }
+        }),
+    )
+    .await;
+
+    let rows = found["data"]
+        .as_array()
+        .expect("findMany should return a data array");
+    let names = rows
+        .iter()
+        .map(|row| {
+            row["Shipment__trackingCode"]
+                .as_str()
+                .expect("trackingCode should be a string")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["courier", "same-day", "slow-truck"]);
+
+    drop(state);
+    drop(temp_dir);
 }
 
 #[tokio::test]

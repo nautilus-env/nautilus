@@ -6,6 +6,13 @@ impl {{ model_name }} {
     }
 
 {%- endfor %}
+{%- for field in nested_order_by_fields %}
+    /// Order accessor for {{ field.path }}.
+    pub fn {{ field.method_name }}() -> nautilus_core::OrderField<{{ field.rust_type }}> {
+        nautilus_core::OrderField::new("{{ table_name }}", "{{ field.path }}")
+    }
+
+{%- endfor %}
     /// Create a delegate for {{ model_name }} queries.
     pub fn nautilus<E>(client: &crate::Client<E>) -> {{ delegate_name }}<E>
     where

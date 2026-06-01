@@ -114,13 +114,9 @@ fn decode_value(
         }
 
         "JSON" => row
-            .try_get::<String, _>(idx)
-            .map_err(|e| Error::row_decode(e, "Failed to decode JSON"))
-            .and_then(|s| {
-                serde_json::from_str(&s)
-                    .map(Value::Json)
-                    .map_err(|e| Error::row_decode_msg(format!("Failed to parse JSON: {}", e)))
-            }),
+            .try_get::<serde_json::Value, _>(idx)
+            .map(Value::Json)
+            .map_err(|e| Error::row_decode(e, "Failed to decode JSON")),
 
         "BLOB" | "LONGBLOB" | "MEDIUMBLOB" | "TINYBLOB" | "VARBINARY" | "BINARY" => row
             .try_get::<Vec<u8>, _>(idx)

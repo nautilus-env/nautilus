@@ -9,6 +9,12 @@ impl {{ columns_name }} {
     }
 
 {%- endfor %}
+{%- for field in nested_order_by_fields %}
+    pub fn {{ field.method_name }}(&self) -> nautilus_core::OrderField<{{ field.rust_type }}> {
+        nautilus_core::OrderField::new("{{ table_name }}", "{{ field.path }}")
+    }
+
+{%- endfor %}
 {%- if relations %}
 {%- for relation in relations %}
 {%- if relation.is_array %}

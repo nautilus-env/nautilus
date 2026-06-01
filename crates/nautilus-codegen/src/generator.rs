@@ -2,7 +2,9 @@
 
 use heck::{ToPascalCase, ToSnakeCase};
 use nautilus_schema::ast::StorageStrategy;
-use nautilus_schema::ir::{FieldIr, ModelIr, ResolvedFieldType, ScalarType, SchemaIr};
+use nautilus_schema::ir::{
+    CompositeFieldIr, FieldIr, ModelIr, ResolvedFieldType, ScalarType, SchemaIr,
+};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use tera::{Context, Tera};
@@ -10,6 +12,7 @@ use tera::{Context, Tera};
 use crate::extension_types::ExtensionRegistry;
 use crate::type_helpers::{
     field_to_rust_avg_type, field_to_rust_base_type, field_to_rust_sum_type, field_to_rust_type,
+    is_orderable_composite_field, is_orderable_model_field, json_path_cast_variant,
     scalar_to_rust_type,
 };
 
@@ -106,6 +109,17 @@ struct AggregateFieldContext {
     variant_name: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct NestedOrderByFieldContext {
+    method_name: String,
+    path: String,
+    parent_db_name: String,
+    field_db_name: String,
+    json_key: String,
+    json_cast: String,
+    rust_type: String,
+}
+
 /// Serialisable (logical_name, db_name) pair for primary-key fields.
 /// Used in templates to generate cursor predicate slices.
 #[derive(Debug, Clone, Serialize)]
@@ -192,6 +206,76 @@ fn field_read_hint_expr(field: &FieldIr) -> String {
         }
         _ => "None".to_string(),
     }
+}
+
+fn composite_field_rust_type(
+    field: &CompositeFieldIr,
+    extensions: &ExtensionRegistry,
+) -> Option<String> {
+    match &field.field_type {
+        ResolvedFieldType::Scalar(scalar) => Some(scalar_to_rust_type(scalar, extensions)),
+        ResolvedFieldType::Enum { enum_name } => Some(enum_name.clone()),
+        _ => None,
+    }
+}
+
+fn build_nested_order_by_fields(
+    model: &ModelIr,
+    ir: &SchemaIr,
+    extensions: &ExtensionRegistry,
+    reserved_methods: &HashSet<String>,
+) -> Vec<NestedOrderByFieldContext> {
+    let mut fields = Vec::new();
+    let mut used_methods = reserved_methods.clone();
+
+    for parent in model.scalar_fields() {
+        if parent.is_array {
+            continue;
+        }
+
+        let ResolvedFieldType::CompositeType { type_name, .. } = &parent.field_type else {
+            continue;
+        };
+        let Some(composite) = ir.composite_types.get(type_name) else {
+            continue;
+        };
+
+        for nested in &composite.fields {
+            if !is_orderable_composite_field(nested) {
+                continue;
+            }
+            let Some(rust_type) = composite_field_rust_type(nested, extensions) else {
+                continue;
+            };
+
+            let path = format!("{}.{}", parent.logical_name, nested.logical_name);
+            let base_method_name =
+                format!("{}_{}", parent.logical_name, nested.logical_name).to_snake_case();
+            let mut method_name = base_method_name.clone();
+            let mut suffix = 0usize;
+            while used_methods.contains(&method_name) {
+                suffix += 1;
+                method_name = if suffix == 1 {
+                    format!("{base_method_name}_order")
+                } else {
+                    format!("{base_method_name}_order_{suffix}")
+                };
+            }
+            used_methods.insert(method_name.clone());
+
+            fields.push(NestedOrderByFieldContext {
+                method_name,
+                path,
+                parent_db_name: parent.db_name.clone(),
+                field_db_name: nested.db_name.clone(),
+                json_key: nested.logical_name.clone(),
+                json_cast: json_path_cast_variant(&nested.field_type).to_string(),
+                rust_type,
+            });
+        }
+    }
+
+    fields
 }
 
 /// Generate complete code for a model (struct, impls, delegate, builders).
@@ -311,6 +395,7 @@ fn generate_model_with_registry(
         let column_type = match &field.field_type {
             ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, extensions),
             ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+            ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
             _ => String::new(),
         };
         let is_pk = pk_field_names.contains(&field.logical_name.as_str());
@@ -360,18 +445,7 @@ fn generate_model_with_registry(
             });
         }
 
-        let is_non_orderable = matches!(
-            &field.field_type,
-            ResolvedFieldType::Scalar(ScalarType::Boolean)
-                | ResolvedFieldType::Scalar(ScalarType::Json)
-                | ResolvedFieldType::Scalar(ScalarType::Jsonb)
-                | ResolvedFieldType::Scalar(ScalarType::Hstore)
-                | ResolvedFieldType::Scalar(ScalarType::Geometry)
-                | ResolvedFieldType::Scalar(ScalarType::Geography)
-                | ResolvedFieldType::Scalar(ScalarType::Vector { .. })
-                | ResolvedFieldType::Scalar(ScalarType::Bytes)
-        );
-        if !is_non_orderable {
+        if is_orderable_model_field(field) {
             orderable_fields.push(AggregateFieldContext {
                 name: field.logical_name.to_snake_case(),
                 logical_name: field.logical_name.clone(),
@@ -382,6 +456,13 @@ fn generate_model_with_registry(
             });
         }
     }
+
+    let reserved_order_methods: HashSet<String> = scalar_fields
+        .iter()
+        .map(|field| field.name.clone())
+        .collect();
+    let nested_order_by_fields =
+        build_nested_order_by_fields(model, ir, extensions, &reserved_order_methods);
 
     let mut relation_imports = HashSet::new();
     for field in model.relation_fields() {
@@ -445,6 +526,7 @@ fn generate_model_with_registry(
                             scalar_to_rust_type(scalar, extensions)
                         }
                         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+                        ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
                         _ => String::new(),
                     };
                     let f_is_pk = target_pk_names.contains(&f.logical_name.as_str());
@@ -522,6 +604,7 @@ fn generate_model_with_registry(
     context.insert("all_scalar_fields", &scalar_fields);
     context.insert("numeric_fields", &numeric_fields);
     context.insert("orderable_fields", &orderable_fields);
+    context.insert("nested_order_by_fields", &nested_order_by_fields);
     context.insert("has_numeric_fields", &!numeric_fields.is_empty());
     context.insert("has_orderable_fields", &!orderable_fields.is_empty());
     context.insert("is_async", &is_async);

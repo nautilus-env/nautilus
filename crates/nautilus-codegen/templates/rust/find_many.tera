@@ -1,3 +1,21 @@
+/// Resolve ORDER BY paths that target fields inside composite values.
+fn composite_order_expr(
+    column: &str,
+) -> Option<nautilus_core::Expr> {
+    match column {
+{%- for field in nested_order_by_fields %}
+        "{{ table_name }}__{{ field.path }}" | "{{ field.path }}" => Some(nautilus_core::Expr::composite_field(
+            "{{ table_name }}",
+            "{{ field.parent_db_name }}",
+            "{{ field.field_db_name }}",
+            "{{ field.json_key }}",
+            nautilus_core::JsonPathCast::{{ field.json_cast }},
+        )),
+{%- endfor %}
+        _ => None,
+    }
+}
+
 /// Internal FindMany builder for {{ model_name }} - use `{{ delegate_name }}::find_many(args)` instead.
 pub(crate) struct {{ find_many_name }}<E: crate::Executor, S = ()> {
     client: crate::Client<E>,
@@ -196,7 +214,11 @@ where
             } else {
                 order.direction
             };
-            builder = builder.order_by(order.column, dir);
+            if let Some(expr) = composite_order_expr(&order.column) {
+                builder = builder.order_by_expr(expr, dir);
+            } else {
+                builder = builder.order_by(order.column, dir);
+            }
         }
 
         // Apply take (absolute value; direction is handled by ORDER BY flip).
@@ -310,7 +332,11 @@ where
             } else {
                 order.direction
             };
-            builder = builder.order_by(order.column, dir);
+            if let Some(expr) = composite_order_expr(&order.column) {
+                builder = builder.order_by_expr(expr, dir);
+            } else {
+                builder = builder.order_by(order.column, dir);
+            }
         }
 
         if let Some(n) = take {

@@ -14,6 +14,7 @@ use crate::python::backend::PythonBackend;
 use crate::python::type_mapper::{
     get_base_python_type, get_default_value, get_filter_operators_for_field, is_auto_generated,
 };
+use crate::type_helpers::{is_orderable_composite_field, is_orderable_model_field};
 
 /// Python template registry — loaded once at first use.
 pub static PYTHON_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
@@ -182,6 +183,7 @@ struct UpdateInputFieldContext {
 #[derive(Debug, Clone, Serialize)]
 struct OrderByFieldContext {
     name: String,
+    is_dotted: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -548,25 +550,35 @@ fn generate_python_model_with_registry(
             });
         }
 
-        let is_non_orderable = matches!(
-            &field.field_type,
-            ResolvedFieldType::Scalar(ScalarType::Boolean)
-                | ResolvedFieldType::Scalar(ScalarType::Json)
-                | ResolvedFieldType::Scalar(ScalarType::Jsonb)
-                | ResolvedFieldType::Scalar(ScalarType::Hstore)
-                | ResolvedFieldType::Scalar(ScalarType::Geometry)
-                | ResolvedFieldType::Scalar(ScalarType::Geography)
-                | ResolvedFieldType::Scalar(ScalarType::Vector { .. })
-                | ResolvedFieldType::Scalar(ScalarType::Bytes)
-        );
-        if !is_non_orderable {
+        if is_orderable_model_field(field) {
             order_by_fields.push(OrderByFieldContext {
                 name: field.logical_name.clone(),
+                is_dotted: false,
             });
             orderable_fields.push(AggregateFieldContext {
                 name: field.logical_name.clone(),
                 python_type: base_python_type,
             });
+        }
+    }
+
+    for parent in model.scalar_fields() {
+        if parent.is_array {
+            continue;
+        }
+        let ResolvedFieldType::CompositeType { type_name, .. } = &parent.field_type else {
+            continue;
+        };
+        let Some(composite) = ir.composite_types.get(type_name) else {
+            continue;
+        };
+        for nested in &composite.fields {
+            if is_orderable_composite_field(nested) {
+                order_by_fields.push(OrderByFieldContext {
+                    name: format!("{}.{}", parent.logical_name, nested.logical_name),
+                    is_dotted: true,
+                });
+            }
         }
     }
 
@@ -735,6 +747,7 @@ fn generate_python_model_with_registry(
 
     let has_numeric_fields = !numeric_fields.is_empty();
     let has_orderable_fields = !orderable_fields.is_empty();
+    let has_dotted_order_by_fields = order_by_fields.iter().any(|field| field.is_dotted);
 
     let needs_typeddict = true;
 
@@ -743,6 +756,7 @@ fn generate_python_model_with_registry(
     context.insert("create_input_fields", &create_input_fields);
     context.insert("update_input_fields", &update_input_fields);
     context.insert("order_by_fields", &order_by_fields);
+    context.insert("has_dotted_order_by_fields", &has_dotted_order_by_fields);
     context.insert("include_fields", &include_fields);
     context.insert("has_includes", &!include_fields.is_empty());
     context.insert("numeric_fields", &numeric_fields);

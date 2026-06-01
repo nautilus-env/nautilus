@@ -31,6 +31,53 @@ pub struct Column<T> {
     _phantom: PhantomData<T>,
 }
 
+/// Typed order-only reference for fields that are not selectable as plain SQL
+/// columns, such as fields inside composite values.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct OrderField<T> {
+    table: &'static str,
+    path: &'static str,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> OrderField<T> {
+    /// Creates a new typed order field reference.
+    pub const fn new(table: &'static str, path: &'static str) -> Self {
+        Self {
+            table,
+            path,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Returns the table name.
+    pub const fn table(&self) -> &'static str {
+        self.table
+    }
+
+    /// Returns the composite path, e.g. `delivery.etaMinutes`.
+    pub const fn path(&self) -> &'static str {
+        self.path
+    }
+
+    /// Returns the internal order key used by query builders.
+    pub fn order_key(&self) -> String {
+        build_column_alias(self.table, self.path)
+    }
+
+    /// Creates a descending ORDER BY clause.
+    #[must_use]
+    pub fn desc(self) -> OrderBy {
+        OrderBy::new(self.order_key(), OrderDir::Desc)
+    }
+
+    /// Creates an ascending ORDER BY clause.
+    #[must_use]
+    pub fn asc(self) -> OrderBy {
+        OrderBy::new(self.order_key(), OrderDir::Asc)
+    }
+}
+
 impl<T> Column<T> {
     /// Creates a new typed column reference.
     ///

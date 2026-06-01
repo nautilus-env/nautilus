@@ -164,11 +164,23 @@ class {{ model_name }}UpdateInput(TypedDict, total=False):
     {% endfor %}
 
 
+{% if has_dotted_order_by_fields %}
+{{ model_name }}OrderByInput = TypedDict(
+    "{{ model_name }}OrderByInput",
+    {
+    {% for field in order_by_fields %}
+        "{{ field.name }}": NotRequired[Literal["asc", "desc"]],
+    {% endfor %}
+    },
+    total=False,
+)
+{% else %}
 class {{ model_name }}OrderByInput(TypedDict, total=False):
     """Ordering options for {{ model_name }} queries."""
     {% for field in order_by_fields %}
     {{ field.name }}: NotRequired[Literal["asc", "desc"]]
     {% endfor %}
+{% endif %}
 
 
 class {{ model_name }}SelectInput(TypedDict, total=False):

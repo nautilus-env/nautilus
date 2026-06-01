@@ -13,6 +13,7 @@ use crate::js::type_mapper::{
     get_base_ts_type, get_filter_operators_for_field, get_ts_default_value, is_auto_generated,
     scalar_to_ts_type,
 };
+use crate::type_helpers::{is_orderable_composite_field, is_orderable_model_field};
 
 /// JS/TS template registry — loaded once at first use.
 pub static JS_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
@@ -123,6 +124,7 @@ struct JsUpdateInputFieldContext {
 #[derive(Debug, Clone, Serialize)]
 struct JsOrderByFieldContext {
     name: String,
+    is_dotted: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -407,25 +409,35 @@ fn generate_js_model_with_registry(
             });
         }
 
-        let is_non_orderable = matches!(
-            &field.field_type,
-            ResolvedFieldType::Scalar(ScalarType::Boolean)
-                | ResolvedFieldType::Scalar(ScalarType::Json)
-                | ResolvedFieldType::Scalar(ScalarType::Jsonb)
-                | ResolvedFieldType::Scalar(ScalarType::Hstore)
-                | ResolvedFieldType::Scalar(ScalarType::Geometry)
-                | ResolvedFieldType::Scalar(ScalarType::Geography)
-                | ResolvedFieldType::Scalar(ScalarType::Vector { .. })
-                | ResolvedFieldType::Scalar(ScalarType::Bytes)
-        );
-        if !is_non_orderable {
+        if is_orderable_model_field(field) {
             order_by_fields.push(JsOrderByFieldContext {
                 name: field.logical_name.clone(),
+                is_dotted: false,
             });
             orderable_fields.push(JsAggregateFieldContext {
                 name: field.logical_name.clone(),
                 ts_type: base_type,
             });
+        }
+    }
+
+    for parent in model.scalar_fields() {
+        if parent.is_array {
+            continue;
+        }
+        let ResolvedFieldType::CompositeType { type_name, .. } = &parent.field_type else {
+            continue;
+        };
+        let Some(composite) = ir.composite_types.get(type_name) else {
+            continue;
+        };
+        for nested in &composite.fields {
+            if is_orderable_composite_field(nested) {
+                order_by_fields.push(JsOrderByFieldContext {
+                    name: format!("{}.{}", parent.logical_name, nested.logical_name),
+                    is_dotted: true,
+                });
+            }
         }
     }
 

@@ -1,7 +1,7 @@
 //! Type mapping helpers for code generation.
 
 use nautilus_schema::ir::DefaultValue;
-use nautilus_schema::ir::{FieldIr, ResolvedFieldType, ScalarType};
+use nautilus_schema::ir::{CompositeFieldIr, FieldIr, ResolvedFieldType, ScalarType};
 
 use crate::extension_types::ExtensionRegistry;
 
@@ -28,6 +28,47 @@ pub(crate) fn field_to_rust_base_type(field: &FieldIr, extensions: &ExtensionReg
         format!("Vec<{}>", base_type)
     } else {
         base_type
+    }
+}
+
+/// Returns true when a resolved field type can participate in classic ORDER BY,
+/// MIN and MAX inputs.
+pub(crate) fn is_orderable_resolved_type(field_type: &ResolvedFieldType) -> bool {
+    match field_type {
+        ResolvedFieldType::Enum { .. } => true,
+        ResolvedFieldType::Scalar(
+            ScalarType::Boolean
+            | ScalarType::Json
+            | ScalarType::Jsonb
+            | ScalarType::Hstore
+            | ScalarType::Geometry
+            | ScalarType::Geography
+            | ScalarType::Vector { .. }
+            | ScalarType::Bytes,
+        ) => false,
+        ResolvedFieldType::Scalar(_) => true,
+        ResolvedFieldType::CompositeType { .. } | ResolvedFieldType::Relation(_) => false,
+    }
+}
+
+/// Returns true when a model field can be ordered directly.
+pub(crate) fn is_orderable_model_field(field: &FieldIr) -> bool {
+    !field.is_array && is_orderable_resolved_type(&field.field_type)
+}
+
+/// Returns true when a field inside a composite can be ordered by path.
+pub(crate) fn is_orderable_composite_field(field: &CompositeFieldIr) -> bool {
+    !field.is_array && is_orderable_resolved_type(&field.field_type)
+}
+
+/// `JsonPathCast` variant needed by generated Rust helpers when a composite is
+/// stored as JSON.
+pub(crate) fn json_path_cast_variant(field_type: &ResolvedFieldType) -> &'static str {
+    match field_type {
+        ResolvedFieldType::Scalar(ScalarType::Int | ScalarType::BigInt) => "Signed",
+        ResolvedFieldType::Scalar(ScalarType::Float) => "Double",
+        ResolvedFieldType::Scalar(ScalarType::Decimal { .. }) => "Decimal",
+        _ => "None",
     }
 }
 

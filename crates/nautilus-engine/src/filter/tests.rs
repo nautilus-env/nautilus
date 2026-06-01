@@ -48,7 +48,7 @@ fn expr_contains_column(expr: &Expr, expected: &str) -> bool {
         Expr::CaseWhen { condition, then } => {
             expr_contains_column(condition, expected) || expr_contains_column(then, expected)
         }
-        Expr::Param(_) | Expr::Literal(_) | Expr::Star => false,
+        Expr::CompositeField { .. } | Expr::Param(_) | Expr::Literal(_) | Expr::Star => false,
     }
 }
 
@@ -258,7 +258,11 @@ fn expr_contains_enum(expr: &Expr, expected_value: &str, expected_type: &str) ->
             expr_contains_enum(condition, expected_value, expected_type)
                 || expr_contains_enum(then, expected_value, expected_type)
         }
-        Expr::Column(_) | Expr::Param(_) | Expr::Literal(_) | Expr::Star => false,
+        Expr::Column(_)
+        | Expr::CompositeField { .. }
+        | Expr::Param(_)
+        | Expr::Literal(_)
+        | Expr::Star => false,
     }
 }
 
@@ -293,7 +297,11 @@ fn expr_contains_subquery_table(expr: &Expr, expected_table: &str) -> bool {
             expr_contains_subquery_table(condition, expected_table)
                 || expr_contains_subquery_table(then, expected_table)
         }
-        Expr::Column(_) | Expr::Param(_) | Expr::Literal(_) | Expr::Star => false,
+        Expr::Column(_)
+        | Expr::CompositeField { .. }
+        | Expr::Param(_)
+        | Expr::Literal(_)
+        | Expr::Star => false,
     }
 }
 

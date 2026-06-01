@@ -577,6 +577,42 @@ pub(crate) fn push_identifier_reference(sql: &mut String, name: &str, quote: cha
     }
 }
 
+/// Render a PostgreSQL native composite field reference.
+pub(crate) fn push_composite_field_reference(
+    sql: &mut String,
+    table: &str,
+    column: &str,
+    field: &str,
+    quote: char,
+) {
+    sql.push('(');
+    push_qualified_identifier(sql, table, column, quote);
+    sql.push(')');
+    sql.push('.');
+    push_quoted_identifier(sql, field, quote);
+}
+
+fn push_json_path_key(sql: &mut String, key: &str) {
+    sql.push_str("$.\"");
+    for ch in key.chars() {
+        match ch {
+            '"' | '\\' => {
+                sql.push('\\');
+                sql.push(ch);
+            }
+            other => sql.push(other),
+        }
+    }
+    sql.push('"');
+}
+
+/// Render a single-quoted JSON object path literal for a schema-known key.
+pub(crate) fn push_json_object_path_literal(sql: &mut String, key: &str) {
+    let mut path = String::with_capacity(key.len() + 4);
+    push_json_path_key(&mut path, key);
+    push_sql_string_literal(sql, &path);
+}
+
 /// Render a single-quoted SQL string literal directly into the SQL buffer.
 pub(crate) fn push_sql_string_literal(sql: &mut String, value: &str) {
     sql.push('\'');

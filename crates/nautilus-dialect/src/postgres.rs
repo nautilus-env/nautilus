@@ -79,6 +79,14 @@ fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select)
 
 fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
     render_expr_common_mut!(ctx, expr, '"', render_expr_owned, render_select_body_owned, {
+        Expr::CompositeField {
+            table,
+            column,
+            field,
+            ..
+        } => {
+            crate::push_composite_field_reference(&mut ctx.sql, table, column, field, '"');
+        }
         Expr::Param(value) => {
             // NULL is emitted literally; PostgreSQL cannot implicitly resolve a
             // typed NULL sent as an unknown OID via the binary protocol.
@@ -455,6 +463,30 @@ mod tests {
             "UPDATE \"champions\" SET \"stats\" = $1::\"ChampionStatsT\""
         );
         assert_eq!(sql.params, vec![composite]);
+    }
+
+    #[test]
+    fn composite_field_ordering_uses_native_attribute_syntax() {
+        let dialect = PostgresDialect;
+        let select = Select::from_table("shipments")
+            .order_by_expr(
+                Expr::composite_field(
+                    "shipments",
+                    "delivery_snapshot",
+                    "eta_minutes",
+                    "etaMinutes",
+                    nautilus_core::JsonPathCast::Signed,
+                ),
+                nautilus_core::OrderDir::Asc,
+            )
+            .build()
+            .unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM \"shipments\" ORDER BY (\"shipments\".\"delivery_snapshot\").\"eta_minutes\" ASC"
+        );
     }
 
     #[test]

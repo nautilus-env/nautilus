@@ -465,6 +465,7 @@ pub(crate) fn qualify_filter_columns(
                 .unwrap_or_else(|| name.clone());
             Expr::Column(format!("{}__{}", table, db_col))
         }
+        Expr::CompositeField { .. } => expr,
         Expr::Binary { left, op, right } => Expr::Binary {
             left: Box::new(qualify_filter_columns(*left, table, logical_to_db)),
             op,

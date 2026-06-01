@@ -1948,6 +1948,83 @@ model User {
 }
 
 #[test]
+fn test_generated_clients_type_composite_field_order_by_paths() {
+    let ir = validate(
+        r#"
+datasource db {
+  provider = "sqlite"
+  url      = "sqlite::memory:"
+}
+
+generator client {
+  provider    = "nautilus-client-java"
+  output      = "./generated-java"
+  package     = "com.acme.db"
+  group_id    = "com.acme"
+  artifact_id = "db-client"
+  interface   = "sync"
+}
+
+type DeliveryEstimate {
+  etaMinutes      Int @map("eta_minutes_db")
+  weekendDelivery Boolean
+  carrierMetadata Json
+}
+
+model Shipment {
+  id           Int              @id @default(autoincrement())
+  trackingCode String           @unique
+  delivery     DeliveryEstimate @store(json)
+}
+"#,
+    );
+
+    let rust_models = generate_all_models(&ir, false);
+    let rust_shipment = rust_models.get("Shipment").expect("Shipment model missing");
+    assert!(rust_shipment
+        .contains("pub fn delivery_eta_minutes(&self) -> nautilus_core::OrderField<i32>"));
+    assert!(rust_shipment
+        .contains("nautilus_core::OrderField::new(\"Shipment\", \"delivery.etaMinutes\")"));
+    assert!(rust_shipment.contains("nautilus_core::JsonPathCast::Signed"));
+    assert!(!rust_shipment
+        .contains("pub fn delivery_weekend_delivery(&self) -> nautilus_core::OrderField"));
+    assert!(!rust_shipment
+        .contains("pub fn delivery_carrier_metadata(&self) -> nautilus_core::OrderField"));
+
+    let (_, dts_models) = generate_all_js_models(&ir);
+    let js_dts = dts_models
+        .iter()
+        .find(|(name, _)| name == "shipment.d.ts")
+        .map(|(_, code)| code.as_str())
+        .expect("shipment declaration missing");
+    assert!(js_dts.contains("'delivery.etaMinutes'?: SortOrder;"));
+    assert!(!js_dts.contains("delivery?: SortOrder;"));
+    assert!(!js_dts.contains("'delivery.weekendDelivery'?: SortOrder;"));
+    assert!(!js_dts.contains("'delivery.carrierMetadata'?: SortOrder;"));
+
+    let py_models = generate_all_python_models(&ir, false, 1);
+    let py_model = generated_python_file(&py_models, "shipment.py");
+    assert!(py_model.contains("ShipmentOrderByInput = TypedDict("));
+    assert!(py_model.contains("\"delivery.etaMinutes\": NotRequired[Literal[\"asc\", \"desc\"]]"));
+    assert!(!py_model.contains("delivery: NotRequired[Literal[\"asc\", \"desc\"]]"));
+    assert!(
+        !py_model.contains("\"delivery.weekendDelivery\": NotRequired[Literal[\"asc\", \"desc\"]]")
+    );
+    assert!(
+        !py_model.contains("\"delivery.carrierMetadata\": NotRequired[Literal[\"asc\", \"desc\"]]")
+    );
+
+    let java_files =
+        generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
+    let shipment_dsl = generated_java_file(&java_files, "dsl/ShipmentDsl.java");
+    assert!(shipment_dsl.contains("public OrderBy deliveryEtaMinutes(SortOrder order)"));
+    assert!(shipment_dsl.contains("this.node.put(\"delivery.etaMinutes\", order.wireValue());"));
+    assert!(!shipment_dsl.contains("public OrderBy delivery(SortOrder order)"));
+    assert!(!shipment_dsl.contains("public OrderBy deliveryWeekendDelivery(SortOrder order)"));
+    assert!(!shipment_dsl.contains("public OrderBy deliveryCarrierMetadata(SortOrder order)"));
+}
+
+#[test]
 fn test_generated_hstore_filters_are_typed_in_js_and_python() {
     let ir = validate(
         r#"

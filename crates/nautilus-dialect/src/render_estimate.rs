@@ -249,6 +249,19 @@ fn estimate_expr_render(expr: &nautilus_core::Expr) -> RenderEstimate {
 
     match expr {
         Expr::Column(name) => RenderEstimate::new(estimate_identifier_reference_len(name), 0),
+        Expr::CompositeField {
+            table,
+            column,
+            field,
+            json_key,
+            ..
+        } => RenderEstimate::new(
+            estimate_qualified_identifier_len(table, column)
+                + estimate_identifier_len(field)
+                + json_key.len()
+                + 48,
+            0,
+        ),
         Expr::Param(value) => {
             if matches!(value, Value::Null) {
                 RenderEstimate::new(4, 0)

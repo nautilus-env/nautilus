@@ -8,7 +8,7 @@ pub mod typed;
 pub use from_value::FromValue;
 pub use marker::ColumnMarker;
 pub use row_access::RowAccess;
-pub use typed::{Column, SelectColumns};
+pub use typed::{Column, OrderField, SelectColumns};
 
 #[cfg(test)]
 mod tests {
@@ -90,6 +90,17 @@ mod tests {
         let col: Column<i64> = Column::new("users", "id");
         let order = col.asc();
         assert_eq!(order.column, "users__id");
+        assert_eq!(order.direction, OrderDir::Asc);
+    }
+
+    #[test]
+    fn test_nested_order_field() {
+        let field: OrderField<i32> = OrderField::new("shipments", "delivery.etaMinutes");
+        assert_eq!(field.table(), "shipments");
+        assert_eq!(field.path(), "delivery.etaMinutes");
+
+        let order = field.asc();
+        assert_eq!(order.column, "shipments__delivery.etaMinutes");
         assert_eq!(order.direction, OrderDir::Asc);
     }
 

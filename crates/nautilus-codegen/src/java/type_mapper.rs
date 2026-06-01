@@ -164,17 +164,7 @@ pub fn is_numeric_field(field: &FieldIr) -> bool {
 }
 
 pub fn is_orderable_field(field: &FieldIr) -> bool {
-    !matches!(
-        field.field_type,
-        ResolvedFieldType::Scalar(ScalarType::Boolean)
-            | ResolvedFieldType::Scalar(ScalarType::Json)
-            | ResolvedFieldType::Scalar(ScalarType::Jsonb)
-            | ResolvedFieldType::Scalar(ScalarType::Hstore)
-            | ResolvedFieldType::Scalar(ScalarType::Geometry)
-            | ResolvedFieldType::Scalar(ScalarType::Geography)
-            | ResolvedFieldType::Scalar(ScalarType::Vector { .. })
-            | ResolvedFieldType::Scalar(ScalarType::Bytes)
-    )
+    crate::type_helpers::is_orderable_model_field(field)
 }
 
 pub fn filter_operators_for_field(

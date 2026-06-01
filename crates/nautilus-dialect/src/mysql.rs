@@ -1,7 +1,9 @@
 //! MySQL SQL dialect renderer.
 
 use crate::{Dialect, Sql};
-use nautilus_core::{BinaryOp, Delete, Error, Expr, Insert, Result, Select, Update, Value};
+use nautilus_core::{
+    BinaryOp, Delete, Error, Expr, Insert, JsonPathCast, Result, Select, Update, Value,
+};
 
 /// MySQL SQL dialect renderer.
 #[derive(Debug, Clone, Copy)]
@@ -144,12 +146,56 @@ fn render_filter_owned(ctx: &mut RenderContext, expr: &mut Expr, predicate: &mut
     }
 }
 
+fn render_json_extract_unquoted(ctx: &mut RenderContext, table: &str, column: &str, key: &str) {
+    ctx.sql.push_str("JSON_UNQUOTE(JSON_EXTRACT(");
+    crate::push_qualified_identifier(&mut ctx.sql, table, column, '`');
+    ctx.sql.push_str(", ");
+    crate::push_json_object_path_literal(&mut ctx.sql, key);
+    ctx.sql.push_str("))");
+}
+
+fn render_composite_field_owned(
+    ctx: &mut RenderContext,
+    table: &str,
+    column: &str,
+    key: &str,
+    cast: JsonPathCast,
+) {
+    match cast {
+        JsonPathCast::None => render_json_extract_unquoted(ctx, table, column, key),
+        JsonPathCast::Signed => {
+            ctx.sql.push_str("CAST(");
+            render_json_extract_unquoted(ctx, table, column, key);
+            ctx.sql.push_str(" AS SIGNED)");
+        }
+        JsonPathCast::Double => {
+            ctx.sql.push_str("CAST(");
+            render_json_extract_unquoted(ctx, table, column, key);
+            ctx.sql.push_str(" AS DOUBLE)");
+        }
+        JsonPathCast::Decimal => {
+            ctx.sql.push_str("CAST(");
+            render_json_extract_unquoted(ctx, table, column, key);
+            ctx.sql.push_str(" AS DECIMAL(65, 30))");
+        }
+    }
+}
+
 fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
     if ctx.error.is_some() {
         return;
     }
 
     render_expr_common_mut!(ctx, expr, '`', render_expr_owned, render_select_body_owned, {
+        Expr::CompositeField {
+            table,
+            column,
+            json_key,
+            json_cast,
+            ..
+        } => {
+            render_composite_field_owned(ctx, table, column, json_key, *json_cast);
+        }
         Expr::Param(value) => {
             if matches!(value, Value::Null) {
                 ctx.sql.push_str("NULL");
@@ -398,5 +444,29 @@ mod tests {
 
         let err = dialect.render_select(&select).unwrap_err();
         assert!(err.to_string().contains("ArrayOverlaps generically"));
+    }
+
+    #[test]
+    fn composite_field_ordering_uses_json_extract_with_numeric_cast() {
+        let dialect = MysqlDialect;
+        let select = Select::from_table("shipments")
+            .order_by_expr(
+                Expr::composite_field(
+                    "shipments",
+                    "delivery_snapshot",
+                    "eta_minutes",
+                    "etaMinutes",
+                    JsonPathCast::Signed,
+                ),
+                nautilus_core::OrderDir::Asc,
+            )
+            .build()
+            .unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM `shipments` ORDER BY CAST(JSON_UNQUOTE(JSON_EXTRACT(`shipments`.`delivery_snapshot`, '$.\"etaMinutes\"')) AS SIGNED) ASC"
+        );
     }
 }

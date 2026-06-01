@@ -17,6 +17,7 @@ use crate::java::type_mapper::{
     filter_operators_for_field, is_numeric_field, is_orderable_field, is_writable_on_create,
     is_writable_on_update,
 };
+use crate::type_helpers::is_orderable_composite_field;
 
 pub(crate) const JACKSON_VERSION: &str = "2.17.2";
 const DEFAULT_MAVEN_VERSION: &str = "0.1.0-SNAPSHOT";
@@ -304,6 +305,12 @@ struct DslRelationFieldCtx {
 }
 
 #[derive(Debug, Serialize)]
+struct DslOrderByFieldCtx {
+    method_name: String,
+    wire_name: String,
+}
+
+#[derive(Debug, Serialize)]
 struct DslTemplateContext {
     package_name: String,
     imports: Vec<String>,
@@ -313,6 +320,7 @@ struct DslTemplateContext {
     update_fields: Vec<DslWritableFieldCtx>,
     relation_fields: Vec<DslRelationFieldCtx>,
     numeric_field_names: Vec<String>,
+    order_by_fields: Vec<DslOrderByFieldCtx>,
     orderable_field_names: Vec<String>,
     vector_field_names: Vec<String>,
     all_scalar_field_names: Vec<String>,
@@ -934,9 +942,11 @@ fn generate_dsl_file(
     let mut create_fields: Vec<DslWritableFieldCtx> = Vec::new();
     let mut update_fields: Vec<DslWritableFieldCtx> = Vec::new();
     let mut numeric_field_names: Vec<String> = Vec::new();
+    let mut order_by_fields: Vec<DslOrderByFieldCtx> = Vec::new();
     let mut orderable_field_names: Vec<String> = Vec::new();
     let mut vector_field_names: Vec<String> = Vec::new();
     let mut all_scalar_field_names: Vec<String> = Vec::new();
+    let mut used_order_by_methods: BTreeSet<String> = BTreeSet::new();
 
     for field in model.scalar_fields() {
         let (base_type, _) = field_base_type(
@@ -976,6 +986,11 @@ fn generate_dsl_file(
             vector_field_names.push(field.logical_name.clone());
         }
         if is_orderable_field(field) {
+            order_by_fields.push(DslOrderByFieldCtx {
+                method_name: field.logical_name.clone(),
+                wire_name: field.logical_name.clone(),
+            });
+            used_order_by_methods.insert(field.logical_name.clone());
             orderable_field_names.push(field.logical_name.clone());
         }
 
@@ -996,6 +1011,42 @@ fn generate_dsl_file(
                 db_name: field.db_name.clone(),
                 java_type: ty,
                 raw_java_type: raw_java_type.clone(),
+            });
+        }
+    }
+
+    for parent in model.scalar_fields() {
+        if parent.is_array {
+            continue;
+        }
+        let ResolvedFieldType::CompositeType { type_name, .. } = &parent.field_type else {
+            continue;
+        };
+        let Some(composite) = ir.composite_types.get(type_name) else {
+            continue;
+        };
+        for nested in &composite.fields {
+            if !is_orderable_composite_field(nested) {
+                continue;
+            }
+
+            let base_method_name =
+                format!("{}_{}", parent.logical_name, nested.logical_name).to_lower_camel_case();
+            let mut method_name = base_method_name.clone();
+            let mut suffix = 0usize;
+            while used_order_by_methods.contains(&method_name) {
+                suffix += 1;
+                method_name = if suffix == 1 {
+                    format!("{base_method_name}Order")
+                } else {
+                    format!("{base_method_name}Order{suffix}")
+                };
+            }
+            used_order_by_methods.insert(method_name.clone());
+
+            order_by_fields.push(DslOrderByFieldCtx {
+                method_name,
+                wire_name: format!("{}.{}", parent.logical_name, nested.logical_name),
             });
         }
     }
@@ -1025,6 +1076,7 @@ fn generate_dsl_file(
         update_fields,
         relation_fields,
         numeric_field_names,
+        order_by_fields,
         orderable_field_names,
         vector_field_names,
         all_scalar_field_names,

@@ -27,11 +27,11 @@ pub mod update;
 pub mod value;
 
 pub use args::{FindManyArgs, FindUniqueArgs, IncludeRelation, VectorMetric, VectorNearest};
-pub use column::{Column, ColumnMarker, FromValue, RowAccess, SelectColumns};
+pub use column::{Column, ColumnMarker, FromValue, OrderField, RowAccess, SelectColumns};
 pub use cursor::build_cursor_predicate;
 pub use delete::{Delete, DeleteBuilder, DeleteCapacity};
 pub use error::{Error, Result};
-pub use expr::{BinaryOp, Expr, LiteralSql};
+pub use expr::{BinaryOp, Expr, JsonPathCast, LiteralSql};
 pub use insert::{Insert, InsertBuilder, InsertCapacity};
 pub use protocol_json::{
     find_many_args_to_protocol_json, find_many_args_to_protocol_object, where_expr_to_protocol_json,

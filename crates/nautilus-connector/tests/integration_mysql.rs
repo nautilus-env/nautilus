@@ -18,6 +18,7 @@ use futures::stream::StreamExt;
 use nautilus_connector::{execute_all, ConnectorPoolOptions, Executor, MysqlExecutor};
 use nautilus_core::Value;
 use nautilus_dialect::Sql;
+use serde_json::json;
 
 #[tokio::test]
 #[ignore = "requires a running MySQL instance (run `docker-compose up -d` first)"]
@@ -99,6 +100,64 @@ async fn test_insert_and_select() {
             data: &[1, 2, 3],
         },
     );
+}
+
+#[tokio::test]
+#[ignore = "requires a running MySQL instance (run `docker-compose up -d` first)"]
+async fn test_json_column_decodes_to_value_json() {
+    let executor = mysql_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+
+    execute_all(
+        &executor,
+        &Sql {
+            text: "DROP TABLE IF EXISTS test_json_values".to_string(),
+            params: vec![],
+        },
+    )
+    .await
+    .expect("Failed to drop JSON table");
+    execute_all(
+        &executor,
+        &Sql {
+            text: "CREATE TABLE test_json_values (id BIGINT PRIMARY KEY, payload JSON NOT NULL)"
+                .to_string(),
+            params: vec![],
+        },
+    )
+    .await
+    .expect("Failed to create JSON table");
+
+    let payload = json!({
+        "etaMinutes": 10,
+        "weekendDelivery": true,
+        "nested": {
+            "carrier": "local-courier"
+        }
+    });
+    execute_all(
+        &executor,
+        &Sql {
+            text: "INSERT INTO test_json_values (id, payload) VALUES (?, ?)".to_string(),
+            params: vec![Value::I64(1), Value::Json(payload.clone())],
+        },
+    )
+    .await
+    .expect("Failed to insert JSON payload");
+
+    let rows = execute_all(
+        &executor,
+        &Sql {
+            text: "SELECT payload FROM test_json_values WHERE id = ?".to_string(),
+            params: vec![Value::I64(1)],
+        },
+    )
+    .await
+    .expect("Failed to select JSON payload");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get("payload"), Some(&Value::Json(payload)));
 }
 
 #[tokio::test]

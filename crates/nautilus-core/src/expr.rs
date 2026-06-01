@@ -10,6 +10,24 @@ pub const VECTOR_INNER_PRODUCT_FUNCTION: &str = "__nautilus_vector_inner_product
 /// Internal expression function marker rendered as pgvector `<=>`.
 pub const VECTOR_COSINE_DISTANCE_FUNCTION: &str = "__nautilus_vector_cosine_distance";
 
+/// Cast applied when a nested composite field is rendered through JSON storage.
+///
+/// PostgreSQL stores composite fields natively and ignores this value. SQLite's
+/// `json_extract` preserves scalar number types, so it also ignores this value.
+/// MySQL JSON extraction returns JSON/text, so the dialect uses this hint to
+/// keep numeric ordering numeric instead of lexicographic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonPathCast {
+    /// No cast; keep the extracted scalar as text/native JSON scalar.
+    None,
+    /// Cast to a signed integer.
+    Signed,
+    /// Cast to a floating-point number.
+    Double,
+    /// Cast to a wide decimal value.
+    Decimal,
+}
+
 /// Relation filter operator used by generated relation helpers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelationFilterOp {
@@ -111,6 +129,22 @@ impl LiteralSql {
 pub enum Expr {
     /// Column reference.
     Column(String),
+    /// Field inside a composite value.
+    ///
+    /// Rendered as a native composite attribute on PostgreSQL and as JSON-path
+    /// extraction on JSON-backed providers.
+    CompositeField {
+        /// Database table name.
+        table: String,
+        /// Database column name containing the composite/JSON value.
+        column: String,
+        /// Database field name inside the PostgreSQL composite type.
+        field: String,
+        /// JSON object key used by JSON-backed composite storage.
+        json_key: String,
+        /// Optional cast hint for JSON-backed providers.
+        json_cast: JsonPathCast,
+    },
     /// Parameter placeholder.
     Param(Value),
     /// Binary operation.
@@ -186,6 +220,23 @@ impl Expr {
     /// Creates a column reference.
     pub fn column(name: impl Into<String>) -> Self {
         Expr::Column(name.into())
+    }
+
+    /// Creates a reference to a field inside a composite column.
+    pub fn composite_field(
+        table: impl Into<String>,
+        column: impl Into<String>,
+        field: impl Into<String>,
+        json_key: impl Into<String>,
+        json_cast: JsonPathCast,
+    ) -> Self {
+        Expr::CompositeField {
+            table: table.into(),
+            column: column.into(),
+            field: field.into(),
+            json_key: json_key.into(),
+            json_cast,
+        }
     }
 
     /// Creates a parameter placeholder.

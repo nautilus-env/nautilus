@@ -76,6 +76,18 @@ fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select)
 
 fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
     render_expr_common_mut!(ctx, expr, '"', render_expr_owned, render_select_body_owned, {
+        Expr::CompositeField {
+            table,
+            column,
+            json_key,
+            ..
+        } => {
+            ctx.sql.push_str("json_extract(");
+            crate::push_qualified_identifier(&mut ctx.sql, table, column, '"');
+            ctx.sql.push_str(", ");
+            crate::push_json_object_path_literal(&mut ctx.sql, json_key);
+            ctx.sql.push(')');
+        }
         Expr::Param(value) => {
             if matches!(value, Value::Null) {
                 ctx.sql.push_str("NULL");
@@ -267,5 +279,29 @@ mod tests {
             }
             _ => panic!("Expected Array value"),
         }
+    }
+
+    #[test]
+    fn composite_field_ordering_uses_json_extract() {
+        let dialect = SqliteDialect;
+        let select = Select::from_table("shipments")
+            .order_by_expr(
+                Expr::composite_field(
+                    "shipments",
+                    "delivery_snapshot",
+                    "eta_minutes",
+                    "etaMinutes",
+                    nautilus_core::JsonPathCast::Signed,
+                ),
+                nautilus_core::OrderDir::Asc,
+            )
+            .build()
+            .unwrap();
+        let sql = dialect.render_select(&select).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "SELECT * FROM \"shipments\" ORDER BY json_extract(\"shipments\".\"delivery_snapshot\", '$.\"etaMinutes\"') ASC"
+        );
     }
 }
