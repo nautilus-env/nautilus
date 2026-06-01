@@ -171,7 +171,10 @@ impl<'a> Lexer<'a> {
             }
             _ => {
                 self.advance();
-                return Err(SchemaError::UnexpectedCharacter(ch, Span::single(start)));
+                return Err(SchemaError::UnexpectedCharacter(
+                    ch,
+                    Span::new(start, self.pos),
+                ));
             }
         };
 
@@ -290,7 +293,7 @@ impl<'a> Lexer<'a> {
     /// Skip whitespace characters (but not newlines).
     fn skip_whitespace(&mut self) {
         while let Some(ch) = self.peek() {
-            if ch == ' ' || ch == '\t' || ch == '\r' {
+            if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\u{feff}' {
                 self.advance();
             } else {
                 break;
@@ -570,6 +573,15 @@ mod tests {
             SchemaError::UnexpectedCharacter('#', _) => {}
             _ => panic!("Expected UnexpectedCharacter error"),
         }
+    }
+
+    #[test]
+    fn test_utf8_bom_is_skipped() {
+        let tokens = tokenize("\u{feff}model User").unwrap();
+        assert_eq!(
+            tokens,
+            vec![TokenKind::Model, TokenKind::Ident("User".to_string()),]
+        );
     }
 
     #[test]
