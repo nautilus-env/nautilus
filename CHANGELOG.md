@@ -1,5 +1,20 @@
 # Changelog
 
+## Version 1.3.3
+
+### Added
+
+- Added nested composite-field ordering via dotted `orderBy` paths, with typed generated client support across Rust,
+  JavaScript/TypeScript, Python, and Java.
+- Composite-field ordering now renders through native PostgreSQL composite
+  attributes and JSON path extraction for SQLite/MySQL, including numeric casts
+  for MySQL JSON-backed composite fields.
+
+### Fixed
+
+- MySQL JSON columns now decode into protocol JSON values instead of raw strings,
+  preserving JSON-backed composite payloads in query results.
+
 ## Version 1.3.2
 
 ### Fixed
