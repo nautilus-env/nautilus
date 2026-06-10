@@ -20,6 +20,10 @@ pub enum RpcId {
 
 /// JSON-RPC 2.0 request.
 ///
+/// `params` is kept as raw JSON so that each handler deserializes it once,
+/// directly into its concrete params type, instead of going through an
+/// intermediate `serde_json::Value` DOM on every request.
+///
 /// # Example
 ///
 /// ```json
@@ -36,7 +40,7 @@ pub struct RpcRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<RpcId>,
     pub method: String,
-    pub params: Value,
+    pub params: Box<RawValue>,
 }
 
 /// JSON-RPC 2.0 response.
@@ -161,19 +165,21 @@ mod tests {
             jsonrpc: "2.0".to_string(),
             id: Some(RpcId::Number(1)),
             method: "test.method".to_string(),
-            params: json!({"key": "value"}),
+            params: serde_json::value::to_raw_value(&json!({"key": "value"})).unwrap(),
         };
 
-        let json = serde_json::to_value(&request).unwrap();
+        let serialized = serde_json::to_string(&request).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&serialized).unwrap();
         assert_eq!(json["jsonrpc"], "2.0");
         assert_eq!(json["id"], 1);
         assert_eq!(json["method"], "test.method");
         assert_eq!(json["params"]["key"], "value");
 
-        let parsed: RpcRequest = serde_json::from_value(json).unwrap();
+        let parsed: RpcRequest = serde_json::from_str(&serialized).unwrap();
         assert_eq!(parsed.jsonrpc, "2.0");
         assert_eq!(parsed.id, Some(RpcId::Number(1)));
         assert_eq!(parsed.method, "test.method");
+        assert_eq!(parsed.params.get(), r#"{"key":"value"}"#);
     }
 
     #[test]
@@ -218,7 +224,7 @@ mod tests {
             jsonrpc: "2.0".to_string(),
             id: None,
             method: "notification".to_string(),
-            params: json!(null),
+            params: serde_json::value::to_raw_value(&json!(null)).unwrap(),
         };
 
         let json = serde_json::to_value(&request).unwrap();

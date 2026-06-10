@@ -650,8 +650,7 @@ pub(super) async fn handle_find_many(
     request: RpcRequest,
     sender: Option<mpsc::Sender<RpcResponse>>,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: FindManyParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid findMany params: {}", e)))?;
+    let params: FindManyParams = parse_params(&request, "findMany")?;
 
     find_many_with_params(state, params, request.id, sender).await
 }
@@ -734,8 +733,7 @@ pub(super) async fn handle_find_many_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
-    let params: FindManyParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid findMany params: {}", e)))?;
+    let params: FindManyParams = parse_params(&request, "findMany")?;
     execute_find_many_params(state, params).await
 }
 
@@ -744,8 +742,7 @@ pub(super) async fn handle_find_first(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: FindFirstParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid findFirst params: {}", e)))?;
+    let params: FindFirstParams = parse_params(&request, "findFirst")?;
 
     let find_many_params = FindManyParams {
         protocol_version: params.protocol_version,
@@ -774,8 +771,7 @@ pub(super) async fn handle_find_unique(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: FindUniqueParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid findUnique params: {}", e)))?;
+    let params: FindUniqueParams = parse_params(&request, "findUnique")?;
 
     check_protocol_version(params.protocol_version)?;
     let tx_id = params.transaction_id;
@@ -846,8 +842,7 @@ pub(super) async fn handle_count(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: CountParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid count params: {}", e)))?;
+    let params: CountParams = parse_params(&request, "count")?;
 
     let count = execute_count_params(state, params).await?;
     wrap_count_result(count, "count result")
@@ -937,8 +932,7 @@ pub(super) async fn handle_count_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<i64, ProtocolError> {
-    let params: CountParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid count params: {}", e)))?;
+    let params: CountParams = parse_params(&request, "count")?;
     execute_count_params(state, params).await
 }
 

@@ -16,7 +16,7 @@ use nautilus_schema::ir::{DefaultValue, FieldIr, ModelIr, ResolvedFieldType};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use tokio::sync::mpsc;
 
-use super::{field_marker, get_model_or_error};
+use super::{field_marker, get_model_or_error, parse_params};
 use crate::conversion::{
     check_protocol_version, json_to_value, json_to_value_field, normalize_rows_with_hints,
     rows_to_raw_json, ValueHint,

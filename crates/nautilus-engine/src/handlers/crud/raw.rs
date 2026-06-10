@@ -8,8 +8,7 @@ pub(super) async fn handle_raw_query(
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     use nautilus_protocol::RawQueryParams;
 
-    let params: RawQueryParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid rawQuery params: {}", e)))?;
+    let params: RawQueryParams = parse_params(&request, "rawQuery")?;
 
     check_protocol_version(params.protocol_version)?;
 
@@ -31,8 +30,7 @@ pub(super) async fn handle_raw_stmt_query(
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     use nautilus_protocol::RawStmtQueryParams;
 
-    let params: RawStmtQueryParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid rawStmtQuery params: {}", e)))?;
+    let params: RawStmtQueryParams = parse_params(&request, "rawStmtQuery")?;
 
     check_protocol_version(params.protocol_version)?;
 

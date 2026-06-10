@@ -49,10 +49,11 @@ async fn transaction_batch_response(
             jsonrpc: "2.0".to_string(),
             id: Some(RpcId::Number(1)),
             method: TRANSACTION_BATCH.to_string(),
-            params: json!({
+            params: serde_json::value::to_raw_value(&json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "operations": operations,
-            }),
+            }))
+            .expect("params should serialize"),
         },
         tx,
     )

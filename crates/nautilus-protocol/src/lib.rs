@@ -21,7 +21,7 @@
 //!     jsonrpc: "2.0".to_string(),
 //!     id: Some(RpcId::Number(1)),
 //!     method: ENGINE_HANDSHAKE.to_string(),
-//!     params: serde_json::to_value(HandshakeParams {
+//!     params: serde_json::value::to_raw_value(&HandshakeParams {
 //!         protocol_version: PROTOCOL_VERSION,
 //!         client_name: Some("nautilus-js".to_string()),
 //!         client_version: Some("0.1.0".to_string()),

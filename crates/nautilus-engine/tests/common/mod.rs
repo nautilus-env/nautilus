@@ -52,7 +52,7 @@ pub async fn call_rpc_response(
             jsonrpc: "2.0".to_string(),
             id: None,
             method: method.to_string(),
-            params,
+            params: serde_json::value::to_raw_value(&params).expect("params should serialize"),
         },
     )
     .await
@@ -70,7 +70,7 @@ pub async fn call_embedded(
             jsonrpc: "2.0".to_string(),
             id: None,
             method: method.to_string(),
-            params,
+            params: serde_json::value::to_raw_value(&params).expect("params should serialize"),
         },
     )
     .await

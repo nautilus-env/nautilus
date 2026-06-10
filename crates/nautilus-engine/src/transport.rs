@@ -59,7 +59,7 @@ async fn handle_cancel_request(
     active_requests: &ActiveRequests,
 ) -> Option<RpcResponse> {
     let response_id = request.id.clone();
-    let params: RequestCancelParams = match serde_json::from_value(request.params) {
+    let params: RequestCancelParams = match serde_json::from_str(request.params.get()) {
         Ok(params) => params,
         Err(e) => {
             return response_id.map(|id| {

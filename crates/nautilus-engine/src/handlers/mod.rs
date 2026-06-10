@@ -43,6 +43,18 @@ pub enum EmbeddedResponse {
     Json(Box<serde_json::value::RawValue>),
 }
 
+/// Deserialize `request.params` directly into the handler's concrete params
+/// type. This is the single per-request parse: the transport keeps `params`
+/// as raw JSON (`Box<RawValue>`), so no intermediate `serde_json::Value` DOM
+/// is built or re-walked here.
+pub(super) fn parse_params<P: serde::de::DeserializeOwned>(
+    request: &RpcRequest,
+    context: &str,
+) -> Result<P, ProtocolError> {
+    serde_json::from_str(request.params.get())
+        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid {context} params: {}", e)))
+}
+
 /// Build a `ColumnMarker` for a scalar field.
 pub(super) fn field_marker(model: &ModelIr, field: &FieldIr) -> ColumnMarker {
     ColumnMarker::new(&model.db_name, &field.db_name)
@@ -381,8 +393,7 @@ async fn handle_handshake(
     _state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: HandshakeParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid handshake params: {}", e)))?;
+    let params: HandshakeParams = parse_params(&request, "handshake")?;
 
     check_protocol_version(params.protocol_version)?;
 
@@ -398,9 +409,7 @@ async fn handle_schema_validate(
     _state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: SchemaValidateParams = serde_json::from_value(request.params).map_err(|e| {
-        ProtocolError::InvalidParams(format!("Invalid schema.validate params: {}", e))
-    })?;
+    let params: SchemaValidateParams = parse_params(&request, "schema.validate")?;
 
     check_protocol_version(params.protocol_version)?;
 

@@ -8,6 +8,10 @@ use nautilus_protocol::{
 use serde_json::json;
 use tokio::sync::mpsc;
 
+fn raw_params(params: serde_json::Value) -> Box<serde_json::value::RawValue> {
+    serde_json::value::to_raw_value(&params).expect("params should serialize")
+}
+
 fn parse_result(response: RpcResponse) -> serde_json::Value {
     if let Some(error) = response.error {
         panic!(
@@ -82,7 +86,7 @@ async fn find_many_chunk_size_emits_partial_responses_in_order() {
             jsonrpc: "2.0".to_string(),
             id: Some(RpcId::String("chunked-find-many".to_string())),
             method: QUERY_FIND_MANY.to_string(),
-            params: json!({
+            params: raw_params(json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "model": "User",
                 "args": {
@@ -91,7 +95,7 @@ async fn find_many_chunk_size_emits_partial_responses_in_order() {
                     ]
                 },
                 "chunkSize": 1
-            }),
+            })),
         },
         tx,
     )
@@ -173,12 +177,12 @@ async fn find_many_chunk_size_aligned_to_row_count_ends_with_full_final_chunk() 
             jsonrpc: "2.0".to_string(),
             id: Some(RpcId::String("aligned".to_string())),
             method: QUERY_FIND_MANY.to_string(),
-            params: json!({
+            params: raw_params(json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "model": "User",
                 "args": { "orderBy": [{ "id": "asc" }] },
                 "chunkSize": 2,
-            }),
+            })),
         },
         tx,
     )
@@ -231,7 +235,7 @@ async fn find_many_with_backward_pagination_falls_back_to_buffered_chunking() {
             jsonrpc: "2.0".to_string(),
             id: Some(RpcId::String("backward".to_string())),
             method: QUERY_FIND_MANY.to_string(),
-            params: json!({
+            params: raw_params(json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "model": "User",
                 "args": {
@@ -239,7 +243,7 @@ async fn find_many_with_backward_pagination_falls_back_to_buffered_chunking() {
                     "take": -3
                 },
                 "chunkSize": 1,
-            }),
+            })),
         },
         tx,
     )
@@ -298,12 +302,12 @@ async fn find_many_streaming_propagates_consumer_disconnect_as_error() {
             jsonrpc: "2.0".to_string(),
             id: Some(RpcId::String("cancel".to_string())),
             method: QUERY_FIND_MANY.to_string(),
-            params: json!({
+            params: raw_params(json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "model": "User",
                 "args": { "orderBy": [{ "id": "asc" }] },
                 "chunkSize": 1,
-            }),
+            })),
         },
         tx,
     )
@@ -377,7 +381,7 @@ async fn find_many_with_include_falls_back_to_buffered_chunking() {
             jsonrpc: "2.0".to_string(),
             id: Some(RpcId::String("include".to_string())),
             method: QUERY_FIND_MANY.to_string(),
-            params: json!({
+            params: raw_params(json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "model": "User",
                 "args": {
@@ -385,7 +389,7 @@ async fn find_many_with_include_falls_back_to_buffered_chunking() {
                     "include": { "posts": true }
                 },
                 "chunkSize": 1,
-            }),
+            })),
         },
         tx,
     )
@@ -448,12 +452,12 @@ async fn find_many_streaming_early_break_releases_connection() {
         jsonrpc: "2.0".to_string(),
         id: Some(RpcId::String("early-break".to_string())),
         method: QUERY_FIND_MANY.to_string(),
-        params: json!({
+        params: raw_params(json!({
             "protocolVersion": PROTOCOL_VERSION,
             "model": "User",
             "args": { "orderBy": [{ "id": "asc" }] },
             "chunkSize": 10,
-        }),
+        })),
     };
 
     let engine_fut = handlers::handle_request(&state, request, tx);

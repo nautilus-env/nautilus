@@ -6,7 +6,7 @@ use nautilus_protocol::{
     TransactionRollbackResult, TransactionStartParams, TransactionStartResult,
 };
 
-use super::dispatch;
+use super::{dispatch, parse_params};
 use crate::state::EngineState;
 
 /// Handle `transaction.start`.
@@ -17,9 +17,7 @@ pub(super) async fn handle_transaction_start(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: TransactionStartParams = serde_json::from_value(request.params).map_err(|e| {
-        ProtocolError::InvalidParams(format!("Invalid transactionStart params: {}", e))
-    })?;
+    let params: TransactionStartParams = parse_params(&request, "transactionStart")?;
 
     let timeout = std::time::Duration::from_millis(params.timeout_ms.unwrap_or(5000) as u64);
 
@@ -42,9 +40,7 @@ pub(super) async fn handle_transaction_commit(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: TransactionCommitParams = serde_json::from_value(request.params).map_err(|e| {
-        ProtocolError::InvalidParams(format!("Invalid transactionCommit params: {}", e))
-    })?;
+    let params: TransactionCommitParams = parse_params(&request, "transactionCommit")?;
 
     eprintln!("[engine] Committing transaction {}", params.id);
 
@@ -62,10 +58,7 @@ pub(super) async fn handle_transaction_rollback(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: TransactionRollbackParams =
-        serde_json::from_value(request.params).map_err(|e| {
-            ProtocolError::InvalidParams(format!("Invalid transactionRollback params: {}", e))
-        })?;
+    let params: TransactionRollbackParams = parse_params(&request, "transactionRollback")?;
 
     eprintln!("[engine] Rolling back transaction {}", params.id);
 
@@ -87,9 +80,7 @@ pub(super) async fn handle_transaction_batch(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: TransactionBatchParams = serde_json::from_value(request.params).map_err(|e| {
-        ProtocolError::InvalidParams(format!("Invalid transactionBatch params: {}", e))
-    })?;
+    let params: TransactionBatchParams = parse_params(&request, "transactionBatch")?;
 
     let timeout = std::time::Duration::from_millis(params.timeout_ms.unwrap_or(5000) as u64);
 
@@ -116,7 +107,9 @@ pub(super) async fn handle_transaction_batch(
             jsonrpc: "2.0".into(),
             id: Some(RpcId::Number(i as i64)),
             method: op.method.clone(),
-            params: op_params,
+            params: serde_json::value::to_raw_value(&op_params).map_err(|e| {
+                ProtocolError::Internal(format!("Failed to serialize batch op params: {}", e))
+            })?,
         };
 
         match Box::pin(dispatch(state, sub_request)).await {

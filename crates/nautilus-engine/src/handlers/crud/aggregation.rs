@@ -267,8 +267,7 @@ pub(super) async fn handle_group_by(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: GroupByParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid groupBy params: {}", e)))?;
+    let params: GroupByParams = parse_params(&request, "groupBy")?;
     let rows = execute_group_by_rows(state, params).await?;
     wrap_data_result(&rows, "groupBy result")
 }
@@ -277,8 +276,7 @@ pub(super) async fn handle_group_by_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
-    let params: GroupByParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid groupBy params: {}", e)))?;
+    let params: GroupByParams = parse_params(&request, "groupBy")?;
     execute_group_by_rows(state, params).await
 }
 

@@ -65,10 +65,11 @@ async fn transaction_commit_rpc_preserves_timeout_error_code() {
             jsonrpc: "2.0".to_string(),
             id: None,
             method: TRANSACTION_COMMIT.to_string(),
-            params: serde_json::json!({
+            params: serde_json::value::to_raw_value(&serde_json::json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "id": tx_id
-            }),
+            }))
+            .expect("params should serialize"),
         },
     )
     .await;

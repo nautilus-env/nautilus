@@ -49,10 +49,11 @@ async fn call_schema_validate(state: &EngineState, schema: &str) -> nautilus_pro
             jsonrpc: "2.0".to_string(),
             id: Some(RpcId::Number(1)),
             method: SCHEMA_VALIDATE.to_string(),
-            params: json!({
+            params: serde_json::value::to_raw_value(&json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "schema": schema,
-            }),
+            }))
+            .expect("params should serialize"),
         },
     )
     .await

@@ -4,18 +4,6 @@ use super::common::{
 };
 use super::*;
 
-/// Parse `request.params` into the given type, check the protocol version,
-/// and look up the target model. Returns `(params, model)` on success.
-macro_rules! parse_params {
-    ($state:expr, $request:expr, $ty:ty, $label:literal) => {{
-        let params: $ty = serde_json::from_value($request.params).map_err(|e| {
-            ProtocolError::InvalidParams(format!(concat!("Invalid ", $label, " params: {}"), e))
-        })?;
-        check_protocol_version(params.protocol_version)?;
-        let model = get_model_or_error($state, &params.model)?;
-        (params, model)
-    }};
-}
 
 fn row_field_json<'a>(
     data_obj: &'a JsonMap<String, JsonValue>,
@@ -357,8 +345,7 @@ pub(super) async fn handle_create(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: CreateParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid create params: {}", e)))?;
+    let params: CreateParams = parse_params(&request, "create")?;
 
     match execute_create(state, params).await? {
         MutationResultData::Rows(rows) => wrap_mutation_result(&rows, "create result"),
@@ -370,8 +357,7 @@ pub(super) async fn handle_create_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
-    let params: CreateParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid create params: {}", e)))?;
+    let params: CreateParams = parse_params(&request, "create")?;
     mutation_rows_or_internal(execute_create(state, params).await?, "create")
 }
 
@@ -387,8 +373,7 @@ pub(super) async fn handle_create_many(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: CreateManyParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid createMany params: {}", e)))?;
+    let params: CreateManyParams = parse_params(&request, "createMany")?;
 
     match execute_create_many(state, params).await? {
         MutationResultData::Rows(rows) => wrap_mutation_result(&rows, "createMany result"),
@@ -400,8 +385,7 @@ pub(super) async fn handle_create_many_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
-    let params: CreateManyParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid createMany params: {}", e)))?;
+    let params: CreateManyParams = parse_params(&request, "createMany")?;
     mutation_rows_or_internal(execute_create_many(state, params).await?, "createMany")
 }
 
@@ -417,8 +401,7 @@ pub(super) async fn handle_update(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: UpdateParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid update params: {}", e)))?;
+    let params: UpdateParams = parse_params(&request, "update")?;
 
     match execute_update(state, params).await? {
         MutationResultData::Rows(rows) => wrap_mutation_result(&rows, "update result"),
@@ -430,8 +413,7 @@ pub(super) async fn handle_update_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
-    let params: UpdateParams = serde_json::from_value(request.params)
-        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid update params: {}", e)))?;
+    let params: UpdateParams = parse_params(&request, "update")?;
     mutation_rows_or_internal(execute_update(state, params).await?, "update")
 }
 
@@ -447,7 +429,9 @@ pub(super) async fn handle_delete(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let (params, model) = parse_params!(state, request, DeleteParams, "delete");
+    let params: DeleteParams = parse_params(&request, "delete")?;
+    check_protocol_version(params.protocol_version)?;
+    let model = get_model_or_error(state, &params.model)?;
     let tx_id = params.transaction_id;
     let metadata = state.model_metadata(model);
 
