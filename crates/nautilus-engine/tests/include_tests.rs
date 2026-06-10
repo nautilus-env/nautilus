@@ -524,3 +524,170 @@ async fn array_includes_batch_children_across_multiple_parents() {
     drop(state);
     drop(temp_dir);
 }
+
+/// Per-parent fallback (`take` on the include node) across multiple parents:
+/// outside a transaction the child queries run concurrently (bounded,
+/// order-preserving), and each parent must still get exactly its own window.
+#[tokio::test]
+async fn per_parent_pagination_keeps_rows_aligned_across_parents() {
+    let (state, temp_dir) = sqlite_state("include-tests-buffered", schema_source()).await;
+
+    let mut user_ids: Vec<i64> = Vec::new();
+    for email in ["a@example.com", "b@example.com", "c@example.com"] {
+        let created_user = call_rpc_json(
+            &state,
+            QUERY_CREATE,
+            json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "model": "User",
+                "data": { "email": email }
+            }),
+        )
+        .await;
+        user_ids.push(created_user["data"][0]["User__id"].as_i64().unwrap());
+    }
+
+    for (idx, user_id) in user_ids.iter().enumerate() {
+        for sort in 1..=3 {
+            let _ = call_rpc_json(
+                &state,
+                QUERY_CREATE,
+                json!({
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "model": "Post",
+                    "data": {
+                        "title": format!("user{idx}-post{sort}"),
+                        "sort": sort,
+                        "authorId": user_id
+                    }
+                }),
+            )
+            .await;
+        }
+    }
+
+    let found = call_rpc_json(
+        &state,
+        QUERY_FIND_MANY,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "args": {
+                "orderBy": [{ "id": "asc" }],
+                "include": {
+                    "posts": {
+                        "orderBy": [{ "sort": "desc" }],
+                        "take": 1
+                    }
+                }
+            }
+        }),
+    )
+    .await;
+
+    let rows = found["data"].as_array().expect("rows expected");
+    assert_eq!(rows.len(), 3);
+    for (idx, row) in rows.iter().enumerate() {
+        let posts = row["posts_json"].as_array().unwrap();
+        assert_eq!(posts.len(), 1, "take=1 must apply per parent");
+        assert_eq!(
+            posts[0]["title"],
+            json!(format!("user{idx}-post3")),
+            "each parent must get its own top post, in parent order"
+        );
+    }
+
+    drop(state);
+    drop(temp_dir);
+}
+
+/// Includes inside a transaction must stay on the transaction's connection:
+/// the hydration runs sequentially there, and rows created inside the (not
+/// yet committed) transaction must be visible to the child queries.
+#[tokio::test]
+async fn includes_inside_transaction_load_sequentially_on_tx_connection() {
+    use nautilus_protocol::{TRANSACTION_COMMIT, TRANSACTION_START};
+
+    let (state, temp_dir) = sqlite_state("include-tests-tx", schema_source()).await;
+
+    let started = call_rpc_json(
+        &state,
+        TRANSACTION_START,
+        json!({ "protocolVersion": PROTOCOL_VERSION, "timeoutMs": 5000 }),
+    )
+    .await;
+    let tx_id = started["id"].as_str().expect("transaction id").to_string();
+
+    let created_user = call_rpc_json(
+        &state,
+        QUERY_CREATE,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "data": { "email": "tx@example.com" },
+            "transactionId": tx_id
+        }),
+    )
+    .await;
+    let user_id = created_user["data"][0]["User__id"].as_i64().unwrap();
+
+    let created_post = call_rpc_json(
+        &state,
+        QUERY_CREATE,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Post",
+            "data": { "title": "tx-post", "sort": 1, "authorId": user_id },
+            "transactionId": tx_id
+        }),
+    )
+    .await;
+    let post_id = created_post["data"][0]["blog_posts__post_id"]
+        .as_i64()
+        .unwrap();
+    let _ = call_rpc_json(
+        &state,
+        QUERY_CREATE,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Comment",
+            "data": { "body": "tx-comment", "sort": 1, "postId": post_id },
+            "transactionId": tx_id
+        }),
+    )
+    .await;
+
+    // Multiple sibling includes + uncommitted rows: only the transaction's
+    // own connection can see them.
+    let found = call_rpc_json(
+        &state,
+        QUERY_FIND_MANY,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Post",
+            "args": {
+                "include": { "author": {}, "comments": {} }
+            },
+            "transactionId": tx_id
+        }),
+    )
+    .await;
+
+    let rows = found["data"].as_array().expect("rows expected");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["author_json"]["email"], json!("tx@example.com"));
+    assert_eq!(
+        rows[0]["comments_json"].as_array().unwrap()[0]["body"],
+        json!("tx-comment")
+    );
+
+    let _ = call_rpc_json(
+        &state,
+        TRANSACTION_COMMIT,
+        json!({ "protocolVersion": PROTOCOL_VERSION, "id": tx_id }),
+    )
+    .await;
+
+    drop(state);
+    drop(temp_dir);
+}

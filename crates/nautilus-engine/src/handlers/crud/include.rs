@@ -15,6 +15,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+use futures::stream::{self, StreamExt, TryStreamExt};
 use nautilus_connector::Row;
 use nautilus_core::{Expr, Value};
 use nautilus_protocol::ProtocolError;
@@ -24,6 +25,12 @@ use serde_json::Value as JsonValue;
 use super::read::execute_find_many_rows;
 use crate::filter::{IncludeNode, QueryArgs, RelationInfo};
 use crate::state::EngineState;
+
+/// Concurrency cap for the per-parent fallback path (include with
+/// `take`/`skip`). Bounds how many of the pool's connections one hydration
+/// can occupy at a time; sibling relations on top of this are few in
+/// practice, and the pool itself backstops the total.
+const PER_PARENT_CONCURRENCY: usize = 8;
 
 fn include_alias(field_name: &str) -> String {
     format!("{}_json", field_name)
@@ -352,11 +359,57 @@ async fn batch_load_relation_include(
     )))
 }
 
+/// Load the per-parent include values for one relation: batched query when
+/// possible, per-parent fallback otherwise. The fallback runs its child
+/// queries concurrently (bounded, order-preserving) outside transactions and
+/// sequentially inside them, where a single connection is available.
+async fn load_relation_values(
+    state: &EngineState,
+    rows: &[Row],
+    rel_info: &RelationInfo,
+    include_node: &IncludeNode,
+    tx_id: Option<&str>,
+) -> Result<Vec<Value>, ProtocolError> {
+    if let Some(values) =
+        batch_load_relation_include(state, rows, rel_info, include_node, tx_id).await?
+    {
+        return Ok(values);
+    }
+
+    if tx_id.is_none() {
+        // Materialize the futures before streaming: a lazy `map` closure here
+        // trips rustc's higher-ranked `Send` inference on the recursive
+        // `execute_find_many_rows` chain. `buffered` (not `buffer_unordered`):
+        // values must line up with the parent row order.
+        let child_loads: Vec<_> = rows
+            .iter()
+            .map(|parent_row| {
+                load_relation_include_value(state, parent_row, rel_info, include_node, None)
+            })
+            .collect();
+        return stream::iter(child_loads)
+            .buffered(PER_PARENT_CONCURRENCY)
+            .try_collect()
+            .await;
+    }
+
+    let mut values = Vec::with_capacity(rows.len());
+    for parent_row in rows {
+        values.push(
+            load_relation_include_value(state, parent_row, rel_info, include_node, tx_id).await?,
+        );
+    }
+    Ok(values)
+}
+
 /// Attach include payloads (one column per relation field) to every row in
 /// `rows`, preferring a single batched child query per relation. Falls back to
 /// per-parent execution when the include node carries `take`/`skip`.
 /// Relations are processed in field-name order so the appended `<field>_json`
-/// columns (and the child queries) are deterministic across runs.
+/// columns (and the child queries) are deterministic across runs. Outside
+/// transactions, sibling relations load in parallel (they are independent
+/// queries on pooled connections); inside a transaction the single connection
+/// forces sequential execution.
 pub(super) async fn hydrate_rows_with_includes(
     state: &EngineState,
     model: &ModelIr,
@@ -373,36 +426,35 @@ pub(super) async fn hydrate_rows_with_includes(
     let mut include_entries: Vec<(&String, &IncludeNode)> = includes.iter().collect();
     include_entries.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
 
-    let mut per_relation_values: Vec<(String, Vec<Value>)> = Vec::with_capacity(includes.len());
-
-    for (field_name, include_node) in include_entries {
-        let Some(rel_info) = relation_map.get(field_name) else {
-            continue;
-        };
-
-        let values =
-            match batch_load_relation_include(state, &rows, rel_info, include_node, tx_id).await? {
-                Some(values) => values,
-                None => {
-                    let mut values = Vec::with_capacity(rows.len());
-                    for parent_row in &rows {
-                        values.push(
-                            load_relation_include_value(
-                                state,
-                                parent_row,
-                                rel_info,
-                                include_node,
-                                tx_id,
-                            )
-                            .await?,
-                        );
-                    }
-                    values
-                }
+    let mut per_relation_values: Vec<(String, Vec<Value>)> = if tx_id.is_none() {
+        let rows_ref = &rows;
+        // Concrete (unboxed) futures collected eagerly: a `dyn Future + Send`
+        // cast here cannot be proven by rustc inside the recursive
+        // `execute_find_many_rows` cycle, and a lazy iterator trips its
+        // higher-ranked `Send` inference.
+        let loads: Vec<_> = include_entries
+            .into_iter()
+            .filter_map(|(field_name, include_node)| {
+                let rel_info = relation_map.get(field_name)?;
+                Some(async move {
+                    let values =
+                        load_relation_values(state, rows_ref, rel_info, include_node, None).await?;
+                    Ok::<_, ProtocolError>((field_name.clone(), values))
+                })
+            })
+            .collect();
+        futures::future::try_join_all(loads).await?
+    } else {
+        let mut acc = Vec::with_capacity(includes.len());
+        for (field_name, include_node) in include_entries {
+            let Some(rel_info) = relation_map.get(field_name) else {
+                continue;
             };
-
-        per_relation_values.push((field_name.clone(), values));
-    }
+            let values = load_relation_values(state, &rows, rel_info, include_node, tx_id).await?;
+            acc.push((field_name.clone(), values));
+        }
+        acc
+    };
 
     let mut hydrated = Vec::with_capacity(rows.len());
     for (idx, row) in rows.into_iter().enumerate() {

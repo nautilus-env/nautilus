@@ -4,7 +4,6 @@ use super::common::{
 };
 use super::*;
 
-
 fn row_field_json<'a>(
     data_obj: &'a JsonMap<String, JsonValue>,
     field: &FieldIr,
