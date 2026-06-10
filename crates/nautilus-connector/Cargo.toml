@@ -29,6 +29,11 @@ thiserror = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "row_access"
+harness = false
 
 [lints]
 workspace = true

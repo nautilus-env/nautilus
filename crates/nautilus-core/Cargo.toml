@@ -22,6 +22,11 @@ base64 = "0.22"
 thiserror = "2"
 
 [dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "value_serde"
+harness = false
 
 [lints]
 workspace = true

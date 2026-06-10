@@ -16,6 +16,11 @@ name = "nautilus_dialect"
 nautilus-core = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "render"
+harness = false
 
 [lints]
 workspace = true

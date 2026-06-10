@@ -15,6 +15,11 @@ name = "nautilus_schema"
 [dependencies]
 
 [dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "parse"
+harness = false
 
 [lints]
 workspace = true
