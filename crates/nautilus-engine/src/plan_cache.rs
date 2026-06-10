@@ -1,18 +1,30 @@
 //! Cached query plans for the hot read paths.
 //!
-//! When the typed `findUnique` path receives a request whose argument shape
-//! has already been seen (same model, same projection, same flat AND chain of
-//! `Column = Param` predicates), we reuse the previously rendered SQL text and
-//! the precomputed scalar value hints. Only the parameter values are bound
-//! per call, skipping the AST build, the filter qualification clone and the
-//! dialect render entirely.
+//! When a typed `findUnique` — or any `findMany`/`findFirst` without
+//! include/cursor/distinct — receives a request whose argument shape has
+//! already been seen (same model, same projection, same flat AND chain of
+//! `Column <op> Param` predicates, same ORDER BY / LIMIT / OFFSET), we reuse
+//! the previously rendered SQL text and the precomputed scalar value hints.
+//! Only the parameter values are bound per call, skipping the AST build, the
+//! filter qualification clone and the dialect render entirely.
+//!
+//! Both cache sections are bounded ([`PLAN_CACHE_CAP`]) with
+//! least-recently-used eviction, so adversarial or highly dynamic workloads
+//! cannot grow them without limit.
 
 use std::collections::HashMap;
+use std::hash::Hash;
+use std::mem::Discriminant;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
-use nautilus_core::{BinaryOp, Expr, Value};
+use nautilus_core::{BinaryOp, Expr, OrderDir, Value};
 
 use crate::conversion::ValueHint;
+
+/// Maximum number of cached plans per section (`findUnique`, `findMany`).
+/// When a section is full, the least-recently-used entry is evicted on insert.
+const PLAN_CACHE_CAP: usize = 1024;
 
 /// Cache key for `findUnique` plans.
 ///
@@ -26,41 +38,179 @@ pub(crate) struct FindUniquePlanKey {
     pub(crate) filter_columns: Vec<String>,
 }
 
-/// SQL plan reusable across calls with the same [`FindUniquePlanKey`].
+/// One `(column, operator, value variant)` predicate of a cacheable filter.
+///
+/// The value variant is part of the shape because the PostgreSQL renderer
+/// appends a cast suffix for some variants (`$1::uuid`, `$1::vector`, ...):
+/// the same column receiving a different variant must not replay a plan
+/// rendered for another cast.
+pub(crate) type FilterPredicateShape = (String, BinaryOp, Discriminant<Value>);
+
+/// Cache key for `findMany`/`findFirst` plans.
+///
+/// Two requests share a plan when they target the same model and resolved
+/// projection, their filters have the same [`FilterPredicateShape`] list (flat
+/// AND chain, in input order) and they request the same ORDER BY, LIMIT and
+/// OFFSET. `take`/`skip` render as SQL literals — not placeholders — so their
+/// *values* are part of the key; real workloads use a handful of page sizes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct FindManyPlanKey {
+    pub(crate) model_db_name: String,
+    pub(crate) selected_logical_fields: Vec<String>,
+    pub(crate) filter_shape: Vec<FilterPredicateShape>,
+    pub(crate) order_by: Vec<(String, OrderDir)>,
+    pub(crate) take: Option<i32>,
+    pub(crate) skip: Option<u32>,
+}
+
+/// SQL plan reusable across calls with the same cache key.
 #[derive(Debug)]
-pub(crate) struct CachedFindUniquePlan {
+pub(crate) struct CachedReadPlan {
     pub(crate) sql_text: String,
     pub(crate) row_hints: Vec<Option<ValueHint>>,
 }
 
+#[derive(Debug)]
+struct CacheSlot {
+    plan: Arc<CachedReadPlan>,
+    last_used: AtomicU64,
+}
+
+/// One cache section: an LRU-bounded map from key to rendered plan.
+#[derive(Debug)]
+struct BoundedPlanMap<K> {
+    entries: RwLock<HashMap<K, CacheSlot>>,
+}
+
+impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
+    fn new() -> Self {
+        Self {
+            entries: RwLock::new(HashMap::new()),
+        }
+    }
+
+    fn get(&self, key: &K, clock: &AtomicU64) -> Option<Arc<CachedReadPlan>> {
+        let guard = self.entries.read().ok()?;
+        let slot = guard.get(key)?;
+        slot.last_used
+            .store(clock.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+        Some(Arc::clone(&slot.plan))
+    }
+
+    fn insert(&self, key: K, plan: Arc<CachedReadPlan>, clock: &AtomicU64) {
+        let Ok(mut guard) = self.entries.write() else {
+            return;
+        };
+        if !guard.contains_key(&key) && guard.len() >= PLAN_CACHE_CAP {
+            // Evict the least-recently-used entry. The O(n) scan only runs
+            // once the section is full and a brand-new shape arrives, which is
+            // rare after warm-up for ORM-generated workloads.
+            let evict = guard
+                .iter()
+                .min_by_key(|(_, slot)| slot.last_used.load(Ordering::Relaxed))
+                .map(|(key, _)| key.clone());
+            if let Some(evict) = evict {
+                guard.remove(&evict);
+            }
+        }
+        let stamp = clock.fetch_add(1, Ordering::Relaxed);
+        guard.entry(key).or_insert_with(|| CacheSlot {
+            plan,
+            last_used: AtomicU64::new(stamp),
+        });
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries.read().map(|g| g.len()).unwrap_or(0)
+    }
+}
+
 /// Process-wide read-plan cache held by `EngineState`.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct PlanCache {
-    find_unique: RwLock<HashMap<FindUniquePlanKey, Arc<CachedFindUniquePlan>>>,
+    clock: AtomicU64,
+    find_unique: BoundedPlanMap<FindUniquePlanKey>,
+    find_many: BoundedPlanMap<FindManyPlanKey>,
+}
+
+impl Default for PlanCache {
+    fn default() -> Self {
+        Self {
+            clock: AtomicU64::new(0),
+            find_unique: BoundedPlanMap::new(),
+            find_many: BoundedPlanMap::new(),
+        }
+    }
 }
 
 impl PlanCache {
     pub(crate) fn get_find_unique(
         &self,
         key: &FindUniquePlanKey,
-    ) -> Option<Arc<CachedFindUniquePlan>> {
-        self.find_unique.read().ok()?.get(key).cloned()
+    ) -> Option<Arc<CachedReadPlan>> {
+        self.find_unique.get(key, &self.clock)
     }
 
-    pub(crate) fn insert_find_unique(
-        &self,
-        key: FindUniquePlanKey,
-        plan: Arc<CachedFindUniquePlan>,
-    ) {
-        if let Ok(mut guard) = self.find_unique.write() {
-            guard.entry(key).or_insert(plan);
-        }
+    pub(crate) fn insert_find_unique(&self, key: FindUniquePlanKey, plan: Arc<CachedReadPlan>) {
+        self.find_unique.insert(key, plan, &self.clock);
+    }
+
+    pub(crate) fn get_find_many(&self, key: &FindManyPlanKey) -> Option<Arc<CachedReadPlan>> {
+        self.find_many.get(key, &self.clock)
+    }
+
+    pub(crate) fn insert_find_many(&self, key: FindManyPlanKey, plan: Arc<CachedReadPlan>) {
+        self.find_many.insert(key, plan, &self.clock);
     }
 
     #[cfg(test)]
     pub(crate) fn find_unique_len(&self) -> usize {
-        self.find_unique.read().map(|g| g.len()).unwrap_or(0)
+        self.find_unique.len()
     }
+
+    #[cfg(test)]
+    pub(crate) fn find_many_len(&self) -> usize {
+        self.find_many.len()
+    }
+}
+
+/// True when a parameter value can be replayed against a cached SQL text.
+///
+/// The rendered SQL must depend only on the value's *variant*, never on its
+/// content: `Null` renders as a literal `NULL` (PostgreSQL cannot resolve a
+/// typed NULL over the binary protocol), enum/composite casts embed the type
+/// name carried inside the value, and array params change the SQL when their
+/// elements are geometries/geographies.
+fn replayable_param(value: &Value) -> bool {
+    !matches!(
+        value,
+        Value::Null
+            | Value::Array(_)
+            | Value::Array2D(_)
+            | Value::Enum { .. }
+            | Value::Composite { .. }
+    )
+}
+
+/// Operators rendered as `<column> <op> <placeholder>` with exactly one
+/// placeholder regardless of the bound value. `In`/`NotIn` are excluded: the
+/// rendered SQL contains one placeholder per list element, so the text
+/// depends on the value.
+fn slot_safe_op(op: &BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge
+            | BinaryOp::Like
+            | BinaryOp::ArrayContains
+            | BinaryOp::ArrayContainedBy
+            | BinaryOp::ArrayOverlaps
+    )
 }
 
 /// Borrowed shape extracted from a cacheable `findUnique` filter expression.
@@ -70,9 +220,9 @@ pub(crate) struct EqFilterShape<'a> {
 }
 
 /// Detect whether `expr` is a flat AND chain of `Column = Param` predicates
-/// (or a single equality), returning the columns and parameter values in
-/// rendering order. Returns `None` for any other shape so the caller falls
-/// back to the general path.
+/// (or a single equality) whose values are replayable, returning the columns
+/// and parameter values in rendering order. Returns `None` for any other
+/// shape so the caller falls back to the general path.
 pub(crate) fn extract_simple_eq_filter(expr: &Expr) -> Option<EqFilterShape<'_>> {
     let mut columns = Vec::new();
     let mut values = Vec::new();
@@ -90,7 +240,7 @@ fn walk_eq_chain<'a>(
             op: BinaryOp::Eq,
             right,
         } => match (left.as_ref(), right.as_ref()) {
-            (Expr::Column(col), Expr::Param(val)) => {
+            (Expr::Column(col), Expr::Param(val)) if replayable_param(val) => {
                 columns.push(col.as_str());
                 values.push(val);
                 true
@@ -102,6 +252,55 @@ fn walk_eq_chain<'a>(
             op: BinaryOp::And,
             right,
         } => walk_eq_chain(left, columns, values) && walk_eq_chain(right, columns, values),
+        _ => false,
+    }
+}
+
+/// Borrowed shape extracted from a cacheable parametric filter: a flat AND
+/// chain of `Column <op> Param` predicates where `op` is slot-safe and the
+/// value is replayable.
+pub(crate) struct ParamFilterShape<'a> {
+    pub(crate) predicates: Vec<(&'a str, BinaryOp, Discriminant<Value>)>,
+    pub(crate) values: Vec<&'a Value>,
+}
+
+/// Generalisation of [`extract_simple_eq_filter`] used by the
+/// `findMany`/`findFirst` plan cache: non-equality comparison operators are
+/// accepted as parametric slots. Returns `None` for any other shape so the
+/// caller falls back to the general path.
+pub(crate) fn extract_param_filter(expr: &Expr) -> Option<ParamFilterShape<'_>> {
+    let mut predicates = Vec::new();
+    let mut values = Vec::new();
+    walk_param_chain(expr, &mut predicates, &mut values).then_some(ParamFilterShape {
+        predicates,
+        values,
+    })
+}
+
+fn walk_param_chain<'a>(
+    expr: &'a Expr,
+    predicates: &mut Vec<(&'a str, BinaryOp, Discriminant<Value>)>,
+    values: &mut Vec<&'a Value>,
+) -> bool {
+    match expr {
+        Expr::Binary {
+            left,
+            op: BinaryOp::And,
+            right,
+        } => {
+            walk_param_chain(left, predicates, values)
+                && walk_param_chain(right, predicates, values)
+        }
+        Expr::Binary { left, op, right } if slot_safe_op(op) => {
+            match (left.as_ref(), right.as_ref()) {
+                (Expr::Column(col), Expr::Param(val)) if replayable_param(val) => {
+                    predicates.push((col.as_str(), op.clone(), std::mem::discriminant(val)));
+                    values.push(val);
+                    true
+                }
+                _ => false,
+            }
+        }
         _ => false,
     }
 }
@@ -161,6 +360,82 @@ mod tests {
     }
 
     #[test]
+    fn rejects_null_params_in_both_extractors() {
+        // NULL renders as a literal, not a placeholder: a cached plan replayed
+        // with a NULL value would bind it as a parameter instead.
+        let expr = col("users__deleted_at").eq(Expr::Param(Value::Null));
+        assert!(extract_simple_eq_filter(&expr).is_none());
+        assert!(extract_param_filter(&expr).is_none());
+    }
+
+    #[test]
+    fn param_filter_accepts_comparison_ops_as_slots() {
+        let expr = col("users__age")
+            .gt(param(18))
+            .and(col("users__name").eq(Expr::Param(Value::String("x".to_string()))));
+        let shape = extract_param_filter(&expr).expect("should extract shape");
+        assert_eq!(shape.predicates.len(), 2);
+        assert_eq!(shape.predicates[0].0, "users__age");
+        assert_eq!(shape.predicates[0].1, BinaryOp::Gt);
+        assert_eq!(shape.predicates[1].1, BinaryOp::Eq);
+        assert_eq!(shape.values.len(), 2);
+        // Same column, different value variant => different shape entry.
+        assert_ne!(
+            shape.predicates[0].2,
+            std::mem::discriminant(&Value::String(String::new()))
+        );
+    }
+
+    #[test]
+    fn param_filter_rejects_in_lists_and_or() {
+        let in_expr = Expr::Binary {
+            left: Box::new(col("users__id")),
+            op: BinaryOp::In,
+            right: Box::new(Expr::List(vec![param(1), param(2)])),
+        };
+        assert!(extract_param_filter(&in_expr).is_none());
+
+        let or_expr = col("users__id")
+            .eq(param(1))
+            .or(col("users__id").eq(param(2)));
+        assert!(extract_param_filter(&or_expr).is_none());
+    }
+
+    #[test]
+    fn param_filter_rejects_enum_and_array_values() {
+        let enum_expr = col("users__role").eq(Expr::Param(Value::Enum {
+            value: "ADMIN".to_string(),
+            type_name: "role".to_string(),
+        }));
+        assert!(extract_param_filter(&enum_expr).is_none());
+
+        let array_expr = Expr::Binary {
+            left: Box::new(col("users__tags")),
+            op: BinaryOp::ArrayContains,
+            right: Box::new(Expr::Param(Value::Array(vec![Value::I64(1)]))),
+        };
+        assert!(extract_param_filter(&array_expr).is_none());
+    }
+
+    fn test_plan(sql: &str) -> Arc<CachedReadPlan> {
+        Arc::new(CachedReadPlan {
+            sql_text: sql.to_string(),
+            row_hints: vec![None],
+        })
+    }
+
+    fn many_key(tag: usize) -> FindManyPlanKey {
+        FindManyPlanKey {
+            model_db_name: format!("model_{tag}"),
+            selected_logical_fields: Vec::new(),
+            filter_shape: Vec::new(),
+            order_by: Vec::new(),
+            take: None,
+            skip: None,
+        }
+    }
+
+    #[test]
     fn cache_returns_inserted_plan() {
         let cache = PlanCache::default();
         let key = FindUniquePlanKey {
@@ -168,13 +443,34 @@ mod tests {
             selected_logical_fields: vec!["id".to_string(), "name".to_string()],
             filter_columns: vec!["users__id".to_string()],
         };
-        let plan = Arc::new(CachedFindUniquePlan {
-            sql_text: "SELECT 1".to_string(),
-            row_hints: vec![None, None],
-        });
+        let plan = test_plan("SELECT 1");
         cache.insert_find_unique(key.clone(), Arc::clone(&plan));
         let got = cache.get_find_unique(&key).expect("plan should be cached");
         assert!(Arc::ptr_eq(&plan, &got));
         assert_eq!(cache.find_unique_len(), 1);
+    }
+
+    #[test]
+    fn cache_evicts_least_recently_used_at_capacity() {
+        let cache = PlanCache::default();
+        for tag in 0..PLAN_CACHE_CAP {
+            cache.insert_find_many(many_key(tag), test_plan("SELECT 1"));
+        }
+        assert_eq!(cache.find_many_len(), PLAN_CACHE_CAP);
+
+        // Touch the oldest entry so the second-oldest becomes the LRU victim.
+        assert!(cache.get_find_many(&many_key(0)).is_some());
+
+        cache.insert_find_many(many_key(PLAN_CACHE_CAP), test_plan("SELECT 2"));
+        assert_eq!(cache.find_many_len(), PLAN_CACHE_CAP, "cap must hold");
+        assert!(
+            cache.get_find_many(&many_key(0)).is_some(),
+            "recently touched entry must survive eviction"
+        );
+        assert!(
+            cache.get_find_many(&many_key(1)).is_none(),
+            "least-recently-used entry must be evicted"
+        );
+        assert!(cache.get_find_many(&many_key(PLAN_CACHE_CAP)).is_some());
     }
 }

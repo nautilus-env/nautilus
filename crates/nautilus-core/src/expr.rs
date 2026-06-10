@@ -57,7 +57,7 @@ pub struct RelationFilter {
 }
 
 /// Binary operators for expressions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
     /// Equality (`=`).
     Eq,

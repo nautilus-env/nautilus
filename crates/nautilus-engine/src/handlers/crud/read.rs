@@ -320,12 +320,119 @@ fn build_find_many_plan(
     })
 }
 
+/// Canonicalise a projection for use in a plan-cache key: selected fields
+/// plus implicit PK fields, sorted, or empty when all columns are selected.
+fn resolved_projection(
+    metadata: &crate::metadata::ModelMetadata,
+    selected_fields: &std::collections::HashSet<&str>,
+) -> Vec<String> {
+    if selected_fields.is_empty() {
+        return Vec::new();
+    }
+    let mut combined: Vec<String> = selected_fields.iter().map(|s| s.to_string()).collect();
+    for pk in metadata.primary_key_fields() {
+        let logical = pk.logical_name();
+        if !selected_fields.contains(logical) {
+            combined.push(logical.to_string());
+        }
+    }
+    combined.sort();
+    combined.dedup();
+    combined
+}
+
+/// Build the plan-cache key (and the owned parameter values to bind on a hit)
+/// for a `findMany`/`findFirst` request, or `None` when the request is not
+/// cacheable: cursor, backward pagination, distinct, vector ordering and
+/// includes change the SQL or the post-processing in ways the cached replay
+/// does not cover, and the filter must be a flat parametric AND chain.
+fn find_many_cache_request(
+    state: &EngineState,
+    model: &ModelIr,
+    query_args: &QueryArgs,
+) -> Option<(crate::plan_cache::FindManyPlanKey, Vec<Value>)> {
+    if query_args.cursor.is_some()
+        || query_args.backward
+        || query_args.nearest.is_some()
+        || !query_args.distinct.is_empty()
+        || !query_args.include.is_empty()
+    {
+        return None;
+    }
+
+    let (filter_shape, params) = match &query_args.filter {
+        None => (Vec::new(), Vec::new()),
+        Some(filter) => {
+            let shape = crate::plan_cache::extract_param_filter(filter)?;
+            (
+                shape
+                    .predicates
+                    .iter()
+                    .map(|(column, op, variant)| ((*column).to_string(), op.clone(), *variant))
+                    .collect(),
+                shape.values.iter().map(|value| (*value).clone()).collect(),
+            )
+        }
+    };
+
+    let metadata = state.model_metadata(model);
+    let selected_refs: std::collections::HashSet<&str> =
+        query_args.select.iter().map(String::as_str).collect();
+
+    Some((
+        crate::plan_cache::FindManyPlanKey {
+            model_db_name: model.db_name.clone(),
+            selected_logical_fields: resolved_projection(metadata, &selected_refs),
+            filter_shape,
+            order_by: query_args
+                .order_by
+                .iter()
+                .map(|order| (order.column.clone(), order.direction))
+                .collect(),
+            take: query_args.take,
+            skip: query_args.skip,
+        },
+        params,
+    ))
+}
+
 pub(super) async fn execute_find_many_rows(
     state: &EngineState,
     model: &ModelIr,
     query_args: QueryArgs,
     tx_id: Option<&str>,
 ) -> Result<Vec<Row>, ProtocolError> {
+    // Plan-cache fast path: replay the rendered SQL with freshly bound
+    // parameter values when an identically shaped request has been seen.
+    if let Some((cache_key, params)) = find_many_cache_request(state, model, &query_args) {
+        if let Some(plan) = state.plan_cache().get_find_many(&cache_key) {
+            let sql = Sql {
+                text: plan.sql_text.clone(),
+                params,
+            };
+            return normalize_rows_with_hints(
+                state.execute_query_on(&sql, "Query", tx_id).await?,
+                &plan.row_hints,
+            );
+        }
+
+        // Miss: build and render once, cache the text, then execute. The
+        // cacheability check guarantees no backward reversal or include
+        // hydration is needed on this path.
+        let plan = build_find_many_plan(state, model, query_args)?;
+        state.plan_cache().insert_find_many(
+            cache_key,
+            std::sync::Arc::new(crate::plan_cache::CachedReadPlan {
+                sql_text: plan.sql.text.clone(),
+                row_hints: plan.row_hints.clone(),
+            }),
+        );
+        return normalize_rows_with_hints(
+            state.execute_query_on(&plan.sql, "Query", tx_id).await?,
+            &plan.row_hints,
+        );
+    }
+
     let plan = build_find_many_plan(state, model, query_args)?;
     let mut rows = normalize_rows_with_hints(
         state.execute_query_on(&plan.sql, "Query", tx_id).await?,
@@ -439,24 +546,9 @@ fn find_unique_plan_key(
     selected_fields: &std::collections::HashSet<&str>,
     shape: &crate::plan_cache::EqFilterShape<'_>,
 ) -> crate::plan_cache::FindUniquePlanKey {
-    let resolved: Vec<String> = if selected_fields.is_empty() {
-        Vec::new()
-    } else {
-        let mut combined: Vec<String> = selected_fields.iter().map(|s| s.to_string()).collect();
-        for pk in metadata.primary_key_fields() {
-            let logical = pk.logical_name();
-            if !selected_fields.contains(logical) {
-                combined.push(logical.to_string());
-            }
-        }
-        combined.sort();
-        combined.dedup();
-        combined
-    };
-
     crate::plan_cache::FindUniquePlanKey {
         model_db_name: model.db_name.clone(),
-        selected_logical_fields: resolved,
+        selected_logical_fields: resolved_projection(metadata, selected_fields),
         filter_columns: shape.columns.iter().map(|s| s.to_string()).collect(),
     }
 }
@@ -518,7 +610,7 @@ pub(super) async fn execute_find_unique_typed(
             build_find_unique_sql(state, model, qualified_filter, &selected_fields)?;
         state.plan_cache().insert_find_unique(
             cache_key,
-            std::sync::Arc::new(crate::plan_cache::CachedFindUniquePlan {
+            std::sync::Arc::new(crate::plan_cache::CachedReadPlan {
                 sql_text: sql.text.clone(),
                 row_hints: row_hints.clone(),
             }),

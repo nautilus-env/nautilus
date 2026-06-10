@@ -40,7 +40,7 @@ impl From<ColumnMarker> for SelectItem {
 }
 
 /// Sort direction for ORDER BY clauses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OrderDir {
     /// Ascending.
     Asc,

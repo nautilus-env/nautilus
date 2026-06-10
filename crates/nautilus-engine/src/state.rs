@@ -993,4 +993,77 @@ model User {
         drop(state);
         drop(temp_dir);
     }
+
+    #[tokio::test]
+    async fn find_many_typed_caches_parametric_plans_per_shape() {
+        use nautilus_core::{Expr, FindManyArgs};
+
+        let (state, temp_dir) = sqlite_state(schema_source()).await;
+        for name in ["Alice", "Bob", "Cara"] {
+            state
+                .execute_affected_on(&insert_user_sql(name), "insert user", None)
+                .await
+                .expect("seed insert should succeed");
+        }
+
+        assert_eq!(state.plan_cache().find_many_len(), 0);
+
+        // Non-equality comparison + take: cacheable parametric shape.
+        let first = FindManyArgs {
+            where_: Some(Expr::column("User__id").gt(Expr::param(Value::I64(0)))),
+            take: Some(2),
+            ..Default::default()
+        };
+        let rows = crate::handlers::handle_find_many_typed(&state, "User", &first, None)
+            .await
+            .expect("first findMany should succeed");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(state.plan_cache().find_many_len(), 1);
+
+        // Same shape, different parameter value: must hit the cache and bind
+        // the new value (id > 2 matches only the third user).
+        let other_value = FindManyArgs {
+            where_: Some(Expr::column("User__id").gt(Expr::param(Value::I64(2)))),
+            take: Some(2),
+            ..Default::default()
+        };
+        let rows = crate::handlers::handle_find_many_typed(&state, "User", &other_value, None)
+            .await
+            .expect("second findMany should reuse the cached plan");
+        assert_eq!(
+            rows.len(),
+            1,
+            "replayed plan must bind the fresh parameter value"
+        );
+        assert_eq!(state.plan_cache().find_many_len(), 1);
+
+        // take renders as a SQL literal, so a different page size is a new plan.
+        let other_take = FindManyArgs {
+            where_: Some(Expr::column("User__id").gt(Expr::param(Value::I64(0)))),
+            take: Some(1),
+            ..Default::default()
+        };
+        let rows = crate::handlers::handle_find_many_typed(&state, "User", &other_take, None)
+            .await
+            .expect("different take should also succeed");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(state.plan_cache().find_many_len(), 2);
+
+        // IN-list filters render one placeholder per element: not cacheable.
+        let in_list = FindManyArgs {
+            where_: Some(Expr::column("User__id").in_list(vec![
+                Expr::param(Value::I64(1)),
+                Expr::param(Value::I64(2)),
+            ])),
+            ..Default::default()
+        };
+        let rows = crate::handlers::handle_find_many_typed(&state, "User", &in_list, None)
+            .await
+            .expect("non-cacheable filter should still execute");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(state.plan_cache().find_many_len(), 2);
+
+        drop(state);
+        drop(temp_dir);
+    }
 }
