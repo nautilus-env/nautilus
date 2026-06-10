@@ -423,7 +423,10 @@ mod tests {
 
     fn child_row(fk: i64, title: &str) -> Row {
         Row::new(vec![
-            ("blog_posts__title".to_string(), Value::String(title.to_string())),
+            (
+                "blog_posts__title".to_string(),
+                Value::String(title.to_string()),
+            ),
             ("blog_posts__author_id".to_string(), Value::I64(fk)),
         ])
     }
@@ -482,7 +485,10 @@ mod tests {
 
         assert_eq!(values.len(), 4);
         let Value::Json(JsonValue::Array(first)) = &values[0] else {
-            panic!("array relation should produce a JSON array, got {:?}", values[0]);
+            panic!(
+                "array relation should produce a JSON array, got {:?}",
+                values[0]
+            );
         };
         assert_eq!(first.len(), 2);
         assert_eq!(first[0]["title"], "a1");
@@ -490,7 +496,10 @@ mod tests {
         assert_eq!(values[1], Value::Json(JsonValue::Array(vec![])));
         assert_eq!(values[2], Value::Json(JsonValue::Array(vec![])));
         let Value::Json(JsonValue::Array(last)) = &values[3] else {
-            panic!("array relation should produce a JSON array, got {:?}", values[3]);
+            panic!(
+                "array relation should produce a JSON array, got {:?}",
+                values[3]
+            );
         };
         assert_eq!(last.len(), 1);
         assert_eq!(last[0]["title"], "c1");
@@ -537,7 +546,10 @@ mod tests {
         );
 
         let Value::Json(JsonValue::Object(obj)) = &values[0] else {
-            panic!("to-one relation should produce a JSON object, got {:?}", values[0]);
+            panic!(
+                "to-one relation should produce a JSON object, got {:?}",
+                values[0]
+            );
         };
         assert_eq!(obj["title"], "first");
         assert_eq!(values[1], Value::Null);

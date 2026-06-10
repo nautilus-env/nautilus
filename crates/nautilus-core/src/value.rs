@@ -525,6 +525,110 @@ impl Value {
     }
 }
 
+/// Serializes a `Display` value as a JSON string without an intermediate `String`.
+struct DisplayString<T>(T);
+
+impl<T: std::fmt::Display> Serialize for DisplayString<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_str(&self.0)
+    }
+}
+
+/// Serializes a datetime in the wire format of [`format_datetime`] without an
+/// intermediate `String`.
+struct DateTimeString(chrono::NaiveDateTime);
+
+impl Serialize for DateTimeString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_str(&self.0.format(DATETIME_FORMAT))
+    }
+}
+
+/// Serializes bytes as a standard-alphabet base64 string without an
+/// intermediate `String`.
+struct Base64String<'a>(&'a [u8]);
+
+impl Serialize for Base64String<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_str(&base64::display::Base64Display::new(
+            self.0,
+            &base64::engine::general_purpose::STANDARD,
+        ))
+    }
+}
+
+/// Borrowed mirror of [`SerdeValue`]: emits the identical tagged shape but
+/// serializes by reference instead of deep-cloning `Json`, `Hstore`, `Vector`,
+/// `String`, `Array`, `Array2D`, `Enum` and `Composite` payloads first.
+/// Deserialization keeps going through the owned [`SerdeValue`]; the two
+/// shapes are kept in sync by equivalence tests over every variant.
+#[derive(Serialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+enum SerdeValueRef<'a> {
+    Null,
+    Bool(bool),
+    I32(i32),
+    I64(i64),
+    F64(f64),
+    Decimal(DisplayString<&'a rust_decimal::Decimal>),
+    DateTime(DateTimeString),
+    Uuid(DisplayString<&'a uuid::Uuid>),
+    Json(&'a serde_json::Value),
+    Hstore(&'a BTreeMap<String, Option<String>>),
+    Geometry(&'a str),
+    Geography(&'a str),
+    Vector(&'a [f32]),
+    String(&'a str),
+    Bytes(Base64String<'a>),
+    Array(&'a [Value]),
+    Array2D(&'a [Vec<Value>]),
+    Enum {
+        value: &'a str,
+        type_name: &'a str,
+    },
+    Composite {
+        type_name: &'a str,
+        fields: &'a [Value],
+    },
+}
+
+impl<'a> From<&'a Value> for SerdeValueRef<'a> {
+    fn from(value: &'a Value) -> Self {
+        match value {
+            Value::Null => SerdeValueRef::Null,
+            Value::Bool(v) => SerdeValueRef::Bool(*v),
+            Value::I32(v) => SerdeValueRef::I32(*v),
+            Value::I64(v) => SerdeValueRef::I64(*v),
+            Value::F64(v) => SerdeValueRef::F64(*v),
+            Value::Decimal(v) => SerdeValueRef::Decimal(DisplayString(v)),
+            Value::DateTime(v) => SerdeValueRef::DateTime(DateTimeString(*v)),
+            Value::Uuid(v) => SerdeValueRef::Uuid(DisplayString(v)),
+            Value::Json(v) => SerdeValueRef::Json(v),
+            Value::Hstore(v) => SerdeValueRef::Hstore(v),
+            Value::Geometry(v) => SerdeValueRef::Geometry(v),
+            Value::Geography(v) => SerdeValueRef::Geography(v),
+            Value::Vector(v) => SerdeValueRef::Vector(v),
+            Value::String(v) => SerdeValueRef::String(v),
+            Value::Bytes(v) => SerdeValueRef::Bytes(Base64String(v)),
+            Value::Array(v) => SerdeValueRef::Array(v),
+            Value::Array2D(v) => SerdeValueRef::Array2D(v),
+            Value::Enum { value, type_name } => SerdeValueRef::Enum { value, type_name },
+            Value::Composite { type_name, fields } => {
+                SerdeValueRef::Composite { type_name, fields }
+            }
+        }
+    }
+}
+
 /// Serializes a borrowed [`Value`] in the same plain JSON shape produced by
 /// [`Value::to_json_plain`], writing directly into the serializer.
 ///
@@ -575,19 +679,14 @@ impl Serialize for PlainValueRef<'_> {
             Value::I64(v) => serializer.serialize_i64(*v),
             Value::F64(v) => PlainF64(*v).serialize(serializer),
             Value::Decimal(v) => serializer.collect_str(v),
-            Value::DateTime(v) => serializer.collect_str(&v.format(DATETIME_FORMAT)),
+            Value::DateTime(v) => DateTimeString(*v).serialize(serializer),
             Value::Uuid(v) => serializer.collect_str(v),
             Value::Json(v) => v.serialize(serializer),
             Value::Hstore(v) => serializer.collect_map(v.iter()),
             Value::Geometry(v) | Value::Geography(v) => serializer.serialize_str(v),
-            Value::Vector(v) => {
-                serializer.collect_seq(v.iter().map(|item| PlainF64(*item as f64)))
-            }
+            Value::Vector(v) => serializer.collect_seq(v.iter().map(|item| PlainF64(*item as f64))),
             Value::String(v) => serializer.serialize_str(v),
-            Value::Bytes(v) => serializer.collect_str(&base64::display::Base64Display::new(
-                v,
-                &base64::engine::general_purpose::STANDARD,
-            )),
+            Value::Bytes(v) => Base64String(v).serialize(serializer),
             Value::Array(v) => serializer.collect_seq(v.iter().map(PlainValueRef)),
             Value::Array2D(v) => serializer.collect_seq(v.iter().map(|row| PlainSliceRef(row))),
             Value::Enum { value, .. } => serializer.serialize_str(value),
@@ -603,7 +702,7 @@ impl Serialize for Value {
     where
         S: Serializer,
     {
-        SerdeValue::from(self).serialize(serializer)
+        SerdeValueRef::from(self).serialize(serializer)
     }
 }
 
@@ -943,6 +1042,15 @@ mod tests {
             let via_ref = serde_json::to_string(&PlainValueRef(&value)).unwrap();
             let via_tree = serde_json::to_string(&value.to_json_plain()).unwrap();
             assert_eq!(via_ref, via_tree, "variant: {:?}", value);
+        }
+    }
+
+    #[test]
+    fn test_tagged_serialize_borrowed_matches_owned_serde_value() {
+        for value in plain_equivalence_samples() {
+            let via_ref = serde_json::to_string(&value).unwrap();
+            let via_owned = serde_json::to_string(&SerdeValue::from(&value)).unwrap();
+            assert_eq!(via_ref, via_owned, "variant: {:?}", value);
         }
     }
 }

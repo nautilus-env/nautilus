@@ -61,8 +61,7 @@ fn bench_deserialize_tagged(c: &mut Criterion) {
     let json = serde_json::to_string(&values).expect("serialize");
     c.bench_function("value_deserialize_tagged/1000", |b| {
         b.iter(|| {
-            let values: Vec<Value> =
-                serde_json::from_str(black_box(&json)).expect("deserialize");
+            let values: Vec<Value> = serde_json::from_str(black_box(&json)).expect("deserialize");
             black_box(values)
         });
     });
