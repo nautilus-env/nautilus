@@ -41,4 +41,4 @@ pub use select::{
     SelectItem,
 };
 pub use update::{Update, UpdateBuilder, UpdateCapacity};
-pub use value::{Geography, Geometry, Value};
+pub use value::{Geography, Geometry, PlainValueRef, Value};

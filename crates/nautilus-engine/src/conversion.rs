@@ -10,7 +10,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use nautilus_connector::Row;
-use nautilus_core::Value;
+use nautilus_core::{PlainValueRef, Value};
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::{CompositeTypeIr, ResolvedFieldType, ScalarType};
 
@@ -219,7 +219,7 @@ impl serde::Serialize for RowRef<'_> {
         use serde::ser::SerializeMap;
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
         for (name, value) in self.0.iter() {
-            map.serialize_entry(name, &value.to_json_plain())?;
+            map.serialize_entry(name, &PlainValueRef(value))?;
         }
         map.end()
     }

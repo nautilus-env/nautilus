@@ -197,8 +197,11 @@ enum SerdeValue {
     },
 }
 
+/// Wire format shared by [`format_datetime`] and [`PlainValueRef`].
+const DATETIME_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.fZ";
+
 fn format_datetime(value: chrono::NaiveDateTime) -> String {
-    value.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string()
+    value.format(DATETIME_FORMAT).to_string()
 }
 
 fn parse_datetime_string(raw: &str) -> std::result::Result<chrono::NaiveDateTime, String> {
@@ -522,6 +525,79 @@ impl Value {
     }
 }
 
+/// Serializes a borrowed [`Value`] in the same plain JSON shape produced by
+/// [`Value::to_json_plain`], writing directly into the serializer.
+///
+/// Unlike `to_json_plain`, no intermediate `serde_json::Value` tree is built:
+/// strings, arrays, hstore maps and composites are serialized by reference.
+/// Used on the hot row-serialization path; `to_json_plain` remains for callers
+/// that need an owned `serde_json::Value`. The two are kept in sync by
+/// equivalence tests over every variant.
+pub struct PlainValueRef<'a>(pub &'a Value);
+
+/// Serializes an `f64` as a JSON number, or `null` when not finite —
+/// mirroring `serde_json::Number::from_f64` returning `None` for NaN/±∞.
+struct PlainF64(f64);
+
+impl Serialize for PlainF64 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if self.0.is_finite() {
+            serializer.serialize_f64(self.0)
+        } else {
+            serializer.serialize_unit()
+        }
+    }
+}
+
+struct PlainSliceRef<'a>(&'a [Value]);
+
+impl Serialize for PlainSliceRef<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_seq(self.0.iter().map(PlainValueRef))
+    }
+}
+
+impl Serialize for PlainValueRef<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self.0 {
+            Value::Null => serializer.serialize_unit(),
+            Value::Bool(v) => serializer.serialize_bool(*v),
+            Value::I32(v) => serializer.serialize_i32(*v),
+            Value::I64(v) => serializer.serialize_i64(*v),
+            Value::F64(v) => PlainF64(*v).serialize(serializer),
+            Value::Decimal(v) => serializer.collect_str(v),
+            Value::DateTime(v) => serializer.collect_str(&v.format(DATETIME_FORMAT)),
+            Value::Uuid(v) => serializer.collect_str(v),
+            Value::Json(v) => v.serialize(serializer),
+            Value::Hstore(v) => serializer.collect_map(v.iter()),
+            Value::Geometry(v) | Value::Geography(v) => serializer.serialize_str(v),
+            Value::Vector(v) => {
+                serializer.collect_seq(v.iter().map(|item| PlainF64(*item as f64)))
+            }
+            Value::String(v) => serializer.serialize_str(v),
+            Value::Bytes(v) => serializer.collect_str(&base64::display::Base64Display::new(
+                v,
+                &base64::engine::general_purpose::STANDARD,
+            )),
+            Value::Array(v) => serializer.collect_seq(v.iter().map(PlainValueRef)),
+            Value::Array2D(v) => serializer.collect_seq(v.iter().map(|row| PlainSliceRef(row))),
+            Value::Enum { value, .. } => serializer.serialize_str(value),
+            Value::Composite { fields, .. } => {
+                serializer.collect_seq(fields.iter().map(PlainValueRef))
+            }
+        }
+    }
+}
+
 impl Serialize for Value {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -795,6 +871,78 @@ mod tests {
             let json = serde_json::to_value(&value).unwrap();
             let deserialized: Value = serde_json::from_value(json).unwrap();
             assert_eq!(deserialized, value);
+        }
+    }
+
+    /// One sample per `Value` variant, including the edge cases that take a
+    /// non-obvious serialization path (non-finite floats -> null, fractional
+    /// datetimes, nested arrays, hstore NULLs, composite fields).
+    fn plain_equivalence_samples() -> Vec<Value> {
+        use chrono::NaiveDate;
+        use serde_json::json;
+        use uuid::Uuid;
+
+        vec![
+            Value::Null,
+            Value::Bool(true),
+            Value::I32(-42),
+            Value::I64(9007199254740991),
+            Value::F64(f64::consts::PI),
+            Value::F64(f64::NAN),
+            Value::F64(f64::INFINITY),
+            Value::Decimal(rust_decimal::Decimal::new(-12345, 2)),
+            Value::DateTime(
+                NaiveDate::from_ymd_opt(2026, 2, 18)
+                    .unwrap()
+                    .and_hms_micro_opt(10, 30, 45, 123456)
+                    .unwrap(),
+            ),
+            Value::Uuid(Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap()),
+            Value::Json(json!({"nested": {"ok": true}, "list": [1, "two", null]})),
+            Value::Hstore(BTreeMap::from([
+                ("display_name".to_string(), Some("Bob".to_string())),
+                ("nickname".to_string(), None),
+            ])),
+            Value::Geometry("POINT(1 2)".to_string()),
+            Value::Geography("SRID=4326;POINT(9 45)".to_string()),
+            Value::Vector(vec![1.0, -2.5, f32::NAN]),
+            Value::String("hello \"quoted\" world".to_string()),
+            Value::Bytes(vec![72, 101, 108, 108, 111]),
+            Value::Array(vec![
+                Value::I32(1),
+                Value::String("two".to_string()),
+                Value::Null,
+                Value::Array(vec![Value::Bool(false)]),
+            ]),
+            Value::Array2D(vec![
+                vec![Value::I32(1), Value::I32(2)],
+                vec![Value::I32(3), Value::I32(4)],
+            ]),
+            Value::Enum {
+                value: "ADMIN".to_string(),
+                type_name: "role".to_string(),
+            },
+            Value::Composite {
+                type_name: "championstats".to_string(),
+                fields: vec![Value::I32(0), Value::String("x".to_string()), Value::Null],
+            },
+        ]
+    }
+
+    #[test]
+    fn test_plain_value_ref_matches_to_json_plain_tree() {
+        for value in plain_equivalence_samples() {
+            let via_ref = serde_json::to_value(PlainValueRef(&value)).unwrap();
+            assert_eq!(via_ref, value.to_json_plain(), "variant: {:?}", value);
+        }
+    }
+
+    #[test]
+    fn test_plain_value_ref_matches_to_json_plain_string() {
+        for value in plain_equivalence_samples() {
+            let via_ref = serde_json::to_string(&PlainValueRef(&value)).unwrap();
+            let via_tree = serde_json::to_string(&value.to_json_plain()).unwrap();
+            assert_eq!(via_ref, via_tree, "variant: {:?}", value);
         }
     }
 }
