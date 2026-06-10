@@ -342,6 +342,76 @@ async fn typed_find_unique_uses_specialized_projection_path() {
 }
 
 #[tokio::test]
+async fn multiple_includes_append_columns_in_deterministic_order() {
+    let (state, temp_dir) = sqlite_state("include-tests-order", schema_source()).await;
+
+    let created_user = call_rpc_json(
+        &state,
+        QUERY_CREATE,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "data": { "email": "alice@example.com" }
+        }),
+    )
+    .await;
+    let user_id = created_user["data"][0]["User__id"]
+        .as_i64()
+        .expect("user id should be present");
+
+    let created_post = call_rpc_json(
+        &state,
+        QUERY_CREATE,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Post",
+            "data": { "title": "ordered", "sort": 1, "authorId": user_id }
+        }),
+    )
+    .await;
+    let post_id = created_post["data"][0]["blog_posts__post_id"]
+        .as_i64()
+        .expect("post id should be present");
+    let _ = call_rpc_json(
+        &state,
+        QUERY_CREATE,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Comment",
+            "data": { "body": "c1", "sort": 1, "postId": post_id }
+        }),
+    )
+    .await;
+
+    let rows = handlers::handle_find_many_typed(
+        &state,
+        "Post",
+        &FindManyArgs {
+            include: HashMap::from([
+                ("comments".to_string(), IncludeRelation::plain()),
+                ("author".to_string(), IncludeRelation::plain()),
+            ]),
+            ..Default::default()
+        },
+        None,
+    )
+    .await
+    .expect("typed findMany should succeed");
+
+    assert_eq!(rows.len(), 1);
+    let columns = rows[0].len();
+    assert_eq!(
+        rows[0].column_name(columns - 2),
+        Some("author_json"),
+        "include columns should be appended in sorted field-name order"
+    );
+    assert_eq!(rows[0].column_name(columns - 1), Some("comments_json"));
+
+    drop(state);
+    drop(temp_dir);
+}
+
+#[tokio::test]
 async fn array_includes_batch_children_across_multiple_parents() {
     let (state, temp_dir) = sqlite_state("include-tests-batch", schema_source()).await;
 

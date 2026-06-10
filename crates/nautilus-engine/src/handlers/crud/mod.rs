@@ -26,7 +26,7 @@ use crate::state::EngineState;
 
 mod aggregation;
 mod common;
-mod include;
+pub(crate) mod include;
 mod mutations;
 mod raw;
 mod read;

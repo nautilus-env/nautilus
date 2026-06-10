@@ -48,3 +48,7 @@ criterion = { workspace = true }
 [[bench]]
 name = "rows_json"
 harness = false
+
+[[bench]]
+name = "hydrate_includes"
+harness = false

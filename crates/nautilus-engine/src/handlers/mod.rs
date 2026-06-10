@@ -31,6 +31,11 @@ use crate::state::EngineState;
 mod crud;
 mod transactions;
 
+// Pure include-hydration helpers re-exported for the `hydrate_includes`
+// criterion bench. Not part of the public engine API.
+#[doc(hidden)]
+pub use crud::include::{build_include_values, group_key, GroupKey, IncludeProjection};
+
 #[derive(Debug)]
 pub enum EmbeddedResponse {
     Rows(Vec<nautilus_connector::Row>),

@@ -653,6 +653,18 @@ pub(super) async fn handle_find_many(
     let params: FindManyParams = serde_json::from_value(request.params)
         .map_err(|e| ProtocolError::InvalidParams(format!("Invalid findMany params: {}", e)))?;
 
+    find_many_with_params(state, params, request.id, sender).await
+}
+
+/// Typed `findMany` entry point shared by [`handle_find_many`] and
+/// [`handle_find_first`], so callers that already hold a [`FindManyParams`]
+/// skip the JSON round-trip through a synthetic [`RpcRequest`].
+async fn find_many_with_params(
+    state: &EngineState,
+    params: FindManyParams,
+    request_id: Option<nautilus_protocol::RpcId>,
+    sender: Option<mpsc::Sender<RpcResponse>>,
+) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let chunk_size = params.chunk_size.map(|n| n.max(1));
     check_protocol_version(params.protocol_version)?;
     let tx_id = params.transaction_id;
@@ -677,7 +689,6 @@ pub(super) async fn handle_find_many(
 
     if streamable {
         let plan = build_find_many_plan(state, model, query_args)?;
-        let request_id = request.id.clone();
         return stream_find_many_chunked(
             state,
             plan,
@@ -695,7 +706,6 @@ pub(super) async fn handle_find_many(
     // wire-level chunking even though the engine had to materialise the full
     // `Vec<Row>` first.
     if let (Some(size), Some(channel)) = (chunk_size, sender) {
-        let id = request.id.clone();
         let mut chunks = rows.chunks(size).peekable();
 
         if chunks.peek().is_some() {
@@ -706,7 +716,7 @@ pub(super) async fn handle_find_many(
                     return Ok(raw);
                 }
                 channel
-                    .send(ok_partial(id.clone(), raw))
+                    .send(ok_partial(request_id.clone(), raw))
                     .await
                     .map_err(|_| {
                         ProtocolError::Internal(
@@ -729,15 +739,13 @@ pub(super) async fn handle_find_many_embedded(
     execute_find_many_params(state, params).await
 }
 
-/// Handle `query.findFirst` and delegate to [`handle_find_many`] with `take=1`.
+/// Handle `query.findFirst` and delegate to [`find_many_with_params`] with `take=1`.
 pub(super) async fn handle_find_first(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: FindFirstParams = serde_json::from_value(request.params.clone())
+    let params: FindFirstParams = serde_json::from_value(request.params)
         .map_err(|e| ProtocolError::InvalidParams(format!("Invalid findFirst params: {}", e)))?;
-
-    check_protocol_version(params.protocol_version)?;
 
     let find_many_params = FindManyParams {
         protocol_version: params.protocol_version,
@@ -755,14 +763,7 @@ pub(super) async fn handle_find_first(
         chunk_size: None,
     };
 
-    let find_many_request = RpcRequest {
-        jsonrpc: "2.0".to_string(),
-        id: request.id,
-        method: "query.findMany".to_string(),
-        params: serde_json::to_value(find_many_params)
-            .map_err(|e| ProtocolError::Internal(format!("Failed to serialize params: {}", e)))?,
-    };
-    handle_find_many(state, find_many_request, None).await
+    find_many_with_params(state, find_many_params, request.id, None).await
 }
 
 /// Handle `query.findUnique`.
