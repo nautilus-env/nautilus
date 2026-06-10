@@ -16,16 +16,182 @@ pub type PgRowStream<'conn> = RowStream<'conn>;
 
 /// Decode a sqlx `PgRow` into a Nautilus `Row`.
 ///
-/// This function is public within the crate for use by the postgres executor.
+/// Standalone single-row entry point: column classification is paid per call.
+/// Multi-row paths should prefer [`decode_rows`] or [`streaming_decoder`],
+/// which classify each column once per statement.
 pub(crate) fn decode_row_internal(row: PgRow) -> Result<Row> {
-    let columns = row.columns();
-    let mut row_data = Row::with_capacity(columns.len());
+    let plan = PgColumnPlan::for_row(&row);
+    decode_row_with_plan(&plan, &row)
+}
 
-    for (i, column) in columns.iter().enumerate() {
-        let name = column.name().to_string();
-        let type_info = column.type_info();
-        let value = decode_value(&row, i, type_info)?;
-        row_data.push_column(name, value);
+/// Decode a batch of rows produced by a single statement, classifying the
+/// column types once (on the first row) instead of once per cell.
+pub(crate) fn decode_rows(rows: &[PgRow]) -> Result<Vec<Row>> {
+    let Some(first) = rows.first() else {
+        return Ok(Vec::new());
+    };
+    let plan = PgColumnPlan::for_row(first);
+    rows.iter()
+        .map(|row| decode_row_with_plan(&plan, row))
+        .collect()
+}
+
+/// Stateful decoder for streaming paths: builds the column plan from the
+/// first row that arrives and reuses it for every subsequent row of the
+/// statement.
+pub(crate) fn streaming_decoder() -> impl FnMut(PgRow) -> Result<Row> + Send + 'static {
+    let mut plan: Option<PgColumnPlan> = None;
+    move |row| {
+        let plan = plan.get_or_insert_with(|| PgColumnPlan::for_row(&row));
+        decode_row_with_plan(plan, &row)
+    }
+}
+
+/// Per-statement decode plan: one [`PgColumnDecode`] per column.
+///
+/// Hoists the dispatch previously done per cell — the composite check and the
+/// `classify_pg_type` scan over the case-insensitive alias table (plus the
+/// alias chains for array element types) — so it runs once per column for the
+/// whole result set.
+#[derive(Debug, Clone, PartialEq)]
+struct PgColumnPlan {
+    kinds: Vec<PgColumnDecode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PgColumnDecode {
+    Bool,
+    Int2,
+    Int4,
+    Int8,
+    Float4,
+    Float8,
+    Text,
+    Geometry,
+    Geography,
+    Hstore,
+    Vector,
+    Bytes,
+    Uuid,
+    Timestamp,
+    TimestampTz,
+    Date,
+    Time,
+    Numeric,
+    Json,
+    Array(PgArrayElem),
+    Array2D(String),
+    Composite,
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PgArrayElem {
+    Text,
+    Geometry,
+    Geography,
+    Hstore,
+    Int2,
+    Int4,
+    Int8,
+    Float4,
+    Float8,
+    Bool,
+    Unsupported(String),
+}
+
+impl PgColumnPlan {
+    fn for_row(row: &PgRow) -> Self {
+        Self {
+            kinds: row
+                .columns()
+                .iter()
+                .map(|column| plan_column(column.type_info()))
+                .collect(),
+        }
+    }
+}
+
+fn plan_column(type_info: &PgTypeInfo) -> PgColumnDecode {
+    if matches!(type_info.kind(), SqlxPgTypeKind::Composite(_)) {
+        return PgColumnDecode::Composite;
+    }
+
+    plan_column_by_name(type_info.name())
+}
+
+fn plan_column_by_name(type_name: &str) -> PgColumnDecode {
+    match classify_pg_type(type_name) {
+        PgTypeKind::Bool => PgColumnDecode::Bool,
+        PgTypeKind::Int2 => PgColumnDecode::Int2,
+        PgTypeKind::Int4 => PgColumnDecode::Int4,
+        PgTypeKind::Int8 => PgColumnDecode::Int8,
+        PgTypeKind::Float4 => PgColumnDecode::Float4,
+        PgTypeKind::Float8 => PgColumnDecode::Float8,
+        PgTypeKind::Text => PgColumnDecode::Text,
+        PgTypeKind::Geometry => PgColumnDecode::Geometry,
+        PgTypeKind::Geography => PgColumnDecode::Geography,
+        PgTypeKind::Hstore => PgColumnDecode::Hstore,
+        PgTypeKind::Vector => PgColumnDecode::Vector,
+        PgTypeKind::Bytes => PgColumnDecode::Bytes,
+        PgTypeKind::Uuid => PgColumnDecode::Uuid,
+        PgTypeKind::Timestamp => PgColumnDecode::Timestamp,
+        PgTypeKind::TimestampTz => PgColumnDecode::TimestampTz,
+        PgTypeKind::Date => PgColumnDecode::Date,
+        PgTypeKind::Time => PgColumnDecode::Time,
+        PgTypeKind::Numeric => PgColumnDecode::Numeric,
+        PgTypeKind::Json => PgColumnDecode::Json,
+        PgTypeKind::Array(element_type) => PgColumnDecode::Array(plan_array_elem(element_type)),
+        PgTypeKind::Array2D(element_type) => PgColumnDecode::Array2D(element_type.to_string()),
+        PgTypeKind::Unknown => PgColumnDecode::Unknown(type_name.to_string()),
+    }
+}
+
+fn plan_array_elem(element_type: &str) -> PgArrayElem {
+    if matches_pg_type(
+        element_type,
+        &[
+            "TEXT", "VARCHAR", "CHAR", "BPCHAR", "NAME", "CITEXT", "LTREE",
+        ],
+    ) {
+        PgArrayElem::Text
+    } else if pg_type_is(element_type, "GEOMETRY") {
+        PgArrayElem::Geometry
+    } else if pg_type_is(element_type, "GEOGRAPHY") {
+        PgArrayElem::Geography
+    } else if pg_type_is(element_type, "HSTORE") {
+        PgArrayElem::Hstore
+    } else if pg_type_is(element_type, "INT2") {
+        PgArrayElem::Int2
+    } else if matches_pg_type(element_type, &["INT4", "SERIAL"]) {
+        PgArrayElem::Int4
+    } else if matches_pg_type(element_type, &["INT8", "BIGINT", "BIGSERIAL"]) {
+        PgArrayElem::Int8
+    } else if matches_pg_type(element_type, &["FLOAT4", "REAL"]) {
+        PgArrayElem::Float4
+    } else if matches_pg_type(element_type, &["FLOAT8", "DOUBLE PRECISION"]) {
+        PgArrayElem::Float8
+    } else if pg_type_is(element_type, "BOOL") {
+        PgArrayElem::Bool
+    } else {
+        PgArrayElem::Unsupported(element_type.to_string())
+    }
+}
+
+fn decode_row_with_plan(plan: &PgColumnPlan, row: &PgRow) -> Result<Row> {
+    let columns = row.columns();
+    if columns.len() != plan.kinds.len() {
+        return Err(Error::row_decode_msg(format!(
+            "Column plan covers {} columns but the row has {}",
+            plan.kinds.len(),
+            columns.len()
+        )));
+    }
+
+    let mut row_data = Row::with_capacity(columns.len());
+    for (i, (column, kind)) in columns.iter().zip(&plan.kinds).enumerate() {
+        let value = decode_value(row, i, kind)?;
+        row_data.push_column(column.name().to_string(), value);
     }
 
     Ok(row_data)
@@ -84,84 +250,84 @@ const PG_SCALAR_TYPE_ALIASES: &[(&[&str], PgTypeKind<'static>)] = &[
     (&["JSON", "JSONB"], PgTypeKind::Json),
 ];
 
-/// Decode a value from a sqlx row by index and type.
-fn decode_value(row: &PgRow, idx: usize, type_info: &sqlx::postgres::PgTypeInfo) -> Result<Value> {
-    let type_name = type_info.name();
-
+/// Decode a value from a sqlx row by index, using the pre-resolved column kind.
+fn decode_value(row: &PgRow, idx: usize, kind: &PgColumnDecode) -> Result<Value> {
     if let Ok(is_null) = sqlx::Row::try_get_raw(row, idx).map(|raw| raw.is_null()) {
         if is_null {
             return Ok(Value::Null);
         }
     }
 
-    if matches!(type_info.kind(), SqlxPgTypeKind::Composite(_)) {
-        return decode_pg_composite_literal(row, idx, type_info);
-    }
+    match kind {
+        PgColumnDecode::Composite => {
+            decode_pg_composite_literal(row, idx, row.columns()[idx].type_info())
+        }
 
-    match classify_pg_type(type_name) {
-        PgTypeKind::Bool => sqlx::Row::try_get_unchecked::<bool, _>(row, idx)
+        PgColumnDecode::Bool => sqlx::Row::try_get_unchecked::<bool, _>(row, idx)
             .map(Value::Bool)
             .map_err(|e| Error::row_decode(e, "Failed to decode BOOL")),
 
-        PgTypeKind::Int2 => sqlx::Row::try_get_unchecked::<i16, _>(row, idx)
+        PgColumnDecode::Int2 => sqlx::Row::try_get_unchecked::<i16, _>(row, idx)
             .map(|value| Value::I64(value as i64))
             .map_err(|e| Error::row_decode(e, "Failed to decode INT2")),
 
-        PgTypeKind::Int4 => sqlx::Row::try_get_unchecked::<i32, _>(row, idx)
+        PgColumnDecode::Int4 => sqlx::Row::try_get_unchecked::<i32, _>(row, idx)
             .map(|value| Value::I64(value as i64))
             .map_err(|e| Error::row_decode(e, "Failed to decode INT4")),
 
-        PgTypeKind::Int8 => sqlx::Row::try_get_unchecked::<i64, _>(row, idx)
+        PgColumnDecode::Int8 => sqlx::Row::try_get_unchecked::<i64, _>(row, idx)
             .map(Value::I64)
             .map_err(|e| Error::row_decode(e, "Failed to decode INT8")),
 
-        PgTypeKind::Float4 => sqlx::Row::try_get_unchecked::<f32, _>(row, idx)
+        PgColumnDecode::Float4 => sqlx::Row::try_get_unchecked::<f32, _>(row, idx)
             .map(|value| Value::F64(value as f64))
             .map_err(|e| Error::row_decode(e, "Failed to decode FLOAT4")),
 
-        PgTypeKind::Float8 => sqlx::Row::try_get_unchecked::<f64, _>(row, idx)
+        PgColumnDecode::Float8 => sqlx::Row::try_get_unchecked::<f64, _>(row, idx)
             .map(Value::F64)
             .map_err(|e| Error::row_decode(e, "Failed to decode FLOAT8")),
 
-        PgTypeKind::Text => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
+        PgColumnDecode::Text => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
             .map(Value::String)
             .map_err(|e| Error::row_decode(e, "Failed to decode string")),
 
-        PgTypeKind::Geometry => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
+        PgColumnDecode::Geometry => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
             .map(Value::Geometry)
             .map_err(|e| Error::row_decode(e, "Failed to decode GEOMETRY")),
 
-        PgTypeKind::Geography => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
+        PgColumnDecode::Geography => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
             .map(Value::Geography)
             .map_err(|e| Error::row_decode(e, "Failed to decode GEOGRAPHY")),
 
-        PgTypeKind::Hstore => sqlx::Row::try_get_unchecked::<PgHstore, _>(row, idx)
+        PgColumnDecode::Hstore => sqlx::Row::try_get_unchecked::<PgHstore, _>(row, idx)
             .map(|map| Value::Hstore(map.0))
             .map_err(|e| Error::row_decode(e, "Failed to decode HSTORE")),
 
-        PgTypeKind::Vector => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
+        PgColumnDecode::Vector => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
             .map_err(|e| Error::row_decode(e, "Failed to decode VECTOR"))
             .and_then(|raw| parse_pg_vector(&raw)),
 
-        PgTypeKind::Bytes => sqlx::Row::try_get_unchecked::<Vec<u8>, _>(row, idx)
+        PgColumnDecode::Bytes => sqlx::Row::try_get_unchecked::<Vec<u8>, _>(row, idx)
             .map(Value::Bytes)
             .map_err(|e| Error::row_decode(e, "Failed to decode bytes")),
 
-        PgTypeKind::Uuid => sqlx::Row::try_get_unchecked::<Uuid, _>(row, idx)
+        PgColumnDecode::Uuid => sqlx::Row::try_get_unchecked::<Uuid, _>(row, idx)
             .map(Value::Uuid)
             .map_err(|e| Error::row_decode(e, "Failed to decode UUID")),
 
-        PgTypeKind::Timestamp => sqlx::Row::try_get_unchecked::<chrono::NaiveDateTime, _>(row, idx)
-            .map(Value::DateTime)
-            .map_err(|e| Error::row_decode(e, "Failed to decode TIMESTAMP")),
+        PgColumnDecode::Timestamp => {
+            sqlx::Row::try_get_unchecked::<chrono::NaiveDateTime, _>(row, idx)
+                .map(Value::DateTime)
+                .map_err(|e| Error::row_decode(e, "Failed to decode TIMESTAMP"))
+        }
 
-        PgTypeKind::TimestampTz => {
+        PgColumnDecode::TimestampTz => {
             sqlx::Row::try_get_unchecked::<chrono::DateTime<chrono::Utc>, _>(row, idx)
                 .map(|dt| Value::DateTime(dt.naive_utc()))
                 .map_err(|e| Error::row_decode(e, "Failed to decode TIMESTAMPTZ"))
         }
 
-        PgTypeKind::Date => sqlx::Row::try_get_unchecked::<chrono::NaiveDate, _>(row, idx)
+        PgColumnDecode::Date => sqlx::Row::try_get_unchecked::<chrono::NaiveDate, _>(row, idx)
             .map(|d| {
                 Value::DateTime(
                     d.and_hms_opt(0, 0, 0)
@@ -170,94 +336,81 @@ fn decode_value(row: &PgRow, idx: usize, type_info: &sqlx::postgres::PgTypeInfo)
             })
             .map_err(|e| Error::row_decode(e, "Failed to decode DATE")),
 
-        PgTypeKind::Time => sqlx::Row::try_get_unchecked::<chrono::NaiveTime, _>(row, idx)
+        PgColumnDecode::Time => sqlx::Row::try_get_unchecked::<chrono::NaiveTime, _>(row, idx)
             .map(|t| Value::String(t.to_string()))
             .map_err(|e| Error::row_decode(e, "Failed to decode TIME")),
 
-        PgTypeKind::Numeric => sqlx::Row::try_get_unchecked::<rust_decimal::Decimal, _>(row, idx)
-            .map(Value::Decimal)
-            .map_err(|e| Error::row_decode(e, "Failed to decode NUMERIC")),
+        PgColumnDecode::Numeric => {
+            sqlx::Row::try_get_unchecked::<rust_decimal::Decimal, _>(row, idx)
+                .map(Value::Decimal)
+                .map_err(|e| Error::row_decode(e, "Failed to decode NUMERIC"))
+        }
 
         // Handle PostgreSQL 2D array types (TEXT[][], INT4[][], etc.)
         // sqlx doesn't support 2D array decoding natively, so we decode
         // the text representation and parse the PostgreSQL array literal.
-        PgTypeKind::Array2D(element_type) => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
-            .map_err(|e| Error::row_decode(e, "Failed to decode 2D array"))
-            .and_then(|s| parse_pg_2d_array(&s, element_type)),
-
-        PgTypeKind::Array(element_type) => {
-            if matches_pg_type(
-                element_type,
-                &[
-                    "TEXT", "VARCHAR", "CHAR", "BPCHAR", "NAME", "CITEXT", "LTREE",
-                ],
-            ) {
-                sqlx::Row::try_get_unchecked::<Vec<String>, _>(row, idx)
-                    .map(|vec| Value::Array(vec.into_iter().map(Value::String).collect()))
-                    .map_err(|e| Error::row_decode(e, "Failed to decode TEXT[]"))
-            } else if pg_type_is(element_type, "GEOMETRY") {
-                sqlx::Row::try_get_unchecked::<Vec<String>, _>(row, idx)
-                    .map(|vec| Value::Array(vec.into_iter().map(Value::Geometry).collect()))
-                    .map_err(|e| Error::row_decode(e, "Failed to decode GEOMETRY[]"))
-            } else if pg_type_is(element_type, "GEOGRAPHY") {
-                sqlx::Row::try_get_unchecked::<Vec<String>, _>(row, idx)
-                    .map(|vec| Value::Array(vec.into_iter().map(Value::Geography).collect()))
-                    .map_err(|e| Error::row_decode(e, "Failed to decode GEOGRAPHY[]"))
-            } else if pg_type_is(element_type, "HSTORE") {
-                sqlx::Row::try_get_unchecked::<Vec<PgHstore>, _>(row, idx)
-                    .map(|vec| {
-                        Value::Array(vec.into_iter().map(|item| Value::Hstore(item.0)).collect())
-                    })
-                    .map_err(|e| Error::row_decode(e, "Failed to decode HSTORE[]"))
-            } else if pg_type_is(element_type, "INT2") {
-                sqlx::Row::try_get_unchecked::<Vec<i16>, _>(row, idx)
-                    .map(|vec| {
-                        Value::Array(
-                            vec.into_iter()
-                                .map(|item| Value::I32(item as i32))
-                                .collect(),
-                        )
-                    })
-                    .map_err(|e| Error::row_decode(e, "Failed to decode SMALLINT[]"))
-            } else if matches_pg_type(element_type, &["INT4", "SERIAL"]) {
-                sqlx::Row::try_get_unchecked::<Vec<i32>, _>(row, idx)
-                    .map(|vec| Value::Array(vec.into_iter().map(Value::I32).collect()))
-                    .map_err(|e| Error::row_decode(e, "Failed to decode INT[]"))
-            } else if matches_pg_type(element_type, &["INT8", "BIGINT", "BIGSERIAL"]) {
-                sqlx::Row::try_get_unchecked::<Vec<i64>, _>(row, idx)
-                    .map(|vec| Value::Array(vec.into_iter().map(Value::I64).collect()))
-                    .map_err(|e| Error::row_decode(e, "Failed to decode BIGINT[]"))
-            } else if matches_pg_type(element_type, &["FLOAT4", "REAL"]) {
-                sqlx::Row::try_get_unchecked::<Vec<f32>, _>(row, idx)
-                    .map(|vec| {
-                        Value::Array(
-                            vec.into_iter()
-                                .map(|item| Value::F64(item as f64))
-                                .collect(),
-                        )
-                    })
-                    .map_err(|e| Error::row_decode(e, "Failed to decode REAL[]"))
-            } else if matches_pg_type(element_type, &["FLOAT8", "DOUBLE PRECISION"]) {
-                sqlx::Row::try_get_unchecked::<Vec<f64>, _>(row, idx)
-                    .map(|vec| Value::Array(vec.into_iter().map(Value::F64).collect()))
-                    .map_err(|e| Error::row_decode(e, "Failed to decode FLOAT[]"))
-            } else if pg_type_is(element_type, "BOOL") {
-                sqlx::Row::try_get_unchecked::<Vec<bool>, _>(row, idx)
-                    .map(|vec| Value::Array(vec.into_iter().map(Value::Bool).collect()))
-                    .map_err(|e| Error::row_decode(e, "Failed to decode BOOL[]"))
-            } else {
-                Err(Error::row_decode_msg(format!(
-                    "Unsupported array element type: {}",
-                    element_type
-                )))
-            }
+        PgColumnDecode::Array2D(element_type) => {
+            sqlx::Row::try_get_unchecked::<String, _>(row, idx)
+                .map_err(|e| Error::row_decode(e, "Failed to decode 2D array"))
+                .and_then(|s| parse_pg_2d_array(&s, element_type))
         }
 
-        PgTypeKind::Json => sqlx::Row::try_get_unchecked::<serde_json::Value, _>(row, idx)
+        PgColumnDecode::Array(element) => match element {
+            PgArrayElem::Text => sqlx::Row::try_get_unchecked::<Vec<String>, _>(row, idx)
+                .map(|vec| Value::Array(vec.into_iter().map(Value::String).collect()))
+                .map_err(|e| Error::row_decode(e, "Failed to decode TEXT[]")),
+            PgArrayElem::Geometry => sqlx::Row::try_get_unchecked::<Vec<String>, _>(row, idx)
+                .map(|vec| Value::Array(vec.into_iter().map(Value::Geometry).collect()))
+                .map_err(|e| Error::row_decode(e, "Failed to decode GEOMETRY[]")),
+            PgArrayElem::Geography => sqlx::Row::try_get_unchecked::<Vec<String>, _>(row, idx)
+                .map(|vec| Value::Array(vec.into_iter().map(Value::Geography).collect()))
+                .map_err(|e| Error::row_decode(e, "Failed to decode GEOGRAPHY[]")),
+            PgArrayElem::Hstore => sqlx::Row::try_get_unchecked::<Vec<PgHstore>, _>(row, idx)
+                .map(|vec| {
+                    Value::Array(vec.into_iter().map(|item| Value::Hstore(item.0)).collect())
+                })
+                .map_err(|e| Error::row_decode(e, "Failed to decode HSTORE[]")),
+            PgArrayElem::Int2 => sqlx::Row::try_get_unchecked::<Vec<i16>, _>(row, idx)
+                .map(|vec| {
+                    Value::Array(
+                        vec.into_iter()
+                            .map(|item| Value::I32(item as i32))
+                            .collect(),
+                    )
+                })
+                .map_err(|e| Error::row_decode(e, "Failed to decode SMALLINT[]")),
+            PgArrayElem::Int4 => sqlx::Row::try_get_unchecked::<Vec<i32>, _>(row, idx)
+                .map(|vec| Value::Array(vec.into_iter().map(Value::I32).collect()))
+                .map_err(|e| Error::row_decode(e, "Failed to decode INT[]")),
+            PgArrayElem::Int8 => sqlx::Row::try_get_unchecked::<Vec<i64>, _>(row, idx)
+                .map(|vec| Value::Array(vec.into_iter().map(Value::I64).collect()))
+                .map_err(|e| Error::row_decode(e, "Failed to decode BIGINT[]")),
+            PgArrayElem::Float4 => sqlx::Row::try_get_unchecked::<Vec<f32>, _>(row, idx)
+                .map(|vec| {
+                    Value::Array(
+                        vec.into_iter()
+                            .map(|item| Value::F64(item as f64))
+                            .collect(),
+                    )
+                })
+                .map_err(|e| Error::row_decode(e, "Failed to decode REAL[]")),
+            PgArrayElem::Float8 => sqlx::Row::try_get_unchecked::<Vec<f64>, _>(row, idx)
+                .map(|vec| Value::Array(vec.into_iter().map(Value::F64).collect()))
+                .map_err(|e| Error::row_decode(e, "Failed to decode FLOAT[]")),
+            PgArrayElem::Bool => sqlx::Row::try_get_unchecked::<Vec<bool>, _>(row, idx)
+                .map(|vec| Value::Array(vec.into_iter().map(Value::Bool).collect()))
+                .map_err(|e| Error::row_decode(e, "Failed to decode BOOL[]")),
+            PgArrayElem::Unsupported(element_type) => Err(Error::row_decode_msg(format!(
+                "Unsupported array element type: {}",
+                element_type
+            ))),
+        },
+
+        PgColumnDecode::Json => sqlx::Row::try_get_unchecked::<serde_json::Value, _>(row, idx)
             .map(Value::Json)
             .map_err(|e| Error::row_decode(e, "Failed to decode JSON")),
 
-        PgTypeKind::Unknown => {
+        PgColumnDecode::Unknown(type_name) => {
             // For unknown types (custom enums, domains, composite types, etc.)
             // we bypass sqlx's type-compatibility check so the raw text
             // representation is returned regardless of the server-side type OID.
@@ -1006,6 +1159,33 @@ mod tests {
         assert_eq!(
             classify_pg_type("VaRcHaR[][]"),
             PgTypeKind::Array2D("VaRcHaR")
+        );
+    }
+
+    #[test]
+    fn plan_column_resolves_aliases_and_array_elements_once() {
+        assert_eq!(plan_column_by_name("jsonb"), PgColumnDecode::Json);
+        assert_eq!(plan_column_by_name("TeXt"), PgColumnDecode::Text);
+        assert_eq!(plan_column_by_name("BIGSERIAL"), PgColumnDecode::Int8);
+        assert_eq!(
+            plan_column_by_name("int4[]"),
+            PgColumnDecode::Array(PgArrayElem::Int4)
+        );
+        assert_eq!(
+            plan_column_by_name("citext[]"),
+            PgColumnDecode::Array(PgArrayElem::Text)
+        );
+        assert_eq!(
+            plan_column_by_name("VaRcHaR[][]"),
+            PgColumnDecode::Array2D("VaRcHaR".to_string())
+        );
+        assert_eq!(
+            plan_column_by_name("my_enum"),
+            PgColumnDecode::Unknown("my_enum".to_string())
+        );
+        assert_eq!(
+            plan_column_by_name("interval[]"),
+            PgColumnDecode::Array(PgArrayElem::Unsupported("interval".to_string()))
         );
     }
 

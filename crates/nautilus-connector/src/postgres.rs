@@ -116,10 +116,7 @@ impl PgExecutor {
 
             drop(conn);
 
-            pg_rows
-                .into_iter()
-                .map(crate::postgres_stream::decode_row_internal)
-                .collect()
+            crate::postgres_stream::decode_rows(&pg_rows)
         })
     }
 
@@ -175,10 +172,7 @@ impl PgExecutor {
 
             drop(conn);
 
-            pg_rows
-                .into_iter()
-                .map(crate::postgres_stream::decode_row_internal)
-                .collect()
+            crate::postgres_stream::decode_rows(&pg_rows)
         })
     }
 
@@ -206,7 +200,7 @@ impl Executor for PgExecutor {
             sql_text: sql.text.clone(),
             params: sql.params.clone(),
             bind: bind_value,
-            decode: crate::postgres_stream::decode_row_internal,
+            decode: crate::postgres_stream::streaming_decoder(),
             query_context: "Query execution failed",
             persistent: true,
         })
@@ -222,7 +216,7 @@ impl Executor for PgExecutor {
             sql_text: sql.text,
             params: sql.params,
             bind: bind_value,
-            decode: crate::postgres_stream::decode_row_internal,
+            decode: crate::postgres_stream::streaming_decoder(),
             query_context: "Query execution failed",
             persistent: true,
         })

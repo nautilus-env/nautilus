@@ -68,7 +68,9 @@ where
         + Copy
         + Send
         + 'static,
-    Decode: Fn(<DB as sqlx::Database>::Row) -> Result<Row> + Copy + Send + 'static,
+    // `FnMut` (not `Fn`): per-statement decoders cache the column plan after
+    // the first row, so the closure carries mutable state.
+    Decode: FnMut(<DB as sqlx::Database>::Row) -> Result<Row> + Send + 'static,
 {
     let (tx, rx) = mpsc::channel::<Result<Row>>(STREAMING_CHANNEL_CAPACITY);
 
@@ -98,14 +100,14 @@ async fn run_streaming_query<DB, Bind, Decode>(
         )
             -> Result<sqlx::query::Query<'q, DB, <DB as sqlx::Database>::Arguments<'q>>>
         + Copy,
-    Decode: Fn(<DB as sqlx::Database>::Row) -> Result<Row> + Copy,
+    Decode: FnMut(<DB as sqlx::Database>::Row) -> Result<Row>,
 {
     let StreamingQuery {
         pool,
         sql_text,
         params,
         bind,
-        decode,
+        mut decode,
         query_context,
         persistent,
     } = request;

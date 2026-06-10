@@ -16,13 +16,26 @@ pub type MysqlRowStream<'conn> = RowStream<'conn>;
 ///
 /// This function is public within the crate for use by the MySQL executor.
 pub(crate) fn decode_row_internal(row: MySqlRow) -> Result<Row> {
+    decode_row_ref(&row)
+}
+
+/// Decode a batch of rows produced by a single statement.
+///
+/// MySQL classification is already a direct `match` on the type name (no
+/// per-statement plan needed, unlike PostgreSQL); this exists so batch call
+/// sites are uniform across backends.
+pub(crate) fn decode_rows(rows: &[MySqlRow]) -> Result<Vec<Row>> {
+    rows.iter().map(decode_row_ref).collect()
+}
+
+fn decode_row_ref(row: &MySqlRow) -> Result<Row> {
     let columns = row.columns();
     let mut row_data = Row::with_capacity(columns.len());
 
     for (i, column) in columns.iter().enumerate() {
         let name = column.name().to_string();
         let type_info = column.type_info();
-        let value = decode_value(&row, i, type_info)?;
+        let value = decode_value(row, i, type_info)?;
         row_data.push_column(name, value);
     }
 

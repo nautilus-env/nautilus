@@ -35,5 +35,9 @@ criterion = { workspace = true }
 name = "row_access"
 harness = false
 
+[[bench]]
+name = "decode_rows"
+harness = false
+
 [lints]
 workspace = true

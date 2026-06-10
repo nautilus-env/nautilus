@@ -236,7 +236,9 @@ impl TransactionExecutor {
             + Copy
             + Send
             + 'static,
-        Decode: Fn(<DB as sqlx::Database>::Row) -> Result<Row> + Copy + Send + 'static,
+        // Batch decoder so backends can resolve their column plan once per
+        // statement instead of once per row.
+        Decode: Fn(&[<DB as sqlx::Database>::Row]) -> Result<Vec<Row>> + Send + 'static,
     {
         Box::pin(async move {
             let query = Self::bind_query::<DB, Bind>(&sql_text, &params, persistent, bind)?;
@@ -252,7 +254,7 @@ impl TransactionExecutor {
                 .map_err(|e| Error::database(e, query_context))?;
             drop(guard);
 
-            rows.into_iter().map(decode).collect()
+            decode(&rows)
         })
     }
 
@@ -277,7 +279,9 @@ impl TransactionExecutor {
             + Copy
             + Send
             + 'static,
-        Decode: Fn(<DB as sqlx::Database>::Row) -> Result<Row> + Copy + Send + 'static,
+        // Batch decoder so backends can resolve their column plan once per
+        // statement instead of once per row.
+        Decode: Fn(&[<DB as sqlx::Database>::Row]) -> Result<Vec<Row>> + Send + 'static,
     {
         Box::pin(async move {
             let mutation_query =
@@ -300,7 +304,7 @@ impl TransactionExecutor {
                 .map_err(|e| Error::database(e, "Fetch failed"))?;
             drop(guard);
 
-            rows.into_iter().map(decode).collect()
+            decode(&rows)
         })
     }
 
@@ -459,7 +463,7 @@ impl TransactionExecutor {
                     sql.params.clone(),
                     false,
                     crate::postgres::bind_value,
-                    crate::postgres_stream::decode_row_internal,
+                    crate::postgres_stream::decode_rows,
                     "Query failed",
                 )
                 .await
@@ -471,7 +475,7 @@ impl TransactionExecutor {
                     sql.params.clone(),
                     false,
                     crate::mysql::bind_value,
-                    crate::mysql_stream::decode_row_internal,
+                    crate::mysql_stream::decode_rows,
                     "Query failed",
                 )
                 .await
@@ -483,7 +487,7 @@ impl TransactionExecutor {
                     sql.params.clone(),
                     false,
                     crate::sqlite::bind_value,
-                    crate::sqlite_stream::decode_row_internal,
+                    crate::sqlite_stream::decode_rows,
                     "Query failed",
                 )
                 .await
@@ -511,7 +515,7 @@ impl Executor for TransactionExecutor {
                     sql.params.clone(),
                     true,
                     crate::postgres::bind_value,
-                    crate::postgres_stream::decode_row_internal,
+                    crate::postgres_stream::decode_rows,
                     "Query failed",
                 ))
             }
@@ -522,7 +526,7 @@ impl Executor for TransactionExecutor {
                     sql.params.clone(),
                     true,
                     crate::mysql::bind_value,
-                    crate::mysql_stream::decode_row_internal,
+                    crate::mysql_stream::decode_rows,
                     "Query failed",
                 ))
             }
@@ -533,7 +537,7 @@ impl Executor for TransactionExecutor {
                     sql.params.clone(),
                     true,
                     crate::sqlite::bind_value,
-                    crate::sqlite_stream::decode_row_internal,
+                    crate::sqlite_stream::decode_rows,
                     "Query failed",
                 ))
             }
@@ -555,7 +559,7 @@ impl Executor for TransactionExecutor {
                     sql.params,
                     true,
                     crate::postgres::bind_value,
-                    crate::postgres_stream::decode_row_internal,
+                    crate::postgres_stream::decode_rows,
                     "Query failed",
                 ))
             }
@@ -566,7 +570,7 @@ impl Executor for TransactionExecutor {
                     sql.params,
                     true,
                     crate::mysql::bind_value,
-                    crate::mysql_stream::decode_row_internal,
+                    crate::mysql_stream::decode_rows,
                     "Query failed",
                 ))
             }
@@ -577,7 +581,7 @@ impl Executor for TransactionExecutor {
                     sql.params,
                     true,
                     crate::sqlite::bind_value,
-                    crate::sqlite_stream::decode_row_internal,
+                    crate::sqlite_stream::decode_rows,
                     "Query failed",
                 ))
             }
@@ -598,7 +602,7 @@ impl Executor for TransactionExecutor {
                     fetch.text.clone(),
                     fetch.params.clone(),
                     crate::postgres::bind_value,
-                    crate::postgres_stream::decode_row_internal,
+                    crate::postgres_stream::decode_rows,
                 ))
             }
             TransactionInner::Mysql(tx_arc) => {
@@ -609,7 +613,7 @@ impl Executor for TransactionExecutor {
                     fetch.text.clone(),
                     fetch.params.clone(),
                     crate::mysql::bind_value,
-                    crate::mysql_stream::decode_row_internal,
+                    crate::mysql_stream::decode_rows,
                 ))
             }
             TransactionInner::Sqlite(tx_arc) => {
@@ -620,7 +624,7 @@ impl Executor for TransactionExecutor {
                     fetch.text.clone(),
                     fetch.params.clone(),
                     crate::sqlite::bind_value,
-                    crate::sqlite_stream::decode_row_internal,
+                    crate::sqlite_stream::decode_rows,
                 ))
             }
         }
@@ -640,7 +644,7 @@ impl Executor for TransactionExecutor {
                 sql.params.clone(),
                 true,
                 crate::postgres::bind_value,
-                crate::postgres_stream::decode_row_internal,
+                crate::postgres_stream::decode_rows,
                 "Query failed",
             ),
             TransactionInner::Mysql(tx_arc) => Self::execute_collect_on(
@@ -649,7 +653,7 @@ impl Executor for TransactionExecutor {
                 sql.params.clone(),
                 true,
                 crate::mysql::bind_value,
-                crate::mysql_stream::decode_row_internal,
+                crate::mysql_stream::decode_rows,
                 "Query failed",
             ),
             TransactionInner::Sqlite(tx_arc) => Self::execute_collect_on(
@@ -658,7 +662,7 @@ impl Executor for TransactionExecutor {
                 sql.params.clone(),
                 true,
                 crate::sqlite::bind_value,
-                crate::sqlite_stream::decode_row_internal,
+                crate::sqlite_stream::decode_rows,
                 "Query failed",
             ),
         }

@@ -100,10 +100,7 @@ impl SqliteExecutor {
 
             drop(conn);
 
-            sqlite_rows
-                .into_iter()
-                .map(crate::sqlite_stream::decode_row_internal)
-                .collect()
+            crate::sqlite_stream::decode_rows(&sqlite_rows)
         })
     }
 
@@ -143,10 +140,7 @@ impl SqliteExecutor {
 
             drop(conn);
 
-            sqlite_rows
-                .into_iter()
-                .map(crate::sqlite_stream::decode_row_internal)
-                .collect()
+            crate::sqlite_stream::decode_rows(&sqlite_rows)
         })
     }
 

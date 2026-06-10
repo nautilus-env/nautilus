@@ -97,10 +97,7 @@ impl MysqlExecutor {
 
             drop(conn);
 
-            mysql_rows
-                .into_iter()
-                .map(crate::mysql_stream::decode_row_internal)
-                .collect()
+            crate::mysql_stream::decode_rows(&mysql_rows)
         })
     }
 
@@ -140,10 +137,7 @@ impl MysqlExecutor {
 
             drop(conn);
 
-            mysql_rows
-                .into_iter()
-                .map(crate::mysql_stream::decode_row_internal)
-                .collect()
+            crate::mysql_stream::decode_rows(&mysql_rows)
         })
     }
 

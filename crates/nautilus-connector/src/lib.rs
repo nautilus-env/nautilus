@@ -118,3 +118,15 @@ pub use nautilus_core::RowAccess;
 
 pub use nautilus_core::Column;
 pub use nautilus_core::FromValue;
+
+/// Internal decode entry points re-exported for the criterion benches only.
+/// Not part of the public connector API.
+#[doc(hidden)]
+pub mod bench {
+    /// Batch-decode sqlite rows through the same path the executors use.
+    pub fn decode_sqlite_rows(
+        rows: &[sqlx::sqlite::SqliteRow],
+    ) -> crate::error::Result<Vec<crate::Row>> {
+        crate::sqlite_stream::decode_rows(rows)
+    }
+}
