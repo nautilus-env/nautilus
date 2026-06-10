@@ -17,12 +17,12 @@ name = "nautilus_migrate"
 
 [dependencies]
 nautilus-schema = { workspace = true }
-tokio = { version = "1.42", features = ["full"] }
-sqlx = { version = "0.8.2", features = ["runtime-tokio-rustls", "postgres", "sqlite", "mysql", "any"] }
-serde = { version = "1.0", features = ["derive"] }
-chrono = { version = "0.4", features = ["serde"] }
-thiserror = "2.0.18"
+tokio = { workspace = true, features = ["full"] }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "any"] }
+serde = { workspace = true }
+chrono = { workspace = true, default-features = true, features = ["serde"] }
+thiserror = { workspace = true }
 sha2 = "0.11.0"
 
 [dev-dependencies]
-tempfile = "3.14"
+tempfile = { workspace = true }

@@ -20,7 +20,7 @@ path = "src/main.rs"
 [dependencies]
 nautilus-schema = { workspace = true }
 tower-lsp = "0.20"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std"] }
 dashmap = "6"
 
 [lints]

@@ -21,9 +21,9 @@ name = "nautilus-engine"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1.41", features = ["macros", "rt-multi-thread", "sync", "time", "io-std", "io-util"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["raw_value"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time", "io-std", "io-util"] }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 sonic-rs = "0.5.8"
 
 nautilus-protocol = { workspace = true }
@@ -32,17 +32,17 @@ nautilus-schema = { workspace = true }
 nautilus-core = { workspace = true }
 nautilus-dialect = { workspace = true }
 nautilus-migrate = { workspace = true }
-uuid = { version = "1.0", features = ["v4"] }
-chrono = { version = "0.4", features = ["serde"] }
-rust_decimal = "1.35"
-futures = "0.3"
-console = "0.16.3"
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, default-features = true, features = ["serde"] }
+rust_decimal = { workspace = true }
+futures = { workspace = true }
+console = { workspace = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
 criterion = { workspace = true }
 
 [[bench]]

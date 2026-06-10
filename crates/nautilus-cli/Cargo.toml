@@ -26,24 +26,24 @@ nautilus-migrate = { workspace = true }
 nautilus-engine  = { workspace = true }
 nautilus-codegen = { workspace = true }
 
-tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "sync"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
 
-sqlx = { version = "0.8.2", features = ["runtime-tokio-rustls", "postgres", "sqlite", "mysql", "any"] }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "any"] }
 
-clap = { version = "4", features = ["derive"] }
+clap = { workspace = true }
 
-console   = "0.16.3"
+console   = { workspace = true }
 indicatif = "0.18.4"
 
-anyhow = "1.0"
+anyhow = { workspace = true }
 ctrlc = "3.4"
 
-chrono = { version = "0.4" }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+chrono = { workspace = true, default-features = true }
+reqwest = { workspace = true, features = ["json"] }
 semver = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
