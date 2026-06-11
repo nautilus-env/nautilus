@@ -89,6 +89,29 @@ fn json_to_value_uuid_string() {
 }
 
 #[test]
+fn json_to_value_uuid_detection_matches_uuid_parse_str_on_all_formats() {
+    let inputs = [
+        "550e8400e29b41d4a716446655440000",
+        "550e8400-e29b-41d4-a716-446655440000",
+        "{550e8400-e29b-41d4-a716-446655440000}",
+        "urn:uuid:550e8400-e29b-41d4-a716-446655440000",
+        "550e8400+e29b+41d4+a716+446655440000",
+        "this string is exactly 36 chars long",
+        "abcdefghijklmnopqrstuvwxyz012345",
+        "{550e8400-e29b-41d4-a716-44665544000}",
+        "hello",
+        "",
+    ];
+    for input in inputs {
+        let val = json_to_value(&json!(input)).unwrap();
+        match uuid::Uuid::parse_str(input) {
+            Ok(expected) => assert_eq!(val, Value::Uuid(expected), "input: {input:?}"),
+            Err(_) => assert_eq!(val, Value::String(input.to_string()), "input: {input:?}"),
+        }
+    }
+}
+
+#[test]
 fn json_to_value_array() {
     let val = json_to_value(&json!([1, 2, 3])).unwrap();
     assert_eq!(

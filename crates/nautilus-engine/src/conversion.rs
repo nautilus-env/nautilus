@@ -42,6 +42,22 @@ pub enum ValueHint {
     Composite(std::sync::Arc<CompositeTypeIr>),
 }
 
+/// Speculatively detect UUID-format strings so they bind correctly as
+/// [`uuid::Uuid`] against UUID columns (required for PostgreSQL prepared
+/// statements).
+///
+/// A cheap shape gate (length, hyphen position) skips the parser call for the
+/// vast majority of non-UUID strings. The gated lengths are exactly the four
+/// formats `Uuid::parse_str` accepts: simple (32), hyphenated (36), braced
+/// (38) and URN (45); every other length fails the full parse anyway.
+fn detect_uuid(s: &str) -> Option<Uuid> {
+    match s.len() {
+        36 if s.as_bytes()[8] != b'-' => None,
+        32 | 36 | 38 | 45 => Uuid::parse_str(s).ok(),
+        _ => None,
+    }
+}
+
 /// Convert a JSON value to a [`Value`] for use in queries.
 ///
 /// Handles UUID auto-detection, int32/int64 discrimination, arrays, and objects.
@@ -63,9 +79,7 @@ pub fn json_to_value(json: &serde_json::Value) -> Result<Value, ProtocolError> {
             }
         }
         serde_json::Value::String(s) => {
-            // Auto-detect UUID-format strings so they bind correctly as uuid::Uuid
-            // against UUID columns (required for PostgreSQL prepared statements).
-            if let Ok(u) = Uuid::parse_str(s) {
+            if let Some(u) = detect_uuid(s) {
                 Ok(Value::Uuid(u))
             } else {
                 Ok(Value::String(s.clone()))

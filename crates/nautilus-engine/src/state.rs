@@ -43,8 +43,6 @@ pub(crate) fn connector_to_protocol(
 
 /// Engine state holding parsed schema and database connection.
 pub struct EngineState {
-    /// Model lookup map (logical name -> IR).
-    pub models: HashMap<String, ModelIr>,
     /// Cached per-model metadata reused by the hot query paths.
     model_metadata: HashMap<String, ModelMetadata>,
     /// The full validated schema IR.
@@ -246,8 +244,8 @@ impl EngineState {
         // Only PostgreSQL stores composite types as native (non-JSON) values,
         // which require record-literal decoding on read.
         let native_composites = matches!(provider, DatabaseProvider::Postgres);
-        let models = schema.models.clone();
-        let model_metadata = models
+        let model_metadata = schema
+            .models
             .iter()
             .map(|(name, model)| {
                 (
@@ -269,7 +267,6 @@ impl EngineState {
         };
 
         Ok(EngineState {
-            models,
             model_metadata,
             schema,
             dialect,
@@ -279,6 +276,11 @@ impl EngineState {
             expired_transactions: Arc::new(Mutex::new(HashMap::new())),
             plan_cache: PlanCache::default(),
         })
+    }
+
+    /// Model lookup map (logical name -> IR), borrowed from the schema IR.
+    pub fn models(&self) -> &HashMap<String, ModelIr> {
+        &self.schema.models
     }
 
     /// Read-plan cache shared by hot read paths.
@@ -305,13 +307,14 @@ impl EngineState {
         &self,
         model: &ModelIr,
     ) -> Result<&RelationMap, ProtocolError> {
-        self.model_metadata(model).relation_map(model, &self.models)
+        self.model_metadata(model)
+            .relation_map(model, &self.schema.models)
     }
 
     /// Look up a related model together with its cached metadata.
     pub(crate) fn related_model(&self, model_name: &str) -> Option<(&ModelIr, &ModelMetadata)> {
         Some((
-            self.models.get(model_name)?,
+            self.schema.models.get(model_name)?,
             self.model_metadata.get(model_name)?,
         ))
     }

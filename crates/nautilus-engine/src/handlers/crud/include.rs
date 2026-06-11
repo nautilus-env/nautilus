@@ -204,7 +204,7 @@ async fn load_relation_include_value(
     };
 
     let target_model = state
-        .models
+        .models()
         .get(&rel_info.target_logical_name)
         .ok_or_else(|| {
             ProtocolError::QueryPlanning(format!(
@@ -309,7 +309,7 @@ async fn batch_load_relation_include(
     }
 
     let target_model = state
-        .models
+        .models()
         .get(&rel_info.target_logical_name)
         .ok_or_else(|| {
             ProtocolError::QueryPlanning(format!(

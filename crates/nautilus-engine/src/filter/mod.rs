@@ -73,7 +73,7 @@ impl<'a> SchemaContext<'a> {
 
     pub(crate) fn with_state(state: &'a EngineState) -> Self {
         Self {
-            models: Some(&state.models),
+            models: Some(state.models()),
             state: Some(state),
         }
     }

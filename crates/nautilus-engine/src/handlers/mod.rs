@@ -73,7 +73,7 @@ pub(super) fn get_model_or_error<'a>(
     model_name: &str,
 ) -> Result<&'a ModelIr, ProtocolError> {
     state
-        .models
+        .models()
         .get(model_name)
         .ok_or_else(|| ProtocolError::InvalidModel(format!("Model not found: {}", model_name)))
 }
