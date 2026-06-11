@@ -461,7 +461,7 @@ pub(super) async fn execute_find_many_params(
     execute_find_many_rows(state, model, query_args, tx_id.as_deref()).await
 }
 
-pub(super) async fn execute_find_many_typed(
+pub(in crate::handlers) async fn execute_find_many_typed(
     state: &EngineState,
     model_name: &str,
     args: &nautilus_core::FindManyArgs,
@@ -548,7 +548,7 @@ fn find_unique_plan_key(
     }
 }
 
-pub(super) async fn execute_find_unique_typed(
+pub(in crate::handlers) async fn execute_find_unique_typed(
     state: &EngineState,
     model_name: &str,
     args: &nautilus_core::FindUniqueArgs,
@@ -732,7 +732,7 @@ async fn stream_find_many_chunked(
 /// streaming path and emit partial replies as rows arrive from the database.
 /// Other queries fall back to the buffered path so reverse / hydrate logic can
 /// run against the full row set.
-pub(super) async fn handle_find_many(
+pub(in crate::handlers) async fn handle_find_many(
     state: &EngineState,
     request: RpcRequest,
     sender: Option<mpsc::Sender<RpcResponse>>,
@@ -816,7 +816,7 @@ async fn find_many_with_params(
     wrap_data_result(&rows, "findMany result")
 }
 
-pub(super) async fn handle_find_many_embedded(
+pub(in crate::handlers) async fn handle_find_many_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
@@ -825,7 +825,7 @@ pub(super) async fn handle_find_many_embedded(
 }
 
 /// Handle `query.findFirst` and delegate to [`find_many_with_params`] with `take=1`.
-pub(super) async fn handle_find_first(
+pub(in crate::handlers) async fn handle_find_first(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -854,7 +854,7 @@ pub(super) async fn handle_find_first(
 ///
 /// Builds a SELECT with the provided unique filter and `LIMIT 1`. Does not support
 /// relation includes or cursor pagination.
-pub(super) async fn handle_find_unique(
+pub(in crate::handlers) async fn handle_find_unique(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -883,7 +883,7 @@ pub(super) async fn handle_find_unique(
 }
 
 /// Handle `query.findUniqueOrThrow`.
-pub(super) async fn handle_find_unique_or_throw(
+pub(in crate::handlers) async fn handle_find_unique_or_throw(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -903,7 +903,7 @@ pub(super) async fn handle_find_unique_or_throw(
 }
 
 /// Handle `query.findFirstOrThrow`.
-pub(super) async fn handle_find_first_or_throw(
+pub(in crate::handlers) async fn handle_find_first_or_throw(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -925,7 +925,7 @@ pub(super) async fn handle_find_first_or_throw(
 /// Handle `query.count`.
 ///
 /// When `take` and/or `skip` are provided, the count is performed over the paginated window.
-pub(super) async fn handle_count(
+pub(in crate::handlers) async fn handle_count(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -1015,7 +1015,7 @@ async fn execute_count_params(
     Ok(count)
 }
 
-pub(super) async fn handle_count_embedded(
+pub(in crate::handlers) async fn handle_count_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<i64, ProtocolError> {
@@ -1023,7 +1023,7 @@ pub(super) async fn handle_count_embedded(
     execute_count_params(state, params).await
 }
 
-pub(super) async fn handle_count_typed(
+pub(in crate::handlers) async fn handle_count_typed(
     state: &EngineState,
     params: CountParams,
 ) -> Result<i64, ProtocolError> {

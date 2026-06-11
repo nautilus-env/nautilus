@@ -2,7 +2,7 @@ use super::common::wrap_data_result;
 use super::*;
 
 /// Handle `query.rawQuery`.
-pub(super) async fn handle_raw_query(
+pub(in crate::handlers) async fn handle_raw_query(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -24,7 +24,7 @@ pub(super) async fn handle_raw_query(
 }
 
 /// Handle `query.rawStmtQuery`.
-pub(super) async fn handle_raw_stmt_query(
+pub(in crate::handlers) async fn handle_raw_stmt_query(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {

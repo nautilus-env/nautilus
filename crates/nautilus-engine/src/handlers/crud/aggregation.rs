@@ -263,7 +263,7 @@ pub(super) async fn execute_group_by_rows(
 }
 
 /// Handle `query.groupBy`.
-pub(super) async fn handle_group_by(
+pub(in crate::handlers) async fn handle_group_by(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -272,7 +272,7 @@ pub(super) async fn handle_group_by(
     wrap_data_result(&rows, "groupBy result")
 }
 
-pub(super) async fn handle_group_by_embedded(
+pub(in crate::handlers) async fn handle_group_by_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
@@ -280,7 +280,7 @@ pub(super) async fn handle_group_by_embedded(
     execute_group_by_rows(state, params).await
 }
 
-pub(super) async fn handle_group_by_typed(
+pub(in crate::handlers) async fn handle_group_by_typed(
     state: &EngineState,
     params: GroupByParams,
 ) -> Result<Vec<Row>, ProtocolError> {

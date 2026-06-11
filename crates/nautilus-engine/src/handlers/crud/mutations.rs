@@ -340,7 +340,7 @@ async fn execute_update(
 }
 
 /// Handle `query.create`.
-pub(super) async fn handle_create(
+pub(in crate::handlers) async fn handle_create(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -352,7 +352,7 @@ pub(super) async fn handle_create(
     }
 }
 
-pub(super) async fn handle_create_embedded(
+pub(in crate::handlers) async fn handle_create_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
@@ -360,7 +360,7 @@ pub(super) async fn handle_create_embedded(
     mutation_rows_or_internal(execute_create(state, params).await?, "create")
 }
 
-pub(super) async fn handle_create_typed(
+pub(in crate::handlers) async fn handle_create_typed(
     state: &EngineState,
     params: CreateParams,
 ) -> Result<Vec<Row>, ProtocolError> {
@@ -368,7 +368,7 @@ pub(super) async fn handle_create_typed(
 }
 
 /// Handle `query.createMany`.
-pub(super) async fn handle_create_many(
+pub(in crate::handlers) async fn handle_create_many(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -380,7 +380,7 @@ pub(super) async fn handle_create_many(
     }
 }
 
-pub(super) async fn handle_create_many_embedded(
+pub(in crate::handlers) async fn handle_create_many_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
@@ -388,7 +388,7 @@ pub(super) async fn handle_create_many_embedded(
     mutation_rows_or_internal(execute_create_many(state, params).await?, "createMany")
 }
 
-pub(super) async fn handle_create_many_typed(
+pub(in crate::handlers) async fn handle_create_many_typed(
     state: &EngineState,
     params: CreateManyParams,
 ) -> Result<Vec<Row>, ProtocolError> {
@@ -396,7 +396,7 @@ pub(super) async fn handle_create_many_typed(
 }
 
 /// Handle `query.update`.
-pub(super) async fn handle_update(
+pub(in crate::handlers) async fn handle_update(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
@@ -408,7 +408,7 @@ pub(super) async fn handle_update(
     }
 }
 
-pub(super) async fn handle_update_embedded(
+pub(in crate::handlers) async fn handle_update_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
@@ -416,7 +416,7 @@ pub(super) async fn handle_update_embedded(
     mutation_rows_or_internal(execute_update(state, params).await?, "update")
 }
 
-pub(super) async fn handle_update_typed(
+pub(in crate::handlers) async fn handle_update_typed(
     state: &EngineState,
     params: UpdateParams,
 ) -> Result<Vec<Row>, ProtocolError> {
@@ -424,7 +424,7 @@ pub(super) async fn handle_update_typed(
 }
 
 /// Handle `query.delete`.
-pub(super) async fn handle_delete(
+pub(in crate::handlers) async fn handle_delete(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
