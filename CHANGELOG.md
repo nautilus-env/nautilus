@@ -1,5 +1,40 @@
 # Changelog
 
+## Version 1.3.4
+
+### Added
+
+- Added a bounded LRU read-plan cache for repeated `findUnique`, `findFirst`,
+  and cacheable `findMany` request shapes, reusing rendered SQL and row hints
+  while binding fresh parameters per call.
+- Added borrowed `Value` serializers, including `PlainValueRef`, so row payloads
+  and tagged values can be serialized without building intermediate JSON trees.
+- Added Criterion benchmark coverage for row access and decoding, value
+  serialization, SQL rendering, schema parsing, row JSON serialization, and
+  include hydration.
+
+### Changed
+
+- RPC request params are now kept as `RawValue` and deserialized directly into
+  each handler's concrete parameter type, reducing duplicate JSON parsing and
+  centralizing invalid-params error reporting.
+- Row decoding and JSON output hot paths now avoid more cloning by batching
+  connector decodes, sharing column-name metadata across rows, and serializing
+  borrowed values directly.
+- Include hydration now groups relation results more efficiently and uses
+  bounded concurrency for follow-up include loads.
+- PostgreSQL row streaming and query execution paths now do less per-row and
+  per-request work on repeated read workloads.
+- Shared crate dependencies are now centralized in the workspace manifest, and
+  internal handler visibility has been narrowed while keeping benchmark helpers
+  available.
+
+### Fixed
+
+- UUID-shaped strings now use a fast shape check before parsing, preserving UUID
+  binding behavior for PostgreSQL parameters without attempting parses for
+  ordinary strings.
+
 ## Version 1.3.3
 
 ### Added
