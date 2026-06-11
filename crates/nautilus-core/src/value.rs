@@ -5,97 +5,70 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// PostGIS `geometry` value represented as textual WKT/EWKT or EWKB hex.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Geometry(String);
+/// Define a transparent `String` newtype with the full set of string
+/// conversions (`new`/`as_str`/`into_inner`, `From<String>`, `From<&str>`,
+/// `AsRef<str>`, `Display`) and `#[serde(transparent)]` serde derives.
+macro_rules! string_newtype {
+    ($(#[$meta:meta])* $name:ident, $what:literal) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[serde(transparent)]
+        pub struct $name(String);
 
-impl Geometry {
-    /// Create a geometry value from its textual representation.
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
+        impl $name {
+            #[doc = concat!("Create a ", $what, " value from its textual representation.")]
+            pub fn new(value: impl Into<String>) -> Self {
+                Self(value.into())
+            }
 
-    /// Borrow the underlying textual representation.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
+            /// Borrow the underlying textual representation.
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
 
-    /// Consume the wrapper and return the underlying textual representation.
-    pub fn into_inner(self) -> String {
-        self.0
-    }
+            /// Consume the wrapper and return the underlying textual representation.
+            pub fn into_inner(self) -> String {
+                self.0
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(value: String) -> Self {
+                Self(value)
+            }
+        }
+
+        impl From<&str> for $name {
+            fn from(value: &str) -> Self {
+                Self(value.to_string())
+            }
+        }
+
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                self.as_str()
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.as_str())
+            }
+        }
+    };
 }
 
-impl From<String> for Geometry {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
+string_newtype!(
+    /// PostGIS `geometry` value represented as textual WKT/EWKT or EWKB hex.
+    Geometry,
+    "geometry"
+);
 
-impl From<&str> for Geometry {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
-    }
-}
-
-impl AsRef<str> for Geometry {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl std::fmt::Display for Geometry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// PostGIS `geography` value represented as textual WKT/EWKT or EWKB hex.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Geography(String);
-
-impl Geography {
-    /// Create a geography value from its textual representation.
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    /// Borrow the underlying textual representation.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// Consume the wrapper and return the underlying textual representation.
-    pub fn into_inner(self) -> String {
-        self.0
-    }
-}
-
-impl From<String> for Geography {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl From<&str> for Geography {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
-    }
-}
-
-impl AsRef<str> for Geography {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl std::fmt::Display for Geography {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+string_newtype!(
+    /// PostGIS `geography` value represented as textual WKT/EWKT or EWKB hex.
+    Geography,
+    "geography"
+);
 
 /// Database value type.
 ///
