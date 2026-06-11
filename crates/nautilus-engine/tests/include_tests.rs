@@ -657,8 +657,6 @@ async fn includes_inside_transaction_load_sequentially_on_tx_connection() {
     )
     .await;
 
-    // Multiple sibling includes + uncommitted rows: only the transaction's
-    // own connection can see them.
     let found = call_rpc_json(
         &state,
         QUERY_FIND_MANY,

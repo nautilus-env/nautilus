@@ -377,10 +377,6 @@ async fn load_relation_values(
     }
 
     if tx_id.is_none() {
-        // Materialize the futures before streaming: a lazy `map` closure here
-        // trips rustc's higher-ranked `Send` inference on the recursive
-        // `execute_find_many_rows` chain. `buffered` (not `buffer_unordered`):
-        // values must line up with the parent row order.
         let child_loads: Vec<_> = rows
             .iter()
             .map(|parent_row| {
@@ -428,10 +424,6 @@ pub(super) async fn hydrate_rows_with_includes(
 
     let mut per_relation_values: Vec<(String, Vec<Value>)> = if tx_id.is_none() {
         let rows_ref = &rows;
-        // Concrete (unboxed) futures collected eagerly: a `dyn Future + Send`
-        // cast here cannot be proven by rustc inside the recursive
-        // `execute_find_many_rows` cycle, and a lazy iterator trips its
-        // higher-ranked `Send` inference.
         let loads: Vec<_> = include_entries
             .into_iter()
             .filter_map(|(field_name, include_node)| {

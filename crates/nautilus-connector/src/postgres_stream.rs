@@ -47,15 +47,18 @@ pub(crate) fn streaming_decoder() -> impl FnMut(PgRow) -> Result<Row> + Send + '
     }
 }
 
-/// Per-statement decode plan: one [`PgColumnDecode`] per column.
+/// Per-statement decode plan: one [`PgColumnDecode`] plus one shared name per
+/// column.
 ///
-/// Hoists the dispatch previously done per cell — the composite check and the
+/// Hoists the work previously done per cell — the composite check, the
 /// `classify_pg_type` scan over the case-insensitive alias table (plus the
-/// alias chains for array element types) — so it runs once per column for the
-/// whole result set.
+/// alias chains for array element types) and the column-name `String`
+/// allocation — so it runs once per column for the whole result set. Rows
+/// reference the names via `Arc` clones.
 #[derive(Debug, Clone, PartialEq)]
 struct PgColumnPlan {
     kinds: Vec<PgColumnDecode>,
+    names: Vec<std::sync::Arc<str>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -102,11 +105,15 @@ enum PgArrayElem {
 
 impl PgColumnPlan {
     fn for_row(row: &PgRow) -> Self {
+        let columns = row.columns();
         Self {
-            kinds: row
-                .columns()
+            kinds: columns
                 .iter()
                 .map(|column| plan_column(column.type_info()))
+                .collect(),
+            names: columns
+                .iter()
+                .map(|column| std::sync::Arc::from(column.name()))
                 .collect(),
         }
     }
@@ -179,19 +186,19 @@ fn plan_array_elem(element_type: &str) -> PgArrayElem {
 }
 
 fn decode_row_with_plan(plan: &PgColumnPlan, row: &PgRow) -> Result<Row> {
-    let columns = row.columns();
-    if columns.len() != plan.kinds.len() {
+    let column_count = row.columns().len();
+    if column_count != plan.kinds.len() {
         return Err(Error::row_decode_msg(format!(
             "Column plan covers {} columns but the row has {}",
             plan.kinds.len(),
-            columns.len()
+            column_count
         )));
     }
 
-    let mut row_data = Row::with_capacity(columns.len());
-    for (i, (column, kind)) in columns.iter().zip(&plan.kinds).enumerate() {
+    let mut row_data = Row::with_capacity(column_count);
+    for (i, (name, kind)) in plan.names.iter().zip(&plan.kinds).enumerate() {
         let value = decode_value(row, i, kind)?;
-        row_data.push_column(column.name().to_string(), value);
+        row_data.push_column(std::sync::Arc::clone(name), value);
     }
 
     Ok(row_data)

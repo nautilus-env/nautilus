@@ -126,7 +126,7 @@ fn decode_model_row_with_hints(
     for (column_idx, (column_name, value)) in row.into_columns_iter().enumerate() {
         if column_idx >= decode_slots.len() {
 {%- if relations | length > 0 %}
-            match column_name.as_str() {
+            match column_name.as_ref() {
 {%- for rel in relations %}
                 "{{ rel.field_name }}_json" => {
 {%- if rel.is_array %}

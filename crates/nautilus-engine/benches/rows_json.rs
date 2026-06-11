@@ -1,10 +1,7 @@
-//! Baseline benchmark for the engine row -> JSON wire serialization
-//! (plan.md, fase 0).
+//! Benchmark for the engine row -> JSON wire serialization.
 //!
 //! `rows_to_raw_json` is the hottest serialization path: every `findMany` /
-//! `findUnique` response flows through it. Today each cell is first expanded
-//! into an owned `serde_json::Value` via `Value::to_json_plain` before
-//! sonic-rs writes it out (see plan.md, item 1.3).
+//! `findUnique` response flows through it.
 
 use std::hint::black_box;
 

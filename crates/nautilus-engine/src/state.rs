@@ -960,7 +960,6 @@ model User {
         assert_eq!(rows.len(), 1);
         assert_eq!(state.plan_cache().find_unique_len(), 1);
 
-        // Same filter shape with a different parameter value must hit the cache.
         let by_id_other =
             FindUniqueArgs::new(Expr::column("User__id").eq(Expr::param(Value::I64(2))));
         let rows = crate::handlers::handle_find_unique_typed(&state, "User", &by_id_other, None)
@@ -973,7 +972,6 @@ model User {
             "identical filter shape should not grow the cache",
         );
 
-        // A different filter column produces a distinct cache entry.
         let by_name_args = FindUniqueArgs::new(
             Expr::column("User__name").eq(Expr::param(Value::String("Alice".to_string()))),
         );
@@ -983,7 +981,6 @@ model User {
         assert_eq!(rows.len(), 1);
         assert_eq!(state.plan_cache().find_unique_len(), 2);
 
-        // Non-equality filters are not cacheable and should leave the cache size unchanged.
         let by_id_gt = FindUniqueArgs::new(Expr::column("User__id").gt(Expr::param(Value::I64(0))));
         let _ = crate::handlers::handle_find_unique_typed(&state, "User", &by_id_gt, None)
             .await
@@ -1008,7 +1005,6 @@ model User {
 
         assert_eq!(state.plan_cache().find_many_len(), 0);
 
-        // Non-equality comparison + take: cacheable parametric shape.
         let first = FindManyArgs {
             where_: Some(Expr::column("User__id").gt(Expr::param(Value::I64(0)))),
             take: Some(2),
@@ -1020,8 +1016,6 @@ model User {
         assert_eq!(rows.len(), 2);
         assert_eq!(state.plan_cache().find_many_len(), 1);
 
-        // Same shape, different parameter value: must hit the cache and bind
-        // the new value (id > 2 matches only the third user).
         let other_value = FindManyArgs {
             where_: Some(Expr::column("User__id").gt(Expr::param(Value::I64(2)))),
             take: Some(2),
@@ -1037,7 +1031,6 @@ model User {
         );
         assert_eq!(state.plan_cache().find_many_len(), 1);
 
-        // take renders as a SQL literal, so a different page size is a new plan.
         let other_take = FindManyArgs {
             where_: Some(Expr::column("User__id").gt(Expr::param(Value::I64(0)))),
             take: Some(1),
@@ -1049,12 +1042,11 @@ model User {
         assert_eq!(rows.len(), 1);
         assert_eq!(state.plan_cache().find_many_len(), 2);
 
-        // IN-list filters render one placeholder per element: not cacheable.
         let in_list = FindManyArgs {
-            where_: Some(Expr::column("User__id").in_list(vec![
-                Expr::param(Value::I64(1)),
-                Expr::param(Value::I64(2)),
-            ])),
+            where_: Some(
+                Expr::column("User__id")
+                    .in_list(vec![Expr::param(Value::I64(1)), Expr::param(Value::I64(2))]),
+            ),
             ..Default::default()
         };
         let rows = crate::handlers::handle_find_many_typed(&state, "User", &in_list, None)

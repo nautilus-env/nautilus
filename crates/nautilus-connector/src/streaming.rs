@@ -68,8 +68,6 @@ where
         + Copy
         + Send
         + 'static,
-    // `FnMut` (not `Fn`): per-statement decoders cache the column plan after
-    // the first row, so the closure carries mutable state.
     Decode: FnMut(<DB as sqlx::Database>::Row) -> Result<Row> + Send + 'static,
 {
     let (tx, rx) = mpsc::channel::<Result<Row>>(STREAMING_CHANNEL_CAPACITY);

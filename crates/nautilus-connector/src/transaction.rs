@@ -236,8 +236,6 @@ impl TransactionExecutor {
             + Copy
             + Send
             + 'static,
-        // Batch decoder so backends can resolve their column plan once per
-        // statement instead of once per row.
         Decode: Fn(&[<DB as sqlx::Database>::Row]) -> Result<Vec<Row>> + Send + 'static,
     {
         Box::pin(async move {
@@ -279,8 +277,6 @@ impl TransactionExecutor {
             + Copy
             + Send
             + 'static,
-        // Batch decoder so backends can resolve their column plan once per
-        // statement instead of once per row.
         Decode: Fn(&[<DB as sqlx::Database>::Row]) -> Result<Vec<Row>> + Send + 'static,
     {
         Box::pin(async move {

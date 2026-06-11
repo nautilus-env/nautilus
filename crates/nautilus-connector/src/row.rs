@@ -5,13 +5,13 @@ use rustc_hash::FxHasher;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 const LINEAR_SCAN_LOOKUP_THRESHOLD: usize = 8;
 const INLINE_ROW_COLUMN_CAPACITY: usize = 8;
 
 type NameIndexMap = HashMap<u64, NameIndexEntry, BuildHasherDefault<U64IdentityHasher>>;
-type RowColumns = SmallVec<[(String, Value); INLINE_ROW_COLUMN_CAPACITY]>;
+type RowColumns = SmallVec<[(Arc<str>, Value); INLINE_ROW_COLUMN_CAPACITY]>;
 
 #[derive(Debug)]
 enum NameIndexEntry {
@@ -44,7 +44,7 @@ impl Hasher for U64IdentityHasher {
 }
 
 impl RowNameIndex {
-    fn new(columns: &[(String, Value)]) -> Self {
+    fn new(columns: &[(Arc<str>, Value)]) -> Self {
         let mut entries =
             NameIndexMap::with_capacity_and_hasher(columns.len(), BuildHasherDefault::default());
 
@@ -67,21 +67,21 @@ impl RowNameIndex {
         Self { entries }
     }
 
-    fn find(&self, columns: &[(String, Value)], name: &str) -> Option<usize> {
+    fn find(&self, columns: &[(Arc<str>, Value)], name: &str) -> Option<usize> {
         self.find_hashed(columns, hash_column_name(name), name)
     }
 
-    fn find_hashed(&self, columns: &[(String, Value)], hash: u64, name: &str) -> Option<usize> {
+    fn find_hashed(&self, columns: &[(Arc<str>, Value)], hash: u64, name: &str) -> Option<usize> {
         let entry = self.entries.get(&hash)?;
         match entry {
             NameIndexEntry::Single(idx) => {
                 let (column_name, _) = columns.get(*idx)?;
-                (column_name == name).then_some(*idx)
+                (column_name.as_ref() == name).then_some(*idx)
             }
             NameIndexEntry::Multiple(indices) => indices.iter().copied().find(|idx| {
                 columns
                     .get(*idx)
-                    .is_some_and(|(column_name, _)| column_name == name)
+                    .is_some_and(|(column_name, _)| column_name.as_ref() == name)
             }),
         }
     }
@@ -96,9 +96,12 @@ fn hash_column_name(name: &str) -> u64 {
 
 /// A database row with hybrid access patterns.
 ///
-/// Stores columns as `Vec<(String, Value)>` to preserve order and allow duplicates.
-/// Small rows use a linear scan to avoid index-allocation overhead; wider rows
-/// lazily build a compact name-to-index map on first `get()` call.
+/// Stores columns as ordered `(Arc<str>, Value)` pairs, preserving duplicates.
+/// Column names are `Arc<str>` so that decoders can build them once per
+/// statement and share them across every row of a result set (an `Arc` clone
+/// instead of a fresh heap `String` per cell). Small rows use a linear scan
+/// to avoid index-allocation overhead; wider rows lazily build a compact
+/// name-to-index map on first `get()` call.
 ///
 /// ## Duplicate Column Policy
 ///
@@ -113,7 +116,10 @@ impl Row {
     /// Create a new row from column-value pairs.
     pub fn new(columns: Vec<(String, Value)>) -> Self {
         Self {
-            columns: SmallVec::from_vec(columns),
+            columns: columns
+                .into_iter()
+                .map(|(name, value)| (Arc::from(name), value))
+                .collect(),
             index: OnceLock::new(),
         }
     }
@@ -128,9 +134,12 @@ impl Row {
 
     /// Append a column while constructing or reshaping a row.
     ///
-    /// This invalidates the lazy name index so subsequent lookups stay correct.
-    pub fn push_column(&mut self, name: String, value: Value) {
-        self.columns.push((name, value));
+    /// Accepts anything convertible into `Arc<str>`: decoders pass shared
+    /// `Arc<str>` clones (no allocation), reshaping code can keep passing
+    /// `String`s. This invalidates the lazy name index so subsequent lookups
+    /// stay correct.
+    pub fn push_column(&mut self, name: impl Into<Arc<str>>, value: Value) {
+        self.columns.push((name.into(), value));
         self.index = OnceLock::new();
     }
 
@@ -148,7 +157,7 @@ impl Row {
             return self
                 .columns
                 .iter()
-                .find(|(column_name, _)| column_name == name)
+                .find(|(column_name, _)| column_name.as_ref() == name)
                 .map(|(_, value)| value);
         }
 
@@ -160,12 +169,12 @@ impl Row {
 
     /// Get the column name at the given position.
     pub fn column_name(&self, idx: usize) -> Option<&str> {
-        self.columns.get(idx).map(|(name, _)| name.as_str())
+        self.columns.get(idx).map(|(name, _)| name.as_ref())
     }
 
     /// Iterate over all columns as `(name, value)` pairs.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
-        self.columns.iter().map(|(name, val)| (name.as_str(), val))
+        self.columns.iter().map(|(name, val)| (name.as_ref(), val))
     }
 
     /// Return the number of columns.
@@ -179,18 +188,18 @@ impl Row {
     }
 
     /// Get all columns as a slice.
-    pub fn columns(&self) -> &[(String, Value)] {
+    pub fn columns(&self) -> &[(Arc<str>, Value)] {
         &self.columns
     }
 
     /// Consume the row and iterate over owned `(name, value)` pairs without
     /// forcing the internal storage back into a `Vec`.
-    pub fn into_columns_iter(self) -> impl Iterator<Item = (String, Value)> {
+    pub fn into_columns_iter(self) -> impl Iterator<Item = (Arc<str>, Value)> {
         self.columns.into_iter()
     }
 
     /// Consume the row and return the owned columns.
-    pub fn into_columns(self) -> Vec<(String, Value)> {
+    pub fn into_columns(self) -> Vec<(Arc<str>, Value)> {
         self.columns.into_vec()
     }
 }
@@ -306,9 +315,9 @@ mod tests {
 
         let cols = row.columns();
         assert_eq!(cols.len(), 2);
-        assert_eq!(cols[0].0, "x");
+        assert_eq!(cols[0].0.as_ref(), "x");
         assert_eq!(cols[0].1, Value::I64(10));
-        assert_eq!(cols[1].0, "y");
+        assert_eq!(cols[1].0.as_ref(), "y");
         assert_eq!(cols[1].1, Value::Bool(false));
     }
 
@@ -329,9 +338,9 @@ mod tests {
 
     #[test]
     fn test_row_name_index_disambiguates_colliding_candidates() {
-        let columns = vec![
-            ("first".to_string(), Value::I64(1)),
-            ("second".to_string(), Value::I64(2)),
+        let columns: Vec<(Arc<str>, Value)> = vec![
+            (Arc::from("first"), Value::I64(1)),
+            (Arc::from("second"), Value::I64(2)),
         ];
         let mut entries = NameIndexMap::with_capacity_and_hasher(1, BuildHasherDefault::default());
         entries.insert(42, NameIndexEntry::Multiple(vec![0, 1]));

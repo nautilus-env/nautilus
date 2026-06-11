@@ -228,7 +228,7 @@ pub(super) async fn execute_group_by_rows(
                 let field_key = col_name
                     .split_once("__")
                     .map(|(_, col_part)| col_part)
-                    .unwrap_or(col_name.as_str());
+                    .unwrap_or(col_name.as_ref());
                 let field_key = db_to_logical
                     .get(field_key)
                     .cloned()

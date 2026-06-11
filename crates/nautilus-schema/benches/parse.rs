@@ -1,4 +1,4 @@
-//! Baseline benchmarks for the schema front-end (plan.md, fase 0).
+﻿//! Benchmarks for the schema front-end.
 //!
 //! Lexing, parsing, and full validation of a synthetic 100-model schema.
 //! These are the paths the LSP re-runs on every keystroke (mitigated by the

@@ -1,5 +1,4 @@
-//! Benchmark for the pure include-hydration grouping path (plan.md, item 1.5,
-//! deviazione di fase 0).
+//! Benchmark for the pure include-hydration grouping path.
 //!
 //! Covers the in-memory half of the batched include path: grouping child rows
 //! by FK and producing the per-parent JSON payloads. The child query itself is

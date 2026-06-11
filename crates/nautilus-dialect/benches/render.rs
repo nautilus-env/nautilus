@@ -1,4 +1,4 @@
-//! Baseline benchmarks for SQL rendering (plan.md, fase 0).
+﻿//! Benchmarks for SQL rendering.
 //!
 //! Rendering consumes the AST (`render_*_owned`), so every iteration receives
 //! a fresh clone built in the `iter_batched` setup closure (not measured).
@@ -14,7 +14,7 @@ fn marker(i: usize) -> ColumnMarker {
 }
 
 /// SELECT with `columns` projected items, a 3-predicate AND filter,
-/// ORDER BY + LIMIT/OFFSET — the shape produced by a typical `findMany`.
+/// ORDER BY + LIMIT/OFFSET â€” the shape produced by a typical `findMany`.
 fn select_ast(columns: usize) -> Select {
     let mut builder = Select::from_table("users");
     for i in 0..columns {
@@ -35,7 +35,7 @@ fn select_ast(columns: usize) -> Select {
         .expect("benchmark select AST should build")
 }
 
-/// INSERT of `rows` rows x `columns` columns with RETURNING on all columns —
+/// INSERT of `rows` rows x `columns` columns with RETURNING on all columns â€”
 /// the shape produced by `create` / `createMany`.
 fn insert_ast(rows: usize, columns: usize) -> Insert {
     let markers: Vec<ColumnMarker> = (0..columns).map(marker).collect();
@@ -61,7 +61,7 @@ fn insert_ast(rows: usize, columns: usize) -> Insert {
         .expect("benchmark insert AST should build")
 }
 
-/// UPDATE of `columns` assignments with a single-PK filter and RETURNING —
+/// UPDATE of `columns` assignments with a single-PK filter and RETURNING â€”
 /// the shape produced by `update`.
 fn update_ast(columns: usize) -> Update {
     let mut builder = Update::table("users");

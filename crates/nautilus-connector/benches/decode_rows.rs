@@ -1,13 +1,11 @@
-//! Benchmark for the row decode loop (plan.md, item 2.1 — bench rimandato
-//! dalla fase 0).
+//! Benchmark for the row decode loop.
 //!
 //! Decodes real sqlx rows fetched from an in-memory SQLite database through
 //! the same batch entry point the executors use (`decode_rows`). SQLite is the
 //! only backend whose rows can be produced without a running server; the
 //! PostgreSQL-specific column-plan classification is covered by unit tests in
 //! `postgres_stream.rs`, while this bench tracks the per-row cost the decode
-//! loop shares across backends (name `String`s, NULL checks, value extraction)
-//! — the same loop item 2.2 targets.
+//! loop shares across backends (column names, NULL checks, value extraction).
 
 use std::hint::black_box;
 

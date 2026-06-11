@@ -402,8 +402,6 @@ pub(super) async fn execute_find_many_rows(
     query_args: QueryArgs,
     tx_id: Option<&str>,
 ) -> Result<Vec<Row>, ProtocolError> {
-    // Plan-cache fast path: replay the rendered SQL with freshly bound
-    // parameter values when an identically shaped request has been seen.
     if let Some((cache_key, params)) = find_many_cache_request(state, model, &query_args) {
         if let Some(plan) = state.plan_cache().get_find_many(&cache_key) {
             let sql = Sql {
@@ -416,9 +414,6 @@ pub(super) async fn execute_find_many_rows(
             );
         }
 
-        // Miss: build and render once, cache the text, then execute. The
-        // cacheability check guarantees no backward reversal or include
-        // hydration is needed on this path.
         let plan = build_find_many_plan(state, model, query_args)?;
         state.plan_cache().insert_find_many(
             cache_key,

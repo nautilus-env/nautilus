@@ -1,4 +1,4 @@
-//! Baseline benchmarks for `Value` serialization paths (plan.md, fase 0).
+﻿//! Benchmarks for `Value` serialization paths.
 //!
 //! Covers the two hot conversions called per cell on the wire paths:
 //! - the tagged serde representation (`impl Serialize for Value`, used for

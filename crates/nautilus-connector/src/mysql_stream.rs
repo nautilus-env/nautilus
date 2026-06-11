@@ -6,6 +6,7 @@ use crate::Row;
 use nautilus_core::Value;
 use sqlx::mysql::MySqlRow;
 use sqlx::{Column, Row as SqlxRow, TypeInfo, ValueRef};
+use std::sync::Arc;
 
 /// Stream type for MySQL query results.
 ///
@@ -14,29 +15,58 @@ pub type MysqlRowStream<'conn> = RowStream<'conn>;
 
 /// Decode a sqlx `MySqlRow` into a Nautilus `Row`.
 ///
-/// This function is public within the crate for use by the MySQL executor.
+/// Standalone single-row entry point: column names are allocated per call.
+/// Multi-row paths should prefer [`decode_rows`] or [`streaming_decoder`],
+/// which build the names once per statement and share them across rows.
 pub(crate) fn decode_row_internal(row: MySqlRow) -> Result<Row> {
-    decode_row_ref(&row)
+    let names = shared_column_names(&row);
+    decode_row_ref(&row, &names)
 }
 
-/// Decode a batch of rows produced by a single statement.
+/// Decode a batch of rows produced by a single statement, building the shared
+/// column names once (on the first row).
 ///
-/// MySQL classification is already a direct `match` on the type name (no
-/// per-statement plan needed, unlike PostgreSQL); this exists so batch call
-/// sites are uniform across backends.
+/// MySQL type classification is already a direct `match` on the type name (no
+/// per-statement plan needed, unlike PostgreSQL).
 pub(crate) fn decode_rows(rows: &[MySqlRow]) -> Result<Vec<Row>> {
-    rows.iter().map(decode_row_ref).collect()
+    let Some(first) = rows.first() else {
+        return Ok(Vec::new());
+    };
+    let names = shared_column_names(first);
+    rows.iter().map(|row| decode_row_ref(row, &names)).collect()
 }
 
-fn decode_row_ref(row: &MySqlRow) -> Result<Row> {
-    let columns = row.columns();
-    let mut row_data = Row::with_capacity(columns.len());
+/// Stateful decoder for streaming paths: builds the shared column names from
+/// the first row that arrives and reuses them for every subsequent row.
+pub(crate) fn streaming_decoder() -> impl FnMut(MySqlRow) -> Result<Row> + Send + 'static {
+    let mut names: Option<Vec<Arc<str>>> = None;
+    move |row| {
+        let names = names.get_or_insert_with(|| shared_column_names(&row));
+        decode_row_ref(&row, names)
+    }
+}
 
-    for (i, column) in columns.iter().enumerate() {
-        let name = column.name().to_string();
-        let type_info = column.type_info();
-        let value = decode_value(row, i, type_info)?;
-        row_data.push_column(name, value);
+fn shared_column_names(row: &MySqlRow) -> Vec<Arc<str>> {
+    row.columns()
+        .iter()
+        .map(|column| Arc::from(column.name()))
+        .collect()
+}
+
+fn decode_row_ref(row: &MySqlRow, names: &[Arc<str>]) -> Result<Row> {
+    let columns = row.columns();
+    if columns.len() != names.len() {
+        return Err(Error::row_decode_msg(format!(
+            "Shared column names cover {} columns but the row has {}",
+            names.len(),
+            columns.len()
+        )));
+    }
+
+    let mut row_data = Row::with_capacity(columns.len());
+    for (i, (column, name)) in columns.iter().zip(names).enumerate() {
+        let value = decode_value(row, i, column.type_info())?;
+        row_data.push_column(Arc::clone(name), value);
     }
 
     Ok(row_data)

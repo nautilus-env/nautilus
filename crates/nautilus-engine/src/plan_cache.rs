@@ -102,9 +102,6 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
             return;
         };
         if !guard.contains_key(&key) && guard.len() >= PLAN_CACHE_CAP {
-            // Evict the least-recently-used entry. The O(n) scan only runs
-            // once the section is full and a brand-new shape arrives, which is
-            // rare after warm-up for ORM-generated workloads.
             let evict = guard
                 .iter()
                 .min_by_key(|(_, slot)| slot.last_used.load(Ordering::Relaxed))
@@ -145,10 +142,7 @@ impl Default for PlanCache {
 }
 
 impl PlanCache {
-    pub(crate) fn get_find_unique(
-        &self,
-        key: &FindUniquePlanKey,
-    ) -> Option<Arc<CachedReadPlan>> {
+    pub(crate) fn get_find_unique(&self, key: &FindUniquePlanKey) -> Option<Arc<CachedReadPlan>> {
         self.find_unique.get(key, &self.clock)
     }
 
@@ -271,10 +265,8 @@ pub(crate) struct ParamFilterShape<'a> {
 pub(crate) fn extract_param_filter(expr: &Expr) -> Option<ParamFilterShape<'_>> {
     let mut predicates = Vec::new();
     let mut values = Vec::new();
-    walk_param_chain(expr, &mut predicates, &mut values).then_some(ParamFilterShape {
-        predicates,
-        values,
-    })
+    walk_param_chain(expr, &mut predicates, &mut values)
+        .then_some(ParamFilterShape { predicates, values })
 }
 
 fn walk_param_chain<'a>(
@@ -361,8 +353,6 @@ mod tests {
 
     #[test]
     fn rejects_null_params_in_both_extractors() {
-        // NULL renders as a literal, not a placeholder: a cached plan replayed
-        // with a NULL value would bind it as a parameter instead.
         let expr = col("users__deleted_at").eq(Expr::Param(Value::Null));
         assert!(extract_simple_eq_filter(&expr).is_none());
         assert!(extract_param_filter(&expr).is_none());
@@ -379,7 +369,6 @@ mod tests {
         assert_eq!(shape.predicates[0].1, BinaryOp::Gt);
         assert_eq!(shape.predicates[1].1, BinaryOp::Eq);
         assert_eq!(shape.values.len(), 2);
-        // Same column, different value variant => different shape entry.
         assert_ne!(
             shape.predicates[0].2,
             std::mem::discriminant(&Value::String(String::new()))
@@ -458,7 +447,6 @@ mod tests {
         }
         assert_eq!(cache.find_many_len(), PLAN_CACHE_CAP);
 
-        // Touch the oldest entry so the second-oldest becomes the LRU victim.
         assert!(cache.get_find_many(&many_key(0)).is_some());
 
         cache.insert_find_many(many_key(PLAN_CACHE_CAP), test_plan("SELECT 2"));

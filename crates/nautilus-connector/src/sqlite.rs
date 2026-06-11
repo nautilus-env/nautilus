@@ -168,7 +168,7 @@ impl Executor for SqliteExecutor {
             sql_text: sql.text.clone(),
             params: sql.params.clone(),
             bind: bind_value,
-            decode: crate::sqlite_stream::decode_row_internal,
+            decode: crate::sqlite_stream::streaming_decoder(),
             query_context: "Query execution failed",
             persistent: true,
         })
@@ -184,7 +184,7 @@ impl Executor for SqliteExecutor {
             sql_text: sql.text,
             params: sql.params,
             bind: bind_value,
-            decode: crate::sqlite_stream::decode_row_internal,
+            decode: crate::sqlite_stream::streaming_decoder(),
             query_context: "Query execution failed",
             persistent: true,
         })
