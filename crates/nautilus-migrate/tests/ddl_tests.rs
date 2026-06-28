@@ -603,3 +603,20 @@ model Doc { id Int @id body String }
         "SQLite output must not contain CREATE EXTENSION: {statements:?}"
     );
 }
+
+#[test]
+fn test_placeholder_dialect_per_provider() {
+    // Postgres uses numbered placeholders; MySQL/SQLite use anonymous `?`.
+    assert_eq!(DatabaseProvider::Postgres.placeholder(1), "$1");
+    assert_eq!(DatabaseProvider::Postgres.placeholder(4), "$4");
+    assert_eq!(DatabaseProvider::Mysql.placeholder(1), "?");
+    assert_eq!(DatabaseProvider::Sqlite.placeholder(3), "?");
+}
+
+#[test]
+fn test_placeholders_list_per_provider() {
+    assert_eq!(DatabaseProvider::Postgres.placeholders(4), "$1, $2, $3, $4");
+    assert_eq!(DatabaseProvider::Mysql.placeholders(4), "?, ?, ?, ?");
+    assert_eq!(DatabaseProvider::Sqlite.placeholders(1), "?");
+    assert_eq!(DatabaseProvider::Postgres.placeholders(0), "");
+}

@@ -52,6 +52,24 @@ impl DatabaseProvider {
             Self::Mysql => format!("`{}`", name),
         }
     }
+
+    /// Render the positional bind placeholder for the 1-based argument `index`
+    /// in this provider's dialect.
+    pub fn placeholder(self, index: usize) -> String {
+        match self {
+            Self::Postgres => format!("${index}"),
+            Self::Mysql | Self::Sqlite => "?".to_string(),
+        }
+    }
+
+    /// Render `count` comma-separated positional placeholders (1-based) for this
+    /// provider, e.g. `$1, $2, $3` (PostgreSQL) or `?, ?, ?` (MySQL/SQLite).
+    pub fn placeholders(self, count: usize) -> String {
+        (1..=count)
+            .map(|i| self.placeholder(i))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 impl DdlGenerator {

@@ -101,7 +101,11 @@ CREATE TABLE IF NOT EXISTS _nautilus_migrations (
 
     /// Check if a migration has been applied
     pub async fn is_applied(&self, name: &str) -> Result<bool> {
-        let row = sqlx::query("SELECT COUNT(*) as count FROM _nautilus_migrations WHERE name = ?")
+        let sql = format!(
+            "SELECT COUNT(*) as count FROM _nautilus_migrations WHERE name = {}",
+            self.provider.placeholder(1)
+        );
+        let row = sqlx::query(&sql)
             .persistent(false)
             .bind(name)
             .fetch_one(self.pool.as_ref())
@@ -119,16 +123,18 @@ CREATE TABLE IF NOT EXISTS _nautilus_migrations (
     ) -> Result<()> {
         let applied_at = Utc::now().to_rfc3339();
 
-        sqlx::query(
-            "INSERT INTO _nautilus_migrations (name, checksum, applied_at, execution_time_ms) VALUES (?, ?, ?, ?)"
-        )
-        .persistent(false)
-        .bind(&migration.name)
-        .bind(&migration.checksum)
-        .bind(&applied_at)
-        .bind(execution_time_ms)
-        .execute(self.pool.as_ref())
-        .await?;
+        let sql = format!(
+            "INSERT INTO _nautilus_migrations (name, checksum, applied_at, execution_time_ms) VALUES ({})",
+            self.provider.placeholders(4)
+        );
+        sqlx::query(&sql)
+            .persistent(false)
+            .bind(&migration.name)
+            .bind(&migration.checksum)
+            .bind(&applied_at)
+            .bind(execution_time_ms)
+            .execute(self.pool.as_ref())
+            .await?;
 
         Ok(())
     }
@@ -142,23 +148,29 @@ CREATE TABLE IF NOT EXISTS _nautilus_migrations (
     ) -> Result<()> {
         let applied_at = Utc::now().to_rfc3339();
 
-        sqlx::query(
-            "INSERT INTO _nautilus_migrations (name, checksum, applied_at, execution_time_ms) VALUES (?, ?, ?, ?)"
-        )
-        .persistent(false)
-        .bind(&migration.name)
-        .bind(&migration.checksum)
-        .bind(&applied_at)
-        .bind(execution_time_ms)
-        .execute(&mut **tx)
-        .await?;
+        let sql = format!(
+            "INSERT INTO _nautilus_migrations (name, checksum, applied_at, execution_time_ms) VALUES ({})",
+            self.provider.placeholders(4)
+        );
+        sqlx::query(&sql)
+            .persistent(false)
+            .bind(&migration.name)
+            .bind(&migration.checksum)
+            .bind(&applied_at)
+            .bind(execution_time_ms)
+            .execute(&mut **tx)
+            .await?;
 
         Ok(())
     }
 
     /// Remove a migration record (for rollback)
     pub async fn remove_migration(&self, name: &str) -> Result<()> {
-        sqlx::query("DELETE FROM _nautilus_migrations WHERE name = ?")
+        let sql = format!(
+            "DELETE FROM _nautilus_migrations WHERE name = {}",
+            self.provider.placeholder(1)
+        );
+        sqlx::query(&sql)
             .persistent(false)
             .bind(name)
             .execute(self.pool.as_ref())
@@ -173,7 +185,11 @@ CREATE TABLE IF NOT EXISTS _nautilus_migrations (
         tx: &mut sqlx::Transaction<'_, sqlx::Any>,
         name: &str,
     ) -> Result<()> {
-        sqlx::query("DELETE FROM _nautilus_migrations WHERE name = ?")
+        let sql = format!(
+            "DELETE FROM _nautilus_migrations WHERE name = {}",
+            self.provider.placeholder(1)
+        );
+        sqlx::query(&sql)
             .persistent(false)
             .bind(name)
             .execute(&mut **tx)
