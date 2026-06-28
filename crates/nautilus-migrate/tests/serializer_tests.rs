@@ -1147,6 +1147,37 @@ fn serialises_mixed_case_postgres_enum_columns_and_defaults() {
 }
 
 #[test]
+fn serialises_uuidv7_default() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "users".to_string(),
+        columns: vec![LiveColumn {
+            name: "id".to_string(),
+            col_type: "uuid".to_string(),
+            nullable: false,
+            default_value: Some("uuidv7()".to_string()),
+            generated_expr: None,
+            computed_kind: None,
+            check_expr: None,
+        }],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+    let ir = common::parse(&out).unwrap();
+    let users = ir.models.get("Users").unwrap();
+    let id = users.find_field("id").unwrap();
+
+    assert!(out.contains("@default(uuidv7())"));
+    assert!(matches!(
+        &id.default_value,
+        Some(DefaultValue::Function(call)) if call.name == "uuidv7"
+    ));
+}
+
+#[test]
 fn serialises_ambiguous_relations_with_explicit_names() {
     let live = common::make_live_schema(vec![
         LiveTable {

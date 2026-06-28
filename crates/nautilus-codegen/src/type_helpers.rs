@@ -121,7 +121,8 @@ pub fn is_auto_generated(field: &FieldIr) -> bool {
     if let Some(default) = &field.default_value {
         matches!(
             default,
-            DefaultValue::Function(func) if func.name == "autoincrement" || func.name == "uuid"
+            DefaultValue::Function(func)
+                if matches!(func.name.as_str(), "autoincrement" | "uuid" | "uuidv7")
         )
     } else {
         false

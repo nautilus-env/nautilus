@@ -135,7 +135,7 @@ pub fn is_auto_generated(field: &FieldIr) -> bool {
     matches!(
         field.default_value,
         Some(DefaultValue::Function(ref call))
-            if call.name == "autoincrement" || call.name == "uuid" || call.name == "now"
+            if call.is_database_generated_default()
     )
 }
 

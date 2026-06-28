@@ -79,6 +79,15 @@ fn uuid_field() -> FieldIr {
     }
 }
 
+fn uuidv7_field() -> FieldIr {
+    let mut field = uuid_field();
+    field.default_value = Some(DefaultValue::Function(FunctionCall {
+        name: "uuidv7".to_string(),
+        args: vec![],
+    }));
+    field
+}
+
 fn now_field() -> FieldIr {
     FieldIr {
         logical_name: "createdAt".to_string(),
@@ -335,6 +344,11 @@ fn test_is_auto_generated_uuid() {
 }
 
 #[test]
+fn test_is_auto_generated_uuidv7() {
+    assert!(is_auto_generated(&uuidv7_field()));
+}
+
+#[test]
 fn test_is_auto_generated_now_is_false() {
     // Rust codegen does NOT treat now() as auto-generated (callers may override)
     assert!(!is_auto_generated(&now_field()));
@@ -483,6 +497,16 @@ fn test_py_is_auto_generated_autoincrement() {
 #[test]
 fn test_py_is_auto_generated_uuid() {
     assert!(py_is_auto_generated(&uuid_field()));
+}
+
+#[test]
+fn test_py_is_auto_generated_uuidv7() {
+    assert!(py_is_auto_generated(&uuidv7_field()));
+}
+
+#[test]
+fn test_java_is_auto_generated_uuidv7() {
+    assert!(JavaBackend.is_auto_generated(&uuidv7_field()));
 }
 
 #[test]

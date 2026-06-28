@@ -173,7 +173,7 @@
     },
     "builtin-functions": {
       "comment": "Built-in default/value functions",
-      "match": "\\b(uuid|now|autoincrement|env|cuid|dbgenerated)\\b(?=\\s*\\()",
+      "match": "\\b(uuidv7|uuid|now|autoincrement|env|cuid|dbgenerated)\\b(?=\\s*\\()",
       "name": "support.function.nautilus"
     },
     "boolean-literals": {

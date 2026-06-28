@@ -866,6 +866,15 @@ impl DdlGenerator {
                     DatabaseProvider::Sqlite => Ok("(lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-'||lower(hex(randomblob(2)))||'-'||lower(hex(randomblob(2)))||'-'||lower(hex(randomblob(6))))".to_string()),
                     DatabaseProvider::Mysql => Ok("(UUID())".to_string()),
                 },
+                "uuidv7" => match self.provider {
+                    DatabaseProvider::Postgres => Ok("uuidv7()".to_string()),
+                    DatabaseProvider::Sqlite => Err(MigrationError::ValidationError(
+                        "uuidv7() defaults are not supported by SQLite".to_string(),
+                    )),
+                    DatabaseProvider::Mysql => Err(MigrationError::ValidationError(
+                        "uuidv7() defaults are not supported by MySQL".to_string(),
+                    )),
+                },
                 "now" => match self.provider {
                     DatabaseProvider::Postgres => Ok("CURRENT_TIMESTAMP".to_string()),
                     DatabaseProvider::Sqlite => Ok("CURRENT_TIMESTAMP".to_string()),

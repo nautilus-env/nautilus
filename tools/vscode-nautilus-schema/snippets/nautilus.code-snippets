@@ -94,6 +94,12 @@
     "body": ["@default(uuid())"],
     "description": "Default UUID value"
   },
+  "@default uuidv7": {
+    "prefix": "@default-uuidv7",
+    "scope": "nautilus",
+    "body": ["@default(uuidv7())"],
+    "description": "Default UUIDv7 value"
+  },
   "@default now": {
     "prefix": "@default-now",
     "scope": "nautilus",

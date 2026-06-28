@@ -355,7 +355,7 @@ fn field_attr_hover_text(name: &str, ast: Option<&Schema>, offset: usize) -> Str
         "default" => [
             "**@default(expr)**  ",
             "Sets the default value for this field when not explicitly provided.  \n",
-            "Common expressions: `autoincrement()`, `now()`, `uuid()`,",
+            "Common expressions: `autoincrement()`, `now()`, `uuid()`, `uuidv7()`,",
             " enum variants, or literal values.",
         ].concat(),
         "map" => "**@map(\"name\")** \nMaps this field to a different physical column name in the database.".to_string(),

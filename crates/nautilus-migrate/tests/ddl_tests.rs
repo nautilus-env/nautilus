@@ -79,6 +79,48 @@ model Post {
 }
 
 #[test]
+fn test_generate_postgres_ddl_with_uuidv7_default() {
+    let source = r#"
+model User {
+  id Uuid @id @default(uuidv7())
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let generator = DdlGenerator::new(DatabaseProvider::Postgres);
+    let statements = generator.generate_create_tables(&ir).unwrap();
+    let table_stmt = statements
+        .iter()
+        .find(|sql| sql.contains("CREATE TABLE"))
+        .expect("missing create table statement");
+
+    assert!(
+        table_stmt.contains(r#""id" UUID NOT NULL DEFAULT uuidv7()"#),
+        "sql: {}",
+        table_stmt
+    );
+}
+
+#[test]
+fn test_uuidv7_default_is_rejected_for_mysql_ddl() {
+    let source = r#"
+model User {
+  id Uuid @id @default(uuidv7())
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let generator = DdlGenerator::new(DatabaseProvider::Mysql);
+    let err = generator.generate_create_tables(&ir).unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("uuidv7()") && msg.contains("MySQL"),
+        "error: {msg}"
+    );
+}
+
+#[test]
 fn test_generate_postgres_ddl_with_extension_backed_scalar_types() {
     let source = r#"
 datasource db {

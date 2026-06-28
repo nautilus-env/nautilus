@@ -593,6 +593,10 @@ fn infer_default_attr(
         return Some("@default(now())".to_string());
     }
 
+    if t.contains("uuidv7") {
+        return Some("@default(uuidv7())".to_string());
+    }
+
     if t.contains("uuid") || t.contains("newid") {
         return Some("@default(uuid())".to_string());
     }
@@ -1547,6 +1551,15 @@ mod tests {
         assert_eq!(
             infer_default_attr("gen_random_uuid()", "uuid", &no_enums),
             Some("@default(uuid())".into())
+        );
+    }
+
+    #[test]
+    fn default_uuidv7() {
+        let no_enums: HashMap<String, Vec<String>> = HashMap::new();
+        assert_eq!(
+            infer_default_attr("uuidv7()", "uuid", &no_enums),
+            Some("@default(uuidv7())".into())
         );
     }
 

@@ -96,6 +96,15 @@ fn generated_named_file<'a>(files: &'a [(String, String)], file_name: &str) -> &
         .unwrap_or_else(|| panic!("missing generated file '{file_name}'"))
 }
 
+fn section_until<'a>(code: &'a str, start_marker: &str, end_marker: &str) -> &'a str {
+    let start = code
+        .find(start_marker)
+        .unwrap_or_else(|| panic!("missing section start '{start_marker}'"));
+    let rest = &code[start..];
+    let end = rest.find(end_marker).unwrap_or(rest.len());
+    &rest[..end]
+}
+
 #[test]
 fn test_rust_struct_is_generated() {
     let ir = validate(
@@ -611,6 +620,59 @@ model Post {
         "expected required create input fields to stay required inside total=False TypedDicts:\n{code}"
     );
     assert_local_snapshot!(code);
+}
+
+#[test]
+fn test_uuidv7_id_is_not_required_in_create_inputs() {
+    let ir = validate(
+        r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgres://localhost/test"
+}
+
+model User {
+  id   Uuid   @id @default(uuidv7())
+  name String
+}
+"#,
+    );
+
+    let py_models = generate_all_python_models(&ir, false, 0);
+    let py_code = generated_python_file(&py_models, "user.py");
+    let py_create_input = section_until(
+        py_code,
+        "class UserCreateInput",
+        "\n\nclass UserUpdateInput",
+    );
+    assert!(
+        py_create_input.contains("name: Required[str]"),
+        "expected name to remain required in Python create input:\n{py_create_input}"
+    );
+    assert!(
+        py_create_input.contains("id: NotRequired[UUID]"),
+        "uuidv7 id should be optional in Python create input:\n{py_create_input}"
+    );
+    assert!(
+        !py_create_input.contains("id: Required[UUID]"),
+        "uuidv7 id should not be required in Python create input:\n{py_create_input}"
+    );
+
+    let (_js_models, dts_models) = generate_all_js_models(&ir);
+    let js_code = generated_named_file(&dts_models, "user.d.ts");
+    let js_create_input = section_until(
+        js_code,
+        "export interface UserCreateInput",
+        "\n\nexport interface UserUpdateInput",
+    );
+    assert!(
+        js_create_input.contains("name: string;"),
+        "expected name to remain required in TypeScript create input:\n{js_create_input}"
+    );
+    assert!(
+        !js_create_input.contains("\n  id"),
+        "uuidv7 id should not be required in TypeScript create input:\n{js_create_input}"
+    );
 }
 
 #[test]

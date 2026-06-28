@@ -363,10 +363,33 @@ fn completion_inside_default_args_excludes_unsupported_functions() {
     assert!(labels.contains(&"autoincrement()"), "missing autoincrement");
     assert!(labels.contains(&"now()"), "missing now");
     assert!(labels.contains(&"uuid()"), "missing uuid");
+    assert!(labels.contains(&"uuidv7()"), "missing uuidv7");
     assert!(!labels.contains(&"cuid()"), "unexpected cuid: {:?}", labels);
     assert!(
         !labels.contains(&"dbgenerated(\"expr\")"),
         "unexpected dbgenerated: {:?}",
+        labels
+    );
+}
+
+#[test]
+fn completion_inside_default_args_omits_uuidv7_for_mysql() {
+    let src = r#"datasource db {
+  provider = "mysql"
+  url      = "mysql://localhost/test"
+}
+
+model User {
+  id Uuid @default()
+}"#;
+    let offset = src.find("@default(").unwrap() + "@default(".len();
+    let items = completion(src, offset);
+    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+
+    assert!(labels.contains(&"uuid()"), "missing uuid");
+    assert!(
+        !labels.contains(&"uuidv7()"),
+        "unexpected uuidv7 for mysql: {:?}",
         labels
     );
 }
@@ -671,6 +694,7 @@ model User {
     assert!(h.content.contains("autoincrement()"));
     assert!(h.content.contains("now()"));
     assert!(h.content.contains("uuid()"));
+    assert!(h.content.contains("uuidv7()"));
     assert!(
         !h.content.contains("cuid()"),
         "unexpected hover: {}",

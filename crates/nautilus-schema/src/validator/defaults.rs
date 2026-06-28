@@ -234,15 +234,35 @@ impl SchemaValidator<'_> {
                     ));
                 }
             }
-            "uuid" => {
+            "uuid" | "uuidv7" => {
                 if !matches!(field_type, FieldType::Uuid) {
                     self.errors.push_back(SchemaError::Validation(
                         format!(
-                            "uuid() can only be used with Uuid fields, but field '{}' in model '{}' has type {:?}",
-                            field_name, model_name, field_type
+                            "{}() can only be used with Uuid fields, but field '{}' in model '{}' has type {:?}",
+                            func_name, field_name, model_name, field_type
                         ),
                         span,
                     ));
+                }
+
+                if func_name == "uuidv7" {
+                    let provider = self
+                        .schema
+                        .datasource()
+                        .and_then(|datasource| datasource.provider())
+                        .and_then(|provider| provider.parse::<DatabaseProvider>().ok());
+
+                    if let Some(provider) = provider {
+                        if !provider.supports_uuidv7_default() {
+                            self.errors.push_back(SchemaError::Validation(
+                                format!(
+                                    "uuidv7() defaults are not supported by provider '{}' (supported by: PostgreSQL)",
+                                    provider
+                                ),
+                                span,
+                            ));
+                        }
+                    }
                 }
             }
             "now" => {

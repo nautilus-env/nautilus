@@ -30,7 +30,7 @@
 - `model`, `enum`, and `type` declarations
 - scalar, enum, composite, relation, optional, and list field types
 - mapped names via `@map` / `@@map`
-- defaults such as `autoincrement()`, `uuid()`, `now()`
+- defaults such as `autoincrement()`, `uuid()`, `uuidv7()` (PostgreSQL), `now()`
 - relation metadata including `fields`, `references`, and referential actions
 - indexes, unique constraints, checks, and computed fields
 

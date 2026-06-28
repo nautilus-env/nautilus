@@ -34,7 +34,7 @@ pub fn get_base_ts_type(
 }
 
 /// Returns `true` for fields whose values are supplied automatically by the
-/// database (`autoincrement()`, `uuid()`, `now()`).
+/// database (`autoincrement()`, `uuid()`, `uuidv7()`, `now()`).
 pub fn is_auto_generated(field: &FieldIr) -> bool {
     JsBackend.is_auto_generated(field)
 }

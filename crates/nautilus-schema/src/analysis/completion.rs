@@ -604,23 +604,33 @@ fn attr_argument_completions(
                 Some("Referential action on parent record update".to_string()),
             ),
         ],
-        "default" => vec![
-            CompletionItem::new(
-                "autoincrement()",
-                CompletionKind::Keyword,
-                Some("Auto-incrementing integer sequence".to_string()),
-            ),
-            CompletionItem::new(
-                "now()",
-                CompletionKind::Keyword,
-                Some("Current timestamp at insert time".to_string()),
-            ),
-            CompletionItem::new(
-                "uuid()",
-                CompletionKind::Keyword,
-                Some("Randomly generated UUID".to_string()),
-            ),
-        ],
+        "default" => {
+            let mut items = vec![
+                CompletionItem::new(
+                    "autoincrement()",
+                    CompletionKind::Keyword,
+                    Some("Auto-incrementing integer sequence".to_string()),
+                ),
+                CompletionItem::new(
+                    "now()",
+                    CompletionKind::Keyword,
+                    Some("Current timestamp at insert time".to_string()),
+                ),
+                CompletionItem::new(
+                    "uuid()",
+                    CompletionKind::Keyword,
+                    Some("Randomly generated UUID".to_string()),
+                ),
+            ];
+            if matches!(provider, Some("postgresql") | None) {
+                items.push(CompletionItem::new(
+                    "uuidv7()",
+                    CompletionKind::Keyword,
+                    Some("Time-ordered UUIDv7 (PostgreSQL)".to_string()),
+                ));
+            }
+            items
+        }
         "computed" => match arg_index {
             0 => vec![CompletionItem::new(
                 "SQL expression",

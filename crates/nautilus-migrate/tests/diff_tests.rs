@@ -449,6 +449,72 @@ fn added_required_column_with_default_is_safe() {
     assert_eq!(risk, ChangeRisk::Safe);
 }
 
+#[test]
+fn uuidv7_default_does_not_churn_when_live_matches() {
+    let target = common::parse("model User { id Uuid @id @default(uuidv7()) }").unwrap();
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "User".to_string(),
+        columns: vec![LiveColumn {
+            name: "id".to_string(),
+            col_type: "uuid".to_string(),
+            nullable: false,
+            default_value: Some("uuidv7()".to_string()),
+            generated_expr: None,
+            computed_kind: None,
+            check_expr: None,
+        }],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        !changes
+            .iter()
+            .any(|change| matches!(change, Change::DefaultChanged { .. })),
+        "unexpected default diff: {changes:?}"
+    );
+}
+
+#[test]
+fn uuidv7_default_diff_detects_change_from_uuid_v4_default() {
+    let target = common::parse("model User { id Uuid @id @default(uuidv7()) }").unwrap();
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "User".to_string(),
+        columns: vec![LiveColumn {
+            name: "id".to_string(),
+            col_type: "uuid".to_string(),
+            nullable: false,
+            default_value: Some("gen_random_uuid()".to_string()),
+            generated_expr: None,
+            computed_kind: None,
+            check_expr: None,
+        }],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(changes.iter().any(|change| matches!(
+        change,
+        Change::DefaultChanged {
+            table,
+            column,
+            from: Some(from),
+            to: Some(to),
+        } if table == "User"
+            && column == "id"
+            && from == "gen_random_uuid()"
+            && to == "uuidv7()"
+    )));
+}
+
 fn base_user_table(indexes: Vec<LiveIndex>) -> LiveTable {
     LiveTable {
         name: "User".to_string(),

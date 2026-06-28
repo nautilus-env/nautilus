@@ -463,17 +463,32 @@ pub enum DefaultValue {
     Array(Vec<DefaultValue>),
     /// An enum variant name.
     EnumVariant(String),
-    /// A function call (autoincrement, uuid, now, etc.).
+    /// A function call (autoincrement, uuid, uuidv7, now, etc.).
     Function(FunctionCall),
 }
 
 /// Function call in a default value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionCall {
-    /// The function name (e.g., "autoincrement", "uuid", "now").
+    /// The function name (e.g., "autoincrement", "uuid", "uuidv7", "now").
     pub name: String,
     /// Function arguments (if any).
     pub args: Vec<String>,
+}
+
+impl FunctionCall {
+    /// Returns `true` when this default value is supplied by the database on insert.
+    pub fn is_database_generated_default(&self) -> bool {
+        matches!(
+            self.name.as_str(),
+            "autoincrement" | "uuid" | "uuidv7" | "now"
+        )
+    }
+
+    /// Returns `true` for UUID-generating defaults.
+    pub fn is_uuid_default(&self) -> bool {
+        matches!(self.name.as_str(), "uuid" | "uuidv7")
+    }
 }
 
 /// Primary key metadata.
@@ -575,6 +590,11 @@ impl DatabaseProvider {
             DatabaseProvider::Mysql => "MySQL",
             DatabaseProvider::Sqlite => "SQLite",
         }
+    }
+
+    /// Returns `true` when the provider has a native UUIDv7 default function.
+    pub fn supports_uuidv7_default(self) -> bool {
+        matches!(self, DatabaseProvider::Postgres)
     }
 }
 

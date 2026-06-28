@@ -603,6 +603,73 @@ model User {
 }
 
 #[test]
+fn test_default_uuidv7_on_uuid_postgres() {
+    let source = r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgres://localhost/test"
+}
+
+model User {
+  id Uuid @id @default(uuidv7())
+}
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).unwrap();
+    let field = ir.models["User"].find_field("id").unwrap();
+
+    match field.default_value.as_ref().unwrap() {
+        nautilus_schema::ir::DefaultValue::Function(call) => {
+            assert_eq!(call.name, "uuidv7");
+        }
+        other => panic!("expected uuidv7() default, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_default_uuidv7_rejected_for_mysql() {
+    let source = r#"
+datasource db {
+  provider = "mysql"
+  url      = "mysql://localhost/test"
+}
+
+model User {
+  id Uuid @id @default(uuidv7())
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(
+                msg.contains("uuidv7()") && msg.contains("provider 'mysql'"),
+                "got: {}",
+                msg
+            );
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn test_default_uuidv7_on_int() {
+    let source = r#"
+model User {
+  id Int @id @default(uuidv7())
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(msg.contains("uuidv7()") && msg.contains("Uuid"));
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
 fn test_default_now_on_int() {
     let source = r#"
 model User {

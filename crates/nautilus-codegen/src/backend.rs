@@ -5,9 +5,7 @@
 //! the shared trait, data structures, and default logic used by all language
 //! backends.
 
-use nautilus_schema::ir::{
-    DefaultValue, EnumIr, FieldIr, FunctionCall, ResolvedFieldType, ScalarType,
-};
+use nautilus_schema::ir::{DefaultValue, EnumIr, FieldIr, ResolvedFieldType, ScalarType};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -69,7 +67,7 @@ pub trait LanguageBackend {
     fn null_suffix(&self) -> &'static str;
 
     /// Returns `true` for fields whose values are supplied automatically by the
-    /// database: `autoincrement()`, `uuid()`, or `now()`.
+    /// database: `autoincrement()`, `uuid()`, `uuidv7()`, or `now()`.
     ///
     /// This implementation is identical for Python and TypeScript.  The Rust
     /// backend intentionally differs (it exposes `now()` fields as writable),
@@ -81,8 +79,7 @@ pub trait LanguageBackend {
         if let Some(default) = &field.default_value {
             matches!(
                 default,
-                DefaultValue::Function(f)
-                    if f.name == "autoincrement" || f.name == "uuid" || f.name == "now"
+                DefaultValue::Function(f) if f.is_database_generated_default()
             )
         } else {
             false
@@ -279,9 +276,7 @@ pub trait LanguageBackend {
     /// Format an explicit schema default value as a target-language literal.
     fn default_value_literal(&self, default: &DefaultValue) -> Option<String> {
         match default {
-            DefaultValue::Function(FunctionCall { name, .. })
-                if matches!(name.as_str(), "now" | "uuid" | "autoincrement") =>
-            {
+            DefaultValue::Function(function) if function.is_database_generated_default() => {
                 Some(self.null_literal().to_string())
             }
             DefaultValue::Function(_) => None,

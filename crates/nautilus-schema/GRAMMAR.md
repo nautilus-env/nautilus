@@ -311,6 +311,7 @@ createdAt DateTime @default(now())
 count     Int      @default(0)
 id        Int      @default(autoincrement())
 uuid      Uuid     @default(uuid())
+uuidV7    Uuid     @default(uuidv7()) // PostgreSQL
 role      String   @default("USER")
 active    Boolean  @default(true)
 ```
@@ -526,6 +527,7 @@ true                       // Boolean
 false                      // Boolean
 autoincrement()            // Function call
 uuid()                     // Function call
+uuidv7()                   // Function call (PostgreSQL)
 now()                      // Function call
 env("DATABASE_URL")        // Function call with argument
 [userId]                   // Array with single element
