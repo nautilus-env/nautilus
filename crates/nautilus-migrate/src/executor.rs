@@ -90,7 +90,10 @@ impl MigrationExecutor {
 
         match change {
             Change::NewTable(model) => {
-                vec![strategy.drop_table_sql(&model.db_name, false)]
+                vec![strategy.drop_table_sql(
+                    &model.db_name,
+                    provider == DatabaseProvider::Postgres,
+                )]
             }
 
             Change::AddedColumn { table, field } => match provider {
@@ -788,6 +791,15 @@ model Post {
         assert!(
             down_post < down_user,
             "down must drop the child Post before the parent User: {:?}",
+            migration.down_sql
+        );
+
+        assert!(
+            migration
+                .down_sql
+                .iter()
+                .all(|s| s.contains("DROP TABLE") && s.contains("CASCADE")),
+            "Postgres down drops should use CASCADE: {:?}",
             migration.down_sql
         );
     }
