@@ -63,15 +63,17 @@ impl MigrationExecutor {
         let applier = DiffApplier::new(provider, &self.generator, schema, live);
 
         let mut up_sql: Vec<String> = Vec::new();
-        let mut down_sql: Vec<String> = Vec::new();
+        let mut down_groups: Vec<Vec<String>> = Vec::new();
 
         let ordered_changes = order_changes_for_apply(changes, live);
 
         for change in &ordered_changes {
             let stmts = applier.sql_for(change)?;
             up_sql.extend(stmts);
-            down_sql.extend(self.reverse_change(change, provider, live));
+            down_groups.push(self.reverse_change(change, provider, live));
         }
+
+        let down_sql: Vec<String> = down_groups.into_iter().rev().flatten().collect();
 
         Ok(Migration::new(name, up_sql, down_sql))
     }
@@ -728,6 +730,65 @@ mod tests {
             !stmts.iter().any(|sql| sql.contains("idx_Post_body")),
             "down SQL must not fall back to auto-generated index names: {:?}",
             stmts
+        );
+    }
+
+    #[tokio::test]
+    async fn diff_down_sql_drops_child_table_before_parent() {
+        let source = r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://localhost/test"
+}
+
+model User {
+  id    Int    @id
+  posts Post[]
+}
+
+model Post {
+  id       Int  @id
+  authorId Int
+  author   User @relation(fields: [authorId], references: [id])
+}
+"#;
+        let schema = parse(source).unwrap();
+        let live = LiveSchema::default();
+        let changes = crate::diff::SchemaDiff::compute(&live, &schema, DatabaseProvider::Postgres);
+        sqlx::any::install_default_drivers();
+        let pool = AnyPool::connect("sqlite::memory:").await.unwrap();
+        let executor = MigrationExecutor::new(pool, DatabaseProvider::Postgres);
+
+        let migration = executor
+            .generate_migration_from_diff("init".to_string(), &changes, &schema, &live)
+            .unwrap();
+
+        let up_user = migration
+            .up_sql
+            .iter()
+            .position(|s| s.contains("CREATE TABLE") && s.contains("\"User\""))
+            .expect("up should create User");
+        let up_post = migration
+            .up_sql
+            .iter()
+            .position(|s| s.contains("CREATE TABLE") && s.contains("\"Post\""))
+            .expect("up should create Post");
+        assert!(up_user < up_post, "up must create User before Post");
+
+        let down_post = migration
+            .down_sql
+            .iter()
+            .position(|s| s.contains("DROP TABLE") && s.contains("\"Post\""))
+            .expect("down should drop Post");
+        let down_user = migration
+            .down_sql
+            .iter()
+            .position(|s| s.contains("DROP TABLE") && s.contains("\"User\""))
+            .expect("down should drop User");
+        assert!(
+            down_post < down_user,
+            "down must drop the child Post before the parent User: {:?}",
+            migration.down_sql
         );
     }
 
