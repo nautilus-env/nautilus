@@ -15,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.3.4"
+version = "1.3.5"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["nautilus-env"]
@@ -25,15 +25,15 @@ keywords = ["orm", "database", "sql", "query-builder"]
 categories = ["database"]
 
 [workspace.dependencies]
-nautilus-core      = { path = "crates/nautilus-core",      package = "nautilus-orm-core",      version = "1.3.4" }
-nautilus-dialect   = { path = "crates/nautilus-dialect",   package = "nautilus-orm-dialect",   version = "1.3.4" }
-nautilus-connector = { path = "crates/nautilus-connector", package = "nautilus-orm-connector", version = "1.3.4" }
-nautilus-protocol  = { path = "crates/nautilus-protocol",  package = "nautilus-orm-protocol",  version = "1.3.4" }
-nautilus-schema    = { path = "crates/nautilus-schema",    package = "nautilus-orm-schema",    version = "1.3.4" }
-nautilus-codegen   = { path = "crates/nautilus-codegen",   package = "nautilus-orm-codegen",   version = "1.3.4" }
-nautilus-migrate   = { path = "crates/nautilus-migrate",   package = "nautilus-orm-migrate",   version = "1.3.4" }
-nautilus-engine    = { path = "crates/nautilus-engine",    package = "nautilus-orm-engine",    version = "1.3.4" }
-nautilus-lsp       = { path = "crates/nautilus-lsp",       package = "nautilus-orm-lsp",       version = "1.3.4" }
+nautilus-core      = { path = "crates/nautilus-core",      package = "nautilus-orm-core",      version = "1.3.5" }
+nautilus-dialect   = { path = "crates/nautilus-dialect",   package = "nautilus-orm-dialect",   version = "1.3.5" }
+nautilus-connector = { path = "crates/nautilus-connector", package = "nautilus-orm-connector", version = "1.3.5" }
+nautilus-protocol  = { path = "crates/nautilus-protocol",  package = "nautilus-orm-protocol",  version = "1.3.5" }
+nautilus-schema    = { path = "crates/nautilus-schema",    package = "nautilus-orm-schema",    version = "1.3.5" }
+nautilus-codegen   = { path = "crates/nautilus-codegen",   package = "nautilus-orm-codegen",   version = "1.3.5" }
+nautilus-migrate   = { path = "crates/nautilus-migrate",   package = "nautilus-orm-migrate",   version = "1.3.5" }
+nautilus-engine    = { path = "crates/nautilus-engine",    package = "nautilus-orm-engine",    version = "1.3.5" }
+nautilus-lsp       = { path = "crates/nautilus-lsp",       package = "nautilus-orm-lsp",       version = "1.3.5" }
 
 # Shared external dependencies. Feature baseline lives here; crates add their
 # extra features additively via `features = [...]` next to `workspace = true`.

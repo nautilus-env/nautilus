@@ -1,5 +1,31 @@
 # Changelog
 
+## Version 1.3.5
+
+### Added
+
+- Added `@default(uuidv7())` for PostgreSQL, generating native `uuidv7()` column
+  defaults so time-ordered UUID primary keys are produced by the database on
+  insert. The schema validator rejects `uuidv7()` on non-`Uuid` fields and on
+  providers without native support (MySQL/SQLite), and DDL generation errors for
+  those providers rather than emitting invalid SQL. When the schema has no
+  datasource with a recognized provider to validate against, `uuidv7()` produces
+  an analysis warning instead, since it is PostgreSQL-only.
+
+### Fixed
+
+- Versioned `migrate apply`, `rollback`, and `status` now work on PostgreSQL.
+  The migration tracker rendered `?` bind placeholders, which PostgreSQL rejects
+  with a syntax error, so no versioned migration could be applied (`db push` was
+  unaffected). Bind placeholders are now provider-aware (`$1` for PostgreSQL,
+  `?` for MySQL/SQLite).
+- Down migrations generated from a schema diff now drop tables in reverse
+  dependency order. Rolling back a migration that creates a parent table before a
+  child table holding a foreign key no longer fails with a dependency error.
+- Down `DROP TABLE` reversals on PostgreSQL now use `CASCADE`, consistent with
+  the other drop paths, so a rollback also clears objects that came to depend on
+  a created table (for example views) outside the migration.
+
 ## Version 1.3.4
 
 ### Added
