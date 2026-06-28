@@ -252,13 +252,20 @@ impl SchemaValidator<'_> {
                         .and_then(|datasource| datasource.provider())
                         .and_then(|provider| provider.parse::<DatabaseProvider>().ok());
 
-                    if let Some(provider) = provider {
-                        if !provider.supports_uuidv7_default() {
+                    match provider {
+                        Some(provider) if !provider.supports_uuidv7_default() => {
                             self.errors.push_back(SchemaError::Validation(
                                 format!(
                                     "uuidv7() defaults are not supported by provider '{}' (supported by: PostgreSQL)",
                                     provider
                                 ),
+                                span,
+                            ));
+                        }
+                        Some(_) => {}
+                        None => {
+                            self.warnings.push_back(SchemaError::Warning(
+                                "uuidv7() defaults are only supported by PostgreSQL, but the schema has no datasource with a recognized provider to validate against".to_string(),
                                 span,
                             ));
                         }

@@ -197,6 +197,31 @@ model User {
 }
 
 #[test]
+fn analyze_warns_on_uuidv7_without_datasource() {
+    let src = r#"
+model User {
+  id Uuid @id @default(uuidv7())
+}
+"#;
+    let r = analyze(src);
+
+    assert!(
+        !r.diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Error),
+        "uuidv7() without a datasource must not be an error: {:?}",
+        r.diagnostics
+    );
+    assert!(
+        r.diagnostics.iter().any(|d| {
+            d.severity == Severity::Warning && d.message.contains("uuidv7()")
+        }),
+        "missing uuidv7 no-datasource warning: {:?}",
+        r.diagnostics
+    );
+}
+
+#[test]
 fn completion_at_empty_source_returns_top_level_keywords() {
     let items = completion("", 0);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
