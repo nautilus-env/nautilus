@@ -83,6 +83,10 @@
 - The engine transport now rejects a request line above 64 MiB instead of
   buffering it, so a malformed writer can no longer grow the read buffer without
   bound.
+- Generated Python clients for a model with a `Vector(dim)` field are now valid
+  Python. Tera whitespace control stripped the indentation off the `nearest`
+  argument block in `find_many`, `find_first` and `find_unique`, so the module
+  failed to import with an `IndentationError`.
 - Generated Rust clients that use a PostgreSQL extension type now compile. The
   extension wrappers carried `impl From<Option<Wrapper>> for Value`,
   `impl From<Vec<Wrapper>> for Value` and `impl FromValue for Vec<Wrapper>`,
