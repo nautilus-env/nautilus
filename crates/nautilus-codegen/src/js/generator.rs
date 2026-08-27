@@ -2,13 +2,13 @@
 
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use nautilus_schema::ir::{
-    CompositeTypeIr, EnumIr, ModelIr, ResolvedFieldType, ScalarType, SchemaIr,
+    CompositeTypeIr, EnumIr, FieldIr, ModelIr, ResolvedFieldType, ScalarType, SchemaIr,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use tera::{Context, Tera};
 
-use crate::extension_types::{ts_input_type_for_extension, ExtensionRegistry};
+use crate::extension_types::{ts_input_type_for_extension, ExtensionRegistry, ExtensionType};
 use crate::js::type_mapper::{
     get_base_ts_type, get_filter_operators_for_field, get_ts_default_value, is_auto_generated,
     scalar_to_ts_type,
@@ -233,322 +233,42 @@ fn generate_js_model_with_registry(
     let pk_field_names = model.primary_key.fields();
     context.insert("primary_key_fields", &pk_field_names);
 
-    let mut enum_imports: HashSet<String> = HashSet::new();
-    let mut composite_type_imports: HashSet<String> = HashSet::new();
-    let mut extension_imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-
-    let mut scalar_fields: Vec<JsFieldContext> = Vec::new();
-    let mut where_input_fields: Vec<JsWhereInputFieldContext> = Vec::new();
-    let mut create_input_fields: Vec<JsCreateInputFieldContext> = Vec::new();
-    let mut update_input_fields: Vec<JsUpdateInputFieldContext> = Vec::new();
-    let mut order_by_fields: Vec<JsOrderByFieldContext> = Vec::new();
-    let mut numeric_fields: Vec<JsAggregateFieldContext> = Vec::new();
-    let mut orderable_fields: Vec<JsAggregateFieldContext> = Vec::new();
-    let mut object_value_db_fields: Vec<String> = Vec::new();
-    let mut vector_field_names: Vec<String> = Vec::new();
-
-    for (idx, field) in model.scalar_fields().enumerate() {
-        match &field.field_type {
-            ResolvedFieldType::Enum { enum_name } => {
-                if ir.enums.contains_key(enum_name) {
-                    enum_imports.insert(enum_name.clone());
-                }
-            }
-            ResolvedFieldType::CompositeType { type_name, .. }
-                if ir.composite_types.contains_key(type_name) =>
-            {
-                composite_type_imports.insert(type_name.clone());
-            }
-            _ => {}
-        }
-
-        let extension_type = extensions.type_for_field(field);
-        if let Some(ty) = extension_type {
-            extension_imports
-                .entry(ty.extension.to_string())
-                .or_default()
-                .insert(ty.type_name.to_string());
-        }
-
-        let base_type = output_base_ts_type(field, &ir.enums, extensions);
-        let input_base_type = input_base_ts_type(field, extensions);
-        let ts_type = exact_output_ts_type(field, base_type.clone());
-        let input_ts_type = exact_input_ts_type(field, input_base_type);
-        let raw_base_type = get_base_ts_type(field, &ir.enums);
-        let extension_coercer = extension_type
-            .map(|ty| {
-                if field.is_array {
-                    format!(
-                        "(value) => Array.isArray(value) ? value.map(item => {}.from(item)) : value",
-                        ty.type_name
-                    )
-                } else {
-                    format!("{}.from", ty.type_name)
-                }
-            })
-            .unwrap_or_default();
-        let extension_input_serializer = extension_type
-            .map(|ty| {
-                if field.is_array {
-                    format!(
-                        "(value) => Array.isArray(value) ? value.map(item => {}.toWireInput(item)) : value",
-                        ty.type_name
-                    )
-                } else {
-                    format!("{}.toWireInput", ty.type_name)
-                }
-            })
-            .unwrap_or_default();
-        let is_enum = matches!(field.field_type, ResolvedFieldType::Enum { .. });
-        let auto_generated = is_auto_generated(field);
-        let default_val = get_ts_default_value(field);
-        let is_pk = pk_field_names.contains(&field.logical_name.as_str());
-
-        scalar_fields.push(JsFieldContext {
-            name: field.logical_name.clone(),
-            logical_name: field.logical_name.clone(),
-            db_name: field.db_name.clone(),
-            ts_type: ts_type.clone(),
-            input_ts_type: input_ts_type.clone(),
-            base_type: base_type.clone(),
-            raw_base_type: raw_base_type.clone(),
-            extension_coercer,
-            extension_input_serializer,
-            is_optional: !field.is_required,
-            is_array: field.is_array,
-            is_enum,
-            has_default: default_val.is_some(),
-            default: default_val.unwrap_or_default(),
-            is_pk,
-            doc_comment: crate::schema_docs::field_modifier_doc(model, field),
-            index: idx,
-        });
-
-        if !matches!(field.field_type, ResolvedFieldType::Relation(_)) {
-            let operators = get_filter_operators_for_field(field, &ir.enums);
-            let is_vector = field.is_vector();
-            if is_vector {
-                vector_field_names.push(field.logical_name.clone());
-            }
-            where_input_fields.push(JsWhereInputFieldContext {
-                name: field.logical_name.clone(),
-                base_type: raw_base_type.clone(),
-                ts_type: ts_type.clone(),
-                where_ts_type: extension_type
-                    .map(|ty| {
-                        let type_expr = ty.ts_filter_input();
-                        if !field.is_required && !field.is_array {
-                            format!("{type_expr} | null")
-                        } else {
-                            type_expr
-                        }
-                    })
-                    .unwrap_or_default(),
-                is_nullable: !field.is_required && !field.is_array,
-                is_vector,
-                operators: operators
-                    .into_iter()
-                    .map(|op| JsFilterOperatorContext {
-                        suffix: op.suffix,
-                        ts_type: op.type_name,
-                    })
-                    .collect(),
-            });
-        }
-
-        if matches!(
-            field.field_type,
-            ResolvedFieldType::Scalar(ScalarType::Json)
-                | ResolvedFieldType::Scalar(ScalarType::Jsonb)
-                | ResolvedFieldType::Scalar(ScalarType::Hstore)
-        ) && !field.is_array
-        {
-            object_value_db_fields.push(field.db_name.clone());
-        }
-
-        if !auto_generated {
-            create_input_fields.push(JsCreateInputFieldContext {
-                name: field.logical_name.clone(),
-                ts_type: input_ts_type.clone(),
-                is_required: field.is_required
-                    && field.default_value.is_none()
-                    && !field.is_updated_at,
-            });
-        }
-
-        let is_auto_pk = auto_generated
-            && pk_field_names.contains(&field.logical_name.as_str())
-            && matches!(
-                field.field_type,
-                ResolvedFieldType::Scalar(ScalarType::Int)
-                    | ResolvedFieldType::Scalar(ScalarType::BigInt)
-            );
-        if !is_auto_pk {
-            update_input_fields.push(JsUpdateInputFieldContext {
-                name: field.logical_name.clone(),
-                ts_type: input_ts_type,
-            });
-        }
-
-        let is_numeric = matches!(
-            &field.field_type,
-            ResolvedFieldType::Scalar(ScalarType::Int)
-                | ResolvedFieldType::Scalar(ScalarType::BigInt)
-                | ResolvedFieldType::Scalar(ScalarType::Float)
-                | ResolvedFieldType::Scalar(ScalarType::Decimal { .. })
-        );
-        if is_numeric {
-            let agg_type = if let ResolvedFieldType::Scalar(s) = &field.field_type {
-                scalar_to_ts_type(s).to_string()
-            } else {
-                unreachable!()
-            };
-            numeric_fields.push(JsAggregateFieldContext {
-                name: field.logical_name.clone(),
-                ts_type: agg_type,
-            });
-        }
-
-        if is_orderable_model_field(field) {
-            order_by_fields.push(JsOrderByFieldContext {
-                name: field.logical_name.clone(),
-                is_dotted: false,
-            });
-            orderable_fields.push(JsAggregateFieldContext {
-                name: field.logical_name.clone(),
-                ts_type: base_type,
-            });
-        }
-    }
-
-    for parent in model.scalar_fields() {
-        if parent.is_array {
-            continue;
-        }
-        let ResolvedFieldType::CompositeType { type_name, .. } = &parent.field_type else {
-            continue;
-        };
-        let Some(composite) = ir.composite_types.get(type_name) else {
-            continue;
-        };
-        for nested in &composite.fields {
-            if is_orderable_composite_field(nested) {
-                order_by_fields.push(JsOrderByFieldContext {
-                    name: format!("{}.{}", parent.logical_name, nested.logical_name),
-                    is_dotted: true,
-                });
-            }
-        }
-    }
+    let mut fields = build_scalar_fields(model, ir, extensions, &pk_field_names);
+    fields.order_by.extend(composite_order_by_fields(model, ir));
 
     let relation_fields: Vec<JsFieldContext> = model
         .relation_fields()
         .enumerate()
-        .map(|(idx, field)| {
-            let ts_type = if let ResolvedFieldType::Relation(rel) = &field.field_type {
-                if field.is_array {
-                    format!("{}Model[]", rel.target_model)
-                } else {
-                    format!("{}Model | null", rel.target_model)
-                }
-            } else {
-                "unknown".to_string()
-            };
-            let base_type = if let ResolvedFieldType::Relation(rel) = &field.field_type {
-                format!("{}Model", rel.target_model)
-            } else {
-                "unknown".to_string()
-            };
-
-            JsFieldContext {
-                name: field.logical_name.clone(),
-                logical_name: field.logical_name.clone(),
-                db_name: field.db_name.clone(),
-                ts_type: ts_type.clone(),
-                input_ts_type: ts_type,
-                base_type: base_type.clone(),
-                raw_base_type: base_type,
-                extension_coercer: String::new(),
-                extension_input_serializer: String::new(),
-                is_optional: true,
-                is_array: field.is_array,
-                is_enum: false,
-                has_default: true,
-                default: if field.is_array {
-                    "[]".to_string()
-                } else {
-                    "null".to_string()
-                },
-                is_pk: false,
-                doc_comment: crate::schema_docs::field_modifier_doc(model, field),
-                index: idx,
-            }
-        })
+        .map(|(idx, field)| relation_field_context(model, field, idx))
         .collect();
+    let include_fields = build_include_fields(model);
 
-    let include_fields: Vec<JsIncludeFieldContext> = model
-        .relation_fields()
-        .filter_map(|field| {
-            if let ResolvedFieldType::Relation(rel) = &field.field_type {
-                Some(JsIncludeFieldContext {
-                    name: field.logical_name.clone(),
-                    target_model: rel.target_model.clone(),
-                    target_snake: rel.target_model.to_snake_case(),
-                    target_camel: rel.target_model.to_lower_camel_case(),
-                    is_array: field.is_array,
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let has_numeric_fields = !numeric_fields.is_empty();
-    let has_includes = !include_fields.is_empty();
-    let has_enums = !enum_imports.is_empty();
-
-    context.insert("scalar_fields", &scalar_fields);
+    context.insert("scalar_fields", &fields.scalar);
     context.insert("relation_fields", &relation_fields);
-    context.insert("where_input_fields", &where_input_fields);
-    context.insert("create_input_fields", &create_input_fields);
-    context.insert("update_input_fields", &update_input_fields);
-    context.insert("order_by_fields", &order_by_fields);
+    context.insert("where_input_fields", &fields.where_input);
+    context.insert("create_input_fields", &fields.create_input);
+    context.insert("update_input_fields", &fields.update_input);
+    context.insert("order_by_fields", &fields.order_by);
     context.insert("include_fields", &include_fields);
-    context.insert("has_includes", &has_includes);
-    context.insert("numeric_fields", &numeric_fields);
-    context.insert("orderable_fields", &orderable_fields);
-    context.insert("object_value_db_fields", &object_value_db_fields);
-    context.insert("has_numeric_fields", &has_numeric_fields);
-    context.insert("has_vector_fields", &!vector_field_names.is_empty());
-    context.insert("vector_field_names", &vector_field_names);
+    context.insert("has_includes", &!include_fields.is_empty());
+    context.insert("numeric_fields", &fields.numeric);
+    context.insert("orderable_fields", &fields.orderable);
+    context.insert("object_value_db_fields", &fields.object_value_db_names);
+    context.insert("has_numeric_fields", &!fields.numeric.is_empty());
+    context.insert("has_vector_fields", &!fields.vector_names.is_empty());
+    context.insert("vector_field_names", &fields.vector_names);
     for (flag, value) in extensions.template_flags() {
         context.insert(&flag, &value);
     }
-    context.insert("has_enums", &has_enums);
+    context.insert("has_enums", &!fields.enum_imports.is_empty());
+    context.insert("enum_imports", &fields.enum_imports);
     context.insert(
-        "enum_imports",
-        &enum_imports.into_iter().collect::<Vec<_>>(),
+        "has_composite_types",
+        &!fields.composite_type_imports.is_empty(),
     );
-    context.insert("has_composite_types", &!composite_type_imports.is_empty());
-    context.insert(
-        "composite_type_imports",
-        &composite_type_imports.into_iter().collect::<Vec<_>>(),
-    );
-    let extension_import_contexts: Vec<JsExtensionImportContext> = extension_imports
-        .into_iter()
-        .map(|(module, types)| {
-            let types: Vec<String> = types.into_iter().collect();
-            let input_types = types
-                .iter()
-                .map(|name| format!("{name}Input"))
-                .collect::<Vec<_>>();
-            JsExtensionImportContext {
-                module,
-                types,
-                input_types,
-            }
-        })
-        .collect();
+    context.insert("composite_type_imports", &fields.composite_type_imports);
+
+    let extension_import_contexts = build_extension_imports(fields.extension_imports);
     context.insert(
         "has_extension_types",
         &!extension_import_contexts.is_empty(),
@@ -563,6 +283,326 @@ fn generate_js_model_with_registry(
         (format!("{}.js", snake), js_code),
         (format!("{}.d.ts", snake), dts_code),
     )
+}
+
+/// The per-field template contexts and imports a model needs, collected in a
+/// single pass over its scalar fields.
+#[derive(Default)]
+struct JsFieldSets {
+    scalar: Vec<JsFieldContext>,
+    where_input: Vec<JsWhereInputFieldContext>,
+    create_input: Vec<JsCreateInputFieldContext>,
+    update_input: Vec<JsUpdateInputFieldContext>,
+    order_by: Vec<JsOrderByFieldContext>,
+    numeric: Vec<JsAggregateFieldContext>,
+    orderable: Vec<JsAggregateFieldContext>,
+    object_value_db_names: Vec<String>,
+    vector_names: Vec<String>,
+    enum_imports: Vec<String>,
+    composite_type_imports: Vec<String>,
+    extension_imports: BTreeMap<String, BTreeSet<String>>,
+}
+
+fn build_scalar_fields(
+    model: &ModelIr,
+    ir: &SchemaIr,
+    extensions: &ExtensionRegistry,
+    pk_field_names: &[&str],
+) -> JsFieldSets {
+    let mut sets = JsFieldSets::default();
+    let mut enum_imports = HashSet::new();
+    let mut composite_type_imports = HashSet::new();
+
+    for (idx, field) in model.scalar_fields().enumerate() {
+        match &field.field_type {
+            ResolvedFieldType::Enum { enum_name } if ir.enums.contains_key(enum_name) => {
+                enum_imports.insert(enum_name.clone());
+            }
+            ResolvedFieldType::CompositeType { type_name, .. }
+                if ir.composite_types.contains_key(type_name) =>
+            {
+                composite_type_imports.insert(type_name.clone());
+            }
+            _ => {}
+        }
+
+        let extension_type = extensions.type_for_field(field);
+        if let Some(ty) = extension_type {
+            sets.extension_imports
+                .entry(ty.extension.to_string())
+                .or_default()
+                .insert(ty.type_name.to_string());
+        }
+
+        let base_type = output_base_ts_type(field, &ir.enums, extensions);
+        let ts_type = exact_output_ts_type(field, base_type.clone());
+        let input_ts_type = exact_input_ts_type(field, input_base_ts_type(field, extensions));
+        let raw_base_type = get_base_ts_type(field, &ir.enums);
+        let auto_generated = is_auto_generated(field);
+        let is_pk = pk_field_names.contains(&field.logical_name.as_str());
+        let default_val = get_ts_default_value(field);
+
+        sets.scalar.push(JsFieldContext {
+            name: field.logical_name.clone(),
+            logical_name: field.logical_name.clone(),
+            db_name: field.db_name.clone(),
+            ts_type: ts_type.clone(),
+            input_ts_type: input_ts_type.clone(),
+            base_type: base_type.clone(),
+            raw_base_type: raw_base_type.clone(),
+            extension_coercer: extension_wire_adapter(field, extension_type, WireAdapter::From),
+            extension_input_serializer: extension_wire_adapter(
+                field,
+                extension_type,
+                WireAdapter::ToInput,
+            ),
+            is_optional: !field.is_required,
+            is_array: field.is_array,
+            is_enum: matches!(field.field_type, ResolvedFieldType::Enum { .. }),
+            has_default: default_val.is_some(),
+            default: default_val.unwrap_or_default(),
+            is_pk,
+            doc_comment: crate::schema_docs::field_modifier_doc(model, field),
+            index: idx,
+        });
+
+        if field.is_vector() {
+            sets.vector_names.push(field.logical_name.clone());
+        }
+        sets.where_input.push(where_input_field(
+            field,
+            ir,
+            extension_type,
+            &raw_base_type,
+            &ts_type,
+        ));
+
+        if matches!(
+            field.field_type,
+            ResolvedFieldType::Scalar(ScalarType::Json | ScalarType::Jsonb | ScalarType::Hstore)
+        ) && !field.is_array
+        {
+            sets.object_value_db_names.push(field.db_name.clone());
+        }
+
+        if !auto_generated {
+            sets.create_input.push(JsCreateInputFieldContext {
+                name: field.logical_name.clone(),
+                ts_type: input_ts_type.clone(),
+                is_required: field.is_required
+                    && field.default_value.is_none()
+                    && !field.is_updated_at,
+            });
+        }
+
+        // A database-generated integer primary key is never writable, so it
+        // stays out of the update input.
+        let is_auto_pk = auto_generated
+            && is_pk
+            && matches!(
+                field.field_type,
+                ResolvedFieldType::Scalar(ScalarType::Int | ScalarType::BigInt)
+            );
+        if !is_auto_pk {
+            sets.update_input.push(JsUpdateInputFieldContext {
+                name: field.logical_name.clone(),
+                ts_type: input_ts_type,
+            });
+        }
+
+        if let ResolvedFieldType::Scalar(
+            scalar @ (ScalarType::Int
+            | ScalarType::BigInt
+            | ScalarType::Float
+            | ScalarType::Decimal { .. }),
+        ) = &field.field_type
+        {
+            sets.numeric.push(JsAggregateFieldContext {
+                name: field.logical_name.clone(),
+                ts_type: scalar_to_ts_type(scalar).to_string(),
+            });
+        }
+
+        if is_orderable_model_field(field) {
+            sets.order_by.push(JsOrderByFieldContext {
+                name: field.logical_name.clone(),
+                is_dotted: false,
+            });
+            sets.orderable.push(JsAggregateFieldContext {
+                name: field.logical_name.clone(),
+                ts_type: base_type,
+            });
+        }
+    }
+
+    sets.enum_imports = enum_imports.into_iter().collect();
+    sets.composite_type_imports = composite_type_imports.into_iter().collect();
+    sets
+}
+
+enum WireAdapter {
+    From,
+    ToInput,
+}
+
+/// The JavaScript expression that converts a field between its wire form and
+/// its extension type, mapping over the elements of an array field.
+fn extension_wire_adapter(
+    field: &FieldIr,
+    extension_type: Option<ExtensionType>,
+    adapter: WireAdapter,
+) -> String {
+    let Some(ty) = extension_type else {
+        return String::new();
+    };
+    let method = match adapter {
+        WireAdapter::From => "from",
+        WireAdapter::ToInput => "toWireInput",
+    };
+    if field.is_array {
+        format!(
+            "(value) => Array.isArray(value) ? value.map(item => {}.{}(item)) : value",
+            ty.type_name, method
+        )
+    } else {
+        format!("{}.{}", ty.type_name, method)
+    }
+}
+
+fn where_input_field(
+    field: &FieldIr,
+    ir: &SchemaIr,
+    extension_type: Option<ExtensionType>,
+    raw_base_type: &str,
+    ts_type: &str,
+) -> JsWhereInputFieldContext {
+    let is_nullable = !field.is_required && !field.is_array;
+    JsWhereInputFieldContext {
+        name: field.logical_name.clone(),
+        base_type: raw_base_type.to_string(),
+        ts_type: ts_type.to_string(),
+        where_ts_type: extension_type
+            .map(|ty| {
+                let type_expr = ty.ts_filter_input();
+                if is_nullable {
+                    format!("{type_expr} | null")
+                } else {
+                    type_expr
+                }
+            })
+            .unwrap_or_default(),
+        is_nullable,
+        is_vector: field.is_vector(),
+        operators: get_filter_operators_for_field(field, &ir.enums)
+            .into_iter()
+            .map(|op| JsFilterOperatorContext {
+                suffix: op.suffix,
+                ts_type: op.type_name,
+            })
+            .collect(),
+    }
+}
+
+/// Dotted `parent.child` order-by entries for the orderable fields of every
+/// non-array composite type column.
+fn composite_order_by_fields(model: &ModelIr, ir: &SchemaIr) -> Vec<JsOrderByFieldContext> {
+    let mut fields = Vec::new();
+    for parent in model.scalar_fields().filter(|field| !field.is_array) {
+        let ResolvedFieldType::CompositeType { type_name, .. } = &parent.field_type else {
+            continue;
+        };
+        let Some(composite) = ir.composite_types.get(type_name) else {
+            continue;
+        };
+        for nested in &composite.fields {
+            if is_orderable_composite_field(nested) {
+                fields.push(JsOrderByFieldContext {
+                    name: format!("{}.{}", parent.logical_name, nested.logical_name),
+                    is_dotted: true,
+                });
+            }
+        }
+    }
+    fields
+}
+
+/// Relation fields are hydrated separately, so they carry no column metadata
+/// and always default to empty.
+fn relation_field_context(model: &ModelIr, field: &FieldIr, index: usize) -> JsFieldContext {
+    let target_model = match &field.field_type {
+        ResolvedFieldType::Relation(rel) => Some(rel.target_model.as_str()),
+        _ => None,
+    };
+    let (ts_type, base_type) = match target_model {
+        Some(target) if field.is_array => {
+            (format!("{}Model[]", target), format!("{}Model", target))
+        }
+        Some(target) => (
+            format!("{}Model | null", target),
+            format!("{}Model", target),
+        ),
+        None => ("unknown".to_string(), "unknown".to_string()),
+    };
+
+    JsFieldContext {
+        name: field.logical_name.clone(),
+        logical_name: field.logical_name.clone(),
+        db_name: field.db_name.clone(),
+        input_ts_type: ts_type.clone(),
+        ts_type,
+        raw_base_type: base_type.clone(),
+        base_type,
+        extension_coercer: String::new(),
+        extension_input_serializer: String::new(),
+        is_optional: true,
+        is_array: field.is_array,
+        is_enum: false,
+        has_default: true,
+        default: if field.is_array {
+            "[]".to_string()
+        } else {
+            "null".to_string()
+        },
+        is_pk: false,
+        doc_comment: crate::schema_docs::field_modifier_doc(model, field),
+        index,
+    }
+}
+
+fn build_include_fields(model: &ModelIr) -> Vec<JsIncludeFieldContext> {
+    model
+        .relation_fields()
+        .filter_map(|field| {
+            let ResolvedFieldType::Relation(rel) = &field.field_type else {
+                return None;
+            };
+            Some(JsIncludeFieldContext {
+                name: field.logical_name.clone(),
+                target_model: rel.target_model.clone(),
+                target_snake: rel.target_model.to_snake_case(),
+                target_camel: rel.target_model.to_lower_camel_case(),
+                is_array: field.is_array,
+            })
+        })
+        .collect()
+}
+
+fn build_extension_imports(
+    extension_imports: BTreeMap<String, BTreeSet<String>>,
+) -> Vec<JsExtensionImportContext> {
+    extension_imports
+        .into_iter()
+        .map(|(module, types)| {
+            let types: Vec<String> = types.into_iter().collect();
+            let input_types: Vec<String> =
+                types.iter().map(|name| format!("{name}Input")).collect();
+            JsExtensionImportContext {
+                module,
+                types,
+                input_types,
+            }
+        })
+        .collect()
 }
 
 /// Generate JavaScript + declaration code for all models in the schema.

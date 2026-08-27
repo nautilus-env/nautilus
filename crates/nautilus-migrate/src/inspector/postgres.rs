@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+use sqlx::postgres::PgRow;
+use sqlx::PgPool;
 
 use super::{
     group_pg_foreign_keys, group_pg_indexes, normalize_pg_check_expr,
@@ -9,41 +12,236 @@ use crate::live::{
     ComputedKind, LiveColumn, LiveCompositeField, LiveCompositeType, LiveSchema, LiveTable,
 };
 
+const TABLES_SQL: &str = "SELECT c.relname AS table_name \
+     FROM pg_class c \
+     JOIN pg_namespace n ON n.oid = c.relnamespace \
+     WHERE n.nspname = $1 \
+       AND c.relkind IN ('r', 'p') \
+       AND c.relname !~ '^_nautilus_' \
+     ORDER BY c.relname";
+
+const COLUMNS_SQL: &str = "SELECT c.table_name, \
+            column_name, \
+            udt_name, \
+            pg_catalog.format_type(a.atttypid, a.atttypmod) AS formatted_type, \
+            is_nullable, \
+            column_default, \
+            character_maximum_length, \
+            numeric_precision, \
+            numeric_scale, \
+            generation_expression \
+     FROM information_schema.columns c \
+     JOIN pg_namespace n ON n.nspname = c.table_schema \
+     JOIN pg_class cls ON cls.relnamespace = n.oid AND cls.relname = c.table_name \
+     JOIN pg_attribute a ON a.attrelid = cls.oid AND a.attname = c.column_name \
+     WHERE c.table_schema = $1 \
+       AND c.table_name !~ '^_nautilus_' \
+       AND a.attnum > 0 \
+       AND NOT a.attisdropped \
+     ORDER BY c.table_name, ordinal_position";
+
+const PRIMARY_KEYS_SQL: &str = "SELECT tc.table_name, kcu.column_name \
+     FROM information_schema.table_constraints tc \
+     JOIN information_schema.key_column_usage kcu \
+       ON tc.constraint_name = kcu.constraint_name \
+      AND tc.table_schema    = kcu.table_schema \
+     WHERE tc.constraint_type = 'PRIMARY KEY' \
+       AND tc.table_schema    = $1 \
+       AND tc.table_name !~ '^_nautilus_' \
+     ORDER BY tc.table_name, kcu.ordinal_position";
+
+const INDEXES_SQL: &str = "SELECT \
+         tbl.relname                                           AS table_name, \
+         idx.relname                                           AS index_name, \
+         attr.attname                                          AS column_name, \
+         ix.indisunique                                        AS is_unique, \
+         am.amname                                             AS index_method, \
+         CASE WHEN op.opcname LIKE 'vector_%' THEN op.opcname END AS opclass, \
+         idx.reloptions                                         AS index_options, \
+         k.ord                                                  AS column_position \
+     FROM pg_class       tbl \
+     JOIN pg_namespace   ns   ON ns.oid            = tbl.relnamespace \
+     JOIN pg_index       ix   ON tbl.oid           = ix.indrelid \
+     JOIN pg_class       idx  ON idx.oid           = ix.indexrelid \
+     JOIN pg_am          am   ON am.oid            = idx.relam \
+     JOIN unnest(ix.indkey::int[], ix.indclass::oid[]) \
+          WITH ORDINALITY AS k(attnum, opclass_oid, ord) ON true \
+     JOIN pg_attribute   attr ON attr.attrelid      = tbl.oid \
+                             AND attr.attnum        = k.attnum \
+     LEFT JOIN pg_opclass op  ON op.oid             = k.opclass_oid \
+     WHERE ns.nspname = $1 \
+       AND tbl.relname !~ '^_nautilus_' \
+       AND tbl.relkind = 'r' \
+       AND ix.indisprimary = false \
+     ORDER BY tbl.relname, idx.relname, k.ord";
+
+const CHECKS_SQL: &str = "SELECT t.relname AS table_name, \
+            c.conname AS constraint_name, \
+            pg_get_constraintdef(c.oid) AS constraint_def \
+     FROM pg_constraint c \
+     JOIN pg_class t ON t.oid = c.conrelid \
+     JOIN pg_namespace n ON n.oid = t.relnamespace \
+     WHERE c.contype = 'c' \
+       AND n.nspname = $1 \
+       AND t.relname !~ '^_nautilus_' \
+     ORDER BY t.relname, c.conname";
+
+const FOREIGN_KEYS_SQL: &str = "SELECT \
+         t.relname                                    AS table_name, \
+         c.conname                                    AS constraint_name, \
+         a.attname                                    AS column_name, \
+         rf.relname                                   AS referenced_table, \
+         ra.attname                                   AS referenced_column, \
+         c.confdeltype::text                          AS delete_type, \
+         c.confupdtype::text                          AS update_type \
+     FROM pg_constraint c \
+     JOIN pg_class t   ON t.oid  = c.conrelid \
+     JOIN pg_class rf  ON rf.oid = c.confrelid \
+     JOIN pg_namespace n ON n.oid = t.relnamespace \
+     JOIN LATERAL unnest(c.conkey, c.confkey) \
+          WITH ORDINALITY AS u(local_att, ref_att, pos) ON true \
+     JOIN pg_attribute a  \
+       ON a.attrelid = c.conrelid  AND a.attnum = u.local_att \
+     JOIN pg_attribute ra \
+       ON ra.attrelid = c.confrelid AND ra.attnum = u.ref_att \
+     WHERE c.contype = 'f' \
+       AND n.nspname = $1 \
+       AND t.relname !~ '^_nautilus_' \
+     ORDER BY t.relname, c.conname, u.pos";
+
+const ENUMS_SQL: &str = "SELECT t.typname AS enum_name, e.enumlabel AS variant \
+     FROM pg_type t \
+     JOIN pg_enum e ON t.oid = e.enumtypid \
+     JOIN pg_namespace n ON n.oid = t.typnamespace \
+     WHERE n.nspname = $1 \
+     ORDER BY t.typname, e.enumsortorder";
+
+const COMPOSITE_TYPES_SQL: &str = "SELECT t.typname AS composite_name, \
+            a.attname AS field_name, \
+            pg_catalog.format_type(a.atttypid, a.atttypmod) AS field_type \
+     FROM pg_type t \
+     JOIN pg_namespace n ON n.oid = t.typnamespace \
+     JOIN pg_attribute a ON a.attrelid = t.typrelid \
+     WHERE t.typtype = 'c' \
+       AND n.nspname = $1 \
+       AND a.attnum > 0 \
+       AND NOT a.attisdropped \
+       AND NOT EXISTS ( \
+           SELECT 1 FROM pg_class c \
+           WHERE c.reltype = t.oid \
+             AND c.relkind IN ('r', 'v', 'm', 'p') \
+       ) \
+     ORDER BY t.typname, a.attnum";
+
+const EXTENSIONS_SQL: &str = "SELECT e.extname, e.extversion, n.nspname AS extschema \
+     FROM pg_extension e \
+     JOIN pg_namespace n ON n.oid = e.extnamespace \
+     WHERE e.extname <> 'plpgsql'";
+
 impl SchemaInspector {
     pub(super) async fn inspect_postgres(&self) -> Result<LiveSchema> {
-        use sqlx::Row as _;
-
-        let pool = sqlx::PgPool::connect_with(postgres_connect_options(&self.url)?)
+        let pool = PgPool::connect_with(postgres_connect_options(&self.url)?)
             .await
             .map_err(|e| MigrationError::Database(format!("PostgreSQL connection failed: {e}")))?;
 
-        let schema_name: Option<String> = pg_query("SELECT current_schema() AS schema_name")
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to resolve current PostgreSQL schema: {e}"
-                ))
-            })?
-            .try_get("schema_name")
-            .map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to read current PostgreSQL schema name: {e}"
-                ))
-            })?;
-        let schema_name = schema_name.unwrap_or_else(|| "public".to_string());
+        let schema_name = fetch_current_schema(&pool).await?;
+        let table_names = fetch_table_names(&pool, &schema_name).await?;
+        let mut metadata = TableMetadata::fetch(&pool, &schema_name).await?;
 
-        let table_rows = pg_query(
-            "SELECT c.relname AS table_name \
-             FROM pg_class c \
-             JOIN pg_namespace n ON n.oid = c.relnamespace \
-             WHERE n.nspname = $1 \
-               AND c.relkind IN ('r', 'p') \
-               AND c.relname !~ '^_nautilus_' \
-             ORDER BY c.relname",
-        )
-        .bind(&schema_name)
-        .fetch_all(&pool)
+        let mut live = LiveSchema::default();
+        for table_name in table_names {
+            let table = metadata.build_table(table_name)?;
+            live.tables.insert(table.name.clone(), table);
+        }
+
+        load_enums(&pool, &schema_name, &mut live).await?;
+        load_composite_types(&pool, &schema_name, &mut live).await?;
+        load_extensions(&pool, &mut live).await?;
+
+        Ok(live)
+    }
+}
+
+/// Catalog rows for every table of the inspected schema, grouped by table name.
+///
+/// Metadata is pulled with one query per kind and grouped in memory: querying
+/// per table would cost five extra round-trips for every table in the schema on
+/// each `db pull`/`db push`.
+struct TableMetadata {
+    columns: HashMap<String, Vec<PgRow>>,
+    primary_keys: HashMap<String, Vec<PgRow>>,
+    indexes: HashMap<String, Vec<PgRow>>,
+    checks: HashMap<String, Vec<PgRow>>,
+    foreign_keys: HashMap<String, Vec<PgRow>>,
+}
+
+impl TableMetadata {
+    async fn fetch(pool: &PgPool, schema_name: &str) -> Result<Self> {
+        Ok(Self {
+            columns: fetch_grouped(pool, schema_name, COLUMNS_SQL, "column metadata").await?,
+            primary_keys: fetch_grouped(
+                pool,
+                schema_name,
+                PRIMARY_KEYS_SQL,
+                "primary key metadata",
+            )
+            .await?,
+            indexes: fetch_grouped(pool, schema_name, INDEXES_SQL, "index metadata").await?,
+            checks: fetch_grouped(pool, schema_name, CHECKS_SQL, "CHECK constraints").await?,
+            foreign_keys: fetch_grouped(
+                pool,
+                schema_name,
+                FOREIGN_KEYS_SQL,
+                "foreign key metadata",
+            )
+            .await?,
+        })
+    }
+
+    fn build_table(&mut self, table_name: String) -> Result<LiveTable> {
+        let mut columns = build_columns(&take_rows(&mut self.columns, &table_name), &table_name)?;
+        let primary_key =
+            build_primary_key(&take_rows(&mut self.primary_keys, &table_name), &table_name)?;
+        let indexes = group_pg_indexes(take_rows(&mut self.indexes, &table_name));
+        let check_constraints = apply_check_constraints(
+            &mut columns,
+            &take_rows(&mut self.checks, &table_name),
+            &table_name,
+        )?;
+        let foreign_keys = group_pg_foreign_keys(take_rows(&mut self.foreign_keys, &table_name));
+
+        Ok(LiveTable {
+            name: table_name,
+            columns,
+            primary_key,
+            indexes,
+            check_constraints,
+            foreign_keys,
+        })
+    }
+}
+
+fn take_rows(grouped: &mut HashMap<String, Vec<PgRow>>, table_name: &str) -> Vec<PgRow> {
+    grouped.remove(table_name).unwrap_or_default()
+}
+
+async fn fetch_current_schema(pool: &PgPool) -> Result<String> {
+    let row = pg_query("SELECT current_schema() AS schema_name")
+        .fetch_one(pool)
+        .await
+        .map_err(|e| {
+            MigrationError::Database(format!("failed to resolve current PostgreSQL schema: {e}"))
+        })?;
+    let schema_name: Option<String> = read_column(&row, "schema_name", || {
+        "current PostgreSQL schema name".to_string()
+    })?;
+    Ok(schema_name.unwrap_or_else(|| "public".to_string()))
+}
+
+async fn fetch_table_names(pool: &PgPool, schema_name: &str) -> Result<Vec<String>> {
+    let rows = pg_query(TABLES_SQL)
+        .bind(schema_name)
+        .fetch_all(pool)
         .await
         .map_err(|e| {
             MigrationError::Database(format!(
@@ -51,355 +249,143 @@ impl SchemaInspector {
             ))
         })?;
 
-        let table_names: Vec<String> = table_rows
-            .into_iter()
-            .map(|r| r.try_get::<String, _>("table_name"))
-            .collect::<std::result::Result<_, _>>()
-            .map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to read table metadata in PostgreSQL schema \"{schema_name}\": {e}"
-                ))
+    rows.iter()
+        .map(|row| {
+            read_column(row, "table_name", || {
+                format!("table metadata in PostgreSQL schema \"{schema_name}\"")
+            })
+        })
+        .collect()
+}
+
+async fn fetch_grouped(
+    pool: &PgPool,
+    schema_name: &str,
+    sql: &str,
+    metadata_label: &str,
+) -> Result<HashMap<String, Vec<PgRow>>> {
+    let rows = pg_query(sql)
+        .bind(schema_name)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            MigrationError::Database(format!(
+                "failed to fetch {metadata_label} in PostgreSQL schema \"{schema_name}\": {e}"
+            ))
+        })?;
+    split_pg_rows_by_table(rows, metadata_label, schema_name)
+}
+
+fn build_columns(rows: &[PgRow], table_name: &str) -> Result<Vec<LiveColumn>> {
+    let mut columns = Vec::with_capacity(rows.len());
+    for row in rows {
+        let col_name: String = read_column(row, "column_name", || {
+            format!("column_name while inspecting table \"{table_name}\"")
+        })?;
+        let describe =
+            |what: &str| format!("{what} for column \"{col_name}\" in table \"{table_name}\"");
+
+        let udt_name: String = read_column(row, "udt_name", || describe("udt_name"))?;
+        let is_nullable: String = read_column(row, "is_nullable", || describe("nullability"))?;
+        let formatted_type: String =
+            read_column(row, "formatted_type", || describe("formatted_type"))?;
+        let column_default: Option<String> =
+            read_column(row, "column_default", || describe("default value"))?;
+        let character_maximum_length: Option<i32> =
+            read_column(row, "character_maximum_length", || {
+                describe("character_maximum_length")
+            })?;
+        let numeric_precision: Option<i32> =
+            read_column(row, "numeric_precision", || describe("numeric_precision"))?;
+        let numeric_scale: Option<i32> =
+            read_column(row, "numeric_scale", || describe("numeric_scale"))?;
+        let generation_expression: Option<String> =
+            read_column(row, "generation_expression", || {
+                describe("generation_expression")
             })?;
 
-        // Pull shared table metadata in batches, then group in memory. This
-        // avoids issuing 5+ catalog queries per table during `db pull`/`db push`.
-        let mut columns_by_table = split_pg_rows_by_table(
-            pg_query(
-                "SELECT c.table_name, \
-                        column_name, \
-                        udt_name, \
-                        pg_catalog.format_type(a.atttypid, a.atttypmod) AS formatted_type, \
-                        is_nullable, \
-                        column_default, \
-                        character_maximum_length, \
-                        numeric_precision, \
-                        numeric_scale, \
-                        generation_expression \
-                 FROM information_schema.columns c \
-                 JOIN pg_namespace n ON n.nspname = c.table_schema \
-                 JOIN pg_class cls ON cls.relnamespace = n.oid AND cls.relname = c.table_name \
-                 JOIN pg_attribute a ON a.attrelid = cls.oid AND a.attname = c.column_name \
-                 WHERE c.table_schema = $1 \
-                   AND c.table_name !~ '^_nautilus_' \
-                   AND a.attnum > 0 \
-                   AND NOT a.attisdropped \
-                 ORDER BY c.table_name, ordinal_position",
-            )
-            .bind(&schema_name)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to fetch column metadata in PostgreSQL schema \"{schema_name}\": {e}"
-                ))
-            })?,
-            "column metadata",
-            &schema_name,
-        )?;
+        let generated_expr = generation_expression
+            .filter(|expr| !expr.is_empty())
+            .map(|expr| normalize_pg_default(&expr));
 
-        let mut primary_keys_by_table = split_pg_rows_by_table(
-            pg_query(
-                "SELECT tc.table_name, kcu.column_name \
-                 FROM information_schema.table_constraints tc \
-                 JOIN information_schema.key_column_usage kcu \
-                   ON tc.constraint_name = kcu.constraint_name \
-                  AND tc.table_schema    = kcu.table_schema \
-                 WHERE tc.constraint_type = 'PRIMARY KEY' \
-                   AND tc.table_schema    = $1 \
-                   AND tc.table_name !~ '^_nautilus_' \
-                 ORDER BY tc.table_name, kcu.ordinal_position",
-            )
-            .bind(&schema_name)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to fetch primary key metadata in PostgreSQL schema \"{schema_name}\": {e}"
-                ))
-            })?,
-            "primary key metadata",
-            &schema_name,
-        )?;
+        columns.push(LiveColumn {
+            name: col_name,
+            col_type: normalize_pg_type(
+                &udt_name,
+                numeric_precision,
+                numeric_scale,
+                character_maximum_length,
+                Some(&formatted_type),
+            ),
+            nullable: is_nullable.eq_ignore_ascii_case("YES"),
+            default_value: column_default.map(|default| normalize_pg_default(&default)),
+            computed_kind: generated_expr.as_ref().map(|_| ComputedKind::Stored),
+            generated_expr,
+            check_expr: None,
+        });
+    }
+    Ok(columns)
+}
 
-        let mut indexes_by_table = split_pg_rows_by_table(
-            pg_query(
-                "SELECT \
-                     tbl.relname                                           AS table_name, \
-                     idx.relname                                           AS index_name, \
-                     attr.attname                                          AS column_name, \
-                     ix.indisunique                                        AS is_unique, \
-                     am.amname                                             AS index_method, \
-                     CASE WHEN op.opcname LIKE 'vector_%' THEN op.opcname END AS opclass, \
-                     idx.reloptions                                         AS index_options, \
-                     k.ord                                                  AS column_position \
-                 FROM pg_class       tbl \
-                 JOIN pg_namespace   ns   ON ns.oid            = tbl.relnamespace \
-                 JOIN pg_index       ix   ON tbl.oid           = ix.indrelid \
-                 JOIN pg_class       idx  ON idx.oid           = ix.indexrelid \
-                 JOIN pg_am          am   ON am.oid            = idx.relam \
-                 JOIN unnest(ix.indkey::int[], ix.indclass::oid[]) \
-                      WITH ORDINALITY AS k(attnum, opclass_oid, ord) ON true \
-                 JOIN pg_attribute   attr ON attr.attrelid      = tbl.oid \
-                                         AND attr.attnum        = k.attnum \
-                 LEFT JOIN pg_opclass op  ON op.oid             = k.opclass_oid \
-                 WHERE ns.nspname = $1 \
-                   AND tbl.relname !~ '^_nautilus_' \
-                   AND tbl.relkind = 'r' \
-                   AND ix.indisprimary = false \
-                 ORDER BY tbl.relname, idx.relname, k.ord",
-            )
-            .bind(&schema_name)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to fetch index metadata in PostgreSQL schema \"{schema_name}\": {e}"
-                ))
-            })?,
-            "index metadata",
-            &schema_name,
-        )?;
+fn build_primary_key(rows: &[PgRow], table_name: &str) -> Result<Vec<String>> {
+    rows.iter()
+        .map(|row| {
+            read_column(row, "column_name", || {
+                format!("primary key metadata for table \"{table_name}\"")
+            })
+        })
+        .collect()
+}
 
-        let mut checks_by_table = split_pg_rows_by_table(
-            pg_query(
-                "SELECT t.relname AS table_name, \
-                        c.conname AS constraint_name, \
-                        pg_get_constraintdef(c.oid) AS constraint_def \
-                 FROM pg_constraint c \
-                 JOIN pg_class t ON t.oid = c.conrelid \
-                 JOIN pg_namespace n ON n.oid = t.relnamespace \
-                 WHERE c.contype = 'c' \
-                   AND n.nspname = $1 \
-                   AND t.relname !~ '^_nautilus_' \
-                 ORDER BY t.relname, c.conname",
-            )
-            .bind(&schema_name)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to fetch CHECK constraints in PostgreSQL schema \"{schema_name}\": {e}"
-                ))
-            })?,
-            "CHECK constraints",
-            &schema_name,
-        )?;
+/// Split CHECK constraints into per-column and table-level expressions, moving
+/// the per-column ones onto their [`LiveColumn`].
+///
+/// A constraint is attributed to a column when its name follows the
+/// `chk_{table}_{column}` convention emitted by `db push` and the suffix names
+/// an existing column; everything else stays a table-level constraint.
+fn apply_check_constraints(
+    columns: &mut [LiveColumn],
+    rows: &[PgRow],
+    table_name: &str,
+) -> Result<Vec<String>> {
+    let column_prefix = format!("chk_{}_", table_name);
+    let column_names: HashSet<&str> = columns.iter().map(|c| c.name.as_str()).collect();
 
-        let mut foreign_keys_by_table = split_pg_rows_by_table(
-            pg_query(
-                "SELECT \
-                     t.relname                                    AS table_name, \
-                     c.conname                                    AS constraint_name, \
-                     a.attname                                    AS column_name, \
-                     rf.relname                                   AS referenced_table, \
-                     ra.attname                                   AS referenced_column, \
-                     c.confdeltype::text                          AS delete_type, \
-                     c.confupdtype::text                          AS update_type \
-                 FROM pg_constraint c \
-                 JOIN pg_class t   ON t.oid  = c.conrelid \
-                 JOIN pg_class rf  ON rf.oid = c.confrelid \
-                 JOIN pg_namespace n ON n.oid = t.relnamespace \
-                 JOIN LATERAL unnest(c.conkey, c.confkey) \
-                      WITH ORDINALITY AS u(local_att, ref_att, pos) ON true \
-                 JOIN pg_attribute a  \
-                   ON a.attrelid = c.conrelid  AND a.attnum = u.local_att \
-                 JOIN pg_attribute ra \
-                   ON ra.attrelid = c.confrelid AND ra.attnum = u.ref_att \
-                 WHERE c.contype = 'f' \
-                   AND n.nspname = $1 \
-                   AND t.relname !~ '^_nautilus_' \
-                 ORDER BY t.relname, c.conname, u.pos",
-            )
-            .bind(&schema_name)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to fetch foreign keys in PostgreSQL schema \"{schema_name}\": {e}"
-                ))
-            })?,
-            "foreign key metadata",
-            &schema_name,
-        )?;
+    let mut table_checks = Vec::new();
+    let mut column_checks: HashMap<String, String> = HashMap::new();
+    for row in rows {
+        let con_name: String = read_column(row, "constraint_name", || {
+            format!("CHECK constraint name for table \"{table_name}\"")
+        })?;
+        let constraint_def: String = read_column(row, "constraint_def", || {
+            format!("CHECK constraint definition \"{con_name}\" on table \"{table_name}\"")
+        })?;
 
-        let mut live = LiveSchema::default();
-
-        for table_name in table_names {
-            let col_rows = columns_by_table.remove(&table_name).unwrap_or_default();
-
-            let mut columns = Vec::with_capacity(col_rows.len());
-            for row in &col_rows {
-                let col_name: String = row.try_get("column_name").map_err(|e| {
-                    MigrationError::Database(format!(
-                        "failed to read column_name while inspecting table \"{table_name}\": {e}"
-                    ))
-                })?;
-                let udt_name: String = row
-                    .try_get("udt_name")
-                    .map_err(|e| {
-                        MigrationError::Database(format!(
-                            "failed to read udt_name for column \"{col_name}\" in table \"{table_name}\": {e}"
-                        ))
-                    })?;
-                let is_nullable: String = row
-                    .try_get("is_nullable")
-                    .map_err(|e| {
-                        MigrationError::Database(format!(
-                            "failed to read nullability for column \"{col_name}\" in table \"{table_name}\": {e}"
-                        ))
-                    })?;
-                let formatted_type: String = row.try_get("formatted_type").map_err(|e| {
-                    MigrationError::Database(format!(
-                        "failed to read formatted_type for column \"{col_name}\" in table \"{table_name}\": {e}"
-                    ))
-                })?;
-                let column_default: Option<String> = row
-                    .try_get("column_default")
-                    .map_err(|e| {
-                        MigrationError::Database(format!(
-                            "failed to read default value for column \"{col_name}\" in table \"{table_name}\": {e}"
-                        ))
-                    })?;
-                let character_maximum_length: Option<i32> = row
-                    .try_get("character_maximum_length")
-                    .map_err(|e| {
-                        MigrationError::Database(format!(
-                            "failed to read character_maximum_length for column \"{col_name}\" in table \"{table_name}\": {e}"
-                        ))
-                    })?;
-                let numeric_precision: Option<i32> = row
-                    .try_get("numeric_precision")
-                    .map_err(|e| {
-                        MigrationError::Database(format!(
-                            "failed to read numeric_precision for column \"{col_name}\" in table \"{table_name}\": {e}"
-                        ))
-                    })?;
-                let numeric_scale: Option<i32> = row
-                    .try_get("numeric_scale")
-                    .map_err(|e| {
-                        MigrationError::Database(format!(
-                            "failed to read numeric_scale for column \"{col_name}\" in table \"{table_name}\": {e}"
-                        ))
-                    })?;
-                let generation_expression: Option<String> = row
-                    .try_get("generation_expression")
-                    .map_err(|e| {
-                        MigrationError::Database(format!(
-                            "failed to read generation_expression for column \"{col_name}\" in table \"{table_name}\": {e}"
-                        ))
-                    })?;
-
-                let col_type = normalize_pg_type(
-                    &udt_name,
-                    numeric_precision,
-                    numeric_scale,
-                    character_maximum_length,
-                    Some(&formatted_type),
-                );
-                let nullable = is_nullable.eq_ignore_ascii_case("YES");
-                let default_value = column_default.map(|d| normalize_pg_default(&d));
-                let generated_expr = generation_expression
-                    .filter(|s| !s.is_empty())
-                    .map(|s| normalize_pg_default(&s));
-                let computed_kind = generated_expr.as_ref().map(|_| ComputedKind::Stored);
-
-                columns.push(LiveColumn {
-                    name: col_name,
-                    col_type,
-                    nullable,
-                    default_value,
-                    generated_expr,
-                    computed_kind,
-                    check_expr: None,
-                });
+        let expr = normalize_pg_check_expr(&constraint_def);
+        match con_name
+            .strip_prefix(&column_prefix)
+            .filter(|candidate| column_names.contains(candidate))
+        {
+            Some(column) => {
+                column_checks.insert(column.to_string(), expr);
             }
-
-            let pk_rows = primary_keys_by_table
-                .remove(&table_name)
-                .unwrap_or_default();
-            let primary_key: Vec<String> = pk_rows
-                .into_iter()
-                .map(|r| r.try_get::<String, _>("column_name"))
-                .collect::<std::result::Result<_, _>>()
-                .map_err(|e| {
-                    MigrationError::Database(format!(
-                        "failed to read primary key metadata for table \"{table_name}\": {e}"
-                    ))
-                })?;
-
-            let indexes =
-                group_pg_indexes(indexes_by_table.remove(&table_name).unwrap_or_default());
-
-            let check_rows = checks_by_table.remove(&table_name).unwrap_or_default();
-
-            let mut table_check_constraints = Vec::new();
-            let mut column_check_map = std::collections::HashMap::new();
-            let col_prefix = format!("chk_{}_", table_name);
-            let column_names: std::collections::HashSet<&str> =
-                columns.iter().map(|c| c.name.as_str()).collect();
-
-            for row in &check_rows {
-                let con_name: String = row.try_get("constraint_name").map_err(|e| {
-                    MigrationError::Database(format!(
-                        "failed to read CHECK constraint name for table \"{table_name}\": {e}"
-                    ))
-                })?;
-                let constraint_def: String = row
-                    .try_get("constraint_def")
-                    .map_err(|e| {
-                        MigrationError::Database(format!(
-                            "failed to read CHECK constraint definition \"{con_name}\" on table \"{table_name}\": {e}"
-                        ))
-                    })?;
-
-                let expr = normalize_pg_check_expr(&constraint_def);
-                let col_name = con_name
-                    .strip_prefix(&col_prefix)
-                    .filter(|cand| column_names.contains(cand))
-                    .map(|s| s.to_string());
-
-                if let Some(col) = col_name {
-                    column_check_map.insert(col, expr);
-                } else {
-                    table_check_constraints.push(expr);
-                }
-            }
-
-            for col in &mut columns {
-                if let Some(expr) = column_check_map.get(&col.name) {
-                    col.check_expr = Some(expr.clone());
-                }
-            }
-
-            let foreign_keys = group_pg_foreign_keys(
-                foreign_keys_by_table
-                    .remove(&table_name)
-                    .unwrap_or_default(),
-            );
-
-            live.tables.insert(
-                table_name.clone(),
-                LiveTable {
-                    name: table_name,
-                    columns,
-                    primary_key,
-                    indexes,
-                    check_constraints: table_check_constraints,
-                    foreign_keys,
-                },
-            );
+            None => table_checks.push(expr),
         }
+    }
 
-        let enum_rows = pg_query(
-            "SELECT t.typname AS enum_name, e.enumlabel AS variant \
-             FROM pg_type t \
-             JOIN pg_enum e ON t.oid = e.enumtypid \
-             JOIN pg_namespace n ON n.oid = t.typnamespace \
-             WHERE n.nspname = $1 \
-             ORDER BY t.typname, e.enumsortorder",
-        )
-        .bind(&schema_name)
-        .fetch_all(&pool)
+    for column in columns {
+        if let Some(expr) = column_checks.get(&column.name) {
+            column.check_expr = Some(expr.clone());
+        }
+    }
+
+    Ok(table_checks)
+}
+
+async fn load_enums(pool: &PgPool, schema_name: &str, live: &mut LiveSchema) -> Result<()> {
+    let rows = pg_query(ENUMS_SQL)
+        .bind(schema_name)
+        .fetch_all(pool)
         .await
         .map_err(|e| {
             MigrationError::Database(format!(
@@ -407,42 +393,26 @@ impl SchemaInspector {
             ))
         })?;
 
-        for row in &enum_rows {
-            let enum_name: String = row.try_get("enum_name").map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to read enum type name in schema \"{schema_name}\": {e}"
-                ))
-            })?;
-            let variant: String = row
-                .try_get("variant")
-                .map_err(|e| {
-                    MigrationError::Database(format!(
-                        "failed to read enum variant for type \"{enum_name}\" in schema \"{schema_name}\": {e}"
-                    ))
-                })?;
-            live.enums.entry(enum_name).or_default().push(variant);
-        }
+    for row in &rows {
+        let enum_name: String = read_column(row, "enum_name", || {
+            format!("enum type name in schema \"{schema_name}\"")
+        })?;
+        let variant: String = read_column(row, "variant", || {
+            format!("enum variant for type \"{enum_name}\" in schema \"{schema_name}\"")
+        })?;
+        live.enums.entry(enum_name).or_default().push(variant);
+    }
+    Ok(())
+}
 
-        let composite_rows = pg_query(
-            "SELECT t.typname AS composite_name, \
-                    a.attname AS field_name, \
-                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS field_type \
-             FROM pg_type t \
-             JOIN pg_namespace n ON n.oid = t.typnamespace \
-             JOIN pg_attribute a ON a.attrelid = t.typrelid \
-             WHERE t.typtype = 'c' \
-               AND n.nspname = $1 \
-               AND a.attnum > 0 \
-               AND NOT a.attisdropped \
-               AND NOT EXISTS ( \
-                   SELECT 1 FROM pg_class c \
-                   WHERE c.reltype = t.oid \
-                     AND c.relkind IN ('r', 'v', 'm', 'p') \
-               ) \
-             ORDER BY t.typname, a.attnum",
-        )
-        .bind(&schema_name)
-        .fetch_all(&pool)
+async fn load_composite_types(
+    pool: &PgPool,
+    schema_name: &str,
+    live: &mut LiveSchema,
+) -> Result<()> {
+    let rows = pg_query(COMPOSITE_TYPES_SQL)
+        .bind(schema_name)
+        .fetch_all(pool)
         .await
         .map_err(|e| {
             MigrationError::Database(format!(
@@ -450,73 +420,66 @@ impl SchemaInspector {
             ))
         })?;
 
-        for row in &composite_rows {
-            let composite_name: String = row.try_get("composite_name").map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to read composite type name in schema \"{schema_name}\": {e}"
-                ))
-            })?;
-            let field_name: String = row
-                .try_get("field_name")
-                .map_err(|e| {
-                    MigrationError::Database(format!(
-                        "failed to read field name for composite type \"{composite_name}\" in schema \"{schema_name}\": {e}"
-                    ))
-                })?;
-            let field_type: String = row
-                .try_get("field_type")
-                .map_err(|e| {
-                    MigrationError::Database(format!(
-                        "failed to read field type for \"{composite_name}.{field_name}\" in schema \"{schema_name}\": {e}"
-                    ))
-                })?;
-            let entry = live
-                .composite_types
-                .entry(composite_name.clone())
-                .or_insert_with(|| LiveCompositeType {
-                    name: composite_name,
-                    fields: Vec::new(),
-                });
-            entry.fields.push(LiveCompositeField {
+    for row in &rows {
+        let composite_name: String = read_column(row, "composite_name", || {
+            format!("composite type name in schema \"{schema_name}\"")
+        })?;
+        let field_name: String = read_column(row, "field_name", || {
+            format!(
+                "field name for composite type \"{composite_name}\" in schema \"{schema_name}\""
+            )
+        })?;
+        let field_type: String = read_column(row, "field_type", || {
+            format!("field type for \"{composite_name}.{field_name}\" in schema \"{schema_name}\"")
+        })?;
+
+        live.composite_types
+            .entry(composite_name.clone())
+            .or_insert_with(|| LiveCompositeType {
+                name: composite_name,
+                fields: Vec::new(),
+            })
+            .fields
+            .push(LiveCompositeField {
                 name: field_name,
                 col_type: normalize_pg_composite_field_type(&field_type),
             });
-        }
+    }
+    Ok(())
+}
 
-        let extension_rows = pg_query(
-            "SELECT e.extname, e.extversion, n.nspname AS extschema \
-             FROM pg_extension e \
-             JOIN pg_namespace n ON n.oid = e.extnamespace \
-             WHERE e.extname <> 'plpgsql'",
-        )
-        .fetch_all(&pool)
+async fn load_extensions(pool: &PgPool, live: &mut LiveSchema) -> Result<()> {
+    let rows = pg_query(EXTENSIONS_SQL)
+        .fetch_all(pool)
         .await
         .map_err(|e| {
             MigrationError::Database(format!("failed to fetch installed extensions: {e}"))
         })?;
 
-        for row in &extension_rows {
-            let name: String = row.try_get("extname").map_err(|e| {
-                MigrationError::Database(format!("failed to read extension name: {e}"))
-            })?;
-            let version: String = row.try_get("extversion").map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to read version for extension \"{name}\": {e}"
-                ))
-            })?;
-            let schema: String = row.try_get("extschema").map_err(|e| {
-                MigrationError::Database(format!(
-                    "failed to read schema for extension \"{name}\": {e}"
-                ))
-            })?;
-            live.extensions.insert(
-                name.to_lowercase(),
-                crate::live::LiveExtension { version, schema },
-            );
-        }
-
-        Ok(live)
+    for row in &rows {
+        let name: String = read_column(row, "extname", || "extension name".to_string())?;
+        let version: String = read_column(row, "extversion", || {
+            format!("version for extension \"{name}\"")
+        })?;
+        let schema: String = read_column(row, "extschema", || {
+            format!("schema for extension \"{name}\"")
+        })?;
+        live.extensions.insert(
+            name.to_lowercase(),
+            crate::live::LiveExtension { version, schema },
+        );
     }
+    Ok(())
+}
+
+fn read_column<'r, T>(row: &'r PgRow, column: &str, describe: impl FnOnce() -> String) -> Result<T>
+where
+    T: sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
+{
+    use sqlx::Row as _;
+
+    row.try_get::<T, _>(column)
+        .map_err(|e| MigrationError::Database(format!("failed to read {}: {e}", describe())))
 }
 
 fn split_pg_rows_by_table(

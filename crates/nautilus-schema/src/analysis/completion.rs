@@ -109,203 +109,182 @@ pub fn completion_with_analysis(
 ) -> Vec<CompletionItem> {
     let tokens = &result.tokens;
     let provider: Option<String> = extract_provider_from_tokens(tokens);
+    let provider = provider.as_deref();
 
-    if let Some(attr_name) = inside_attr_args_at(tokens, offset) {
-        let arg_index = attr_arg_index_at(tokens, offset).unwrap_or(0);
-        return attr_argument_completions(&attr_name, provider.as_deref(), arg_index);
+    if let Some(items) = attribute_completions_at(tokens, offset, provider) {
+        return items;
+    }
+    if let Some(items) = config_completions_at(tokens, offset, provider) {
+        return items;
     }
 
-    let attr_ctx = attribute_context_at(tokens, offset);
-    if attr_ctx == AttributeContext::FieldAttr {
-        return field_attribute_completions();
-    }
-    if attr_ctx == AttributeContext::ModelAttr {
-        // Composite types only support `@@map`; restrict the suggestion list.
-        if declaration_context_at_tokens(tokens, offset) == DeclarationContext::Type {
-            return type_attribute_completions();
-        }
-        return model_attribute_completions();
-    }
-
-    if let Some(completions) =
-        datasource_extension_array_item_completions(tokens, offset, provider.as_deref())
-    {
-        return completions;
-    }
-
-    if let Some(key) = config_value_context_at(tokens, offset) {
-        let block_kind = config_block_kind_at(tokens, offset);
-        if key == "extensions" {
-            let completions =
-                datasource_extension_value_completions(tokens, offset, provider.as_deref());
-            if !completions.is_empty() {
-                return completions;
+    let Some(ast) = result.ast.as_ref() else {
+        // AST unavailable (e.g. fatal parse error).  Use the raw token
+        // stream to make a best-effort guess about the enclosing block.
+        return match declaration_context_at_tokens(tokens, offset) {
+            DeclarationContext::Model => scalar_type_completions(provider),
+            DeclarationContext::Type => {
+                type_body_completions(provider, &UserTypes::from_tokens(tokens))
             }
-        }
-        let completions = config_value_completions(&key, block_kind);
-        if !completions.is_empty() {
-            return completions;
-        }
-    }
-
-    let ast = match &result.ast {
-        Some(a) => a,
-        None => {
-            // AST unavailable (e.g. fatal parse error).  Use the raw token
-            // stream to make a best-effort guess about the enclosing block.
-            return match declaration_context_at_tokens(tokens, offset) {
-                DeclarationContext::Model => scalar_type_completions(provider.as_deref()),
-                DeclarationContext::Type => {
-                    let mut items = scalar_type_completions(provider.as_deref());
-                    for name in user_enums_from_tokens(tokens) {
-                        items.push(CompletionItem::new(
-                            name,
-                            CompletionKind::EnumName,
-                            Some("Enum reference".to_string()),
-                        ));
-                    }
-                    items
-                }
-                DeclarationContext::Other => top_level_completions(),
-            };
-        }
+            DeclarationContext::Other => top_level_completions(),
+        };
     };
 
-    let user_models: Vec<String> = ast
-        .declarations
-        .iter()
-        .filter_map(|d| {
-            if let Declaration::Model(m) = d {
-                Some(m.name.value.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let user_enums: Vec<String> = ast
-        .declarations
-        .iter()
-        .filter_map(|d| {
-            if let Declaration::Enum(e) = d {
-                Some(e.name.value.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let user_composite_types: Vec<String> = ast
-        .declarations
-        .iter()
-        .filter_map(|d| {
-            if let Declaration::Type(t) = d {
-                Some(t.name.value.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-
+    let user_types = UserTypes::from_ast(ast);
     let containing_decl = ast
         .declarations
         .iter()
         .find(|d| span_contains(d.span(), offset));
 
     match containing_decl {
-        None => {
-            // The offset isn't inside any parsed declaration. This can happen
-            // when error recovery dropped the enclosing block.  Fall back to
-            // the token stream to make a best-effort guess.
-            match declaration_context_at_tokens(tokens, offset) {
-                DeclarationContext::Model => {
-                    let mut items = scalar_type_completions(provider.as_deref());
-                    for name in &user_models {
-                        items.push(CompletionItem::new(
-                            name.clone(),
-                            CompletionKind::ModelName,
-                            Some("Model reference".to_string()),
-                        ));
-                    }
-                    for name in &user_enums {
-                        items.push(CompletionItem::new(
-                            name.clone(),
-                            CompletionKind::EnumName,
-                            Some("Enum reference".to_string()),
-                        ));
-                    }
-                    for name in &user_composite_types {
-                        items.push(CompletionItem::new(
-                            name.clone(),
-                            CompletionKind::Type,
-                            Some("Composite type reference".to_string()),
-                        ));
-                    }
-                    items
-                }
-                DeclarationContext::Type => {
-                    let mut items = scalar_type_completions(provider.as_deref());
-                    for name in &user_enums {
-                        items.push(CompletionItem::new(
-                            name.clone(),
-                            CompletionKind::EnumName,
-                            Some("Enum reference".to_string()),
-                        ));
-                    }
-                    items
-                }
-                DeclarationContext::Other => top_level_completions(),
-            }
-        }
+        // The offset isn't inside any parsed declaration. This can happen when
+        // error recovery dropped the enclosing block.  Fall back to the token
+        // stream to make a best-effort guess.
+        None => match declaration_context_at_tokens(tokens, offset) {
+            DeclarationContext::Model => model_body_completions(provider, &user_types),
+            DeclarationContext::Type => type_body_completions(provider, &user_types),
+            DeclarationContext::Other => top_level_completions(),
+        },
 
         Some(Declaration::Datasource(_)) => datasource_field_completions(),
-
         Some(Declaration::Generator(_)) => generator_field_completions(),
 
-        Some(Declaration::Enum(_)) => {
-            // Inside an enum body: only enum variants are meaningful here,
-            // nothing to complete (they are user-defined identifiers).
-            Vec::new()
-        }
+        // Inside an enum body: only enum variants are meaningful here, and they
+        // are user-defined identifiers.
+        Some(Declaration::Enum(_)) => Vec::new(),
 
-        Some(Declaration::Model(_)) => {
-            let mut items = scalar_type_completions(provider.as_deref());
-            for name in &user_models {
-                items.push(CompletionItem::new(
-                    name.clone(),
-                    CompletionKind::ModelName,
-                    Some("Model reference".to_string()),
-                ));
-            }
-            for name in &user_enums {
-                items.push(CompletionItem::new(
-                    name.clone(),
-                    CompletionKind::EnumName,
-                    Some("Enum reference".to_string()),
-                ));
-            }
-            for name in &user_composite_types {
-                items.push(CompletionItem::new(
-                    name.clone(),
-                    CompletionKind::Type,
-                    Some("Composite type reference".to_string()),
-                ));
-            }
-            items
-        }
+        Some(Declaration::Model(_)) => model_body_completions(provider, &user_types),
+        Some(Declaration::Type(_)) => type_body_completions(provider, &user_types),
+    }
+}
 
-        Some(Declaration::Type(_)) => {
-            let mut items = scalar_type_completions(provider.as_deref());
-            for name in &user_enums {
-                items.push(CompletionItem::new(
-                    name.clone(),
-                    CompletionKind::EnumName,
-                    Some("Enum reference".to_string()),
-                ));
+/// Completions for an attribute position: inside an attribute's arguments,
+/// after `@`, or after `@@`.  `None` when the offset is not in an attribute.
+fn attribute_completions_at(
+    tokens: &[Token],
+    offset: usize,
+    provider: Option<&str>,
+) -> Option<Vec<CompletionItem>> {
+    if let Some(attr_name) = inside_attr_args_at(tokens, offset) {
+        let arg_index = attr_arg_index_at(tokens, offset).unwrap_or(0);
+        return Some(attr_argument_completions(&attr_name, provider, arg_index));
+    }
+
+    match attribute_context_at(tokens, offset) {
+        AttributeContext::FieldAttr => Some(field_attribute_completions()),
+        AttributeContext::ModelAttr => {
+            // Composite types only support `@@map`; restrict the suggestion list.
+            if declaration_context_at_tokens(tokens, offset) == DeclarationContext::Type {
+                Some(type_attribute_completions())
+            } else {
+                Some(model_attribute_completions())
             }
-            items
+        }
+        AttributeContext::None => None,
+    }
+}
+
+/// Completions for a `datasource` / `generator` config value position.
+/// `None` when the offset is not on a config value, or nothing is known for it.
+fn config_completions_at(
+    tokens: &[Token],
+    offset: usize,
+    provider: Option<&str>,
+) -> Option<Vec<CompletionItem>> {
+    if let Some(completions) = datasource_extension_array_item_completions(tokens, offset, provider)
+    {
+        return Some(completions);
+    }
+
+    let key = config_value_context_at(tokens, offset)?;
+    if key == "extensions" {
+        let completions = datasource_extension_value_completions(tokens, offset, provider);
+        if !completions.is_empty() {
+            return Some(completions);
         }
     }
+
+    let completions = config_value_completions(&key, config_block_kind_at(tokens, offset));
+    if completions.is_empty() {
+        None
+    } else {
+        Some(completions)
+    }
+}
+
+/// Names declared in the document that can be referenced from a body.
+#[derive(Default)]
+struct UserTypes {
+    models: Vec<String>,
+    enums: Vec<String>,
+    composite_types: Vec<String>,
+}
+
+impl UserTypes {
+    fn from_ast(ast: &crate::ast::Schema) -> Self {
+        let mut types = Self::default();
+        for declaration in &ast.declarations {
+            match declaration {
+                Declaration::Model(m) => types.models.push(m.name.value.clone()),
+                Declaration::Enum(e) => types.enums.push(e.name.value.clone()),
+                Declaration::Type(t) => types.composite_types.push(t.name.value.clone()),
+                _ => {}
+            }
+        }
+        types
+    }
+
+    fn from_tokens(tokens: &[Token]) -> Self {
+        Self {
+            enums: user_enums_from_tokens(tokens),
+            ..Self::default()
+        }
+    }
+}
+
+/// Scalar types plus every model, enum and composite type reference valid in a
+/// model body.
+fn model_body_completions(provider: Option<&str>, user_types: &UserTypes) -> Vec<CompletionItem> {
+    let mut items = type_body_completions(provider, user_types);
+    push_references(
+        &mut items,
+        &user_types.models,
+        CompletionKind::ModelName,
+        "Model reference",
+    );
+    push_references(
+        &mut items,
+        &user_types.composite_types,
+        CompletionKind::Type,
+        "Composite type reference",
+    );
+    items
+}
+
+/// Scalar types plus enum references — composite type bodies cannot hold model
+/// or composite fields.
+fn type_body_completions(provider: Option<&str>, user_types: &UserTypes) -> Vec<CompletionItem> {
+    let mut items = scalar_type_completions(provider);
+    push_references(
+        &mut items,
+        &user_types.enums,
+        CompletionKind::EnumName,
+        "Enum reference",
+    );
+    items
+}
+
+fn push_references(
+    items: &mut Vec<CompletionItem>,
+    names: &[String],
+    kind: CompletionKind,
+    detail: &str,
+) {
+    items.extend(
+        names
+            .iter()
+            .map(|name| CompletionItem::new(name.clone(), kind, Some(detail.to_string()))),
+    );
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

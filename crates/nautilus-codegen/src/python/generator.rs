@@ -8,7 +8,7 @@ use tera::{Context, Tera};
 
 use crate::backend::LanguageBackend;
 use crate::extension_types::{
-    python_input_type_for_extension, ExtensionRegistry, ExtensionWireKind,
+    python_input_type_for_extension, ExtensionRegistry, ExtensionType, ExtensionWireKind,
 };
 use crate::python::backend::PythonBackend;
 use crate::python::type_mapper::{
@@ -318,459 +318,78 @@ fn generate_python_model_with_registry(
 ) -> (String, String) {
     let mut context = Context::new();
     crate::template::insert_protocol_version(&mut context);
-
-    context.insert("model_name", &model.logical_name);
-    context.insert("snake_name", &model.logical_name.to_snake_case());
-    context.insert("table_name", &model.db_name);
-    context.insert("delegate_name", &format!("{}Delegate", model.logical_name));
-    context.insert("find_many_name", &format!("{}FindMany", model.logical_name));
-    context.insert("create_name", &format!("{}Create", model.logical_name));
-    context.insert(
-        "create_many_name",
-        &format!("{}CreateMany", model.logical_name),
-    );
-    context.insert("update_name", &format!("{}Update", model.logical_name));
-    context.insert("delete_name", &format!("{}Delete", model.logical_name));
+    insert_derived_names(&mut context, model);
 
     let pk_field_names = model.primary_key.fields();
     context.insert("primary_key_fields", &pk_field_names);
 
-    let mut enum_imports = HashSet::new();
-    let mut composite_type_imports = HashSet::new();
-    let mut extension_imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let mut has_datetime = false;
-    let mut has_uuid = false;
-    let mut has_decimal = false;
-    let mut has_dict = false;
+    let mut fields = build_scalar_fields(model, ir, extensions, &pk_field_names);
+    fields.order_by.extend(composite_order_by_fields(model, ir));
 
-    let mut scalar_fields: Vec<PythonFieldContext> = Vec::new();
-    let mut create_fields: Vec<PythonFieldContext> = Vec::new();
-    let mut where_input_fields: Vec<WhereInputFieldContext> = Vec::new();
-    let mut create_input_fields: Vec<CreateInputFieldContext> = Vec::new();
-    let mut update_input_fields: Vec<UpdateInputFieldContext> = Vec::new();
-    let mut order_by_fields: Vec<OrderByFieldContext> = Vec::new();
-    let mut numeric_fields: Vec<AggregateFieldContext> = Vec::new();
-    let mut orderable_fields: Vec<AggregateFieldContext> = Vec::new();
-    let mut object_value_db_fields: Vec<String> = Vec::new();
-    let mut vector_field_names: Vec<String> = Vec::new();
+    let relation_imports: Vec<String> = model
+        .relation_fields()
+        .filter_map(|field| match &field.field_type {
+            ResolvedFieldType::Relation(rel) => Some(rel.target_model.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
 
-    for (idx, field) in model.scalar_fields().enumerate() {
-        use nautilus_schema::ir::ScalarType;
-
-        match &field.field_type {
-            ResolvedFieldType::Enum { enum_name } => {
-                if ir.enums.contains_key(enum_name) {
-                    enum_imports.insert(enum_name.clone());
-                }
-            }
-            ResolvedFieldType::CompositeType { type_name, .. } => {
-                if ir.composite_types.contains_key(type_name) {
-                    composite_type_imports.insert(type_name.clone());
-                }
-            }
-            ResolvedFieldType::Scalar(scalar) => match scalar {
-                ScalarType::DateTime => has_datetime = true,
-                ScalarType::Uuid => has_uuid = true,
-                ScalarType::Decimal { .. } => has_decimal = true,
-                ScalarType::Json | ScalarType::Jsonb | ScalarType::Hstore => has_dict = true,
-                _ => {}
-            },
-            _ => {}
-        }
-
-        let extension_type = extensions.type_for_field(field);
-        if let Some(ty) = extension_type {
-            extension_imports
-                .entry(ty.extension.to_string())
-                .or_default()
-                .insert(ty.type_name.to_string());
-            if ty.wire_kind == ExtensionWireKind::Hstore {
-                has_dict = true;
-            }
-        }
-
-        let output_base_type = output_base_python_type(field, &ir.enums, extensions);
-        let input_base_type = input_base_python_type(field, &ir.enums, extensions);
-        let python_type = exact_output_python_type(field, output_base_type.clone());
-        let input_python_type = exact_input_python_type(field, input_base_type);
-        let base_type = output_base_type;
-        let raw_base_type = match &field.field_type {
-            ResolvedFieldType::Scalar(s) => {
-                crate::python::type_mapper::scalar_to_python_type(s).to_string()
-            }
-            ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
-            _ => "Any".to_string(),
-        };
-        let base_python_type = get_base_python_type(field, &ir.enums);
-        let is_enum = matches!(field.field_type, ResolvedFieldType::Enum { .. });
-        let auto_generated = is_auto_generated(field);
-        let is_pk = pk_field_names.contains(&field.logical_name.as_str());
-        let extension_coercer = extension_type
-            .map(|ty| {
-                if field.is_array {
-                    format!(
-                        "lambda v: [{}.from_wire(item) for item in v] if isinstance(v, list) else v",
-                        ty.type_name
-                    )
-                } else {
-                    format!("{}.from_wire", ty.type_name)
-                }
-            })
-            .unwrap_or_default();
-        let extension_input_serializer = extension_type
-            .map(|ty| {
-                if field.is_array {
-                    format!(
-                        "lambda v: [{}.to_wire_input(item) for item in v] if isinstance(v, list) else v",
-                        ty.type_name
-                    )
-                } else {
-                    format!("{}.to_wire_input", ty.type_name)
-                }
-            })
-            .unwrap_or_default();
-
-        // Render enum defaults as `EnumName.VARIANT`.
-        let mut default_val = get_default_value(field);
-        if let Some(ref def) = default_val {
-            if let ResolvedFieldType::Enum { enum_name } = &field.field_type {
-                if !def.contains('.') && !def.contains('(') && def != "None" {
-                    default_val = Some(format!("{}.{}", enum_name, def));
-                }
-            }
-        }
-
-        let model_python_type = python_type.clone();
-        let (model_has_default, model_default) = if field.is_array {
-            (true, "Field(default_factory=list)".to_string())
-        } else if !field.is_required {
-            (true, "None".to_string())
-        } else {
-            (false, String::new())
-        };
-
-        let field_ctx = PythonFieldContext {
-            name: field.logical_name.to_snake_case(),
-            logical_name: field.logical_name.clone(),
-            db_name: field.db_name.clone(),
-            python_type: python_type.clone(),
-            input_python_type: input_python_type.clone(),
-            model_python_type,
-            base_type,
-            raw_base_type,
-            extension_coercer,
-            extension_input_serializer,
-            is_optional: !field.is_required,
-            is_array: field.is_array,
-            is_enum,
-            has_default: default_val.is_some(),
-            default: default_val.unwrap_or_default(),
-            model_has_default,
-            model_default,
-            is_pk,
-            doc_comment: crate::schema_docs::field_modifier_doc(model, field),
-            index: idx,
-        };
-
-        create_fields.push(field_ctx.clone());
-
-        scalar_fields.push(field_ctx);
-
-        if !matches!(field.field_type, ResolvedFieldType::Relation(_)) {
-            let operators = get_filter_operators_for_field(field, &ir.enums);
-            let is_vector = field.is_vector();
-            if is_vector {
-                vector_field_names.push(field.logical_name.clone());
-            }
-            where_input_fields.push(WhereInputFieldContext {
-                name: field.logical_name.clone(),
-                python_type: base_python_type.clone(),
-                where_python_type: extension_type
-                    .map(|ty| {
-                        let type_expr = ty.python_filter_input();
-                        if !field.is_required && !field.is_array {
-                            add_none_to_python_union(type_expr)
-                        } else {
-                            type_expr
-                        }
-                    })
-                    .unwrap_or_default(),
-                is_nullable: !field.is_required && !field.is_array,
-                is_vector,
-                operators: operators
-                    .into_iter()
-                    .map(|op| FilterOperatorContext {
-                        suffix: op.suffix,
-                        python_type: op.type_name,
-                    })
-                    .collect(),
-            });
-        }
-
-        if matches!(
-            field.field_type,
-            ResolvedFieldType::Scalar(nautilus_schema::ir::ScalarType::Json)
-                | ResolvedFieldType::Scalar(nautilus_schema::ir::ScalarType::Jsonb)
-                | ResolvedFieldType::Scalar(nautilus_schema::ir::ScalarType::Hstore)
-        ) && !field.is_array
-        {
-            object_value_db_fields.push(field.db_name.clone());
-        }
-
-        {
-            create_input_fields.push(CreateInputFieldContext {
-                name: field.logical_name.clone(),
-                python_type: input_python_type.clone(),
-                is_required: field.is_required
-                    && field.default_value.is_none()
-                    && !field.is_updated_at
-                    && field.computed.is_none(),
-            });
-        }
-
-        let is_auto_pk = auto_generated && pk_field_names.contains(&field.logical_name.as_str());
-        if !is_auto_pk {
-            update_input_fields.push(UpdateInputFieldContext {
-                name: field.logical_name.clone(),
-                python_type: input_python_type,
-            });
-        }
-
-        let is_numeric = matches!(
-            &field.field_type,
-            ResolvedFieldType::Scalar(ScalarType::Int)
-                | ResolvedFieldType::Scalar(ScalarType::BigInt)
-                | ResolvedFieldType::Scalar(ScalarType::Float)
-                | ResolvedFieldType::Scalar(ScalarType::Decimal { .. })
-        );
-        if is_numeric {
-            numeric_fields.push(AggregateFieldContext {
-                name: field.logical_name.clone(),
-                python_type: base_python_type.clone(),
-            });
-        }
-
-        if is_orderable_model_field(field) {
-            order_by_fields.push(OrderByFieldContext {
-                name: field.logical_name.clone(),
-                is_dotted: false,
-            });
-            orderable_fields.push(AggregateFieldContext {
-                name: field.logical_name.clone(),
-                python_type: base_python_type,
-            });
-        }
-    }
-
-    for parent in model.scalar_fields() {
-        if parent.is_array {
-            continue;
-        }
-        let ResolvedFieldType::CompositeType { type_name, .. } = &parent.field_type else {
-            continue;
-        };
-        let Some(composite) = ir.composite_types.get(type_name) else {
-            continue;
-        };
-        for nested in &composite.fields {
-            if is_orderable_composite_field(nested) {
-                order_by_fields.push(OrderByFieldContext {
-                    name: format!("{}.{}", parent.logical_name, nested.logical_name),
-                    is_dotted: true,
-                });
-            }
-        }
-    }
-
-    let mut relation_imports = HashSet::new();
-    for field in model.relation_fields() {
-        if let ResolvedFieldType::Relation(rel) = &field.field_type {
-            relation_imports.insert(rel.target_model.clone());
-        }
-    }
-
-    context.insert("has_datetime", &has_datetime);
-    context.insert("has_uuid", &has_uuid);
-    context.insert("has_decimal", &has_decimal);
-    context.insert("has_dict", &has_dict);
+    context.insert("has_datetime", &fields.has_datetime);
+    context.insert("has_uuid", &fields.has_uuid);
+    context.insert("has_decimal", &fields.has_decimal);
+    context.insert("has_dict", &fields.has_dict);
     for (flag, value) in extensions.template_flags() {
         context.insert(&flag, &value);
     }
-    context.insert("has_enums", &!enum_imports.is_empty());
+    context.insert("has_enums", &!fields.enum_imports.is_empty());
+    context.insert("enum_imports", &fields.enum_imports);
     context.insert(
-        "enum_imports",
-        &enum_imports.into_iter().collect::<Vec<_>>(),
+        "has_composite_types",
+        &!fields.composite_type_imports.is_empty(),
     );
-    context.insert("has_composite_types", &!composite_type_imports.is_empty());
-    context.insert(
-        "composite_type_imports",
-        &composite_type_imports.into_iter().collect::<Vec<_>>(),
-    );
-    let extension_import_contexts: Vec<ExtensionImportContext> = extension_imports
-        .into_iter()
-        .map(|(module, types)| {
-            let types: Vec<String> = types.into_iter().collect();
-            let input_types = types
-                .iter()
-                .map(|name| format!("{name}Input"))
-                .collect::<Vec<_>>();
-            let mut symbols = types.clone();
-            symbols.extend(input_types.clone());
-            ExtensionImportContext {
-                module,
-                symbols,
-                types,
-                input_types,
-            }
-        })
-        .collect();
+    context.insert("composite_type_imports", &fields.composite_type_imports);
+
+    let extension_import_contexts = build_extension_imports(fields.extension_imports);
     context.insert(
         "has_extension_types",
         &!extension_import_contexts.is_empty(),
     );
     context.insert("extension_imports", &extension_import_contexts);
     context.insert("has_relations", &!relation_imports.is_empty());
-    context.insert(
-        "relation_imports",
-        &relation_imports.into_iter().collect::<Vec<_>>(),
-    );
+    context.insert("relation_imports", &relation_imports);
 
     let relation_fields: Vec<PythonFieldContext> = model
         .relation_fields()
         .enumerate()
-        .map(|(idx, field)| {
-            let python_type = PythonBackend
-                .wrap_field_type(field, output_base_python_type(field, &ir.enums, extensions));
-            let default_val = if field.is_array {
-                "Field(default_factory=list)".to_string()
-            } else {
-                "None".to_string()
-            };
-
-            PythonFieldContext {
-                name: field.logical_name.to_snake_case(),
-                logical_name: field.logical_name.clone(),
-                db_name: field.db_name.clone(),
-                python_type: python_type.clone(),
-                input_python_type: python_type.clone(),
-                model_python_type: python_type.clone(),
-                base_type: String::new(),
-                raw_base_type: String::new(),
-                extension_coercer: String::new(),
-                extension_input_serializer: String::new(),
-                is_optional: true,
-                is_array: field.is_array,
-                is_enum: false,
-                has_default: true,
-                default: default_val,
-                model_has_default: true,
-                model_default: "None".to_string(),
-                is_pk: false,
-                doc_comment: crate::schema_docs::field_modifier_doc(model, field),
-                index: idx,
-            }
-        })
+        .map(|(idx, field)| relation_field_context(model, field, idx, ir, extensions))
         .collect();
+    let include_fields = build_include_fields(model);
 
-    let relations: Vec<PythonRelationContext> = model
-        .relation_fields()
-        .filter_map(|field| {
-            if let ResolvedFieldType::Relation(rel) = &field.field_type {
-                if let Some(target_model) = ir.models.get(&rel.target_model) {
-                    let (fields, references) = if rel.fields.is_empty() {
-                        resolve_inverse_relation_fields(
-                            &model.logical_name,
-                            rel.name.as_deref(),
-                            target_model,
-                        )
-                    } else {
-                        (rel.fields.clone(), rel.references.clone())
-                    };
-
-                    let fields_db: Vec<String> = fields
-                        .iter()
-                        .filter_map(|logical_name| {
-                            model
-                                .fields
-                                .iter()
-                                .find(|f| &f.logical_name == logical_name)
-                                .map(|f| f.db_name.clone())
-                        })
-                        .collect();
-
-                    let references_db: Vec<String> = references
-                        .iter()
-                        .filter_map(|logical_name| {
-                            target_model
-                                .fields
-                                .iter()
-                                .find(|f| &f.logical_name == logical_name)
-                                .map(|f| f.db_name.clone())
-                        })
-                        .collect();
-
-                    Some(PythonRelationContext {
-                        field_name: field.logical_name.to_snake_case(),
-                        target_model: rel.target_model.clone(),
-                        target_table: target_model.db_name.clone(),
-                        is_array: field.is_array,
-                        fields,
-                        references,
-                        fields_db,
-                        references_db,
-                    })
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let include_fields: Vec<IncludeFieldContext> = model
-        .relation_fields()
-        .filter_map(|field| {
-            if let ResolvedFieldType::Relation(rel) = &field.field_type {
-                Some(IncludeFieldContext {
-                    name: field.logical_name.to_snake_case(),
-                    logical_name: field.logical_name.clone(),
-                    target_model: rel.target_model.clone(),
-                    target_snake: rel.target_model.to_snake_case(),
-                    is_array: field.is_array,
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let has_numeric_fields = !numeric_fields.is_empty();
-    let has_orderable_fields = !orderable_fields.is_empty();
-    let has_dotted_order_by_fields = order_by_fields.iter().any(|field| field.is_dotted);
-
-    let needs_typeddict = true;
-
-    context.insert("needs_typeddict", &needs_typeddict);
-    context.insert("where_input_fields", &where_input_fields);
-    context.insert("create_input_fields", &create_input_fields);
-    context.insert("update_input_fields", &update_input_fields);
-    context.insert("order_by_fields", &order_by_fields);
-    context.insert("has_dotted_order_by_fields", &has_dotted_order_by_fields);
+    context.insert("needs_typeddict", &true);
+    context.insert("where_input_fields", &fields.where_input);
+    context.insert("create_input_fields", &fields.create_input);
+    context.insert("update_input_fields", &fields.update_input);
+    context.insert("order_by_fields", &fields.order_by);
+    context.insert(
+        "has_dotted_order_by_fields",
+        &fields.order_by.iter().any(|field| field.is_dotted),
+    );
     context.insert("include_fields", &include_fields);
     context.insert("has_includes", &!include_fields.is_empty());
-    context.insert("numeric_fields", &numeric_fields);
-    context.insert("orderable_fields", &orderable_fields);
-    context.insert("object_value_db_fields", &object_value_db_fields);
-    context.insert("has_numeric_fields", &has_numeric_fields);
-    context.insert("has_orderable_fields", &has_orderable_fields);
-    context.insert("has_vector_fields", &!vector_field_names.is_empty());
-    context.insert("vector_field_names", &vector_field_names);
+    context.insert("numeric_fields", &fields.numeric);
+    context.insert("orderable_fields", &fields.orderable);
+    context.insert("object_value_db_fields", &fields.object_value_db_names);
+    context.insert("has_numeric_fields", &!fields.numeric.is_empty());
+    context.insert("has_orderable_fields", &!fields.orderable.is_empty());
+    context.insert("has_vector_fields", &!fields.vector_names.is_empty());
+    context.insert("vector_field_names", &fields.vector_names);
 
-    context.insert("scalar_fields", &scalar_fields);
+    context.insert("scalar_fields", &fields.scalar);
     context.insert("relation_fields", &relation_fields);
-    context.insert("create_fields", &create_fields);
-    context.insert("relations", &relations);
+    context.insert("create_fields", &fields.create);
+    context.insert("relations", &build_relations(model, ir));
     context.insert("is_async", &is_async);
     context.insert("recursive_type_depth", &recursive_type_depth);
 
@@ -780,6 +399,430 @@ fn generate_python_model_with_registry(
         format!("{}.py", model.logical_name.to_snake_case()),
         model_code,
     )
+}
+
+/// Insert the `{Model}Delegate` / `{Model}FindMany` / … class names the
+/// templates refer to.
+fn insert_derived_names(context: &mut Context, model: &ModelIr) {
+    let name = &model.logical_name;
+    context.insert("model_name", name);
+    context.insert("snake_name", &name.to_snake_case());
+    context.insert("table_name", &model.db_name);
+    context.insert("delegate_name", &format!("{}Delegate", name));
+    context.insert("find_many_name", &format!("{}FindMany", name));
+    context.insert("create_name", &format!("{}Create", name));
+    context.insert("create_many_name", &format!("{}CreateMany", name));
+    context.insert("update_name", &format!("{}Update", name));
+    context.insert("delete_name", &format!("{}Delete", name));
+}
+
+/// The per-field template contexts and import flags a model needs, collected in
+/// a single pass over its scalar fields.
+#[derive(Default)]
+struct PythonFieldSets {
+    scalar: Vec<PythonFieldContext>,
+    create: Vec<PythonFieldContext>,
+    where_input: Vec<WhereInputFieldContext>,
+    create_input: Vec<CreateInputFieldContext>,
+    update_input: Vec<UpdateInputFieldContext>,
+    order_by: Vec<OrderByFieldContext>,
+    numeric: Vec<AggregateFieldContext>,
+    orderable: Vec<AggregateFieldContext>,
+    object_value_db_names: Vec<String>,
+    vector_names: Vec<String>,
+    enum_imports: Vec<String>,
+    composite_type_imports: Vec<String>,
+    extension_imports: BTreeMap<String, BTreeSet<String>>,
+    has_datetime: bool,
+    has_uuid: bool,
+    has_decimal: bool,
+    has_dict: bool,
+}
+
+fn build_scalar_fields(
+    model: &ModelIr,
+    ir: &SchemaIr,
+    extensions: &ExtensionRegistry,
+    pk_field_names: &[&str],
+) -> PythonFieldSets {
+    use nautilus_schema::ir::ScalarType;
+
+    let mut sets = PythonFieldSets::default();
+    let mut enum_imports = HashSet::new();
+    let mut composite_type_imports = HashSet::new();
+
+    for (idx, field) in model.scalar_fields().enumerate() {
+        match &field.field_type {
+            ResolvedFieldType::Enum { enum_name } if ir.enums.contains_key(enum_name) => {
+                enum_imports.insert(enum_name.clone());
+            }
+            ResolvedFieldType::CompositeType { type_name, .. }
+                if ir.composite_types.contains_key(type_name) =>
+            {
+                composite_type_imports.insert(type_name.clone());
+            }
+            ResolvedFieldType::Scalar(scalar) => match scalar {
+                ScalarType::DateTime => sets.has_datetime = true,
+                ScalarType::Uuid => sets.has_uuid = true,
+                ScalarType::Decimal { .. } => sets.has_decimal = true,
+                ScalarType::Json | ScalarType::Jsonb | ScalarType::Hstore => sets.has_dict = true,
+                _ => {}
+            },
+            _ => {}
+        }
+
+        let extension_type = extensions.type_for_field(field);
+        if let Some(ty) = extension_type {
+            sets.extension_imports
+                .entry(ty.extension.to_string())
+                .or_default()
+                .insert(ty.type_name.to_string());
+            if ty.wire_kind == ExtensionWireKind::Hstore {
+                sets.has_dict = true;
+            }
+        }
+
+        let input_python_type =
+            exact_input_python_type(field, input_base_python_type(field, &ir.enums, extensions));
+        let base_python_type = get_base_python_type(field, &ir.enums);
+        let is_pk = pk_field_names.contains(&field.logical_name.as_str());
+
+        let field_ctx = scalar_field_context(model, field, idx, is_pk, ir, extensions);
+        sets.create.push(field_ctx.clone());
+        sets.scalar.push(field_ctx);
+
+        if field.is_vector() {
+            sets.vector_names.push(field.logical_name.clone());
+        }
+        sets.where_input.push(where_input_field(
+            field,
+            ir,
+            extension_type,
+            &base_python_type,
+        ));
+
+        if matches!(
+            field.field_type,
+            ResolvedFieldType::Scalar(ScalarType::Json | ScalarType::Jsonb | ScalarType::Hstore)
+        ) && !field.is_array
+        {
+            sets.object_value_db_names.push(field.db_name.clone());
+        }
+
+        sets.create_input.push(CreateInputFieldContext {
+            name: field.logical_name.clone(),
+            python_type: input_python_type.clone(),
+            is_required: field.is_required
+                && field.default_value.is_none()
+                && !field.is_updated_at
+                && field.computed.is_none(),
+        });
+
+        // An auto-generated primary key is never writable, so it stays out of
+        // the update input.
+        let is_auto_pk = is_auto_generated(field) && is_pk;
+        if !is_auto_pk {
+            sets.update_input.push(UpdateInputFieldContext {
+                name: field.logical_name.clone(),
+                python_type: input_python_type,
+            });
+        }
+
+        let is_numeric = matches!(
+            &field.field_type,
+            ResolvedFieldType::Scalar(
+                ScalarType::Int
+                    | ScalarType::BigInt
+                    | ScalarType::Float
+                    | ScalarType::Decimal { .. }
+            )
+        );
+        if is_numeric {
+            sets.numeric.push(AggregateFieldContext {
+                name: field.logical_name.clone(),
+                python_type: base_python_type.clone(),
+            });
+        }
+
+        if is_orderable_model_field(field) {
+            sets.order_by.push(OrderByFieldContext {
+                name: field.logical_name.clone(),
+                is_dotted: false,
+            });
+            sets.orderable.push(AggregateFieldContext {
+                name: field.logical_name.clone(),
+                python_type: base_python_type,
+            });
+        }
+    }
+
+    sets.enum_imports = enum_imports.into_iter().collect();
+    sets.composite_type_imports = composite_type_imports.into_iter().collect();
+    sets
+}
+
+fn scalar_field_context(
+    model: &ModelIr,
+    field: &nautilus_schema::ir::FieldIr,
+    index: usize,
+    is_pk: bool,
+    ir: &SchemaIr,
+    extensions: &ExtensionRegistry,
+) -> PythonFieldContext {
+    let extension_type = extensions.type_for_field(field);
+    let output_base_type = output_base_python_type(field, &ir.enums, extensions);
+    let python_type = exact_output_python_type(field, output_base_type.clone());
+    let input_python_type =
+        exact_input_python_type(field, input_base_python_type(field, &ir.enums, extensions));
+    let raw_base_type = match &field.field_type {
+        ResolvedFieldType::Scalar(s) => {
+            crate::python::type_mapper::scalar_to_python_type(s).to_string()
+        }
+        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+        _ => "Any".to_string(),
+    };
+
+    // Render enum defaults as `EnumName.VARIANT`.
+    let mut default_val = get_default_value(field);
+    if let Some(ref def) = default_val {
+        if let ResolvedFieldType::Enum { enum_name } = &field.field_type {
+            if !def.contains('.') && !def.contains('(') && def != "None" {
+                default_val = Some(format!("{}.{}", enum_name, def));
+            }
+        }
+    }
+
+    let (model_has_default, model_default) = if field.is_array {
+        (true, "Field(default_factory=list)".to_string())
+    } else if !field.is_required {
+        (true, "None".to_string())
+    } else {
+        (false, String::new())
+    };
+
+    PythonFieldContext {
+        name: field.logical_name.to_snake_case(),
+        logical_name: field.logical_name.clone(),
+        db_name: field.db_name.clone(),
+        model_python_type: python_type.clone(),
+        python_type,
+        input_python_type,
+        base_type: output_base_type,
+        raw_base_type,
+        extension_coercer: extension_wire_adapter(field, extension_type, "from_wire"),
+        extension_input_serializer: extension_wire_adapter(field, extension_type, "to_wire_input"),
+        is_optional: !field.is_required,
+        is_array: field.is_array,
+        is_enum: matches!(field.field_type, ResolvedFieldType::Enum { .. }),
+        model_has_default,
+        model_default,
+        is_pk,
+        doc_comment: crate::schema_docs::field_modifier_doc(model, field),
+        has_default: default_val.is_some(),
+        default: default_val.unwrap_or_default(),
+        index,
+    }
+}
+
+/// The Python expression that converts a field between its wire form and its
+/// extension type, mapping over the elements of an array field.
+fn extension_wire_adapter(
+    field: &nautilus_schema::ir::FieldIr,
+    extension_type: Option<ExtensionType>,
+    method: &str,
+) -> String {
+    extension_type
+        .map(|ty| {
+            if field.is_array {
+                format!(
+                    "lambda v: [{}.{}(item) for item in v] if isinstance(v, list) else v",
+                    ty.type_name, method
+                )
+            } else {
+                format!("{}.{}", ty.type_name, method)
+            }
+        })
+        .unwrap_or_default()
+}
+
+fn where_input_field(
+    field: &nautilus_schema::ir::FieldIr,
+    ir: &SchemaIr,
+    extension_type: Option<ExtensionType>,
+    base_python_type: &str,
+) -> WhereInputFieldContext {
+    let is_nullable = !field.is_required && !field.is_array;
+    WhereInputFieldContext {
+        name: field.logical_name.clone(),
+        python_type: base_python_type.to_string(),
+        where_python_type: extension_type
+            .map(|ty| {
+                let type_expr = ty.python_filter_input();
+                if is_nullable {
+                    add_none_to_python_union(type_expr)
+                } else {
+                    type_expr
+                }
+            })
+            .unwrap_or_default(),
+        is_nullable,
+        is_vector: field.is_vector(),
+        operators: get_filter_operators_for_field(field, &ir.enums)
+            .into_iter()
+            .map(|op| FilterOperatorContext {
+                suffix: op.suffix,
+                python_type: op.type_name,
+            })
+            .collect(),
+    }
+}
+
+/// Dotted `parent.child` order-by entries for the orderable fields of every
+/// non-array composite type column.
+fn composite_order_by_fields(model: &ModelIr, ir: &SchemaIr) -> Vec<OrderByFieldContext> {
+    let mut fields = Vec::new();
+    for parent in model.scalar_fields().filter(|field| !field.is_array) {
+        let ResolvedFieldType::CompositeType { type_name, .. } = &parent.field_type else {
+            continue;
+        };
+        let Some(composite) = ir.composite_types.get(type_name) else {
+            continue;
+        };
+        for nested in &composite.fields {
+            if is_orderable_composite_field(nested) {
+                fields.push(OrderByFieldContext {
+                    name: format!("{}.{}", parent.logical_name, nested.logical_name),
+                    is_dotted: true,
+                });
+            }
+        }
+    }
+    fields
+}
+
+fn build_extension_imports(
+    extension_imports: BTreeMap<String, BTreeSet<String>>,
+) -> Vec<ExtensionImportContext> {
+    extension_imports
+        .into_iter()
+        .map(|(module, types)| {
+            let types: Vec<String> = types.into_iter().collect();
+            let input_types: Vec<String> =
+                types.iter().map(|name| format!("{name}Input")).collect();
+            let mut symbols = types.clone();
+            symbols.extend(input_types.clone());
+            ExtensionImportContext {
+                module,
+                symbols,
+                types,
+                input_types,
+            }
+        })
+        .collect()
+}
+
+/// Relation fields are hydrated separately, so they carry no column metadata
+/// and always default to empty.
+fn relation_field_context(
+    model: &ModelIr,
+    field: &nautilus_schema::ir::FieldIr,
+    index: usize,
+    ir: &SchemaIr,
+    extensions: &ExtensionRegistry,
+) -> PythonFieldContext {
+    let python_type =
+        PythonBackend.wrap_field_type(field, output_base_python_type(field, &ir.enums, extensions));
+    let default_val = if field.is_array {
+        "Field(default_factory=list)".to_string()
+    } else {
+        "None".to_string()
+    };
+
+    PythonFieldContext {
+        name: field.logical_name.to_snake_case(),
+        logical_name: field.logical_name.clone(),
+        db_name: field.db_name.clone(),
+        input_python_type: python_type.clone(),
+        model_python_type: python_type.clone(),
+        python_type,
+        base_type: String::new(),
+        raw_base_type: String::new(),
+        extension_coercer: String::new(),
+        extension_input_serializer: String::new(),
+        is_optional: true,
+        is_array: field.is_array,
+        is_enum: false,
+        has_default: true,
+        default: default_val,
+        model_has_default: true,
+        model_default: "None".to_string(),
+        is_pk: false,
+        doc_comment: crate::schema_docs::field_modifier_doc(model, field),
+        index,
+    }
+}
+
+fn build_relations(model: &ModelIr, ir: &SchemaIr) -> Vec<PythonRelationContext> {
+    model
+        .relation_fields()
+        .filter_map(|field| {
+            let ResolvedFieldType::Relation(rel) = &field.field_type else {
+                return None;
+            };
+            let target_model = ir.models.get(&rel.target_model)?;
+            let (fields, references) = if rel.fields.is_empty() {
+                resolve_inverse_relation_fields(
+                    &model.logical_name,
+                    rel.name.as_deref(),
+                    target_model,
+                )
+            } else {
+                (rel.fields.clone(), rel.references.clone())
+            };
+
+            Some(PythonRelationContext {
+                field_name: field.logical_name.to_snake_case(),
+                target_model: rel.target_model.clone(),
+                target_table: target_model.db_name.clone(),
+                is_array: field.is_array,
+                fields_db: db_names_for(model, &fields),
+                references_db: db_names_for(target_model, &references),
+                fields,
+                references,
+            })
+        })
+        .collect()
+}
+
+fn db_names_for(model: &ModelIr, logical_names: &[String]) -> Vec<String> {
+    logical_names
+        .iter()
+        .filter_map(|logical_name| {
+            model
+                .fields
+                .iter()
+                .find(|f| &f.logical_name == logical_name)
+                .map(|f| f.db_name.clone())
+        })
+        .collect()
+}
+
+fn build_include_fields(model: &ModelIr) -> Vec<IncludeFieldContext> {
+    model
+        .relation_fields()
+        .filter_map(|field| {
+            let ResolvedFieldType::Relation(rel) = &field.field_type else {
+                return None;
+            };
+            Some(IncludeFieldContext {
+                name: field.logical_name.to_snake_case(),
+                logical_name: field.logical_name.clone(),
+                target_model: rel.target_model.clone(),
+                target_snake: rel.target_model.to_snake_case(),
+                is_array: field.is_array,
+            })
+        })
+        .collect()
 }
 
 /// Generate all Python models.

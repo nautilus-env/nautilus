@@ -145,17 +145,53 @@ fn validate_ir_references(ir: &SchemaIr) -> Result<()> {
 /// included directly in an existing Cargo workspace.
 pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Result<()> {
     let start = std::time::Instant::now();
-    let install = options.install;
-    let verbose = options.verbose;
-    let standalone = options.standalone;
 
     let source = fs::read_to_string(schema_path)
         .with_context(|| format!("Failed to read schema file: {}", schema_path.display()))?;
 
-    let validated = validate_schema_source(&source).map_err(|e| {
+    let ir = load_generation_ir(schema_path, &source, options.verbose)?;
+    report_loaded_schema(schema_path, &ir);
+
+    let ctx = GenerationContext::new(&ir, schema_path, &source, &options);
+    let generated = match ctx.provider() {
+        "nautilus-client-rs" => ctx.generate_rust()?,
+        "nautilus-client-py" => ctx.generate_python()?,
+        "nautilus-client-js" => ctx.generate_js()?,
+        "nautilus-client-java" => ctx.generate_java()?,
+        other => {
+            return Err(anyhow::anyhow!(
+                "Unsupported generator provider: '{}'. Supported: 'nautilus-client-rs', 'nautilus-client-py', 'nautilus-client-js', 'nautilus-client-java'",
+                other
+            ));
+        }
+    };
+
+    // `None` means the run had nothing to write and already told the user why.
+    let Some(generated) = generated else {
+        return Ok(());
+    };
+
+    println!(
+        "\nGenerated {} {} {} {}\n",
+        console::style(format!(
+            "Nautilus Client for {} (v{})",
+            generated.client_name,
+            env!("CARGO_PKG_VERSION")
+        ))
+        .bold(),
+        console::style("to").dim(),
+        console::style(generated.output).italic().dim(),
+        console::style(format!("({}ms)", start.elapsed().as_millis())).italic()
+    );
+
+    Ok(())
+}
+
+fn load_generation_ir(schema_path: &Path, source: &str, verbose: bool) -> Result<SchemaIr> {
+    let validated = validate_schema_source(source).map_err(|e| {
         anyhow::anyhow!(
             "Validation failed:\n{}",
-            e.format_with_file(&schema_path.display().to_string(), &source)
+            e.format_with_file(&schema_path.display().to_string(), source)
         )
     })?;
     let nautilus_schema::ValidatedSchema { ast, ir } = validated;
@@ -170,6 +206,10 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
         println!("{:#?}", ir);
     }
 
+    Ok(ir)
+}
+
+fn report_loaded_schema(schema_path: &Path, ir: &SchemaIr) {
     if let Some(ds) = &ir.datasource {
         if let Some(var_name) = ds
             .url
@@ -190,308 +230,276 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
         console::style("Nautilus schema loaded from").dim(),
         console::style(schema_path.display()).italic().dim()
     );
+}
 
-    let output_path_opt: Option<String> = ir.generator.as_ref().and_then(|g| g.output.clone());
+/// A finished generation run: which client was produced and where it landed.
+struct GeneratedClient {
+    client_name: &'static str,
+    output: String,
+}
 
-    let provider = ir
-        .generator
-        .as_ref()
-        .map(|g| g.provider.as_str())
-        .unwrap_or("nautilus-client-rs");
+/// Everything the per-language generators need: the validated IR plus the
+/// generator settings resolved once from it.
+struct GenerationContext<'a> {
+    ir: &'a SchemaIr,
+    schema_path: &'a Path,
+    source: &'a str,
+    options: &'a GenerateOptions,
+    is_async: bool,
+    recursive_type_depth: usize,
+    output_path: Option<String>,
+    registry: ExtensionRegistry,
+}
 
-    let is_async = ir
-        .generator
-        .as_ref()
-        .map(|g| g.interface == nautilus_schema::ir::InterfaceKind::Async)
-        .unwrap_or(false);
-
-    let recursive_type_depth = ir
-        .generator
-        .as_ref()
-        .map(|g| g.recursive_type_depth)
-        .unwrap_or(5);
-    let extension_registry = ExtensionRegistry::from_schema(&ir);
-
-    let final_output: String;
-    let client_name: &str;
-
-    match provider {
-        "nautilus-client-rs" => {
-            let models = generate_all_models_with_registry(&ir, is_async, &extension_registry);
-            client_name = "Rust";
-
-            let enums_code = if !ir.enums.is_empty() {
-                Some(generate_all_enums(&ir.enums))
-            } else {
-                None
-            };
-
-            let composite_types_code =
-                generate_all_composite_types_with_registry(&ir, &extension_registry);
-            let extension_files = generate_rust_extension_files(&extension_registry);
-
-            // Rust integration always needs a persistent output path because
-            // `integrate_rust_package` adds a Cargo path-dependency pointing to
-            // the generated crate on disk.
-            let output_path = output_path_opt
-                .as_deref()
-                .unwrap_or("./generated")
-                .to_string();
-
-            write_rust_code(
-                &output_path,
-                &models,
-                enums_code,
-                composite_types_code,
-                &extension_files,
-                &source,
-                standalone,
-            )?;
-
-            if install {
-                integrate_rust_package(&output_path, schema_path)?;
-            }
-
-            final_output = output_path;
-        }
-        "nautilus-client-py" => {
-            let models = crate::python::generator::generate_all_python_models_with_registry(
-                &ir,
-                is_async,
-                recursive_type_depth,
-                &extension_registry,
-            );
-            client_name = "Python";
-
-            let enums_code = if !ir.enums.is_empty() {
-                Some(generate_python_enums(&ir.enums))
-            } else {
-                None
-            };
-
-            let composite_types_code = generate_python_composite_types(&ir.composite_types);
-            let extension_files = generate_python_extension_files(&extension_registry);
-
-            let abs_path = schema_path
-                .canonicalize()
-                .unwrap_or_else(|_| schema_path.clone());
-            let schema_path_str = abs_path
-                .to_string_lossy()
-                .trim_start_matches(r"\\?\")
-                .replace('\\', "/");
-
-            let client_code =
-                python::generate_python_client(&ir.models, &schema_path_str, is_async);
-            let runtime = python_runtime_files();
-
-            match output_path_opt.as_deref() {
-                Some(output_path) => {
-                    write_python_code(
-                        output_path,
-                        &models,
-                        enums_code,
-                        composite_types_code,
-                        &extension_files,
-                        Some(client_code),
-                        &runtime,
-                    )?;
-                    if install {
-                        let installed = install_python_package(output_path)?;
-                        final_output = installed.display().to_string();
-                    } else {
-                        final_output = output_path.to_string();
-                    }
-                }
-                None => {
-                    if install {
-                        let tmp_dir = std::env::temp_dir().join("nautilus_codegen_tmp");
-                        let tmp_path = tmp_dir.to_string_lossy().to_string();
-
-                        write_python_code(
-                            &tmp_path,
-                            &models,
-                            enums_code,
-                            composite_types_code,
-                            &extension_files,
-                            Some(client_code),
-                            &runtime,
-                        )?;
-                        let installed = install_python_package(&tmp_path)?;
-                        let _ = fs::remove_dir_all(&tmp_dir);
-                        final_output = installed.display().to_string();
-                    } else {
-                        eprint_warning(
-                            "no output path specified and --no-install given; nothing written",
-                        );
-                        return Ok(());
-                    }
-                }
-            }
-        }
-        "nautilus-client-js" => {
-            let (js_models, dts_models) =
-                crate::js::generator::generate_all_js_models_with_registry(
-                    &ir,
-                    &extension_registry,
-                );
-            client_name = "JavaScript";
-
-            let (js_enums, dts_enums) = if !ir.enums.is_empty() {
-                let (js, dts) = generate_js_enums(&ir.enums);
-                (Some(js), Some(dts))
-            } else {
-                (None, None)
-            };
-
-            let dts_composite_types = generate_js_composite_types(&ir.composite_types);
-            let (js_extension_files, dts_extension_files) =
-                generate_js_extension_files(&extension_registry);
-
-            let abs_path = schema_path
-                .canonicalize()
-                .unwrap_or_else(|_| schema_path.clone());
-            let schema_path_str = abs_path
-                .to_string_lossy()
-                .trim_start_matches(r"\\?\")
-                .replace('\\', "/");
-
-            let (js_client, dts_client) = generate_js_client(&ir.models, &schema_path_str);
-            let (js_models_index, dts_models_index) = generate_js_models_index(&js_models);
-            let runtime = js_runtime_files();
-
-            match output_path_opt.as_deref() {
-                Some(output_path) => {
-                    write_js_code(
-                        output_path,
-                        &js_models,
-                        &dts_models,
-                        js_enums,
-                        dts_enums,
-                        dts_composite_types,
-                        &js_extension_files,
-                        &dts_extension_files,
-                        Some(js_client),
-                        Some(dts_client),
-                        Some(js_models_index),
-                        Some(dts_models_index),
-                        &runtime,
-                    )?;
-                    if install {
-                        let installed = install_js_package(output_path, schema_path)?;
-                        final_output = installed.display().to_string();
-                    } else {
-                        final_output = output_path.to_string();
-                    }
-                }
-                None => {
-                    if install {
-                        let tmp_dir = std::env::temp_dir().join("nautilus_codegen_js_tmp");
-                        let tmp_path = tmp_dir.to_string_lossy().to_string();
-
-                        write_js_code(
-                            &tmp_path,
-                            &js_models,
-                            &dts_models,
-                            js_enums,
-                            dts_enums,
-                            dts_composite_types,
-                            &js_extension_files,
-                            &dts_extension_files,
-                            Some(js_client),
-                            Some(dts_client),
-                            Some(js_models_index),
-                            Some(dts_models_index),
-                            &runtime,
-                        )?;
-                        let installed = install_js_package(&tmp_path, schema_path)?;
-                        let _ = fs::remove_dir_all(&tmp_dir);
-                        final_output = installed.display().to_string();
-                    } else {
-                        eprint_warning(
-                            "no output path specified and --no-install given; nothing written",
-                        );
-                        return Ok(());
-                    }
-                }
-            }
-        }
-        "nautilus-client-java" => {
-            client_name = "Java";
-            let java_mode = ir
-                .generator
-                .as_ref()
-                .and_then(|g| g.java_mode)
-                .unwrap_or(JavaGenerationMode::Maven);
-
-            if install {
-                match java_mode {
-                    JavaGenerationMode::Maven => eprint_warning(
-                        "install = true is currently ignored for 'nautilus-client-java'; the generated Maven module is written only to the configured output path",
-                    ),
-                    JavaGenerationMode::Jar => eprint_warning(
-                        "install = true is currently ignored for 'nautilus-client-java'; generation writes the Maven module to the configured output path and the plain Java bundle to output/dist",
-                    ),
-                }
-            }
-
-            let abs_path = schema_path
-                .canonicalize()
-                .unwrap_or_else(|_| schema_path.clone());
-            let schema_path_str = abs_path
-                .to_string_lossy()
-                .trim_start_matches(r"\\?\")
-                .replace('\\', "/");
-
-            let output_path = output_path_opt
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("Java generation requires generator.output"))?;
-            let files = crate::java::generator::generate_java_client_with_registry(
-                &ir,
-                &schema_path_str,
-                is_async,
-                &extension_registry,
-            )?;
-            write_java_code(output_path, &files)?;
-
-            final_output = if java_mode == JavaGenerationMode::Jar {
-                let artifact_id = ir
-                    .generator
-                    .as_ref()
-                    .and_then(|g| g.java_artifact_id.as_deref())
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Java bundle mode requires generator.artifact_id to build the jar name"
-                        )
-                    })?;
-                build_java_bundle(output_path, artifact_id)?
-                    .display()
-                    .to_string()
-            } else {
-                output_path.to_string()
-            };
-        }
-        other => {
-            return Err(anyhow::anyhow!(
-                "Unsupported generator provider: '{}'. Supported: 'nautilus-client-rs', 'nautilus-client-py', 'nautilus-client-js', 'nautilus-client-java'",
-                other
-            ));
+impl<'a> GenerationContext<'a> {
+    fn new(
+        ir: &'a SchemaIr,
+        schema_path: &'a Path,
+        source: &'a str,
+        options: &'a GenerateOptions,
+    ) -> Self {
+        let generator = ir.generator.as_ref();
+        Self {
+            ir,
+            schema_path,
+            source,
+            options,
+            is_async: generator
+                .map(|g| g.interface == nautilus_schema::ir::InterfaceKind::Async)
+                .unwrap_or(false),
+            recursive_type_depth: generator.map(|g| g.recursive_type_depth).unwrap_or(5),
+            output_path: generator.and_then(|g| g.output.clone()),
+            registry: ExtensionRegistry::from_schema(ir),
         }
     }
 
-    println!(
-        "\nGenerated {} {} {} {}\n",
-        console::style(format!(
-            "Nautilus Client for {} (v{})",
-            client_name,
-            env!("CARGO_PKG_VERSION")
-        ))
-        .bold(),
-        console::style("to").dim(),
-        console::style(final_output).italic().dim(),
-        console::style(format!("({}ms)", start.elapsed().as_millis())).italic()
-    );
+    fn provider(&self) -> &str {
+        self.ir
+            .generator
+            .as_ref()
+            .map(|g| g.provider.as_str())
+            .unwrap_or("nautilus-client-rs")
+    }
 
-    Ok(())
+    /// Absolute schema path as embedded in generated clients: Windows UNC
+    /// prefixes stripped and separators normalised so the literal is valid in
+    /// every target language.
+    fn embedded_schema_path(&self) -> String {
+        self.schema_path
+            .canonicalize()
+            .unwrap_or_else(|_| self.schema_path.to_path_buf())
+            .to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .replace('\\', "/")
+    }
+
+    fn generate_rust(&self) -> Result<Option<GeneratedClient>> {
+        let models = generate_all_models_with_registry(self.ir, self.is_async, &self.registry);
+        let enums_code = (!self.ir.enums.is_empty()).then(|| generate_all_enums(&self.ir.enums));
+        let composite_types_code =
+            generate_all_composite_types_with_registry(self.ir, &self.registry);
+        let extension_files = generate_rust_extension_files(&self.registry);
+
+        // Rust integration always needs a persistent output path because
+        // `integrate_rust_package` adds a Cargo path-dependency pointing to
+        // the generated crate on disk.
+        let output_path = self
+            .output_path
+            .as_deref()
+            .unwrap_or("./generated")
+            .to_string();
+
+        write_rust_code(
+            &output_path,
+            &models,
+            enums_code,
+            composite_types_code,
+            &extension_files,
+            self.source,
+            self.options.standalone,
+        )?;
+
+        if self.options.install {
+            integrate_rust_package(&output_path, self.schema_path)?;
+        }
+
+        Ok(Some(GeneratedClient {
+            client_name: "Rust",
+            output: output_path,
+        }))
+    }
+
+    fn generate_python(&self) -> Result<Option<GeneratedClient>> {
+        let models = crate::python::generator::generate_all_python_models_with_registry(
+            self.ir,
+            self.is_async,
+            self.recursive_type_depth,
+            &self.registry,
+        );
+        let enums_code = (!self.ir.enums.is_empty()).then(|| generate_python_enums(&self.ir.enums));
+        let composite_types_code = generate_python_composite_types(&self.ir.composite_types);
+        let extension_files = generate_python_extension_files(&self.registry);
+        let client_code = python::generate_python_client(
+            &self.ir.models,
+            &self.embedded_schema_path(),
+            self.is_async,
+        );
+        let runtime = python_runtime_files();
+
+        let output = self.emit_package(
+            "nautilus_codegen_tmp",
+            |path| {
+                write_python_code(
+                    path,
+                    &models,
+                    enums_code.clone(),
+                    composite_types_code.clone(),
+                    &extension_files,
+                    Some(client_code.clone()),
+                    &runtime,
+                )
+            },
+            install_python_package,
+        )?;
+
+        Ok(output.map(|output| GeneratedClient {
+            client_name: "Python",
+            output,
+        }))
+    }
+
+    fn generate_js(&self) -> Result<Option<GeneratedClient>> {
+        let (js_models, dts_models) =
+            crate::js::generator::generate_all_js_models_with_registry(self.ir, &self.registry);
+        let (js_enums, dts_enums) = if !self.ir.enums.is_empty() {
+            let (js, dts) = generate_js_enums(&self.ir.enums);
+            (Some(js), Some(dts))
+        } else {
+            (None, None)
+        };
+        let dts_composite_types = generate_js_composite_types(&self.ir.composite_types);
+        let (js_extension_files, dts_extension_files) = generate_js_extension_files(&self.registry);
+        let (js_client, dts_client) =
+            generate_js_client(&self.ir.models, &self.embedded_schema_path());
+        let (js_models_index, dts_models_index) = generate_js_models_index(&js_models);
+        let runtime = js_runtime_files();
+
+        let output = self.emit_package(
+            "nautilus_codegen_js_tmp",
+            |path| {
+                write_js_code(
+                    path,
+                    &js_models,
+                    &dts_models,
+                    js_enums.clone(),
+                    dts_enums.clone(),
+                    dts_composite_types.clone(),
+                    &js_extension_files,
+                    &dts_extension_files,
+                    Some(js_client.clone()),
+                    Some(dts_client.clone()),
+                    Some(js_models_index.clone()),
+                    Some(dts_models_index.clone()),
+                    &runtime,
+                )
+            },
+            |path| install_js_package(path, self.schema_path),
+        )?;
+
+        Ok(output.map(|output| GeneratedClient {
+            client_name: "JavaScript",
+            output,
+        }))
+    }
+
+    fn generate_java(&self) -> Result<Option<GeneratedClient>> {
+        let java_mode = self
+            .ir
+            .generator
+            .as_ref()
+            .and_then(|g| g.java_mode)
+            .unwrap_or(JavaGenerationMode::Maven);
+
+        if self.options.install {
+            match java_mode {
+                JavaGenerationMode::Maven => eprint_warning(
+                    "install = true is currently ignored for 'nautilus-client-java'; the generated Maven module is written only to the configured output path",
+                ),
+                JavaGenerationMode::Jar => eprint_warning(
+                    "install = true is currently ignored for 'nautilus-client-java'; generation writes the Maven module to the configured output path and the plain Java bundle to output/dist",
+                ),
+            }
+        }
+
+        let output_path = self
+            .output_path
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Java generation requires generator.output"))?;
+        let files = crate::java::generator::generate_java_client_with_registry(
+            self.ir,
+            &self.embedded_schema_path(),
+            self.is_async,
+            &self.registry,
+        )?;
+        write_java_code(output_path, &files)?;
+
+        let output = if java_mode == JavaGenerationMode::Jar {
+            let artifact_id = self
+                .ir
+                .generator
+                .as_ref()
+                .and_then(|g| g.java_artifact_id.as_deref())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Java bundle mode requires generator.artifact_id to build the jar name"
+                    )
+                })?;
+            build_java_bundle(output_path, artifact_id)?
+                .display()
+                .to_string()
+        } else {
+            output_path.to_string()
+        };
+
+        Ok(Some(GeneratedClient {
+            client_name: "Java",
+            output,
+        }))
+    }
+
+    /// Write a generated package and optionally install it, returning the path
+    /// reported to the user.
+    ///
+    /// Without a configured output path the package is only materialised in a
+    /// temporary directory long enough to install it; `Ok(None)` means there
+    /// was nowhere to write it and the user has been warned.
+    fn emit_package(
+        &self,
+        tmp_dir_name: &str,
+        write: impl Fn(&str) -> Result<()>,
+        install: impl Fn(&str) -> Result<PathBuf>,
+    ) -> Result<Option<String>> {
+        let Some(output_path) = self.output_path.as_deref() else {
+            if !self.options.install {
+                eprint_warning("no output path specified and --no-install given; nothing written");
+                return Ok(None);
+            }
+
+            let tmp_dir = std::env::temp_dir().join(tmp_dir_name);
+            let tmp_path = tmp_dir.to_string_lossy().to_string();
+            write(&tmp_path)?;
+            let installed = install(&tmp_path)?;
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Ok(Some(installed.display().to_string()));
+        };
+
+        write(output_path)?;
+        if self.options.install {
+            Ok(Some(install(output_path)?.display().to_string()))
+        } else {
+            Ok(Some(output_path.to_string()))
+        }
+    }
 }
 
 /// Parse and validate the schema, printing a summary. Does not generate code.

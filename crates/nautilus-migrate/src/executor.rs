@@ -65,434 +65,18 @@ impl MigrationExecutor {
         let mut up_sql: Vec<String> = Vec::new();
         let mut down_groups: Vec<Vec<String>> = Vec::new();
 
+        let reverser = ChangeReverser::new(provider, live);
         let ordered_changes = order_changes_for_apply(changes, live);
 
         for change in &ordered_changes {
             let stmts = applier.sql_for(change)?;
             up_sql.extend(stmts);
-            down_groups.push(self.reverse_change(change, provider, live));
+            down_groups.push(reverser.reverse(change));
         }
 
         let down_sql: Vec<String> = down_groups.into_iter().rev().flatten().collect();
 
         Ok(Migration::new(name, up_sql, down_sql))
-    }
-
-    /// Produce best-effort down-SQL for a single change.
-    fn reverse_change(
-        &self,
-        change: &Change,
-        provider: DatabaseProvider,
-        live: &LiveSchema,
-    ) -> Vec<String> {
-        let q = |name: &str| provider.quote_identifier(name);
-        let strategy = ProviderStrategy::new(provider);
-
-        match change {
-            Change::NewTable(model) => {
-                vec![strategy.drop_table_sql(&model.db_name, provider == DatabaseProvider::Postgres)]
-            }
-
-            Change::AddedColumn { table, field } => match provider {
-                DatabaseProvider::Postgres | DatabaseProvider::Mysql => {
-                    vec![format!(
-                        "ALTER TABLE {} DROP COLUMN {}",
-                        q(table),
-                        q(&field.db_name),
-                    )]
-                }
-                DatabaseProvider::Sqlite => {
-                    vec![format!(
-                        "-- Cannot auto-reverse ADD COLUMN on SQLite: {}.{}",
-                        table, field.db_name,
-                    )]
-                }
-            },
-
-            Change::NullabilityChanged {
-                table,
-                column,
-                now_required,
-            } => strategy
-                .reverse_nullability_change_sql(table, column, *now_required)
-                .unwrap_or_else(|| {
-                    vec![format!(
-                        "-- Cannot auto-reverse nullability change: {}.{}",
-                        table, column,
-                    )]
-                }),
-
-            Change::DefaultChanged {
-                table,
-                column,
-                from,
-                ..
-            } => strategy
-                .reverse_default_change_sql(table, column, from.as_deref())
-                .unwrap_or_else(|| {
-                    vec![format!(
-                        "-- Cannot auto-reverse DEFAULT change: {}.{}",
-                        table, column,
-                    )]
-                }),
-
-            Change::IndexAdded {
-                table,
-                columns,
-                index_name,
-                ..
-            } => {
-                let idx_name = index_name
-                    .as_deref()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("idx_{}_{}", table, columns.join("_")));
-                match provider {
-                    DatabaseProvider::Postgres | DatabaseProvider::Sqlite => {
-                        vec![format!("DROP INDEX IF EXISTS {}", q(&idx_name))]
-                    }
-                    DatabaseProvider::Mysql => {
-                        vec![format!("DROP INDEX {} ON {}", q(&idx_name), q(table),)]
-                    }
-                }
-            }
-
-            Change::DroppedTable { name } => {
-                if let Some(live_table) = live.tables.get(name) {
-                    Self::create_table_sql_from_live(live_table, provider)
-                } else {
-                    vec![format!(
-                        "-- Cannot auto-reverse: table {} was dropped (no live snapshot)",
-                        name
-                    )]
-                }
-            }
-            Change::DroppedColumn { table, column } => {
-                self.reverse_dropped_column(table, column, provider, live)
-            }
-            Change::TypeChanged {
-                table,
-                column,
-                from,
-                ..
-            } => strategy
-                .reverse_column_type_sql(table, column, from)
-                .unwrap_or_else(|| {
-                    vec![format!(
-                        "-- Cannot auto-reverse TYPE change on {}.{} (was {})",
-                        table, column, from,
-                    )]
-                }),
-
-            Change::PrimaryKeyChanged { table } => {
-                if let Some(live_table) = live.tables.get(table) {
-                    if !live_table.primary_key.is_empty() {
-                        let pk_cols = live_table
-                            .primary_key
-                            .iter()
-                            .map(|c| q(c))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        match provider {
-                            DatabaseProvider::Postgres => vec![
-                                format!("ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}", q(table), q(&format!("{}_pkey", table))),
-                                format!("ALTER TABLE {} ADD PRIMARY KEY ({})", q(table), pk_cols),
-                            ],
-                            DatabaseProvider::Mysql => vec![format!(
-                                "ALTER TABLE {} DROP PRIMARY KEY, ADD PRIMARY KEY ({})",
-                                q(table), pk_cols,
-                            )],
-                            DatabaseProvider::Sqlite => vec![format!(
-                                "-- Cannot auto-reverse PRIMARY KEY change on {} (SQLite requires table rebuild)",
-                                table,
-                            )],
-                        }
-                    } else {
-                        vec![format!(
-                            "-- Cannot auto-reverse PRIMARY KEY change on {}: no live PK info",
-                            table
-                        )]
-                    }
-                } else {
-                    vec![format!(
-                        "-- Cannot auto-reverse PRIMARY KEY change on {}: no live snapshot",
-                        table
-                    )]
-                }
-            }
-
-            Change::ComputedExprChanged { table, column, .. } => {
-                vec![format!(
-                    "-- Cannot auto-reverse computed expression change: {}.{}",
-                    table, column,
-                )]
-            }
-
-            Change::IndexDropped {
-                table,
-                columns,
-                unique,
-                index_name,
-            } => {
-                if let Some(live_index) = live
-                    .tables
-                    .get(table)
-                    .and_then(|t| t.indexes.iter().find(|i| i.name == *index_name))
-                {
-                    vec![Self::create_index_sql_from_live(
-                        table, live_index, provider,
-                    )]
-                } else {
-                    let unique_kw = if *unique { "UNIQUE " } else { "" };
-                    let cols_sql = columns.iter().map(|c| q(c)).collect::<Vec<_>>().join(", ");
-                    match provider {
-                        DatabaseProvider::Postgres | DatabaseProvider::Sqlite => vec![format!(
-                            "CREATE {}INDEX IF NOT EXISTS {} ON {} ({})",
-                            unique_kw,
-                            q(index_name),
-                            q(table),
-                            cols_sql,
-                        )],
-                        DatabaseProvider::Mysql => vec![format!(
-                            "CREATE {}INDEX {} ON {} ({})",
-                            unique_kw,
-                            q(index_name),
-                            q(table),
-                            cols_sql,
-                        )],
-                    }
-                }
-            }
-
-            Change::CheckChanged { table, column, .. } => {
-                let target = match column {
-                    Some(col) => format!("{}.{}", table, col),
-                    None => table.to_string(),
-                };
-                vec![format!(
-                    "-- Cannot auto-reverse CHECK constraint change on {}",
-                    target,
-                )]
-            }
-
-            Change::CreateCompositeType { name } => {
-                if strategy.supports_user_defined_types() {
-                    vec![format!("DROP TYPE IF EXISTS {}", q(name))]
-                } else {
-                    vec![]
-                }
-            }
-
-            Change::DropCompositeType { name } | Change::AlterCompositeType { name, .. } => {
-                if strategy.supports_user_defined_types() {
-                    vec![format!(
-                        "-- Cannot auto-reverse composite type change for '{}'; restore manually",
-                        name,
-                    )]
-                } else {
-                    vec![]
-                }
-            }
-
-            Change::CreateEnum { name, .. } => {
-                if strategy.supports_user_defined_types() {
-                    vec![format!("DROP TYPE IF EXISTS {}", q(name))]
-                } else {
-                    vec![]
-                }
-            }
-
-            Change::CreateExtension { name, .. } => {
-                if strategy.supports_user_defined_types() {
-                    vec![format!(
-                        "DROP EXTENSION IF EXISTS \"{}\"",
-                        name.replace('"', "\"\"")
-                    )]
-                } else {
-                    vec![]
-                }
-            }
-
-            Change::DropExtension { name } => {
-                if strategy.supports_user_defined_types() {
-                    vec![format!(
-                        "-- Cannot auto-reverse extension drop for '{}'; reinstall manually",
-                        name,
-                    )]
-                } else {
-                    vec![]
-                }
-            }
-
-            Change::DropEnum { name } | Change::AlterEnum { name, .. } => {
-                if strategy.supports_user_defined_types() {
-                    vec![format!(
-                        "-- Cannot auto-reverse enum type change for '{}'; restore manually",
-                        name,
-                    )]
-                } else {
-                    vec![]
-                }
-            }
-
-            Change::ForeignKeyAdded {
-                table,
-                constraint_name,
-                ..
-            } => match provider {
-                DatabaseProvider::Sqlite => vec![format!(
-                    "-- Cannot auto-reverse ADD FOREIGN KEY on SQLite: {}",
-                    constraint_name,
-                )],
-                DatabaseProvider::Postgres => vec![format!(
-                    "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}",
-                    q(table),
-                    q(constraint_name),
-                )],
-                DatabaseProvider::Mysql => vec![format!(
-                    "ALTER TABLE {} DROP FOREIGN KEY {}",
-                    q(table),
-                    q(constraint_name),
-                )],
-            },
-
-            Change::ForeignKeyDropped {
-                table,
-                constraint_name,
-            } => {
-                // Reversing a DROP means re-adding the constraint, but we no
-                // longer know the columns / referenced table at this point.
-                vec![format!(
-                    "-- Cannot auto-reverse DROP FOREIGN KEY {} on {}; restore manually",
-                    constraint_name, table,
-                )]
-            }
-        }
-    }
-
-    fn reverse_dropped_column(
-        &self,
-        table: &str,
-        column: &str,
-        provider: DatabaseProvider,
-        live: &LiveSchema,
-    ) -> Vec<String> {
-        let Some(live_table) = live.tables.get(table) else {
-            return Self::missing_live_column_snapshot(table, column);
-        };
-        let Some(col) = live_table
-            .columns
-            .iter()
-            .find(|candidate| candidate.name == column)
-        else {
-            return Self::missing_live_column_snapshot(table, column);
-        };
-
-        match provider {
-            DatabaseProvider::Postgres | DatabaseProvider::Mysql => {
-                let q = |name: &str| provider.quote_identifier(name);
-                let type_str = col.col_type.to_uppercase();
-                let not_null = if col.nullable { "" } else { " NOT NULL" };
-                let default_clause = col
-                    .default_value
-                    .as_deref()
-                    .map(|default| format!(" DEFAULT {}", default))
-                    .unwrap_or_default();
-
-                vec![format!(
-                    "ALTER TABLE {} ADD COLUMN {} {}{}{}",
-                    q(table),
-                    q(column),
-                    type_str,
-                    not_null,
-                    default_clause,
-                )]
-            }
-            DatabaseProvider::Sqlite => vec![format!(
-                "-- Cannot auto-reverse dropped column on SQLite: {}.{}",
-                table, column,
-            )],
-        }
-    }
-
-    fn missing_live_column_snapshot(table: &str, column: &str) -> Vec<String> {
-        vec![format!(
-            "-- Cannot auto-reverse: column {}.{} was dropped (no live snapshot)",
-            table, column,
-        )]
-    }
-
-    /// Generate a `CREATE TABLE … ` statement (plus any `CREATE INDEX` statements)
-    /// from a live table snapshot. Used to build down-SQL for `DroppedTable`.
-    fn create_table_sql_from_live(table: &LiveTable, provider: DatabaseProvider) -> Vec<String> {
-        let q = |name: &str| provider.quote_identifier(name);
-
-        // SQLite: single-column INTEGER PK -> must be inlined as
-        // `col INTEGER PRIMARY KEY AUTOINCREMENT` (no separate PRIMARY KEY clause).
-        let sqlite_inline_pk = provider == DatabaseProvider::Sqlite
-            && table.primary_key.len() == 1
-            && table
-                .columns
-                .iter()
-                .any(|c| c.name == table.primary_key[0] && c.col_type.to_lowercase() == "integer");
-
-        let mut col_lines: Vec<String> = Vec::new();
-        for col in &table.columns {
-            let is_pk = table.primary_key.contains(&col.name);
-            if sqlite_inline_pk && is_pk {
-                col_lines.push(format!(
-                    "  {} INTEGER PRIMARY KEY AUTOINCREMENT",
-                    q(&col.name)
-                ));
-            } else {
-                let type_upper = col.col_type.to_uppercase();
-                let mut parts = vec![q(&col.name), type_upper];
-                if !col.nullable {
-                    parts.push("NOT NULL".to_string());
-                }
-                if let Some(default) = &col.default_value {
-                    parts.push(format!("DEFAULT {}", default));
-                }
-                col_lines.push(format!("  {}", parts.join(" ")));
-            }
-        }
-
-        if !sqlite_inline_pk && !table.primary_key.is_empty() {
-            let pk_cols = table
-                .primary_key
-                .iter()
-                .map(|c| q(c))
-                .collect::<Vec<_>>()
-                .join(", ");
-            col_lines.push(format!("  PRIMARY KEY ({})", pk_cols));
-        }
-
-        let mut stmts = vec![format!(
-            "CREATE TABLE IF NOT EXISTS {} (\n{}\n)",
-            q(&table.name),
-            col_lines.join(",\n"),
-        )];
-
-        for idx in &table.indexes {
-            stmts.push(Self::create_index_sql_from_live(&table.name, idx, provider));
-        }
-
-        stmts
-    }
-
-    fn create_index_sql_from_live(
-        table_name: &str,
-        index: &LiveIndex,
-        provider: DatabaseProvider,
-    ) -> String {
-        let kind = index.kind.to_index_kind();
-        ProviderStrategy::new(provider).create_index_sql(CreateIndex {
-            table: table_name,
-            name: &index.name,
-            columns: &index.columns,
-            unique: index.unique,
-            kind: &kind,
-            if_not_exists: true,
-        })
     }
 
     /// Apply a migration (run "up" direction).
@@ -614,6 +198,432 @@ impl MigrationExecutor {
     }
 }
 
+/// Builds best-effort down-SQL for a single [`Change`].
+///
+/// Reversal is deliberately partial: a destructive change carries only the
+/// information needed to apply it forward, so arms that cannot be recovered
+/// from the diff plus the live snapshot emit a comment placeholder rather than
+/// SQL that would silently lose data.
+struct ChangeReverser<'a> {
+    provider: DatabaseProvider,
+    strategy: ProviderStrategy,
+    live: &'a LiveSchema,
+}
+
+impl<'a> ChangeReverser<'a> {
+    fn new(provider: DatabaseProvider, live: &'a LiveSchema) -> Self {
+        Self {
+            provider,
+            strategy: ProviderStrategy::new(provider),
+            live,
+        }
+    }
+
+    fn reverse(&self, change: &Change) -> Vec<String> {
+        match change {
+            Change::NewTable(model) => self.reverse_new_table(&model.db_name),
+            Change::DroppedTable { name } => self.reverse_dropped_table(name),
+            Change::PrimaryKeyChanged { table } => self.reverse_primary_key_change(table),
+
+            Change::AddedColumn { table, field } => {
+                self.reverse_added_column(table, &field.db_name)
+            }
+            Change::DroppedColumn { table, column } => self.reverse_dropped_column(table, column),
+            Change::TypeChanged {
+                table,
+                column,
+                from,
+                ..
+            } => self.reverse_type_change(table, column, from),
+            Change::NullabilityChanged {
+                table,
+                column,
+                now_required,
+            } => self.reverse_nullability_change(table, column, *now_required),
+            Change::DefaultChanged {
+                table,
+                column,
+                from,
+                ..
+            } => self.reverse_default_change(table, column, from.as_deref()),
+            Change::ComputedExprChanged { table, column, .. } => {
+                cannot_reverse(format!("computed expression change: {}.{}", table, column))
+            }
+
+            Change::IndexAdded {
+                table,
+                columns,
+                index_name,
+                ..
+            } => self.reverse_index_added(table, columns, index_name.as_deref()),
+            Change::IndexDropped {
+                table,
+                columns,
+                unique,
+                index_name,
+            } => self.reverse_index_dropped(table, columns, *unique, index_name),
+
+            Change::CheckChanged { table, column, .. } => {
+                let target = match column {
+                    Some(col) => format!("{}.{}", table, col),
+                    None => table.to_string(),
+                };
+                cannot_reverse(format!("CHECK constraint change on {}", target))
+            }
+            Change::ForeignKeyAdded {
+                table,
+                constraint_name,
+                ..
+            } => self.reverse_foreign_key_added(table, constraint_name),
+            Change::ForeignKeyDropped {
+                table,
+                constraint_name,
+            } => cannot_reverse(format!(
+                "DROP FOREIGN KEY {} on {}; restore manually",
+                constraint_name, table
+            )),
+
+            Change::CreateCompositeType { name } | Change::CreateEnum { name, .. } => {
+                self.reverse_user_type(|| vec![self.drop_type_sql(name)])
+            }
+            Change::DropCompositeType { name } | Change::AlterCompositeType { name, .. } => self
+                .reverse_user_type(|| {
+                    cannot_reverse(format!(
+                        "composite type change for '{}'; restore manually",
+                        name
+                    ))
+                }),
+            Change::DropEnum { name } | Change::AlterEnum { name, .. } => {
+                self.reverse_user_type(|| {
+                    cannot_reverse(format!("enum type change for '{}'; restore manually", name))
+                })
+            }
+            Change::CreateExtension { name, .. } => self.reverse_user_type(|| {
+                vec![format!(
+                    "DROP EXTENSION IF EXISTS \"{}\"",
+                    name.replace('"', "\"\"")
+                )]
+            }),
+            Change::DropExtension { name } => self.reverse_user_type(|| {
+                cannot_reverse(format!("extension drop for '{}'; reinstall manually", name))
+            }),
+        }
+    }
+
+    fn quote(&self, name: &str) -> String {
+        self.provider.quote_identifier(name)
+    }
+
+    /// Run `build` only on providers with user-defined types; elsewhere the
+    /// forward change was itself a no-op, so its reversal must be empty.
+    fn reverse_user_type(&self, build: impl FnOnce() -> Vec<String>) -> Vec<String> {
+        if self.strategy.supports_user_defined_types() {
+            build()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn drop_type_sql(&self, name: &str) -> String {
+        format!("DROP TYPE IF EXISTS {}", self.quote(name))
+    }
+
+    fn reverse_new_table(&self, table: &str) -> Vec<String> {
+        vec![self
+            .strategy
+            .drop_table_sql(table, self.provider == DatabaseProvider::Postgres)]
+    }
+
+    fn reverse_dropped_table(&self, table: &str) -> Vec<String> {
+        match self.live.tables.get(table) {
+            Some(live_table) => create_table_sql_from_live(live_table, self.provider),
+            None => missing_snapshot(format!("table {} was dropped", table)),
+        }
+    }
+
+    fn reverse_primary_key_change(&self, table: &str) -> Vec<String> {
+        let Some(live_table) = self.live.tables.get(table) else {
+            return cannot_reverse(format!("PRIMARY KEY change on {}: no live snapshot", table));
+        };
+        if live_table.primary_key.is_empty() {
+            return cannot_reverse(format!("PRIMARY KEY change on {}: no live PK info", table));
+        }
+
+        let pk_cols = self.quote_all(&live_table.primary_key);
+        match self.provider {
+            DatabaseProvider::Postgres => vec![
+                format!(
+                    "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}",
+                    self.quote(table),
+                    self.quote(&format!("{}_pkey", table))
+                ),
+                format!(
+                    "ALTER TABLE {} ADD PRIMARY KEY ({})",
+                    self.quote(table),
+                    pk_cols
+                ),
+            ],
+            DatabaseProvider::Mysql => vec![format!(
+                "ALTER TABLE {} DROP PRIMARY KEY, ADD PRIMARY KEY ({})",
+                self.quote(table),
+                pk_cols,
+            )],
+            DatabaseProvider::Sqlite => cannot_reverse(format!(
+                "PRIMARY KEY change on {} (SQLite requires table rebuild)",
+                table
+            )),
+        }
+    }
+
+    fn reverse_added_column(&self, table: &str, column: &str) -> Vec<String> {
+        match self.provider {
+            DatabaseProvider::Postgres | DatabaseProvider::Mysql => vec![format!(
+                "ALTER TABLE {} DROP COLUMN {}",
+                self.quote(table),
+                self.quote(column),
+            )],
+            DatabaseProvider::Sqlite => {
+                cannot_reverse(format!("ADD COLUMN on SQLite: {}.{}", table, column))
+            }
+        }
+    }
+
+    fn reverse_dropped_column(&self, table: &str, column: &str) -> Vec<String> {
+        let missing = || missing_snapshot(format!("column {}.{} was dropped", table, column));
+        let Some(live_column) = self
+            .live
+            .tables
+            .get(table)
+            .and_then(|live_table| live_table.columns.iter().find(|c| c.name == column))
+        else {
+            return missing();
+        };
+
+        match self.provider {
+            DatabaseProvider::Postgres | DatabaseProvider::Mysql => {
+                let not_null = if live_column.nullable {
+                    ""
+                } else {
+                    " NOT NULL"
+                };
+                let default_clause = live_column
+                    .default_value
+                    .as_deref()
+                    .map(|default| format!(" DEFAULT {}", default))
+                    .unwrap_or_default();
+
+                vec![format!(
+                    "ALTER TABLE {} ADD COLUMN {} {}{}{}",
+                    self.quote(table),
+                    self.quote(column),
+                    live_column.col_type.to_uppercase(),
+                    not_null,
+                    default_clause,
+                )]
+            }
+            DatabaseProvider::Sqlite => {
+                cannot_reverse(format!("dropped column on SQLite: {}.{}", table, column))
+            }
+        }
+    }
+
+    fn reverse_type_change(&self, table: &str, column: &str, from: &str) -> Vec<String> {
+        self.strategy
+            .reverse_column_type_sql(table, column, from)
+            .unwrap_or_else(|| {
+                cannot_reverse(format!(
+                    "TYPE change on {}.{} (was {})",
+                    table, column, from
+                ))
+            })
+    }
+
+    fn reverse_nullability_change(
+        &self,
+        table: &str,
+        column: &str,
+        now_required: bool,
+    ) -> Vec<String> {
+        self.strategy
+            .reverse_nullability_change_sql(table, column, now_required)
+            .unwrap_or_else(|| cannot_reverse(format!("nullability change: {}.{}", table, column)))
+    }
+
+    fn reverse_default_change(&self, table: &str, column: &str, from: Option<&str>) -> Vec<String> {
+        self.strategy
+            .reverse_default_change_sql(table, column, from)
+            .unwrap_or_else(|| cannot_reverse(format!("DEFAULT change: {}.{}", table, column)))
+    }
+
+    fn reverse_index_added(
+        &self,
+        table: &str,
+        columns: &[String],
+        index_name: Option<&str>,
+    ) -> Vec<String> {
+        let index_name = index_name
+            .map(|name| name.to_string())
+            .unwrap_or_else(|| format!("idx_{}_{}", table, columns.join("_")));
+        match self.provider {
+            DatabaseProvider::Postgres | DatabaseProvider::Sqlite => {
+                vec![format!("DROP INDEX IF EXISTS {}", self.quote(&index_name))]
+            }
+            DatabaseProvider::Mysql => vec![format!(
+                "DROP INDEX {} ON {}",
+                self.quote(&index_name),
+                self.quote(table),
+            )],
+        }
+    }
+
+    fn reverse_index_dropped(
+        &self,
+        table: &str,
+        columns: &[String],
+        unique: bool,
+        index_name: &str,
+    ) -> Vec<String> {
+        if let Some(live_index) = self
+            .live
+            .tables
+            .get(table)
+            .and_then(|t| t.indexes.iter().find(|i| i.name == *index_name))
+        {
+            return vec![create_index_sql_from_live(table, live_index, self.provider)];
+        }
+
+        let unique_kw = if unique { "UNIQUE " } else { "" };
+        let cols_sql = self.quote_all(columns);
+        match self.provider {
+            DatabaseProvider::Postgres | DatabaseProvider::Sqlite => vec![format!(
+                "CREATE {}INDEX IF NOT EXISTS {} ON {} ({})",
+                unique_kw,
+                self.quote(index_name),
+                self.quote(table),
+                cols_sql,
+            )],
+            DatabaseProvider::Mysql => vec![format!(
+                "CREATE {}INDEX {} ON {} ({})",
+                unique_kw,
+                self.quote(index_name),
+                self.quote(table),
+                cols_sql,
+            )],
+        }
+    }
+
+    fn reverse_foreign_key_added(&self, table: &str, constraint_name: &str) -> Vec<String> {
+        match self.provider {
+            DatabaseProvider::Sqlite => {
+                cannot_reverse(format!("ADD FOREIGN KEY on SQLite: {}", constraint_name))
+            }
+            DatabaseProvider::Postgres => vec![format!(
+                "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}",
+                self.quote(table),
+                self.quote(constraint_name),
+            )],
+            DatabaseProvider::Mysql => vec![format!(
+                "ALTER TABLE {} DROP FOREIGN KEY {}",
+                self.quote(table),
+                self.quote(constraint_name),
+            )],
+        }
+    }
+
+    fn quote_all(&self, columns: &[String]) -> String {
+        columns
+            .iter()
+            .map(|column| self.quote(column))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+fn cannot_reverse(detail: String) -> Vec<String> {
+    vec![format!("-- Cannot auto-reverse {}", detail)]
+}
+
+fn missing_snapshot(detail: String) -> Vec<String> {
+    vec![format!(
+        "-- Cannot auto-reverse: {} (no live snapshot)",
+        detail
+    )]
+}
+
+/// Generate a `CREATE TABLE … ` statement (plus any `CREATE INDEX` statements)
+/// from a live table snapshot. Used to build down-SQL for `DroppedTable`.
+fn create_table_sql_from_live(table: &LiveTable, provider: DatabaseProvider) -> Vec<String> {
+    let q = |name: &str| provider.quote_identifier(name);
+
+    // SQLite: single-column INTEGER PK -> must be inlined as
+    // `col INTEGER PRIMARY KEY AUTOINCREMENT` (no separate PRIMARY KEY clause).
+    let sqlite_inline_pk = provider == DatabaseProvider::Sqlite
+        && table.primary_key.len() == 1
+        && table
+            .columns
+            .iter()
+            .any(|c| c.name == table.primary_key[0] && c.col_type.to_lowercase() == "integer");
+
+    let mut col_lines: Vec<String> = Vec::new();
+    for col in &table.columns {
+        let is_pk = table.primary_key.contains(&col.name);
+        if sqlite_inline_pk && is_pk {
+            col_lines.push(format!(
+                "  {} INTEGER PRIMARY KEY AUTOINCREMENT",
+                q(&col.name)
+            ));
+        } else {
+            let type_upper = col.col_type.to_uppercase();
+            let mut parts = vec![q(&col.name), type_upper];
+            if !col.nullable {
+                parts.push("NOT NULL".to_string());
+            }
+            if let Some(default) = &col.default_value {
+                parts.push(format!("DEFAULT {}", default));
+            }
+            col_lines.push(format!("  {}", parts.join(" ")));
+        }
+    }
+
+    if !sqlite_inline_pk && !table.primary_key.is_empty() {
+        let pk_cols = table
+            .primary_key
+            .iter()
+            .map(|c| q(c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        col_lines.push(format!("  PRIMARY KEY ({})", pk_cols));
+    }
+
+    let mut stmts = vec![format!(
+        "CREATE TABLE IF NOT EXISTS {} (\n{}\n)",
+        q(&table.name),
+        col_lines.join(",\n"),
+    )];
+
+    for idx in &table.indexes {
+        stmts.push(create_index_sql_from_live(&table.name, idx, provider));
+    }
+
+    stmts
+}
+
+fn create_index_sql_from_live(
+    table_name: &str,
+    index: &LiveIndex,
+    provider: DatabaseProvider,
+) -> String {
+    let kind = index.kind.to_index_kind();
+    ProviderStrategy::new(provider).create_index_sql(CreateIndex {
+        table: table_name,
+        name: &index.name,
+        columns: &index.columns,
+        unique: index.unique,
+        kind: &kind,
+        if_not_exists: true,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -669,7 +679,7 @@ mod tests {
 
     #[test]
     fn dropped_table_down_sql_preserves_postgres_index_name_and_method() {
-        let stmts = MigrationExecutor::create_table_sql_from_live(
+        let stmts = create_table_sql_from_live(
             &live_table_with_index(
                 "User",
                 "email",
@@ -702,7 +712,7 @@ mod tests {
 
     #[test]
     fn dropped_table_down_sql_preserves_mysql_fulltext_index_name() {
-        let stmts = MigrationExecutor::create_table_sql_from_live(
+        let stmts = create_table_sql_from_live(
             &live_table_with_index(
                 "Post",
                 "body",
