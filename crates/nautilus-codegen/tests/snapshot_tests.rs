@@ -2712,3 +2712,71 @@ fn test_generated_imports_are_sorted() {
         "TypeScript enum imports should be sorted:\n{js_user}"
     );
 }
+
+#[test]
+fn test_rust_client_supports_vector_nearest_search() {
+    let ir = validate(
+        r#"
+model Document {
+  id        Int      @id @default(autoincrement())
+  title     String
+  embedding Vector(3) @map("embedding_vec")
+}
+"#,
+    );
+
+    let models = generate_all_models(&ir, true).expect("generate_all_models should succeed");
+    let code = models.get("Document").expect("Document model missing");
+
+    assert!(
+        code.contains("pub fn embedding_nearest(")
+            && code.contains("metric: nautilus_core::VectorMetric,")
+            && code.contains("field: \"embedding\".to_string(),"),
+        "expected a typed nearest constructor next to the column accessors:\n{code}"
+    );
+    assert!(
+        code.contains(
+            "\"Document__embedding_vec\" | \"embedding\" | \"embedding_vec\" => Some(\"Document__embedding_vec\")"
+        ),
+        "expected nearest.field to resolve logical, database and qualified names:\n{code}"
+    );
+    assert!(
+        code.contains("nautilus_core::Expr::vector_distance(")
+            && code.contains("builder.order_by_expr(distance, OrderDir::Asc)"),
+        "expected the SQL path to order by pgvector distance:\n{code}"
+    );
+    assert!(
+        code.contains("'nearest' requires a positive 'take' limit")
+            && code.contains("'nearest' cannot be combined with 'cursor'")
+            && code.contains("'nearest' cannot be combined with 'distinct'"),
+        "expected the generated client to mirror the engine's nearest restrictions:\n{code}"
+    );
+    assert!(
+        code.contains("if let Some(nearest) = args.nearest {"),
+        "expected the delegate to forward FindManyArgs::nearest to the builder:\n{code}"
+    );
+}
+
+#[test]
+fn test_rust_client_without_vector_fields_rejects_nearest() {
+    let ir = validate(
+        r#"
+model User {
+  id   Int    @id @default(autoincrement())
+  name String
+}
+"#,
+    );
+
+    let models = generate_all_models(&ir, true).expect("generate_all_models should succeed");
+    let code = models.get("User").expect("User model missing");
+
+    assert!(
+        !code.contains("_nearest("),
+        "a model without vector fields should not get nearest accessors:\n{code}"
+    );
+    assert!(
+        code.contains("fn vector_distance_column(_field: &str) -> Option<&'static str>"),
+        "expected nearest.field resolution to always exist and reject every field:\n{code}"
+    );
+}

@@ -117,18 +117,6 @@ impl From<Hstore> for nautilus_core::Value {
     }
 }
 
-impl From<Option<Hstore>> for nautilus_core::Value {
-    fn from(value: Option<Hstore>) -> Self {
-        value.map(nautilus_core::Value::from).unwrap_or(nautilus_core::Value::Null)
-    }
-}
-
-impl From<Vec<Hstore>> for nautilus_core::Value {
-    fn from(values: Vec<Hstore>) -> Self {
-        nautilus_core::Value::Array(values.into_iter().map(nautilus_core::Value::from).collect())
-    }
-}
-
 impl nautilus_core::FromValue for Hstore {
     fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
         <std::collections::BTreeMap<String, Option<String>> as nautilus_core::FromValue>::from_value(value)
@@ -141,9 +129,4 @@ impl nautilus_core::FromValue for Hstore {
     }
 }
 
-impl nautilus_core::FromValue for Vec<Hstore> {
-    fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
-        <Vec<std::collections::BTreeMap<String, Option<String>>> as nautilus_core::FromValue>::from_value(value)
-            .map(|values| values.into_iter().map(Self::new).collect())
-    }
-}
+impl nautilus_core::ExtensionScalar for Hstore {}

@@ -26,6 +26,35 @@ pub trait FromValue: Sized {
     }
 }
 
+/// Opt-in marker for scalar wrappers a generated client defines itself.
+///
+/// Generated clients declare their own types for the PostgreSQL extension
+/// scalars (pgvector, PostGIS, citext, hstore, ltree). The orphan rule forbids
+/// *them* from implementing [`FromValue`] for `Vec<Wrapper>` or converting one
+/// into a [`Value`], because both `Vec` and `Value` are foreign to them — so
+/// the array conversions live here instead, keyed on this marker.
+///
+/// Implement it on a wrapper that already round-trips as a single value and
+/// `Vec<Wrapper>` starts decoding from `Value::Array` (or a JSON array on
+/// MySQL and SQLite) and encoding back into one.
+pub trait ExtensionScalar: FromValue + Into<Value> + Clone {}
+
+impl<T: ExtensionScalar> FromValue for Vec<T> {
+    fn from_value(value: &Value) -> Result<Self> {
+        match value {
+            Value::Array(items) => items.iter().map(T::from_value).collect(),
+            Value::Json(json_value) => decode_json_array(json_value, T::from_value),
+            Value::Null => Err(crate::Error::TypeError(
+                "NULL value for an extension scalar array".to_string(),
+            )),
+            other => Err(crate::Error::TypeError(format!(
+                "expected Array or Json for an extension scalar array, got {:?}",
+                other
+            ))),
+        }
+    }
+}
+
 impl FromValue for i64 {
     fn from_value(value: &Value) -> Result<Self> {
         match value {
@@ -505,7 +534,8 @@ fn decode_hstore_json_object(
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::FromValue;
+    use super::{ExtensionScalar, FromValue};
+    use crate::error::Result;
     use crate::Value;
 
     #[test]
@@ -588,6 +618,61 @@ mod tests {
         assert_eq!(decoded[0]["display_name"], Some("Bob".to_string()));
         assert_eq!(decoded[0]["nickname"], None);
         assert_eq!(decoded[1]["nickname"], Some("oai".to_string()));
+    }
+
+    /// Stands in for the wrappers a generated client defines for the
+    /// PostgreSQL extension scalars.
+    #[derive(Debug, Clone, PartialEq)]
+    struct Tag(String);
+
+    impl From<Tag> for Value {
+        fn from(value: Tag) -> Self {
+            Value::String(value.0)
+        }
+    }
+
+    impl FromValue for Tag {
+        fn from_value(value: &Value) -> Result<Self> {
+            String::from_value(value).map(Tag)
+        }
+    }
+
+    impl ExtensionScalar for Tag {}
+
+    #[test]
+    fn extension_scalar_arrays_decode_from_native_and_json_values() {
+        let native = Value::Array(vec![
+            Value::String("a".to_string()),
+            Value::String("b".to_string()),
+        ]);
+        let json = Value::Json(serde_json::json!(["a", "b"]));
+        let expected = vec![Tag("a".to_string()), Tag("b".to_string())];
+
+        assert_eq!(Vec::<Tag>::from_value(&native).unwrap(), expected);
+        assert_eq!(Vec::<Tag>::from_value(&json).unwrap(), expected);
+        assert!(Vec::<Tag>::from_value(&Value::Null).is_err());
+    }
+
+    #[test]
+    fn extension_scalar_arrays_encode_as_array_values() {
+        let values = vec![Tag("a".to_string()), Tag("b".to_string())];
+
+        assert_eq!(
+            Value::from(values),
+            Value::Array(vec![
+                Value::String("a".to_string()),
+                Value::String("b".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn optional_extension_scalars_encode_through_the_generic_conversion() {
+        assert_eq!(
+            Value::from(Some(Tag("a".to_string()))),
+            Value::String("a".to_string())
+        );
+        assert_eq!(Value::from(None::<Tag>), Value::Null);
     }
 
     #[test]

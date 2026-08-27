@@ -104,18 +104,6 @@ impl From<{{ type_name }}> for nautilus_core::Value {
     }
 }
 
-impl From<Option<{{ type_name }}>> for nautilus_core::Value {
-    fn from(value: Option<{{ type_name }}>) -> Self {
-        value.map(nautilus_core::Value::from).unwrap_or(nautilus_core::Value::Null)
-    }
-}
-
-impl From<Vec<{{ type_name }}>> for nautilus_core::Value {
-    fn from(values: Vec<{{ type_name }}>) -> Self {
-        nautilus_core::Value::Array(values.into_iter().map(nautilus_core::Value::from).collect())
-    }
-}
-
 impl nautilus_core::FromValue for {{ type_name }} {
     fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
         match value {
@@ -134,15 +122,4 @@ impl nautilus_core::FromValue for {{ type_name }} {
     }
 }
 
-impl nautilus_core::FromValue for Vec<{{ type_name }}> {
-    fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
-        match value {
-            nautilus_core::Value::Array(items) => items
-                .iter()
-                .map(<{{ type_name }} as nautilus_core::FromValue>::from_value)
-                .collect(),
-            other => <Vec<String> as nautilus_core::FromValue>::from_value(other)
-                .map(|values| values.into_iter().map(Self::new).collect()),
-        }
-    }
-}
+impl nautilus_core::ExtensionScalar for {{ type_name }} {}

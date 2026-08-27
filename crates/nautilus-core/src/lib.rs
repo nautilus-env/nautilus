@@ -27,7 +27,9 @@ pub mod update;
 pub mod value;
 
 pub use args::{FindManyArgs, FindUniqueArgs, IncludeRelation, VectorMetric, VectorNearest};
-pub use column::{Column, ColumnMarker, FromValue, OrderField, RowAccess, SelectColumns};
+pub use column::{
+    Column, ColumnMarker, ExtensionScalar, FromValue, OrderField, RowAccess, SelectColumns,
+};
 pub use cursor::build_cursor_predicate;
 pub use delete::{Delete, DeleteBuilder, DeleteCapacity};
 pub use error::{Error, Result};

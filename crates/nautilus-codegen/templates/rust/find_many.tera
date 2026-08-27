@@ -16,6 +16,62 @@ fn composite_order_expr(
     }
 }
 
+/// Resolve a `nearest.field` reference to the qualified pgvector column it
+/// names, accepting the logical name, the database column, and the qualified
+/// `table__column` form the wire protocol uses.
+fn vector_distance_column({% if has_vector_fields %}field{% else %}_field{% endif %}: &str) -> Option<&'static str> {
+{%- if has_vector_fields %}
+    match field {
+{%- for vector in vector_fields %}
+        {% for alias in vector.aliases %}"{{ alias }}"{% if not loop.last %} | {% endif %}{% endfor %} => Some("{{ table_name }}__{{ vector.db_name }}"),
+{%- endfor %}
+        _ => None,
+    }
+{%- else %}
+    None
+{%- endif %}
+}
+
+/// Build the ORDER BY expression for a pgvector nearest-neighbor search.
+///
+/// The restrictions mirror the engine: the search needs a positive `take` to
+/// stay bounded, and it cannot be combined with backward pagination, a cursor
+/// or `distinct`, all of which would fight the distance ordering.
+fn nearest_order_expr(
+    nearest: nautilus_core::VectorNearest,
+    take: Option<i32>,
+    has_cursor: bool,
+    has_distinct: bool,
+) -> nautilus_core::Result<nautilus_core::Expr> {
+    let Some(column) = vector_distance_column(&nearest.field) else {
+        return Err(nautilus_core::Error::InvalidQuery(format!(
+            "'nearest.field' must reference a Vector field of {{ model_name }}, got '{}'",
+            nearest.field
+        )));
+    };
+    if !matches!(take, Some(value) if value > 0) {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' requires a positive 'take' limit".to_string(),
+        ));
+    }
+    if has_cursor {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' cannot be combined with 'cursor'".to_string(),
+        ));
+    }
+    if has_distinct {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' cannot be combined with 'distinct'".to_string(),
+        ));
+    }
+
+    Ok(nautilus_core::Expr::vector_distance(
+        nearest.metric,
+        nautilus_core::Expr::column(column),
+        nautilus_core::Expr::param(nautilus_core::Value::Vector(nearest.query)),
+    ))
+}
+
 /// Internal FindMany builder for {{ model_name }} - use `{{ delegate_name }}::find_many(args)` instead.
 pub(crate) struct {{ find_many_name }}<E: crate::Executor, S = ()> {
     client: crate::Client<E>,
@@ -31,6 +87,8 @@ pub(crate) struct {{ find_many_name }}<E: crate::Executor, S = ()> {
     backward: bool,
     /// Columns to deduplicate on (SELECT DISTINCT / DISTINCT ON).
     distinct: Vec<String>,
+    /// pgvector nearest-neighbor search, ordering rows by distance.
+    nearest: Option<nautilus_core::VectorNearest>,
     _selection: std::marker::PhantomData<S>,
 }
 
@@ -50,6 +108,7 @@ where
             cursor: None,
             backward: false,
             distinct: vec![],
+            nearest: None,
             _selection: std::marker::PhantomData,
         }
     }
@@ -111,6 +170,13 @@ where
         self
     }
 
+    /// Order results by pgvector distance from a query embedding.
+    #[must_use]
+    pub(crate) fn nearest(mut self, nearest: nautilus_core::VectorNearest) -> Self {
+        self.nearest = Some(nearest);
+        self
+    }
+
     fn into_execution_parts(
         self,
     ) -> nautilus_core::Result<(
@@ -132,6 +198,7 @@ where
             cursor,
             backward,
             distinct,
+            nearest,
             _selection,
         } = self;
         let row_hints = projected_scalar_value_hints(&select);
@@ -139,6 +206,7 @@ where
         let mut builder = Select::from_table("{{ table_name }}").with_capacity(SelectCapacity {
             items: {{ scalar_fields | length }},
             order_by_columns: order_by.len() + distinct.len() + {{ pk_fields_with_db | length }},
+            order_by_exprs: usize::from(nearest.is_some()),
             distinct: distinct.len(),
             ..SelectCapacity::default()
         });
@@ -204,6 +272,13 @@ where
             builder = builder.filter(f);
         }
 
+        // Distance ordering comes first so it stays the primary sort, exactly
+        // as the engine orders a `nearest` query.
+        if let Some(nearest) = nearest {
+            let distance = nearest_order_expr(nearest, take, cursor.is_some(), !distinct.is_empty())?;
+            builder = builder.order_by_expr(distance, OrderDir::Asc);
+        }
+
         // Apply ordering, flipping direction for backward pagination.
         for order in order_by {
             let dir = if backward {
@@ -264,6 +339,7 @@ where
             cursor,
             backward,
             distinct,
+            nearest,
             _selection,
         } = self;
         let selected_columns = selection.columns();
@@ -274,6 +350,7 @@ where
         let mut builder = Select::from_table("{{ table_name }}").with_capacity(SelectCapacity {
             items: selected_columns.len(),
             order_by_columns: order_by.len() + distinct.len() + {{ pk_fields_with_db | length }},
+            order_by_exprs: usize::from(nearest.is_some()),
             distinct: distinct.len(),
             ..SelectCapacity::default()
         });
@@ -321,6 +398,11 @@ where
 
         if let Some(f) = effective_filter {
             builder = builder.filter(f);
+        }
+
+        if let Some(nearest) = nearest {
+            let distance = nearest_order_expr(nearest, take, cursor.is_some(), !distinct.is_empty())?;
+            builder = builder.order_by_expr(distance, OrderDir::Asc);
         }
 
         for order in order_by {

@@ -396,40 +396,28 @@ impl_vec_from!(
     serde_json::Value,
 );
 
-// Option<T> conversions — map None -> Value::Null.
-// `Option<&str>` is kept manual because `&str` requires an explicit `.to_string()`
-// and does not implement `Into<Value>` through the generic `v.into()` path.
-macro_rules! impl_option_from {
-    ($($t:ty),* $(,)?) => {
-        $(
-            impl From<Option<$t>> for Value {
-                fn from(v: Option<$t>) -> Self {
-                    v.map(|x| x.into()).unwrap_or(Value::Null)
-                }
-            }
-        )*
-    };
+/// Arrays of the extension scalars a generated client defines itself.
+///
+/// See [`crate::ExtensionScalar`] for why this conversion cannot live in the
+/// generated crate.
+impl<T: crate::ExtensionScalar> From<Vec<T>> for Value {
+    fn from(values: Vec<T>) -> Self {
+        Value::Array(values.into_iter().map(Into::into).collect())
+    }
 }
 
-impl_option_from!(
-    bool,
-    i32,
-    i64,
-    f64,
-    String,
-    Vec<f32>,
-    Geometry,
-    Geography,
-    BTreeMap<String, Option<String>>,
-    rust_decimal::Decimal,
-    uuid::Uuid,
-    chrono::NaiveDateTime,
-);
-
-impl From<Option<&str>> for Value {
-    fn from(v: Option<&str>) -> Self {
-        v.map(|s| Value::String(s.to_string()))
-            .unwrap_or(Value::Null)
+/// `None` maps to SQL NULL, `Some(v)` to whatever `v` converts to.
+///
+/// This is deliberately generic rather than a list of concrete types: generated
+/// clients define their own extension wrappers (pgvector, PostGIS, citext, …)
+/// and the orphan rule forbids *them* from converting `Option<Wrapper>` into a
+/// `Value` defined here, so the conversion has to live on this side.
+impl<T> From<Option<T>> for Value
+where
+    T: Into<Value>,
+{
+    fn from(v: Option<T>) -> Self {
+        v.map(Into::into).unwrap_or(Value::Null)
     }
 }
 

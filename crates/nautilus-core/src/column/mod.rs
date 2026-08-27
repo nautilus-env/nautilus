@@ -5,7 +5,7 @@ pub mod marker;
 pub mod row_access;
 pub mod typed;
 
-pub use from_value::FromValue;
+pub use from_value::{ExtensionScalar, FromValue};
 pub use marker::ColumnMarker;
 pub use row_access::RowAccess;
 pub use typed::{Column, OrderField, SelectColumns};

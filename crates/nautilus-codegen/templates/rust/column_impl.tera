@@ -6,6 +6,24 @@ impl {{ model_name }} {
     }
 
 {%- endfor %}
+{%- for vector in vector_fields %}
+    /// Build a pgvector nearest-neighbor search against {{ vector.name }}.
+    ///
+    /// Pass the result as `FindManyArgs::nearest` together with a positive
+    /// `take`: the query then returns the closest rows by `metric`, which
+    /// should match the opclass of the vector index to stay index-backed.
+    pub fn {{ vector.name }}_nearest(
+        query: Vec<f32>,
+        metric: nautilus_core::VectorMetric,
+    ) -> nautilus_core::VectorNearest {
+        nautilus_core::VectorNearest {
+            field: "{{ vector.logical_name }}".to_string(),
+            query,
+            metric,
+        }
+    }
+
+{%- endfor %}
 {%- for field in nested_order_by_fields %}
     /// Order accessor for {{ field.path }}.
     pub fn {{ field.method_name }}() -> nautilus_core::OrderField<{{ field.rust_type }}> {

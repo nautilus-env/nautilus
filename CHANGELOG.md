@@ -28,6 +28,19 @@
   no longer grows the task set without bound. Unset, the limit is four times the
   configured pool size.
 
+- Added pgvector nearest-neighbor search to the generated Rust client, closing
+  the last client parity gap: `FindManyArgs::nearest` is now honoured on the
+  direct SQL path and ordered by the pgvector distance operator, and each model
+  exposes one `{field}_nearest(query, metric)` constructor per `Vector(dim)`
+  field so the searched field is checked at compile time. The restrictions match
+  the engine — a positive `take` is required, and `nearest` rejects `cursor`,
+  `distinct` and backward pagination.
+- Added `nautilus_core::ExtensionScalar`, the marker a generated client
+  implements on its PostgreSQL extension wrappers (pgvector, PostGIS, citext,
+  hstore, ltree) to opt them into array encoding and decoding. The orphan rule
+  keeps a generated crate from writing those conversions itself, so they live in
+  `nautilus-core` keyed on this marker.
+
 ### Changed
 
 - The workspace now declares `rust-version = "1.92"`, so an older toolchain
@@ -70,6 +83,14 @@
 - The engine transport now rejects a request line above 64 MiB instead of
   buffering it, so a malformed writer can no longer grow the read buffer without
   bound.
+- Generated Rust clients that use a PostgreSQL extension type now compile. The
+  extension wrappers carried `impl From<Option<Wrapper>> for Value`,
+  `impl From<Vec<Wrapper>> for Value` and `impl FromValue for Vec<Wrapper>`,
+  all of which the orphan rule rejects from the generated crate, so any schema
+  declaring a `Vector`, `Citext`, `Ltree`, `Hstore`, `Geometry` or `Geography`
+  column produced a client that failed to build. `Option<T>` conversion is now a
+  single generic impl in `nautilus-core` and the array conversions go through
+  [`ExtensionScalar`].
 - Enum, composite type and relation imports in generated model files are now
   emitted in a stable order. They were collected in a `HashSet`, so two runs of
   `nautilus generate` over the same schema could produce files that differed

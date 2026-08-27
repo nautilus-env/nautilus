@@ -121,6 +121,20 @@ struct NestedOrderByFieldContext {
     rust_type: String,
 }
 
+/// A pgvector column a caller may target with `FindManyArgs::nearest`.
+#[derive(Debug, Clone, Serialize)]
+struct VectorFieldContext {
+    /// Snake-case logical name, used to name the generated accessor.
+    name: String,
+    /// Original logical field name from the schema.
+    logical_name: String,
+    /// Database column name of the vector field.
+    db_name: String,
+    /// Every spelling of the field a caller may pass in `nearest.field`:
+    /// logical name, database column, and qualified `table__column`.
+    aliases: Vec<String>,
+}
+
 /// Serialisable (logical_name, db_name) pair for primary-key fields.
 /// Used in templates to generate cursor predicate slices.
 #[derive(Debug, Clone, Serialize)]
@@ -270,6 +284,10 @@ fn generate_model_with_registry(
 
     let pk_fields_with_db = build_pk_fields(&view);
     context.insert("pk_fields_with_db", &pk_fields_with_db);
+
+    let vector_fields = build_vector_fields(&view);
+    context.insert("has_vector_fields", &!vector_fields.is_empty());
+    context.insert("vector_fields", &vector_fields);
     context.insert(
         "single_record_constraints",
         &build_single_record_constraints(model, &pk_fields_with_db),
@@ -335,6 +353,29 @@ fn build_pk_fields(view: &ModelView<'_>) -> Vec<PkFieldContext> {
                 .iter()
                 .find(|scalar| scalar.logical_name() == *logical)
                 .map(|scalar| pk_field_context(scalar.field))
+        })
+        .collect()
+}
+
+fn build_vector_fields(view: &ModelView<'_>) -> Vec<VectorFieldContext> {
+    view.scalars
+        .iter()
+        .filter(|scalar| scalar.field.is_vector())
+        .map(|scalar| {
+            let db_name = scalar.field.db_name.clone();
+            let mut aliases = vec![
+                scalar.logical_name().to_string(),
+                db_name.clone(),
+                format!("{}__{}", view.db_name(), db_name),
+            ];
+            aliases.sort();
+            aliases.dedup();
+            VectorFieldContext {
+                name: scalar.snake_name(),
+                logical_name: scalar.logical_name().to_string(),
+                db_name,
+                aliases,
+            }
         })
         .collect()
 }

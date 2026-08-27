@@ -349,6 +349,21 @@ var results = db.embedding().findMany(args -> args
     .take(10));
 ```
 
+```rust
+// Rust — one `{field}_nearest` constructor per vector field of the model,
+// so the field name is checked at compile time.
+let results = Embedding::nautilus(&client)
+    .find_many(FindManyArgs {
+        nearest: Some(Embedding::embedding_nearest(
+            vec![0.12, 0.04 /*, … */],
+            VectorMetric::Cosine,
+        )),
+        take: Some(10),
+        ..Default::default()
+    })
+    .await?;
+```
+
 The `metric` value maps to the pgvector distance operator used in `ORDER BY`:
 `l2` → `<->`, `innerProduct` → `<#>`, `cosine` → `<=>`. Pair the chosen metric
 with the matching opclass on the index (`vector_l2_ops`, `vector_ip_ops`,

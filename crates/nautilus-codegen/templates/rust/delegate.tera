@@ -825,6 +825,9 @@ where
         if !args.distinct.is_empty() {
             builder = builder.distinct(args.distinct);
         }
+        if let Some(nearest) = args.nearest {
+            builder = builder.nearest(nearest);
+        }
 
         Ok(builder)
     }

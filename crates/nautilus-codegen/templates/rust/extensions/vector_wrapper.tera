@@ -107,11 +107,7 @@ impl From<Vector> for nautilus_core::Value {
     }
 }
 
-impl From<Option<Vector>> for nautilus_core::Value {
-    fn from(value: Option<Vector>) -> Self {
-        value.map(nautilus_core::Value::from).unwrap_or(nautilus_core::Value::Null)
-    }
-}
+impl nautilus_core::ExtensionScalar for Vector {}
 
 impl nautilus_core::FromValue for Vector {
     fn from_value(value: &nautilus_core::Value) -> nautilus_core::Result<Self> {
