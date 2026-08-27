@@ -525,9 +525,9 @@ async fn array_includes_batch_children_across_multiple_parents() {
     drop(temp_dir);
 }
 
-/// Per-parent fallback (`take` on the include node) across multiple parents:
-/// outside a transaction the child queries run concurrently (bounded,
-/// order-preserving), and each parent must still get exactly its own window.
+/// Per-parent pagination (`take` on the include node) across multiple parents:
+/// the batched query windows each parent independently, and every parent must
+/// still get exactly its own slice, in parent order.
 #[tokio::test]
 async fn per_parent_pagination_keeps_rows_aligned_across_parents() {
     let (state, temp_dir) = sqlite_state("include-tests-buffered", schema_source()).await;
@@ -596,6 +596,108 @@ async fn per_parent_pagination_keeps_rows_aligned_across_parents() {
             "each parent must get its own top post, in parent order"
         );
     }
+
+    drop(state);
+    drop(temp_dir);
+}
+
+/// `take` + `skip` + a child `where` on an array include: the window must count
+/// rows per parent, after the filter, and leave a parent whose filtered children
+/// fall entirely inside `skip` with an empty array rather than a sibling's rows.
+#[tokio::test]
+async fn per_parent_take_and_skip_window_each_parent_independently() {
+    let (state, temp_dir) = sqlite_state("include-tests-window", schema_source()).await;
+
+    let mut user_ids: Vec<i64> = Vec::new();
+    for email in ["a@example.com", "b@example.com", "c@example.com"] {
+        let created_user = call_rpc_json(
+            &state,
+            QUERY_CREATE,
+            json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "model": "User",
+                "data": { "email": email }
+            }),
+        )
+        .await;
+        user_ids.push(created_user["data"][0]["User__id"].as_i64().unwrap());
+    }
+
+    // The third user gets a single matching post, so `skip: 1` empties it out.
+    let post_counts = [4, 4, 1];
+    for (idx, (user_id, count)) in user_ids.iter().zip(post_counts.iter()).enumerate() {
+        for sort in 1..=*count {
+            let _ = call_rpc_json(
+                &state,
+                QUERY_CREATE,
+                json!({
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "model": "Post",
+                    "data": {
+                        "title": format!("user{idx}-post{sort}"),
+                        "sort": sort,
+                        "authorId": user_id
+                    }
+                }),
+            )
+            .await;
+        }
+        // Excluded by the include filter: it must not consume a window slot.
+        let _ = call_rpc_json(
+            &state,
+            QUERY_CREATE,
+            json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "model": "Post",
+                "data": {
+                    "title": format!("user{idx}-draft"),
+                    "sort": 99,
+                    "authorId": user_id
+                }
+            }),
+        )
+        .await;
+    }
+
+    let found = call_rpc_json(
+        &state,
+        QUERY_FIND_MANY,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "args": {
+                "orderBy": [{ "id": "asc" }],
+                "include": {
+                    "posts": {
+                        "where": { "sort": { "lt": 99 } },
+                        "orderBy": [{ "sort": "asc" }],
+                        "skip": 1,
+                        "take": 2
+                    }
+                }
+            }
+        }),
+    )
+    .await;
+
+    let rows = found["data"].as_array().expect("rows expected");
+    assert_eq!(rows.len(), 3);
+
+    for (idx, row) in rows.iter().take(2).enumerate() {
+        let posts = row["posts_json"].as_array().unwrap();
+        assert_eq!(
+            posts.len(),
+            2,
+            "take/skip must count rows within each parent, not across the batch"
+        );
+        assert_eq!(posts[0]["title"], json!(format!("user{idx}-post2")));
+        assert_eq!(posts[1]["title"], json!(format!("user{idx}-post3")));
+    }
+
+    assert!(
+        rows[2]["posts_json"].as_array().unwrap().is_empty(),
+        "a parent whose children are all skipped must get an empty array"
+    );
 
     drop(state);
     drop(temp_dir);

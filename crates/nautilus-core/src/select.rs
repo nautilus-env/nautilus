@@ -142,6 +142,58 @@ impl JoinClause {
     }
 }
 
+/// Per-partition row window applied on top of a SELECT.
+///
+/// Paginates each group of a batched query independently instead of issuing one
+/// query per group: the select is rendered as a subquery carrying
+/// `ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)`, and the outer query
+/// keeps only the row numbers inside `(skip, skip + take]`. The select's own
+/// `ORDER BY` becomes the window ordering, so `take`/`skip` count rows within a
+/// partition rather than across the whole result.
+///
+/// Requires PostgreSQL >= 8.4, MySQL >= 8.0 or SQLite >= 3.25 — the oldest
+/// versions of each provider that implement window functions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartitionWindow {
+    /// Columns to partition on, as `table__column` identifier references.
+    pub partition_by: Vec<String>,
+    /// Rows to drop at the start of each partition.
+    pub skip: u32,
+    /// Rows to keep per partition after `skip`; `None` keeps all of them.
+    pub take: Option<u32>,
+}
+
+impl PartitionWindow {
+    /// Creates a window partitioned on `partition_by` with no bounds.
+    pub fn new(partition_by: Vec<String>) -> Self {
+        Self {
+            partition_by,
+            skip: 0,
+            take: None,
+        }
+    }
+
+    /// Sets how many rows to drop at the start of each partition.
+    #[must_use]
+    pub fn skip(mut self, skip: u32) -> Self {
+        self.skip = skip;
+        self
+    }
+
+    /// Sets how many rows to keep per partition after `skip`.
+    #[must_use]
+    pub fn take(mut self, take: u32) -> Self {
+        self.take = Some(take);
+        self
+    }
+
+    /// Whether the window bounds any rows out; a window that keeps every row
+    /// only costs an extra subquery.
+    pub fn is_bounded(&self) -> bool {
+        self.skip > 0 || self.take.is_some()
+    }
+}
+
 /// SELECT query AST node.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Select {
@@ -177,6 +229,9 @@ pub struct Select {
     pub order_by_items: Vec<OrderByItem>,
     /// ORDER BY expression items (for aggregate functions, e.g. `COUNT(*) DESC`).
     pub order_by_exprs: Vec<(Expr, OrderDir)>,
+    /// Per-partition row window, which turns `ORDER BY` into a window ordering
+    /// and `take`/`skip` into per-partition bounds.
+    pub partition_window: Option<PartitionWindow>,
 }
 
 impl Select {
@@ -195,6 +250,7 @@ impl Select {
             having: None,
             order_by_items: Vec::new(),
             order_by_exprs: Vec::new(),
+            partition_window: None,
         }
     }
 }
@@ -214,6 +270,7 @@ pub struct SelectBuilder {
     having: Option<Expr>,
     order_by_items: Vec<OrderByItem>,
     order_by_exprs: Vec<(Expr, OrderDir)>,
+    partition_window: Option<PartitionWindow>,
 }
 
 impl SelectBuilder {
@@ -362,6 +419,13 @@ impl SelectBuilder {
         self
     }
 
+    /// Applies a per-partition row window (see [`PartitionWindow`]).
+    #[must_use]
+    pub fn partition_window(mut self, window: PartitionWindow) -> Self {
+        self.partition_window = Some(window);
+        self
+    }
+
     /// Builds the final SELECT query.
     pub fn build(self) -> Result<Select> {
         if self.table.is_empty() {
@@ -381,6 +445,7 @@ impl SelectBuilder {
             having: self.having,
             order_by_items: self.order_by_items,
             order_by_exprs: self.order_by_exprs,
+            partition_window: self.partition_window,
         })
     }
 }

@@ -37,8 +37,8 @@ pub use protocol_json::{
     find_many_args_to_protocol_json, find_many_args_to_protocol_object, where_expr_to_protocol_json,
 };
 pub use select::{
-    JoinClause, JoinType, OrderBy, OrderByItem, OrderDir, Select, SelectBuilder, SelectCapacity,
-    SelectItem,
+    JoinClause, JoinType, OrderBy, OrderByItem, OrderDir, PartitionWindow, Select, SelectBuilder,
+    SelectCapacity, SelectItem,
 };
 pub use update::{Update, UpdateBuilder, UpdateCapacity};
 pub use value::{Geography, Geometry, PlainValueRef, Value};

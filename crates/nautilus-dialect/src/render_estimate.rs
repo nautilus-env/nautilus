@@ -116,6 +116,21 @@ pub(crate) fn estimate_select_render(select: &Select) -> RenderEstimate {
         estimate.add_sql(8 + decimal_len_u64(u64::from(skip)));
     }
 
+    if let Some(window) = select.partition_window.as_ref() {
+        estimate.add_sql(96);
+        for column in &window.partition_by {
+            estimate.add_sql(estimate_identifier_reference_len(column) + 2);
+        }
+        for item in &select.items {
+            estimate.merge(estimate_select_item(item));
+        }
+        for join in &select.joins {
+            for item in &join.items {
+                estimate.merge(estimate_select_item(item));
+            }
+        }
+    }
+
     estimate
 }
 

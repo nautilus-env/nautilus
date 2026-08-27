@@ -150,6 +150,112 @@ macro_rules! render_delete_body_mut {
     }};
 }
 
+/// Render the `ORDER BY` clause of a SELECT, prefixed by `$prefix`.
+///
+/// Shared by the statement-level clause and by the `OVER (...)` clause of a
+/// partition window, which consumes the same ordering.
+macro_rules! render_order_by_clause_mut {
+    ($ctx:expr, $select:expr, $quote:expr, $render_expr:ident, $prefix:expr) => {{
+        let has_order_items = !$select.order_by_items.is_empty();
+        let has_col_order = !$select.order_by.is_empty();
+        let has_expr_order = !$select.order_by_exprs.is_empty();
+        if has_order_items || has_col_order || has_expr_order {
+            $ctx.sql.push_str($prefix);
+            $ctx.sql.push_str("ORDER BY ");
+            let mut first = true;
+            if has_order_items {
+                for item in $select.order_by_items.iter_mut() {
+                    if !first {
+                        $ctx.sql.push_str(", ");
+                    }
+                    first = false;
+                    match item {
+                        nautilus_core::OrderByItem::Column(order) => {
+                            crate::push_identifier_reference(&mut $ctx.sql, &order.column, $quote);
+                            match order.direction {
+                                nautilus_core::OrderDir::Asc => $ctx.sql.push_str(" ASC"),
+                                nautilus_core::OrderDir::Desc => $ctx.sql.push_str(" DESC"),
+                            }
+                        }
+                        nautilus_core::OrderByItem::Expr(expr, dir) => {
+                            $render_expr($ctx, expr);
+                            match *dir {
+                                nautilus_core::OrderDir::Asc => $ctx.sql.push_str(" ASC"),
+                                nautilus_core::OrderDir::Desc => $ctx.sql.push_str(" DESC"),
+                            }
+                        }
+                    }
+                }
+            } else {
+                for order in $select.order_by.iter() {
+                    if !first {
+                        $ctx.sql.push_str(", ");
+                    }
+                    first = false;
+                    crate::push_identifier_reference(&mut $ctx.sql, &order.column, $quote);
+                    match order.direction {
+                        nautilus_core::OrderDir::Asc => $ctx.sql.push_str(" ASC"),
+                        nautilus_core::OrderDir::Desc => $ctx.sql.push_str(" DESC"),
+                    }
+                }
+                for (expr, dir) in $select.order_by_exprs.iter_mut() {
+                    if !first {
+                        $ctx.sql.push_str(", ");
+                    }
+                    first = false;
+                    $render_expr($ctx, expr);
+                    match *dir {
+                        nautilus_core::OrderDir::Asc => $ctx.sql.push_str(" ASC"),
+                        nautilus_core::OrderDir::Desc => $ctx.sql.push_str(" DESC"),
+                    }
+                }
+            }
+        }
+    }};
+}
+
+/// Render the outer projection of a partition-window subquery: the inner select
+/// list referenced by alias, so the row-number column stays internal and the
+/// result keeps exactly the columns an unwindowed render would return.
+macro_rules! render_window_projection_mut {
+    ($ctx:expr, $select:expr, $quote:expr) => {{
+        let mut first = true;
+        for item in $select.items.iter() {
+            if !first {
+                $ctx.sql.push_str(", ");
+            }
+            first = false;
+            match item {
+                nautilus_core::SelectItem::Column(col) => {
+                    crate::push_column_alias(&mut $ctx.sql, col, $quote);
+                }
+                nautilus_core::SelectItem::Computed { alias, .. } => {
+                    crate::push_quoted_identifier(&mut $ctx.sql, alias, $quote);
+                }
+            }
+        }
+        for join in $select.joins.iter() {
+            for item in join.items.iter() {
+                if !first {
+                    $ctx.sql.push_str(", ");
+                }
+                first = false;
+                match item {
+                    nautilus_core::SelectItem::Column(col) => {
+                        crate::push_column_alias(&mut $ctx.sql, col, $quote);
+                    }
+                    nautilus_core::SelectItem::Computed { alias, .. } => {
+                        crate::push_quoted_identifier(&mut $ctx.sql, alias, $quote);
+                    }
+                }
+            }
+        }
+        if first {
+            $ctx.sql.push('*');
+        }
+    }};
+}
+
 /// Mutable/owned variant of [`render_select_body_core!`] used by `render_*_owned`.
 macro_rules! render_select_body_core_mut {
     (
@@ -157,6 +263,14 @@ macro_rules! render_select_body_core_mut {
         $quote:expr, $render_expr:ident,
         $distinct_on:expr, $mysql_limit_hack:expr
     ) => {{
+        let partition_window = $select.partition_window.take();
+
+        if partition_window.is_some() {
+            $ctx.sql.push_str("SELECT ");
+            render_window_projection_mut!($ctx, $select, $quote);
+            $ctx.sql.push_str(" FROM (");
+        }
+
         $ctx.sql.push_str("SELECT ");
 
         if !$select.distinct.is_empty() {
@@ -235,6 +349,24 @@ macro_rules! render_select_body_core_mut {
             }
         }
 
+        if let Some(window) = partition_window.as_ref() {
+            $ctx.sql.push_str(", ROW_NUMBER() OVER (");
+            let mut window_clause_prefix = "";
+            if !window.partition_by.is_empty() {
+                $ctx.sql.push_str("PARTITION BY ");
+                for (i, col) in window.partition_by.iter().enumerate() {
+                    if i > 0 {
+                        $ctx.sql.push_str(", ");
+                    }
+                    crate::push_identifier_reference(&mut $ctx.sql, col, $quote);
+                }
+                window_clause_prefix = " ";
+            }
+            render_order_by_clause_mut!($ctx, $select, $quote, $render_expr, window_clause_prefix);
+            $ctx.sql.push_str(") AS ");
+            crate::push_quoted_identifier(&mut $ctx.sql, crate::WINDOW_ROW_NUMBER_ALIAS, $quote);
+        }
+
         $ctx.sql.push_str(" FROM ");
         crate::push_quoted_identifier(&mut $ctx.sql, &$select.table, $quote);
 
@@ -268,71 +400,54 @@ macro_rules! render_select_body_core_mut {
             $render_expr($ctx, having);
         }
 
-        let has_order_items = !$select.order_by_items.is_empty();
-        let has_col_order = !$select.order_by.is_empty();
-        let has_expr_order = !$select.order_by_exprs.is_empty();
-        if has_order_items || has_col_order || has_expr_order {
-            $ctx.sql.push_str(" ORDER BY ");
-            let mut first = true;
-            if has_order_items {
-                for item in $select.order_by_items.iter_mut() {
-                    if !first {
-                        $ctx.sql.push_str(", ");
-                    }
-                    first = false;
-                    match item {
-                        nautilus_core::OrderByItem::Column(order) => {
-                            crate::push_identifier_reference(&mut $ctx.sql, &order.column, $quote);
-                            match order.direction {
-                                nautilus_core::OrderDir::Asc => $ctx.sql.push_str(" ASC"),
-                                nautilus_core::OrderDir::Desc => $ctx.sql.push_str(" DESC"),
-                            }
-                        }
-                        nautilus_core::OrderByItem::Expr(expr, dir) => {
-                            $render_expr($ctx, expr);
-                            match *dir {
-                                nautilus_core::OrderDir::Asc => $ctx.sql.push_str(" ASC"),
-                                nautilus_core::OrderDir::Desc => $ctx.sql.push_str(" DESC"),
-                            }
-                        }
-                    }
-                }
-            } else {
-                for order in $select.order_by.iter() {
-                    if !first {
-                        $ctx.sql.push_str(", ");
-                    }
-                    first = false;
-                    crate::push_identifier_reference(&mut $ctx.sql, &order.column, $quote);
-                    match order.direction {
-                        nautilus_core::OrderDir::Asc => $ctx.sql.push_str(" ASC"),
-                        nautilus_core::OrderDir::Desc => $ctx.sql.push_str(" DESC"),
-                    }
-                }
-                for (expr, dir) in $select.order_by_exprs.iter_mut() {
-                    if !first {
-                        $ctx.sql.push_str(", ");
-                    }
-                    first = false;
-                    $render_expr($ctx, expr);
-                    match *dir {
-                        nautilus_core::OrderDir::Asc => $ctx.sql.push_str(" ASC"),
-                        nautilus_core::OrderDir::Desc => $ctx.sql.push_str(" DESC"),
-                    }
-                }
+        if let Some(window) = partition_window.as_ref() {
+            $ctx.sql.push_str(") AS ");
+            crate::push_quoted_identifier(&mut $ctx.sql, crate::WINDOW_SUBQUERY_ALIAS, $quote);
+
+            let mut first_bound = true;
+            if window.skip > 0 {
+                $ctx.sql.push_str(" WHERE ");
+                first_bound = false;
+                crate::push_quoted_identifier(
+                    &mut $ctx.sql,
+                    crate::WINDOW_ROW_NUMBER_ALIAS,
+                    $quote,
+                );
+                $ctx.sql.push_str(" > ");
+                crate::push_u32(&mut $ctx.sql, window.skip);
             }
-        }
+            if let Some(take) = window.take {
+                if first_bound {
+                    $ctx.sql.push_str(" WHERE ");
+                } else {
+                    $ctx.sql.push_str(" AND ");
+                }
+                crate::push_quoted_identifier(
+                    &mut $ctx.sql,
+                    crate::WINDOW_ROW_NUMBER_ALIAS,
+                    $quote,
+                );
+                $ctx.sql.push_str(" <= ");
+                crate::push_u64(&mut $ctx.sql, u64::from(window.skip) + u64::from(take));
+            }
 
-        if let Some(take) = $select.take {
-            $ctx.sql.push_str(" LIMIT ");
-            crate::push_u32(&mut $ctx.sql, take.unsigned_abs());
-        } else if $mysql_limit_hack && $select.skip.is_some() {
-            $ctx.sql.push_str(" LIMIT 18446744073709551615");
-        }
+            $ctx.sql.push_str(" ORDER BY ");
+            crate::push_quoted_identifier(&mut $ctx.sql, crate::WINDOW_ROW_NUMBER_ALIAS, $quote);
+            $ctx.sql.push_str(" ASC");
+        } else {
+            render_order_by_clause_mut!($ctx, $select, $quote, $render_expr, " ");
 
-        if let Some(skip) = $select.skip {
-            $ctx.sql.push_str(" OFFSET ");
-            crate::push_u32(&mut $ctx.sql, skip);
+            if let Some(take) = $select.take {
+                $ctx.sql.push_str(" LIMIT ");
+                crate::push_u32(&mut $ctx.sql, take.unsigned_abs());
+            } else if $mysql_limit_hack && $select.skip.is_some() {
+                $ctx.sql.push_str(" LIMIT 18446744073709551615");
+            }
+
+            if let Some(skip) = $select.skip {
+                $ctx.sql.push_str(" OFFSET ");
+                crate::push_u32(&mut $ctx.sql, skip);
+            }
         }
     }};
 }
@@ -520,6 +635,14 @@ pub trait Dialect {
     }
 }
 
+/// Alias of the row-number column a [`nautilus_core::PartitionWindow`] adds to
+/// the inner select. Never projected by the outer query, so callers see the same
+/// columns they would without a window.
+pub(crate) const WINDOW_ROW_NUMBER_ALIAS: &str = "__nautilus_rn";
+
+/// Alias of the subquery a [`nautilus_core::PartitionWindow`] wraps the select in.
+pub(crate) const WINDOW_SUBQUERY_ALIAS: &str = "__nautilus_win";
+
 fn push_escaped_identifier(sql: &mut String, name: &str, quote: char) {
     for ch in name.chars() {
         if ch == quote {
@@ -625,7 +748,8 @@ pub(crate) fn push_sql_string_literal(sql: &mut String, value: &str) {
     sql.push('\'');
 }
 
-fn push_u64(sql: &mut String, mut value: u64) {
+/// Append a `u64` value directly into the SQL buffer.
+pub(crate) fn push_u64(sql: &mut String, mut value: u64) {
     let mut digits = [0_u8; 20];
     let mut idx = digits.len();
 

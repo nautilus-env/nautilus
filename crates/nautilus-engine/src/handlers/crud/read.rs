@@ -169,6 +169,7 @@ fn build_find_many_plan(
         backward,
         distinct,
         nearest,
+        partition,
     } = query_args;
 
     let metadata = state.model_metadata(model);
@@ -303,6 +304,10 @@ fn build_find_many_plan(
         builder = builder.distinct(distinct_db);
     }
 
+    if let Some(window) = partition {
+        builder = builder.partition_window(window);
+    }
+
     let select = builder
         .build()
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build query: {}", e)))?;
@@ -354,6 +359,7 @@ fn find_many_cache_request(
     if query_args.cursor.is_some()
         || query_args.backward
         || query_args.nearest.is_some()
+        || query_args.partition.is_some()
         || !query_args.distinct.is_empty()
         || !query_args.include.is_empty()
     {

@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value as JsonValue;
 
 use nautilus_core::{
-    BinaryOp, Expr, FindManyArgs, IncludeRelation, OrderBy, OrderDir, Select, Value, VectorMetric,
+    BinaryOp, Expr, FindManyArgs, IncludeRelation, OrderBy, OrderDir, PartitionWindow, Select,
+    Value, VectorMetric,
 };
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::{ModelIr, ResolvedFieldType, ScalarType};
@@ -134,6 +135,10 @@ pub struct QueryArgs {
     pub distinct: Vec<String>,
     /// Optional pgvector nearest-neighbor ordering.
     pub nearest: Option<VectorNearestQuery>,
+    /// Optional per-partition row window, which makes `take`/`skip` apply once
+    /// per group instead of once per result set. Set by the batched include
+    /// path; never parsed from client args.
+    pub partition: Option<PartitionWindow>,
 }
 
 fn strip_column_qualifier(name: &str) -> String {
@@ -277,6 +282,7 @@ impl QueryArgs {
             backward,
             distinct,
             nearest,
+            partition: None,
         })
     }
 
@@ -343,6 +349,7 @@ impl QueryArgs {
                     backward: false,
                     distinct: vec![],
                     nearest: None,
+                    partition: None,
                 });
             }
         };
@@ -473,6 +480,7 @@ impl QueryArgs {
             backward,
             distinct,
             nearest,
+            partition: None,
         })
     }
 }

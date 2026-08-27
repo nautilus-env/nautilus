@@ -41,6 +41,14 @@
   `generate_java_client`, the enum / composite type / extension file
   generators and the per-language client and `__init__` generators — return
   `Result` accordingly.
+- Array includes carrying `take` or `skip` are now loaded by the same single
+  batched query as unpaginated includes, using
+  `ROW_NUMBER() OVER (PARTITION BY <child fk> ORDER BY ...)` to bound each
+  parent's children independently. The previous per-parent fallback issued one
+  query per parent row, so `include: { posts: { take: 3 } }` over 100 parents
+  cost 100 queries and now costs one. To-one relations and a negative `take`
+  still take the per-parent path. Window functions require PostgreSQL >= 8.4,
+  MySQL >= 8.0 or SQLite >= 3.25.
 - The engine read-plan cache now reclaims its least-recently-used entries a
   batch at a time instead of ranking all 1024 slots on every insert at
   capacity. The recency scan runs under the write lock with every reader

@@ -5,10 +5,11 @@
 //!
 //! - **Batched**: a single `WHERE child_fk IN (parent_pks...)` query loads
 //!   children for every parent at once, then groups them in memory. This
-//!   eliminates the N+1 query pattern on includes without per-parent pagination.
-//! - **Per-parent fallback**: used when the include node carries `take`/`skip`,
-//!   because per-parent pagination cannot be expressed by a single batched query
-//!   without window functions. Each parent triggers its own child query.
+//!   eliminates the N+1 query pattern on includes. Per-parent `take`/`skip` stays
+//!   on this path by way of a `ROW_NUMBER() OVER (PARTITION BY child_fk)` window.
+//! - **Per-parent fallback**: used for the cases the window cannot express —
+//!   to-one relations and negative `take` — where each parent triggers its own
+//!   child query.
 //!
 //! Nested includes recurse through `execute_find_many_rows`, so each nesting
 //! level is itself batched whenever it qualifies.
@@ -17,7 +18,7 @@ use std::collections::HashMap;
 
 use futures::stream::{self, StreamExt, TryStreamExt};
 use nautilus_connector::Row;
-use nautilus_core::{Expr, Value};
+use nautilus_core::{Expr, PartitionWindow, Value};
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::ModelIr;
 use serde_json::Value as JsonValue;
@@ -189,8 +190,37 @@ pub fn build_include_values(
         .collect()
 }
 
+/// Signals that an include node cannot be served by the batched path.
+struct Unwindowable;
+
+/// Resolve the per-parent pagination of an include into a partition window over
+/// the child foreign key, so `take`/`skip` apply once per parent inside the
+/// single batched query.
+///
+/// Two shapes stay on the per-parent fallback: to-one relations, whose implicit
+/// `take` of 1 is applied while grouping rather than in SQL, and a negative
+/// `take`, which the batched grouping has no ordering to interpret.
+fn partition_window_for(
+    rel_info: &RelationInfo,
+    include_node: &IncludeNode,
+) -> Result<Option<PartitionWindow>, Unwindowable> {
+    if include_node.take.is_none() && include_node.skip.is_none() {
+        return Ok(None);
+    }
+    if !rel_info.is_array || include_node.take.is_some_and(|take| take < 0) {
+        return Err(Unwindowable);
+    }
+
+    let mut window = PartitionWindow::new(vec![child_join_column(rel_info)])
+        .skip(include_node.skip.unwrap_or(0));
+    if let Some(take) = include_node.take {
+        window = window.take(take.unsigned_abs());
+    }
+    Ok(Some(window))
+}
+
 /// Single-parent fallback path. Used when the batched path cannot run safely
-/// (e.g. include node carries per-parent `take`/`skip`).
+/// (e.g. a to-one relation carrying per-parent `take`/`skip`).
 async fn load_relation_include_value(
     state: &EngineState,
     parent_row: &Row,
@@ -235,6 +265,7 @@ async fn load_relation_include_value(
         backward: false,
         distinct: vec![],
         nearest: None,
+        partition: None,
     };
 
     let child_rows = Box::pin(execute_find_many_rows(
@@ -272,9 +303,10 @@ async fn batch_load_relation_include(
     include_node: &IncludeNode,
     tx_id: Option<&str>,
 ) -> Result<Option<Vec<Value>>, ProtocolError> {
-    if include_node.take.is_some() || include_node.skip.is_some() {
-        return Ok(None);
-    }
+    let window = match partition_window_for(rel_info, include_node) {
+        Ok(window) => window,
+        Err(Unwindowable) => return Ok(None),
+    };
 
     let parent_join = parent_join_column(rel_info);
 
@@ -337,6 +369,7 @@ async fn batch_load_relation_include(
         backward: false,
         distinct: vec![],
         nearest: None,
+        partition: window,
     };
 
     let child_rows = Box::pin(execute_find_many_rows(
@@ -363,6 +396,9 @@ async fn batch_load_relation_include(
 /// possible, per-parent fallback otherwise. The fallback runs its child
 /// queries concurrently (bounded, order-preserving) outside transactions and
 /// sequentially inside them, where a single connection is available.
+///
+/// See [`partition_window_for`] for which include shapes still take the
+/// fallback.
 async fn load_relation_values(
     state: &EngineState,
     rows: &[Row],

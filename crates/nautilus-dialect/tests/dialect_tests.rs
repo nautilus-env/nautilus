@@ -1,7 +1,8 @@
 //! Shared integration-style tests for the three SQL dialect renderers.
 
 use nautilus_core::{
-    ColumnMarker, Delete, Expr, Insert, OrderDir, Select, SelectItem, Update, Value,
+    ColumnMarker, Delete, Expr, Insert, OrderDir, PartitionWindow, Select, SelectItem, Update,
+    Value,
 };
 use nautilus_dialect::{Dialect, MysqlDialect, PostgresDialect, SqliteDialect};
 
@@ -349,6 +350,102 @@ fn check_take_and_skip(h: &Harness) {
         h.name
     );
     assert!(sql.params.is_empty(), "[{}]", h.name);
+}
+
+fn check_partition_window_take_and_skip(h: &Harness) {
+    let q = h.q;
+    let p = h.p;
+    let select = Select::from_table("comments")
+        .items(vec![
+            SelectItem::from(ColumnMarker::new("comments", "id")),
+            SelectItem::from(ColumnMarker::new("comments", "post_id")),
+        ])
+        .filter(Expr::column("comments__post_id").in_list(vec![Expr::param(Value::I64(1))]))
+        .order_by("created_at", OrderDir::Desc)
+        .partition_window(
+            PartitionWindow::new(vec!["comments__post_id".to_string()])
+                .skip(2)
+                .take(3),
+        )
+        .build()
+        .unwrap();
+    let sql = h.dialect.render_select(&select).unwrap();
+    assert_eq!(
+        sql.text,
+        format!(
+            "SELECT {}, {} FROM (SELECT {}.{} AS {}, {}.{} AS {}, ROW_NUMBER() OVER (PARTITION BY {}.{} ORDER BY {} DESC) AS {} FROM {} WHERE ({}.{} IN ({}))) AS {} WHERE {} > 2 AND {} <= 5 ORDER BY {} ASC",
+            q("comments__id"),
+            q("comments__post_id"),
+            q("comments"),
+            q("id"),
+            q("comments__id"),
+            q("comments"),
+            q("post_id"),
+            q("comments__post_id"),
+            q("comments"),
+            q("post_id"),
+            q("created_at"),
+            q("__nautilus_rn"),
+            q("comments"),
+            q("comments"),
+            q("post_id"),
+            p(1),
+            q("__nautilus_win"),
+            q("__nautilus_rn"),
+            q("__nautilus_rn"),
+            q("__nautilus_rn"),
+        ),
+        "[{}]",
+        h.name
+    );
+    assert_eq!(sql.params, vec![Value::I64(1)], "[{}]", h.name);
+}
+
+fn check_partition_window_skip_only(h: &Harness) {
+    let q = h.q;
+    let select = Select::from_table("comments")
+        .item(SelectItem::from(ColumnMarker::new("comments", "id")))
+        .partition_window(PartitionWindow::new(vec!["comments__post_id".to_string()]).skip(4))
+        .build()
+        .unwrap();
+    let sql = h.dialect.render_select(&select).unwrap();
+    assert_eq!(
+        sql.text,
+        format!(
+            "SELECT {} FROM (SELECT {}.{} AS {}, ROW_NUMBER() OVER (PARTITION BY {}.{}) AS {} FROM {}) AS {} WHERE {} > 4 ORDER BY {} ASC",
+            q("comments__id"),
+            q("comments"),
+            q("id"),
+            q("comments__id"),
+            q("comments"),
+            q("post_id"),
+            q("__nautilus_rn"),
+            q("comments"),
+            q("__nautilus_win"),
+            q("__nautilus_rn"),
+            q("__nautilus_rn"),
+        ),
+        "[{}]",
+        h.name
+    );
+    assert!(sql.params.is_empty(), "[{}]", h.name);
+}
+
+fn check_partition_window_ignores_statement_limit(h: &Harness) {
+    let select = Select::from_table("comments")
+        .item(SelectItem::from(ColumnMarker::new("comments", "id")))
+        .take(10)
+        .skip(20)
+        .partition_window(PartitionWindow::new(vec!["comments__post_id".to_string()]).take(1))
+        .build()
+        .unwrap();
+    let sql = h.dialect.render_select(&select).unwrap();
+    assert!(
+        !sql.text.contains("LIMIT") && !sql.text.contains("OFFSET"),
+        "[{}] windowed select must not emit statement-level LIMIT/OFFSET: {}",
+        h.name,
+        sql.text
+    );
 }
 
 fn check_not_operator(h: &Harness) {
@@ -1278,6 +1375,27 @@ fn mixed_order_by_preserves_sequence() {
 fn take_and_skip() {
     for h in all_harnesses() {
         check_take_and_skip(&h);
+    }
+}
+
+#[test]
+fn partition_window_take_and_skip() {
+    for h in all_harnesses() {
+        check_partition_window_take_and_skip(&h);
+    }
+}
+
+#[test]
+fn partition_window_skip_only() {
+    for h in all_harnesses() {
+        check_partition_window_skip_only(&h);
+    }
+}
+
+#[test]
+fn partition_window_ignores_statement_limit() {
+    for h in all_harnesses() {
+        check_partition_window_ignores_statement_limit(&h);
     }
 }
 
