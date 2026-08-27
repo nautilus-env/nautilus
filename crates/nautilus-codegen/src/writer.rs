@@ -301,7 +301,7 @@ pub fn write_python_code(
             .with_context(|| format!("Failed to write file: {}", file_path.display()))?;
     }
 
-    let models_init = generate_models_init(models);
+    let models_init = generate_models_init(models)?;
     let models_init_path = models_dir.join("__init__.py");
     fs::write(&models_init_path, models_init)
         .with_context(|| "Failed to write models/__init__.py")?;
@@ -329,7 +329,7 @@ pub fn write_python_code(
             .with_context(|| format!("Failed to write enums file: {}", enums_path.display()))?;
     }
 
-    let enums_init = generate_enums_init(has_enums);
+    let enums_init = generate_enums_init(has_enums)?;
     let enums_init_path = enums_dir.join("__init__.py");
     fs::write(&enums_init_path, enums_init).with_context(|| "Failed to write enums/__init__.py")?;
 
@@ -374,7 +374,7 @@ pub fn write_python_code(
     fs::write(&events_path, events_content)
         .with_context(|| format!("Failed to write events.py: {}", events_path.display()))?;
 
-    let init_content = generate_package_init(has_enums);
+    let init_content = generate_package_init(has_enums)?;
     let init_path = output_dir.join("__init__.py");
     fs::write(&init_path, init_content)
         .with_context(|| format!("Failed to write __init__.py: {}", init_path.display()))?;

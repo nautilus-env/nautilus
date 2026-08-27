@@ -22,7 +22,7 @@ pub(super) async fn handle_transaction_start(
     let timeout = std::time::Duration::from_millis(params.timeout_ms.unwrap_or(5000));
 
     let tx_id = uuid::Uuid::new_v4().to_string();
-    eprintln!("[engine] Starting transaction {}", tx_id);
+    tracing::debug!(transaction_id = %tx_id, "starting transaction");
 
     state
         .begin_transaction(tx_id.clone(), timeout, params.isolation_level)
@@ -42,7 +42,7 @@ pub(super) async fn handle_transaction_commit(
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: TransactionCommitParams = parse_params(&request, "transactionCommit")?;
 
-    eprintln!("[engine] Committing transaction {}", params.id);
+    tracing::debug!(transaction_id = %params.id, "committing transaction");
 
     state.commit_transaction(&params.id).await?;
 
@@ -60,7 +60,7 @@ pub(super) async fn handle_transaction_rollback(
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: TransactionRollbackParams = parse_params(&request, "transactionRollback")?;
 
-    eprintln!("[engine] Rolling back transaction {}", params.id);
+    tracing::debug!(transaction_id = %params.id, "rolling back transaction");
 
     state.rollback_transaction(&params.id).await?;
 
@@ -85,10 +85,10 @@ pub(super) async fn handle_transaction_batch(
     let timeout = std::time::Duration::from_millis(params.timeout_ms.unwrap_or(5000));
 
     let tx_id = uuid::Uuid::new_v4().to_string();
-    eprintln!(
-        "[engine] Starting batch transaction {} with {} operations",
-        tx_id,
-        params.operations.len()
+    tracing::debug!(
+        transaction_id = %tx_id,
+        operations = params.operations.len(),
+        "starting batch transaction"
     );
 
     state
@@ -115,9 +115,12 @@ pub(super) async fn handle_transaction_batch(
         match Box::pin(dispatch(state, sub_request)).await {
             Ok(value) => results.push(value),
             Err(e) => {
-                eprintln!(
-                    "[engine] Batch operation {} failed, rolling back: {:?}",
-                    i, e
+                tracing::warn!(
+                    transaction_id = %tx_id,
+                    operation = i,
+                    method = %op.method,
+                    error = ?e,
+                    "batch operation failed, rolling back"
                 );
                 let _ = state.rollback_transaction(&tx_id).await;
                 return Err(ProtocolError::BatchOperationFailed {

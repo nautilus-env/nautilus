@@ -97,7 +97,7 @@ model User {
 #[test]
 fn test_write_rust_code_creates_model_and_lib_files() {
     let ir = validate(SIMPLE_SCHEMA);
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
@@ -130,7 +130,7 @@ fn test_write_rust_code_creates_model_and_lib_files() {
 #[test]
 fn test_write_rust_code_standalone_creates_cargo_toml() {
     let ir = validate(SIMPLE_SCHEMA);
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
@@ -156,8 +156,8 @@ fn test_write_rust_code_standalone_creates_cargo_toml() {
 #[test]
 fn test_write_rust_code_writes_enums_file() {
     let ir = validate(ENUM_SCHEMA);
-    let models = generate_all_models(&ir, false);
-    let enums_code = Some(generate_all_enums(&ir.enums));
+    let models = generate_all_models(&ir, false).expect("models should generate");
+    let enums_code = Some(generate_all_enums(&ir.enums).expect("enums should generate"));
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
@@ -173,9 +173,10 @@ fn test_write_rust_code_writes_enums_file() {
 #[test]
 fn test_write_rust_code_lib_rs_contains_template_exports() {
     let ir = validate(COMPOSITE_ENUM_SCHEMA);
-    let models = generate_all_models(&ir, false);
-    let enums_code = Some(generate_all_enums(&ir.enums));
-    let composite_types_code = generate_all_composite_types(&ir);
+    let models = generate_all_models(&ir, false).expect("models should generate");
+    let enums_code = Some(generate_all_enums(&ir.enums).expect("enums should generate"));
+    let composite_types_code =
+        generate_all_composite_types(&ir).expect("composite types should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
@@ -264,7 +265,7 @@ fn test_write_rust_code_lib_rs_contains_template_exports() {
 #[test]
 fn test_write_rust_code_writes_event_runtime_and_client_hooks() {
     let ir = validate(SIMPLE_SCHEMA);
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
@@ -308,7 +309,7 @@ fn test_write_rust_code_writes_event_runtime_and_client_hooks() {
 #[test]
 fn test_write_rust_code_runtime_exposes_pool_options_for_embedded_and_direct_paths() {
     let ir = validate(SIMPLE_SCHEMA);
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
@@ -395,7 +396,7 @@ fn test_write_rust_code_runtime_exposes_pool_options_for_embedded_and_direct_pat
 #[test]
 fn test_write_rust_code_auto_engine_mode_keeps_direct_and_engine_paths_separate() {
     let ir = validate(RELATION_SCHEMA);
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
@@ -430,7 +431,7 @@ fn test_write_rust_code_auto_engine_mode_keeps_direct_and_engine_paths_separate(
 #[test]
 fn test_write_rust_code_uses_execute_fast_paths_in_generated_queries() {
     let ir = validate(SIMPLE_SCHEMA);
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
@@ -473,7 +474,7 @@ model Post {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
@@ -527,7 +528,7 @@ fn seed_workspace_lockfile(crate_dir: &std::path::Path, workspace_root: &std::pa
 #[test]
 fn test_write_rust_code_standalone_generated_client_compiles() {
     let ir = validate(RELATION_SCHEMA);
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("models should generate");
     let crate_dir = std::env::current_dir().expect("failed to get current directory");
     let workspace_root = crate_dir
         .parent()
@@ -556,7 +557,7 @@ fn test_write_rust_code_standalone_generated_client_compiles() {
 #[test]
 fn test_write_rust_code_standalone_event_macro_consumer_compiles() {
     let ir = validate(SIMPLE_SCHEMA);
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("models should generate");
     let crate_dir = std::env::current_dir().expect("failed to get current directory");
     let workspace_root = crate_dir
         .parent()
@@ -653,9 +654,12 @@ fn main() {}
 #[test]
 fn test_write_python_code_creates_package_structure() {
     let ir = validate(SIMPLE_SCHEMA);
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0).expect("models should generate");
     let enums_code = None;
-    let client_code = Some(generate_python_client(&ir.models, "schema.nautilus", false));
+    let client_code = Some(
+        generate_python_client(&ir.models, "schema.nautilus", false)
+            .expect("client should generate"),
+    );
     let runtime_files = python_runtime_files();
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
@@ -705,8 +709,8 @@ fn test_write_python_code_creates_package_structure() {
 #[test]
 fn test_write_python_code_with_enums() {
     let ir = validate(ENUM_SCHEMA);
-    let models = generate_all_python_models(&ir, false, 0);
-    let enums_code = Some(generate_python_enums(&ir.enums));
+    let models = generate_all_python_models(&ir, false, 0).expect("models should generate");
+    let enums_code = Some(generate_python_enums(&ir.enums).expect("enums should generate"));
     let runtime_files = python_runtime_files();
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
@@ -724,7 +728,7 @@ fn test_write_python_code_with_enums() {
 #[test]
 fn test_write_python_code_without_client_no_client_py() {
     let ir = validate(SIMPLE_SCHEMA);
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0).expect("models should generate");
     let runtime_files = python_runtime_files();
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();

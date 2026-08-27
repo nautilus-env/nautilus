@@ -1,5 +1,6 @@
 //! Shared helpers for extension-backed scalar wrapper generation.
 
+use anyhow::Result;
 use nautilus_schema::ir::{FieldIr, ResolvedFieldType, ScalarType, SchemaIr};
 use std::collections::{BTreeSet, HashMap};
 use tera::{Context, Tera};
@@ -332,14 +333,16 @@ static EXTENSION_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new
     tera
 });
 
-fn render_ext(template: &str, ctx: &Context) -> String {
+fn render_ext(template: &str, ctx: &Context) -> Result<String> {
     crate::template::render(&EXTENSION_TEMPLATES, template, ctx)
 }
 
-pub fn generate_rust_extension_files(registry: &ExtensionRegistry) -> Vec<(String, String)> {
+pub fn generate_rust_extension_files(
+    registry: &ExtensionRegistry,
+) -> Result<Vec<(String, String)>> {
     let extensions = registry.active_extensions();
     if extensions.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let mut files = Vec::new();
@@ -352,14 +355,14 @@ pub fn generate_rust_extension_files(registry: &ExtensionRegistry) -> Vec<(Strin
         ));
         files.push((
             format!("extensions/{ext}/types.rs"),
-            rust_types_for_extension(ext),
+            rust_types_for_extension(ext)?,
         ));
     }
     files.push(("extensions/mod.rs".to_string(), root_mod));
-    files
+    Ok(files)
 }
 
-fn rust_types_for_extension(extension: &str) -> String {
+fn rust_types_for_extension(extension: &str) -> Result<String> {
     let mut code = String::from("//! Generated extension scalar wrappers.\n\n");
     let sections = types_for_extension(extension)
         .map(|ty| match ty.render {
@@ -369,12 +372,12 @@ fn rust_types_for_extension(extension: &str) -> String {
             ExtensionRender::Hstore => render_ext("rust/hstore_wrapper.tera", &Context::new()),
             ExtensionRender::Vector => render_ext("rust/vector_wrapper.tera", &Context::new()),
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
     code.push_str(&sections.join("\n"));
-    code
+    Ok(code)
 }
 
-fn render_rust_string_wrapper(ty: ExtensionType, value_variant: &str) -> String {
+fn render_rust_string_wrapper(ty: ExtensionType, value_variant: &str) -> Result<String> {
     let match_pattern = if value_variant == "String" {
         "nautilus_core::Value::String(value)".to_string()
     } else {
@@ -393,50 +396,59 @@ fn render_rust_string_wrapper(ty: ExtensionType, value_variant: &str) -> String 
     render_ext("rust/string_wrapper.tera", &ctx)
 }
 
-pub fn generate_python_extension_files(registry: &ExtensionRegistry) -> Vec<(String, String)> {
+pub fn generate_python_extension_files(
+    registry: &ExtensionRegistry,
+) -> Result<Vec<(String, String)>> {
     registry
         .active_extensions()
         .into_iter()
         .map(|extension| {
-            (
+            Ok((
                 format!("{extension}/types.py"),
-                python_types_for_extension(extension),
-            )
+                python_types_for_extension(extension)?,
+            ))
         })
         .collect()
 }
 
-fn python_types_for_extension(extension: &str) -> String {
+fn python_types_for_extension(extension: &str) -> Result<String> {
     let mut sections = Vec::new();
     let mut string_wrappers = Vec::new();
 
     let flush_string_wrappers =
-        |sections: &mut Vec<String>, string_wrappers: &mut Vec<ExtensionType>| {
+        |sections: &mut Vec<String>, string_wrappers: &mut Vec<ExtensionType>| -> Result<()> {
             if !string_wrappers.is_empty() {
-                sections.push(render_python_string_wrappers(string_wrappers));
+                sections.push(render_python_string_wrappers(string_wrappers)?);
                 string_wrappers.clear();
             }
+            Ok(())
         };
 
     for ty in types_for_extension(extension) {
         match ty.render {
             ExtensionRender::StringWrapper { .. } => string_wrappers.push(ty),
             ExtensionRender::Hstore => {
-                flush_string_wrappers(&mut sections, &mut string_wrappers);
-                sections.push(render_ext("python/hstore_wrapper.py.tera", &Context::new()));
+                flush_string_wrappers(&mut sections, &mut string_wrappers)?;
+                sections.push(render_ext(
+                    "python/hstore_wrapper.py.tera",
+                    &Context::new(),
+                )?);
             }
             ExtensionRender::Vector => {
-                flush_string_wrappers(&mut sections, &mut string_wrappers);
-                sections.push(render_ext("python/vector_wrapper.py.tera", &Context::new()));
+                flush_string_wrappers(&mut sections, &mut string_wrappers)?;
+                sections.push(render_ext(
+                    "python/vector_wrapper.py.tera",
+                    &Context::new(),
+                )?);
             }
         }
     }
 
-    flush_string_wrappers(&mut sections, &mut string_wrappers);
-    sections.join("\n")
+    flush_string_wrappers(&mut sections, &mut string_wrappers)?;
+    Ok(sections.join("\n"))
 }
 
-fn render_python_string_wrappers(types: &[ExtensionType]) -> String {
+fn render_python_string_wrappers(types: &[ExtensionType]) -> Result<String> {
     let mut code =
         "from __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom typing import Any, NotRequired, TypedDict, Union\n\n"
             .to_string();
@@ -446,7 +458,7 @@ fn render_python_string_wrappers(types: &[ExtensionType]) -> String {
         ctx.insert("is_geometry", &ty.is_geometry());
         ctx.insert("is_geography", &ty.is_geography());
         ctx.insert("is_spatial", &ty.is_spatial());
-        code.push_str(&render_ext("python/string_wrapper_class.py.tera", &ctx));
+        code.push_str(&render_ext("python/string_wrapper_class.py.tera", &ctx)?);
         code.push('\n');
     }
     let all_names = types
@@ -460,48 +472,50 @@ fn render_python_string_wrappers(types: &[ExtensionType]) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     code.push_str(&format!("\n__all__ = [{all_names}]\n"));
-    code
+    Ok(code)
 }
 
-pub fn generate_js_extension_files(registry: &ExtensionRegistry) -> GeneratedJsExtensionFiles {
+pub fn generate_js_extension_files(
+    registry: &ExtensionRegistry,
+) -> Result<GeneratedJsExtensionFiles> {
     let mut js_files = Vec::new();
     let mut dts_files = Vec::new();
     for extension in registry.active_extensions() {
         js_files.push((
             format!("extensions/{extension}/types.js"),
-            js_types_for_extension(extension),
+            js_types_for_extension(extension)?,
         ));
         dts_files.push((
             format!("extensions/{extension}/types.d.ts"),
-            ts_types_for_extension(extension),
+            ts_types_for_extension(extension)?,
         ));
     }
-    (js_files, dts_files)
+    Ok((js_files, dts_files))
 }
 
-fn js_types_for_extension(extension: &str) -> String {
-    types_for_extension(extension)
+fn js_types_for_extension(extension: &str) -> Result<String> {
+    let sections = types_for_extension(extension)
         .map(|ty| match ty.render {
             ExtensionRender::StringWrapper { .. } => render_js_string_wrapper(ty),
             ExtensionRender::Hstore => render_ext("js/hstore_wrapper.js.tera", &Context::new()),
             ExtensionRender::Vector => render_ext("js/vector_wrapper.js.tera", &Context::new()),
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect::<Result<Vec<_>>>()?;
+    Ok(sections.join("\n"))
 }
 
-fn ts_types_for_extension(extension: &str) -> String {
-    types_for_extension(extension)
+fn ts_types_for_extension(extension: &str) -> Result<String> {
+    let sections = types_for_extension(extension)
         .map(|ty| match ty.render {
             ExtensionRender::StringWrapper { .. } => render_ts_string_wrapper(ty),
             ExtensionRender::Hstore => render_ext("js/hstore_wrapper.d.ts.tera", &Context::new()),
             ExtensionRender::Vector => render_ext("js/vector_wrapper.d.ts.tera", &Context::new()),
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect::<Result<Vec<_>>>()?;
+    Ok(sections.join("\n"))
 }
 
-fn render_js_string_wrapper(ty: ExtensionType) -> String {
+fn render_js_string_wrapper(ty: ExtensionType) -> Result<String> {
     let mut ctx = Context::new();
     ctx.insert("type_name", ty.type_name);
     ctx.insert("is_geometry", &ty.is_geometry());
@@ -510,7 +524,7 @@ fn render_js_string_wrapper(ty: ExtensionType) -> String {
     render_ext("js/string_wrapper.js.tera", &ctx)
 }
 
-fn render_ts_string_wrapper(ty: ExtensionType) -> String {
+fn render_ts_string_wrapper(ty: ExtensionType) -> Result<String> {
     let mut ctx = Context::new();
     ctx.insert("type_name", ty.type_name);
     ctx.insert("is_geometry", &ty.is_geometry());
@@ -522,7 +536,7 @@ fn render_ts_string_wrapper(ty: ExtensionType) -> String {
 pub fn generate_java_extension_files(
     registry: &ExtensionRegistry,
     root_package: &str,
-) -> Vec<(String, String)> {
+) -> Result<Vec<(String, String)>> {
     let mut files = Vec::new();
     for extension in registry.active_extensions() {
         for ty in types_for_extension(extension) {
@@ -532,7 +546,7 @@ pub fn generate_java_extension_files(
                 }
                 ExtensionRender::Hstore => render_java_hstore_wrapper(root_package, extension),
                 ExtensionRender::Vector => render_java_vector_wrapper(root_package, extension),
-            };
+            }?;
             files.push(java_extension_file(
                 root_package,
                 extension,
@@ -541,7 +555,7 @@ pub fn generate_java_extension_files(
             ));
         }
     }
-    files
+    Ok(files)
 }
 
 fn java_extension_file(
@@ -557,7 +571,11 @@ fn java_extension_file(
     )
 }
 
-fn render_java_string_wrapper(root_package: &str, extension: &str, ty: ExtensionType) -> String {
+fn render_java_string_wrapper(
+    root_package: &str,
+    extension: &str,
+    ty: ExtensionType,
+) -> Result<String> {
     let mut ctx = Context::new();
     ctx.insert("root_package", root_package);
     ctx.insert("extension", extension);
@@ -568,14 +586,14 @@ fn render_java_string_wrapper(root_package: &str, extension: &str, ty: Extension
     render_ext("java/string_wrapper.java.tera", &ctx)
 }
 
-fn render_java_hstore_wrapper(root_package: &str, extension: &str) -> String {
+fn render_java_hstore_wrapper(root_package: &str, extension: &str) -> Result<String> {
     let mut ctx = Context::new();
     ctx.insert("root_package", root_package);
     ctx.insert("extension", extension);
     render_ext("java/hstore_wrapper.java.tera", &ctx)
 }
 
-fn render_java_vector_wrapper(root_package: &str, extension: &str) -> String {
+fn render_java_vector_wrapper(root_package: &str, extension: &str) -> Result<String> {
     let mut ctx = Context::new();
     ctx.insert("root_package", root_package);
     ctx.insert("extension", extension);

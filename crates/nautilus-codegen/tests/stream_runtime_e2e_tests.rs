@@ -285,9 +285,13 @@ SELECT printf('User-%05d', x) FROM seq;
 
 fn generate_python_client_fixture(output_dir: &Path, schema_path: &str) {
     let ir = validate(BASE_SCHEMA);
-    let models = generate_all_python_models(&ir, true, 0);
+    let models = generate_all_python_models(&ir, true, 0)
+        .expect("generate_all_python_models should succeed");
     let runtime_files = python_runtime_files();
-    let client_code = Some(generate_python_client(&ir.models, schema_path, true));
+    let client_code = Some(
+        generate_python_client(&ir.models, schema_path, true)
+            .expect("generate_python_client should succeed"),
+    );
 
     write_python_code(
         output_dir
@@ -305,9 +309,12 @@ fn generate_python_client_fixture(output_dir: &Path, schema_path: &str) {
 
 fn generate_js_client_fixture(output_dir: &Path, schema_path: &str) {
     let ir = validate(BASE_SCHEMA);
-    let (js_models, dts_models) = generate_all_js_models(&ir);
-    let (js_client, dts_client) = generate_js_client(&ir.models, schema_path);
-    let (js_models_index, dts_models_index) = generate_js_models_index(&js_models);
+    let (js_models, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
+    let (js_client, dts_client) =
+        generate_js_client(&ir.models, schema_path).expect("generate_js_client should succeed");
+    let (js_models_index, dts_models_index) =
+        generate_js_models_index(&js_models).expect("generate_js_models_index should succeed");
     let runtime_files = js_runtime_files();
 
     write_js_code(

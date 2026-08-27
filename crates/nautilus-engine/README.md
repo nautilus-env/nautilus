@@ -39,6 +39,20 @@ in the current directory.
 - `query.findMany` also supports protocol-level chunking via `chunkSize`; partial responses are emitted before the final response when the client opts in.
 - The engine owns schema-aware field mapping, relation hydration for includes, mutation-side `@updatedAt`, transaction timeout handling, and aggregate/raw-query execution.
 
+## Diagnostics
+
+Diagnostics are emitted on stderr through `tracing`; stdout is reserved for the
+JSON-RPC stream.
+
+| Variable | Effect |
+| --- | --- |
+| `NAUTILUS_LOG` | `tracing` filter directives, e.g. `nautilus_engine=debug`. Falls back to `RUST_LOG`; defaults to `nautilus_engine=info` |
+| `NAUTILUS_SLOW_QUERY_MS` | Logs every statement running past this many milliseconds, with its SQL text and duration, on target `nautilus_engine::slow_query`. Unset or `0` disables it |
+
+Per-request transaction lifecycle events are logged at `debug`, so
+`NAUTILUS_LOG=nautilus_engine=debug` traces transaction start, commit and
+rollback.
+
 ## Main modules
 
 | Module | Responsibility |
@@ -46,6 +60,7 @@ in the current directory.
 | `args` | Standalone binary CLI parsing |
 | `handlers` | RPC routing and method handlers |
 | `filter` | JSON query args -> `nautilus-core` expressions |
+| `observability` | Log subscriber setup and the slow-statement threshold |
 | `state` | Schema metadata, connector client, transaction registry |
 | `transport` | Stdin/stdout request loop |
 

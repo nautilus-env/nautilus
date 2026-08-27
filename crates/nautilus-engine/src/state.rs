@@ -15,6 +15,7 @@ use nautilus_schema::ir::{ModelIr, SchemaIr};
 
 use crate::filter::RelationMap;
 use crate::metadata::ModelMetadata;
+use crate::observability::StatementTimer;
 use crate::plan_cache::PlanCache;
 use crate::pool_options::EnginePoolOptions;
 
@@ -63,6 +64,8 @@ pub struct EngineState {
     plan_cache: PlanCache,
     /// Upper bound on requests the transport handles concurrently.
     max_concurrent_requests: usize,
+    /// Duration past which an executed statement is logged, when configured.
+    slow_query_threshold: Option<Duration>,
 }
 
 /// An active interactive transaction managed by the engine.
@@ -278,6 +281,7 @@ impl EngineState {
             expired_transactions: Arc::new(Mutex::new(HashMap::new())),
             plan_cache: PlanCache::default(),
             max_concurrent_requests: pool_options.resolved_max_concurrent_requests(),
+            slow_query_threshold: crate::observability::slow_query_threshold(),
         })
     }
 
@@ -343,6 +347,15 @@ impl EngineState {
         Ok(())
     }
 
+    /// Start timing a statement for the slow-statement log.
+    ///
+    /// Only the paths that materialise their result set are timed: the
+    /// streaming path hands the connection to the consumer, so its duration
+    /// belongs to the caller draining the rows rather than to the statement.
+    fn time_statement<'a>(&self, sql: &'a Sql, context: &'a str) -> StatementTimer<'a> {
+        StatementTimer::start(self.slow_query_threshold, context, &sql.text)
+    }
+
     /// Execute a SQL query, optionally inside a transaction.
     ///
     /// If `tx_id` is `Some`, the query runs on the transaction's connection;
@@ -353,7 +366,8 @@ impl EngineState {
         context: &str,
         tx_id: Option<&str>,
     ) -> Result<Vec<Row>, ProtocolError> {
-        match tx_id {
+        let timer = self.time_statement(sql, context);
+        let rows = match tx_id {
             None => self.client.execute_query(sql, context).await,
             Some(id) => {
                 let tx_client = self.transaction_client_for_request(id).await?;
@@ -361,7 +375,9 @@ impl EngineState {
                     .await
                     .map_err(|e| connector_to_protocol(e, context))
             }
-        }
+        };
+        timer.finish();
+        rows
     }
 
     /// Execute a SQL query and return a row-by-row stream, optionally inside a
@@ -402,18 +418,23 @@ impl EngineState {
         context: &str,
         tx_id: Option<&str>,
     ) -> Result<Vec<Row>, ProtocolError> {
-        if let Some(tx_id) = tx_id {
-            let tx_client = self.transaction_client_for_request(tx_id).await?;
-            return tx_client
-                .executor()
-                .execute_collect_unprepared(sql)
-                .await
-                .map_err(|e| connector_to_protocol(e, context));
-        }
-        match &self.direct_client {
-            Some(direct) => direct.execute_query_unprepared(sql, context).await,
-            None => self.client.execute_query_unprepared(sql, context).await,
-        }
+        let timer = self.time_statement(sql, context);
+        let rows = match tx_id {
+            Some(tx_id) => {
+                let tx_client = self.transaction_client_for_request(tx_id).await?;
+                tx_client
+                    .executor()
+                    .execute_collect_unprepared(sql)
+                    .await
+                    .map_err(|e| connector_to_protocol(e, context))
+            }
+            None => match &self.direct_client {
+                Some(direct) => direct.execute_query_unprepared(sql, context).await,
+                None => self.client.execute_query_unprepared(sql, context).await,
+            },
+        };
+        timer.finish();
+        rows
     }
 
     /// Execute a mutation SQL and return the affected-row count, optionally
@@ -426,7 +447,8 @@ impl EngineState {
         context: &str,
         tx_id: Option<&str>,
     ) -> Result<usize, ProtocolError> {
-        match tx_id {
+        let timer = self.time_statement(sql, context);
+        let affected = match tx_id {
             None => self.client.execute_affected(sql, context).await,
             Some(id) => {
                 let tx_client = self.transaction_client_for_request(id).await?;
@@ -436,7 +458,9 @@ impl EngineState {
                     .await
                     .map_err(|e| connector_to_protocol(e, context))
             }
-        }
+        };
+        timer.finish();
+        affected
     }
 
     /// Begin a new interactive transaction.
@@ -584,7 +608,7 @@ impl EngineState {
                 .collect()
         };
         for (id, active) in expired {
-            eprintln!("[engine] Reaping expired transaction: {}", id);
+            tracing::warn!(transaction_id = %id, "reaping expired transaction");
             self.expire_active_transaction(&id, active).await;
         }
     }

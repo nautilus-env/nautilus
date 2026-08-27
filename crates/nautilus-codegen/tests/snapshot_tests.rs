@@ -115,7 +115,7 @@ model User {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");
     assert_local_snapshot!(code);
 }
@@ -130,7 +130,7 @@ model Post {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("Post").expect("Post model missing");
     let model_decl = code
         .split("impl Post")
@@ -166,7 +166,7 @@ model User {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");
     assert!(
         code.contains("FindMany"),
@@ -194,7 +194,7 @@ model User {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");
 
     assert!(
@@ -233,7 +233,7 @@ model User {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");
     assert_local_snapshot!(code);
 }
@@ -251,7 +251,7 @@ model User {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");
 
     assert!(
@@ -280,7 +280,7 @@ model User {
 }
 "#,
     );
-    let enums_code = generate_all_enums(&ir.enums);
+    let enums_code = generate_all_enums(&ir.enums).expect("generate_all_enums should succeed");
     assert_local_snapshot!(enums_code);
 }
 
@@ -299,7 +299,7 @@ model Post {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     assert!(models.contains_key("User"), "expected User model");
     assert!(models.contains_key("Post"), "expected Post model");
 }
@@ -314,8 +314,8 @@ model User {
 }
 "#,
     );
-    let sync_models = generate_all_models(&ir, false);
-    let async_models = generate_all_models(&ir, true);
+    let sync_models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
+    let async_models = generate_all_models(&ir, true).expect("generate_all_models should succeed");
     let sync_code = sync_models.get("User").unwrap();
     let async_code = async_models.get("User").unwrap();
     assert!(
@@ -337,7 +337,7 @@ model Product {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("Product").expect("Product missing");
     assert_local_snapshot!(code);
 }
@@ -355,7 +355,7 @@ model User {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User missing");
 
     assert!(
@@ -399,7 +399,7 @@ model Post {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let user_code = models.get("User").expect("User missing");
     let post_code = models.get("Post").expect("Post missing");
     assert_local_snapshot!("rust_user_with_posts_relation", user_code);
@@ -416,7 +416,7 @@ model User {
 }
 "#,
     );
-    let async_models = generate_all_models(&ir, true);
+    let async_models = generate_all_models(&ir, true).expect("generate_all_models should succeed");
     let async_code = async_models.get("User").expect("User missing");
 
     assert!(
@@ -432,7 +432,7 @@ model User {
         "expected stream_many to reject backward pagination explicitly:\n{async_code}"
     );
 
-    let sync_models = generate_all_models(&ir, false);
+    let sync_models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let sync_code = sync_models.get("User").expect("User missing");
     assert!(
         !sync_code.contains("pub fn stream_many("),
@@ -457,7 +457,7 @@ model Post {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let user_code = models.get("User").expect("User missing");
 
     assert!(
@@ -488,7 +488,7 @@ model User {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let user_code = models.get("User").expect("User missing");
 
     assert!(
@@ -518,7 +518,7 @@ model User {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let user_code = models.get("User").expect("User missing");
 
     let update_idx = user_code
@@ -558,7 +558,7 @@ model Post {
 }
 "#,
     );
-    let models = generate_all_models(&ir, false);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let user_code = models.get("User").expect("User missing");
 
     assert!(
@@ -579,7 +579,8 @@ model User {
 }
 "#,
     );
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let (_, code) = models
         .iter()
         .find(|(name, _)| name == "user.py")
@@ -598,7 +599,8 @@ model Post {
 }
 "#,
     );
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let (_, code) = models
         .iter()
         .find(|(name, _)| name == "post.py")
@@ -638,7 +640,8 @@ model User {
 "#,
     );
 
-    let py_models = generate_all_python_models(&ir, false, 0);
+    let py_models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let py_code = generated_python_file(&py_models, "user.py");
     let py_create_input = section_until(
         py_code,
@@ -658,7 +661,8 @@ model User {
         "uuidv7 id should not be required in Python create input:\n{py_create_input}"
     );
 
-    let (_js_models, dts_models) = generate_all_js_models(&ir);
+    let (_js_models, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_code = generated_named_file(&dts_models, "user.d.ts");
     let js_create_input = section_until(
         js_code,
@@ -690,7 +694,8 @@ model User {
 }
 "#,
     );
-    let enums_code = generate_python_enums(&ir.enums);
+    let enums_code =
+        generate_python_enums(&ir.enums).expect("generate_python_enums should succeed");
     assert_local_snapshot!(enums_code);
 }
 
@@ -704,8 +709,10 @@ model User {
 }
 "#,
     );
-    let sync_models = generate_all_python_models(&ir, false, 0);
-    let async_models = generate_all_python_models(&ir, true, 0);
+    let sync_models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
+    let async_models = generate_all_python_models(&ir, true, 0)
+        .expect("generate_all_python_models should succeed");
     let (_, sync_code) = sync_models.iter().find(|(n, _)| n == "user.py").unwrap();
     let (_, async_code) = async_models.iter().find(|(n, _)| n == "user.py").unwrap();
     assert!(
@@ -731,7 +738,8 @@ model Post {
 }
 "#,
     );
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let names: Vec<&str> = models.iter().map(|(n, _)| n.as_str()).collect();
     assert!(names.contains(&"user.py"), "expected user in {names:?}");
     assert!(names.contains(&"post.py"), "expected post in {names:?}");
@@ -754,8 +762,10 @@ model Post {
 }
 "#,
     );
-    let client_sync = generate_python_client(&ir.models, "schema.nautilus", false);
-    let client_async = generate_python_client(&ir.models, "schema.nautilus", true);
+    let client_sync = generate_python_client(&ir.models, "schema.nautilus", false)
+        .expect("generate_python_client should succeed");
+    let client_async = generate_python_client(&ir.models, "schema.nautilus", true)
+        .expect("generate_python_client should succeed");
     assert!(
         client_sync.contains("NautilusClient"),
         "expected NautilusClient:\n{client_sync}"
@@ -781,7 +791,8 @@ model User {
 }
 "#,
     );
-    let (client_js, client_dts) = generate_js_client(&ir.models, "schema.nautilus");
+    let (client_js, client_dts) = generate_js_client(&ir.models, "schema.nautilus")
+        .expect("generate_js_client should succeed");
     let runtime = js_runtime_files();
     let client_runtime = runtime
         .iter()
@@ -896,7 +907,8 @@ model User {
 }
 "#,
     );
-    let client = generate_python_client(&ir.models, "schema.nautilus", false);
+    let client = generate_python_client(&ir.models, "schema.nautilus", false)
+        .expect("generate_python_client should succeed");
     let runtime = python_runtime_files();
     let engine_runtime = runtime
         .iter()
@@ -930,7 +942,8 @@ model User {
 "#,
     );
 
-    let py_models = generate_all_python_models(&ir, true, 0);
+    let py_models = generate_all_python_models(&ir, true, 0)
+        .expect("generate_all_python_models should succeed");
     let py_user = generated_python_file(&py_models, "user.py");
     let py_runtime = python_runtime_files();
     let py_events_runtime = generated_named_file(&py_runtime, "_events.py");
@@ -961,10 +974,12 @@ model User {
         "expected Python event runtime to expose phases, context, and StopPropagation:\n{py_events_runtime}"
     );
 
-    let (js_models, js_dts_models) = generate_all_js_models(&ir);
+    let (js_models, js_dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_user = generated_named_file(&js_models, "user.js");
     let js_user_dts = generated_named_file(&js_dts_models, "user.d.ts");
-    let (js_client, js_client_dts) = generate_js_client(&ir.models, "schema.nautilus");
+    let (js_client, js_client_dts) = generate_js_client(&ir.models, "schema.nautilus")
+        .expect("generate_js_client should succeed");
     let js_runtime = js_runtime_files();
     let js_events_runtime = generated_named_file(&js_runtime, "_events.js");
     let js_events_dts = generated_named_file(&js_runtime, "_events.d.ts");
@@ -1104,7 +1119,8 @@ model User {
 }
 "#,
     );
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let (_, code) = models
         .iter()
         .find(|(name, _)| name == "user.py")
@@ -1149,7 +1165,8 @@ model Comment {
 }
 "#,
     );
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let (_, user_code) = models
         .iter()
         .find(|(name, _)| name == "user.py")
@@ -1202,7 +1219,8 @@ model User {
 }
 "#,
     );
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let (_, code) = models
         .iter()
         .find(|(name, _)| name == "user.py")
@@ -1221,8 +1239,9 @@ model User {
         "expected composite payload serialization to flow through _serialize_scalar_input:\n{code}"
     );
 
-    let composite_types =
-        generate_python_composite_types(&ir.composite_types).expect("types should be generated");
+    let composite_types = generate_python_composite_types(&ir.composite_types)
+        .expect("generate_python_composite_types should succeed")
+        .expect("types should be generated");
     assert!(
         composite_types.contains("from typing_extensions import TypedDict"),
         "expected Python composite TypedDicts to use typing_extensions on Python < 3.12:\n{composite_types}"
@@ -1245,7 +1264,8 @@ model User {
 }
 "#,
     );
-    let (_js_models, dts_models) = generate_all_js_models(&ir);
+    let (_js_models, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let (_, code) = dts_models
         .iter()
         .find(|(name, _)| name == "user.d.ts")
@@ -1276,7 +1296,8 @@ model User {
 }
 "#,
     );
-    let (_js_models, dts_models) = generate_all_js_models(&ir);
+    let (_js_models, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let code = generated_named_file(&dts_models, "user.d.ts");
 
     assert!(
@@ -1330,7 +1351,8 @@ model Comment {
 }
 "#,
     );
-    let (js_models, _dts_models) = generate_all_js_models(&ir);
+    let (js_models, _dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let (_, user_code) = js_models
         .iter()
         .find(|(name, _)| name == "user.js")
@@ -1376,7 +1398,8 @@ model User {
 }
 "#,
     );
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let (_, code) = models
         .iter()
         .find(|(name, _)| name == "user.py")
@@ -1419,7 +1442,8 @@ model User {
 }
 "#,
     );
-    let models = generate_all_python_models(&ir, false, 0);
+    let models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let (_, code) = models
         .iter()
         .find(|(name, _)| name == "user.py")
@@ -1445,8 +1469,10 @@ model User {
 }
 "#,
     );
-    let async_models = generate_all_python_models(&ir, true, 0);
-    let sync_models = generate_all_python_models(&ir, false, 0);
+    let async_models = generate_all_python_models(&ir, true, 0)
+        .expect("generate_all_python_models should succeed");
+    let sync_models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let async_code = generated_python_file(&async_models, "user.py");
     let sync_code = generated_python_file(&sync_models, "user.py");
 
@@ -1484,7 +1510,8 @@ model User {
 }
 "#,
     );
-    let py_models = generate_all_python_models(&ir, false, 0);
+    let py_models = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
 
     assert!(
@@ -1527,7 +1554,8 @@ model User {
 }
 "#,
     );
-    let (js_models, dts_models) = generate_all_js_models(&ir);
+    let (js_models, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let (_, dts_code) = dts_models
         .iter()
         .find(|(name, _)| name == "user.d.ts")
@@ -1573,7 +1601,8 @@ model User {
 }
 "#,
     );
-    let (js_models, dts_models) = generate_all_js_models(&ir);
+    let (js_models, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let (_, dts_code) = dts_models
         .iter()
         .find(|(name, _)| name == "user.d.ts")
@@ -1603,7 +1632,8 @@ model User {
 }
 "#,
     );
-    let (js_models, dts_models) = generate_all_js_models(&ir);
+    let (js_models, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_code = generated_named_file(&js_models, "user.js");
     let dts_code = generated_named_file(&dts_models, "user.d.ts");
 
@@ -1641,7 +1671,8 @@ model User {
 }
 "#,
     );
-    let (js_models, _dts_models) = generate_all_js_models(&ir);
+    let (js_models, _dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_model = generated_named_file(&js_models, "user.js");
 
     assert!(
@@ -1681,7 +1712,8 @@ model User {
 }
 "#,
     );
-    let (_client_js, client_dts) = generate_js_client(&ir.models, "schema.nautilus");
+    let (_client_js, client_dts) = generate_js_client(&ir.models, "schema.nautilus")
+        .expect("generate_js_client should succeed");
     let runtime = js_runtime_files();
     let client_runtime = runtime
         .iter()
@@ -1979,7 +2011,8 @@ model User {
 "#,
     );
 
-    let (_, dts_models) = generate_all_js_models(&ir);
+    let (_, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_dts = dts_models
         .iter()
         .find(|(name, _)| name == "user.d.ts")
@@ -1991,7 +2024,8 @@ model User {
     assert!(!js_dts.contains("payload?: SortOrder;"));
     assert!(!js_dts.contains("embedding?: SortOrder;"));
 
-    let py_models = generate_all_python_models(&ir, false, 1);
+    let py_models = generate_all_python_models(&ir, false, 1)
+        .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
     assert!(py_model.contains("title: NotRequired[Literal[\"asc\", \"desc\"]]"));
     assert!(!py_model.contains("active: NotRequired[Literal[\"asc\", \"desc\"]]"));
@@ -2041,7 +2075,7 @@ model Shipment {
 "#,
     );
 
-    let rust_models = generate_all_models(&ir, false);
+    let rust_models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let rust_shipment = rust_models.get("Shipment").expect("Shipment model missing");
     assert!(rust_shipment
         .contains("pub fn delivery_eta_minutes(&self) -> nautilus_core::OrderField<i32>"));
@@ -2053,7 +2087,8 @@ model Shipment {
     assert!(!rust_shipment
         .contains("pub fn delivery_carrier_metadata(&self) -> nautilus_core::OrderField"));
 
-    let (_, dts_models) = generate_all_js_models(&ir);
+    let (_, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_dts = dts_models
         .iter()
         .find(|(name, _)| name == "shipment.d.ts")
@@ -2064,7 +2099,8 @@ model Shipment {
     assert!(!js_dts.contains("'delivery.weekendDelivery'?: SortOrder;"));
     assert!(!js_dts.contains("'delivery.carrierMetadata'?: SortOrder;"));
 
-    let py_models = generate_all_python_models(&ir, false, 1);
+    let py_models = generate_all_python_models(&ir, false, 1)
+        .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "shipment.py");
     assert!(py_model.contains("ShipmentOrderByInput = TypedDict("));
     assert!(py_model.contains("\"delivery.etaMinutes\": NotRequired[Literal[\"asc\", \"desc\"]]"));
@@ -2103,7 +2139,8 @@ model User {
 "#,
     );
 
-    let (_, dts_models) = generate_all_js_models(&ir);
+    let (_, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_dts = dts_models
         .iter()
         .find(|(name, _)| name == "user.d.ts")
@@ -2118,7 +2155,8 @@ model User {
     assert!(js_dts.contains("isNull?: boolean;"));
     assert!(js_dts.contains("meta?: HstoreInput | HstoreFilter | null;"));
 
-    let py_models = generate_all_python_models(&ir, false, 1);
+    let py_models = generate_all_python_models(&ir, false, 1)
+        .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
     assert!(py_model.contains("HstoreValue = Dict[str, Optional[str]]"));
     assert!(py_model.contains("class HstoreFilter(TypedDict, total=False):"));
@@ -2154,7 +2192,8 @@ model User {
 "#,
     );
 
-    let (_, dts_models) = generate_all_js_models(&ir);
+    let (_, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_dts = dts_models
         .iter()
         .find(|(name, _)| name == "user.d.ts")
@@ -2174,7 +2213,8 @@ model User {
     // The Nearest input also widens its `query` to accept the wrapper.
     assert!(js_dts.contains("query:  VectorInput;"));
 
-    let py_models = generate_all_python_models(&ir, false, 1);
+    let py_models = generate_all_python_models(&ir, false, 1)
+        .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
     assert!(py_model.contains("class VectorFilter(TypedDict, total=False):"));
     assert!(py_model.contains("equals: NotRequired[VectorInput]"));
@@ -2222,7 +2262,8 @@ model Example {
 
     let extensions = ExtensionRegistry::from_schema(&ir);
 
-    let py_ext_files = generate_python_extension_files(&extensions);
+    let py_ext_files = generate_python_extension_files(&extensions)
+        .expect("generate_python_extension_files should succeed");
     let citext_py = generated_named_file(&py_ext_files, "citext/types.py");
     let hstore_py = generated_named_file(&py_ext_files, "hstore/types.py");
     let ltree_py = generated_named_file(&py_ext_files, "ltree/types.py");
@@ -2243,7 +2284,8 @@ model Example {
     assert!(vector_py.contains("class VectorValuesInput(TypedDict):"));
     assert!(vector_py.contains("VectorInput = Union[\"Vector\", VectorSource, VectorValuesInput]"));
 
-    let (_, js_ext_dts) = generate_js_extension_files(&extensions);
+    let (_, js_ext_dts) = generate_js_extension_files(&extensions)
+        .expect("generate_js_extension_files should succeed");
     let citext_dts = generated_named_file(&js_ext_dts, "extensions/citext/types.d.ts");
     let hstore_dts = generated_named_file(&js_ext_dts, "extensions/hstore/types.d.ts");
     let ltree_dts = generated_named_file(&js_ext_dts, "extensions/ltree/types.d.ts");
@@ -2263,7 +2305,8 @@ model Example {
     assert!(vector_dts.contains("export interface VectorValuesInput {"));
     assert!(vector_dts.contains("export type VectorInput = Vector | VectorBuilderInput;"));
 
-    let py_models = generate_all_python_models(&ir, false, 1);
+    let py_models = generate_all_python_models(&ir, false, 1)
+        .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "example.py");
     assert!(py_model.contains("email: Required[CitextInput]"));
     assert!(py_model.contains("path: NotRequired[Optional[LtreeInput]]"));
@@ -2277,7 +2320,8 @@ model Example {
     );
     assert!(py_model.contains("embedding: NotRequired[Union[VectorInput, VectorFilter]]"));
 
-    let (_, js_models) = generate_all_js_models(&ir);
+    let (_, js_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_model = js_models
         .iter()
         .find(|(name, _)| name == "example.d.ts")
@@ -2293,7 +2337,8 @@ model Example {
     assert!(js_model.contains("serviceArea?: GeographyInput | StringFilter | null;"));
     assert!(js_model.contains("embedding?: VectorInput | VectorFilter;"));
 
-    let java_ext_files = generate_java_extension_files(&extensions, "com.acme.db");
+    let java_ext_files = generate_java_extension_files(&extensions, "com.acme.db")
+        .expect("generate_java_extension_files should succeed");
     let geometry_java = generated_java_file(&java_ext_files, "Geometry.java");
     let geography_java = generated_java_file(&java_ext_files, "Geography.java");
     let hstore_java = generated_java_file(&java_ext_files, "Hstore.java");
@@ -2308,7 +2353,8 @@ model Example {
         .contains("public static Hstore ofEntries(Map.Entry<String, String>... entries)"));
     assert!(vector_java.contains("public static Vector of(double... values)"));
 
-    let rust_ext_files = generate_rust_extension_files(&extensions);
+    let rust_ext_files = generate_rust_extension_files(&extensions)
+        .expect("generate_rust_extension_files should succeed");
     let postgis_rust = generated_named_file(&rust_ext_files, "extensions/postgis/types.rs");
     let hstore_rust = generated_named_file(&rust_ext_files, "extensions/hstore/types.rs");
     let vector_rust = generated_named_file(&rust_ext_files, "extensions/vector/types.rs");
@@ -2338,7 +2384,8 @@ model User {
 "#,
     );
 
-    let py_models = generate_all_python_models(&ir, false, 1);
+    let py_models = generate_all_python_models(&ir, false, 1)
+        .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
 
     assert!(py_model.contains("\"in_\": \"in\""));
@@ -2367,7 +2414,8 @@ model User {
 "#,
     );
 
-    let (js_models, dts_models) = generate_all_js_models(&ir);
+    let (js_models, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_model = js_models
         .iter()
         .find(|(name, _)| name == "user.js")
@@ -2387,7 +2435,8 @@ model User {
     assert!(js_dts.contains("equals?: JsonValue;"));
     assert!(js_dts.contains("payload?: JsonScalarOrArray | JsonFilter;"));
 
-    let py_models = generate_all_python_models(&ir, false, 1);
+    let py_models = generate_all_python_models(&ir, false, 1)
+        .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
     assert!(py_model.contains("JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]"));
     assert!(py_model.contains("_object_value_db_fields: frozenset = frozenset({"));
@@ -2594,22 +2643,30 @@ fn test_generated_imports_are_stable_across_runs() {
     let ir = validate(MULTI_IMPORT_SCHEMA);
 
     for _ in 0..8 {
-        let rust = generate_all_models(&ir, false);
+        let rust = generate_all_models(&ir, false).expect("generate_all_models should succeed");
         assert_eq!(
             rust.get("User"),
-            generate_all_models(&ir, false).get("User"),
+            generate_all_models(&ir, false)
+                .expect("generate_all_models should succeed")
+                .get("User"),
             "Rust model output must not vary between runs"
         );
 
-        let python = generate_all_python_models(&ir, false, 3);
+        let python = generate_all_python_models(&ir, false, 3)
+            .expect("generate_all_python_models should succeed");
         assert_eq!(
             generated_python_file(&python, "user.py"),
-            generated_python_file(&generate_all_python_models(&ir, false, 3), "user.py"),
+            generated_python_file(
+                &generate_all_python_models(&ir, false, 3)
+                    .expect("generate_all_python_models should succeed"),
+                "user.py"
+            ),
             "Python model output must not vary between runs"
         );
 
-        let (js, dts) = generate_all_js_models(&ir);
-        let (js_again, dts_again) = generate_all_js_models(&ir);
+        let (js, dts) = generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
+        let (js_again, dts_again) =
+            generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
         assert_eq!(js, js_again, "JS model output must not vary between runs");
         assert_eq!(dts, dts_again, "d.ts output must not vary between runs");
     }
@@ -2619,7 +2676,7 @@ fn test_generated_imports_are_stable_across_runs() {
 fn test_generated_imports_are_sorted() {
     let ir = validate(MULTI_IMPORT_SCHEMA);
 
-    let rust = generate_all_models(&ir, false);
+    let rust = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let rust_user = rust.get("User").expect("User model missing");
     assert!(
         rust_user.contains(
@@ -2636,7 +2693,8 @@ fn test_generated_imports_are_sorted() {
         "Rust relation imports should be sorted:\n{rust_user}"
     );
 
-    let python = generate_all_python_models(&ir, false, 3);
+    let python = generate_all_python_models(&ir, false, 3)
+        .expect("generate_all_python_models should succeed");
     let python_user = generated_python_file(&python, "user.py");
     assert!(
         python_user.contains("from ..enums.enums import Role, Status, Tier"),
@@ -2647,7 +2705,7 @@ fn test_generated_imports_are_sorted() {
         "Python composite type imports should be sorted:\n{python_user}"
     );
 
-    let (_, dts) = generate_all_js_models(&ir);
+    let (_, dts) = generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_user = generated_named_file(&dts, "user.d.ts");
     assert!(
         js_user.contains("import type { Role, Status, Tier } from '../enums.js';"),

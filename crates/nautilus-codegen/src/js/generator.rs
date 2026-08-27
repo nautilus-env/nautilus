@@ -1,5 +1,6 @@
 //! JavaScript/TypeScript code generator for Nautilus models, delegates, and input types.
 
+use anyhow::{Context as _, Result};
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use nautilus_schema::ir::{
     CompositeTypeIr, EnumIr, FieldIr, ModelIr, ResolvedFieldType, ScalarType, SchemaIr,
@@ -60,7 +61,7 @@ pub static JS_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(||
     tera
 });
 
-fn render(template: &str, ctx: &Context) -> String {
+fn render(template: &str, ctx: &Context) -> Result<String> {
     crate::template::render(&JS_TEMPLATES, template, ctx)
 }
 
@@ -212,7 +213,10 @@ fn exact_input_ts_type(field: &nautilus_schema::ir::FieldIr, base_type: String) 
 /// Generate JavaScript + declaration code for a single model.
 ///
 /// Returns `((js_filename, js_code), (dts_filename, dts_code))`.
-pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> ((String, String), (String, String)) {
+pub fn generate_js_model(
+    model: &ModelIr,
+    ir: &SchemaIr,
+) -> Result<((String, String), (String, String))> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_js_model_with_registry(model, ir, &extensions)
 }
@@ -221,7 +225,7 @@ fn generate_js_model_with_registry(
     model: &ModelIr,
     ir: &SchemaIr,
     extensions: &ExtensionRegistry,
-) -> ((String, String), (String, String)) {
+) -> Result<((String, String), (String, String))> {
     let view = ModelView::new(model, ir, extensions);
     let mut context = Context::new();
     crate::template::insert_protocol_version(&mut context);
@@ -264,13 +268,19 @@ fn generate_js_model_with_registry(
     context.insert("extension_imports", &extension_imports);
 
     let snake = view.snake_name();
-    let js_code = render("model.js.tera", &context);
-    let dts_code = render("model.d.ts.tera", &context);
+    let describe = || {
+        format!(
+            "Failed to generate JavaScript model '{}'",
+            view.logical_name()
+        )
+    };
+    let js_code = render("model.js.tera", &context).with_context(describe)?;
+    let dts_code = render("model.d.ts.tera", &context).with_context(describe)?;
 
-    (
+    Ok((
         (format!("{}.js", snake), js_code),
         (format!("{}.d.ts", snake), dts_code),
-    )
+    ))
 }
 
 /// The per-field template contexts a model needs, collected in a single pass
@@ -525,7 +535,9 @@ fn build_extension_imports(view: &ModelView<'_>) -> Vec<JsExtensionImportContext
 ///
 /// Returns `(js_models, dts_models)`, each sorted by filename.
 #[allow(clippy::type_complexity)]
-pub fn generate_all_js_models(ir: &SchemaIr) -> (Vec<(String, String)>, Vec<(String, String)>) {
+pub fn generate_all_js_models(
+    ir: &SchemaIr,
+) -> Result<(Vec<(String, String)>, Vec<(String, String)>)> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_all_js_models_with_registry(ir, &extensions)
 }
@@ -534,12 +546,12 @@ pub fn generate_all_js_models(ir: &SchemaIr) -> (Vec<(String, String)>, Vec<(Str
 pub(crate) fn generate_all_js_models_with_registry(
     ir: &SchemaIr,
     extensions: &ExtensionRegistry,
-) -> (Vec<(String, String)>, Vec<(String, String)>) {
+) -> Result<(Vec<(String, String)>, Vec<(String, String)>)> {
     let pairs: Vec<((String, String), (String, String))> = ir
         .models
         .values()
         .map(|model| generate_js_model_with_registry(model, ir, extensions))
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     let mut js_models: Vec<(String, String)> = pairs.iter().map(|(js, _)| js.clone()).collect();
     let mut dts_models: Vec<(String, String)> = pairs.iter().map(|(_, dts)| dts.clone()).collect();
@@ -547,7 +559,7 @@ pub(crate) fn generate_all_js_models_with_registry(
     js_models.sort_by(|a, b| a.0.cmp(&b.0));
     dts_models.sort_by(|a, b| a.0.cmp(&b.0));
 
-    (js_models, dts_models)
+    Ok((js_models, dts_models))
 }
 
 /// Generate `types.d.ts` — TypeScript interfaces for all composite types.
@@ -555,9 +567,9 @@ pub(crate) fn generate_all_js_models_with_registry(
 /// Returns `None` when there are no composite types.
 pub fn generate_js_composite_types(
     composite_types: &HashMap<String, CompositeTypeIr>,
-) -> Option<String> {
+) -> Result<Option<String>> {
     if composite_types.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     #[derive(Serialize)]
@@ -609,13 +621,13 @@ pub fn generate_js_composite_types(
     let mut context = Context::new();
     context.insert("composite_types", &type_list);
 
-    Some(render("composite_types.d.ts.tera", &context))
+    Ok(Some(render("composite_types.d.ts.tera", &context)?))
 }
 
 /// Generate `enums.js` + `enums.d.ts` for all enum definitions.
 ///
 /// Returns `(js_code, dts_code)`.
-pub fn generate_js_enums(enums: &HashMap<String, EnumIr>) -> (String, String) {
+pub fn generate_js_enums(enums: &HashMap<String, EnumIr>) -> Result<(String, String)> {
     #[derive(Serialize)]
     struct EnumCtx {
         name: String,
@@ -633,9 +645,9 @@ pub fn generate_js_enums(enums: &HashMap<String, EnumIr>) -> (String, String) {
 
     let mut context = Context::new();
     context.insert("enums", &enum_list);
-    let js_code = render("enums.js.tera", &context);
-    let dts_code = render("enums.d.ts.tera", &context);
-    (js_code, dts_code)
+    let js_code = render("enums.js.tera", &context)?;
+    let dts_code = render("enums.d.ts.tera", &context)?;
+    Ok((js_code, dts_code))
 }
 
 /// Generate `index.js` + `index.d.ts` — the typed `Nautilus` class with model delegates.
@@ -644,7 +656,7 @@ pub fn generate_js_enums(enums: &HashMap<String, EnumIr>) -> (String, String) {
 pub fn generate_js_client(
     models: &HashMap<String, ModelIr>,
     schema_path: &str,
-) -> (String, String) {
+) -> Result<(String, String)> {
     #[derive(Serialize)]
     struct ModelCtx {
         /// camelCase — property name on `Nautilus`, e.g. `user`.
@@ -668,15 +680,15 @@ pub fn generate_js_client(
     let mut context = Context::new();
     context.insert("models", &model_list);
     context.insert("schema_path", schema_path);
-    let js_code = render("client.js.tera", &context);
-    let dts_code = render("client.d.ts.tera", &context);
-    (js_code, dts_code)
+    let js_code = render("client.js.tera", &context)?;
+    let dts_code = render("client.d.ts.tera", &context)?;
+    Ok((js_code, dts_code))
 }
 
 /// Generate `models/index.js` + `models/index.d.ts` — barrel re-exports for all model files.
 ///
 /// `js_models` contains the `.js` model filenames. Returns `(js_code, dts_code)`.
-pub fn generate_js_models_index(js_models: &[(String, String)]) -> (String, String) {
+pub fn generate_js_models_index(js_models: &[(String, String)]) -> Result<(String, String)> {
     let mut modules: Vec<String> = js_models
         .iter()
         .map(|(file_name, _)| file_name.trim_end_matches(".js").to_string())
@@ -685,9 +697,9 @@ pub fn generate_js_models_index(js_models: &[(String, String)]) -> (String, Stri
 
     let mut context = Context::new();
     context.insert("model_modules", &modules);
-    let js_code = render("models_index.js.tera", &context);
-    let dts_code = render("models_index.d.ts.tera", &context);
-    (js_code, dts_code)
+    let js_code = render("models_index.js.tera", &context)?;
+    let dts_code = render("models_index.d.ts.tera", &context)?;
+    Ok((js_code, dts_code))
 }
 
 /// Static JavaScript + declaration runtime files embedded at compile time.

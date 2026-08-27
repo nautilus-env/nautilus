@@ -1,5 +1,6 @@
 //! Python code generator for Nautilus models, delegates, and builders.
 
+use anyhow::{Context as _, Result};
 use heck::{ToPascalCase, ToSnakeCase};
 use nautilus_schema::ir::{
     CompositeTypeIr, EnumIr, ModelIr, ResolvedFieldType, ScalarType, SchemaIr,
@@ -75,7 +76,7 @@ pub static PYTHON_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::ne
     tera
 });
 
-fn render(template: &str, ctx: &Context) -> String {
+fn render(template: &str, ctx: &Context) -> Result<String> {
     crate::template::render(&PYTHON_TEMPLATES, template, ctx)
 }
 
@@ -275,7 +276,7 @@ pub fn generate_python_model(
     ir: &SchemaIr,
     is_async: bool,
     recursive_type_depth: usize,
-) -> (String, String) {
+) -> Result<(String, String)> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_python_model_with_registry(model, ir, is_async, recursive_type_depth, &extensions)
 }
@@ -286,7 +287,7 @@ fn generate_python_model_with_registry(
     is_async: bool,
     recursive_type_depth: usize,
     extensions: &ExtensionRegistry,
-) -> (String, String) {
+) -> Result<(String, String)> {
     let view = ModelView::new(model, ir, extensions);
     let mut context = Context::new();
     crate::template::insert_protocol_version(&mut context);
@@ -346,9 +347,10 @@ fn generate_python_model_with_registry(
     context.insert("is_async", &is_async);
     context.insert("recursive_type_depth", &recursive_type_depth);
 
-    let model_code = render("model_file.py.tera", &context);
+    let model_code = render("model_file.py.tera", &context)
+        .with_context(|| format!("Failed to generate Python model '{}'", view.logical_name()))?;
 
-    (format!("{}.py", view.snake_name()), model_code)
+    Ok((format!("{}.py", view.snake_name()), model_code))
 }
 
 /// Insert the `{Model}Delegate` / `{Model}FindMany` / … class names the
@@ -683,7 +685,7 @@ pub fn generate_all_python_models(
     ir: &SchemaIr,
     is_async: bool,
     recursive_type_depth: usize,
-) -> Vec<(String, String)> {
+) -> Result<Vec<(String, String)>> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_all_python_models_with_registry(ir, is_async, recursive_type_depth, &extensions)
 }
@@ -693,7 +695,7 @@ pub(crate) fn generate_all_python_models_with_registry(
     is_async: bool,
     recursive_type_depth: usize,
     extensions: &ExtensionRegistry,
-) -> Vec<(String, String)> {
+) -> Result<Vec<(String, String)>> {
     ir.models
         .values()
         .map(|model| {
@@ -713,9 +715,9 @@ pub(crate) fn generate_all_python_models_with_registry(
 /// Returns `None` when there are no composite types.
 pub fn generate_python_composite_types(
     composite_types: &HashMap<String, CompositeTypeIr>,
-) -> Option<String> {
+) -> Result<Option<String>> {
     if composite_types.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     #[derive(Serialize)]
@@ -769,11 +771,11 @@ pub fn generate_python_composite_types(
     let mut context = Context::new();
     context.insert("composite_types", &type_list);
 
-    Some(render("composite_types.py.tera", &context))
+    Ok(Some(render("composite_types.py.tera", &context)?))
 }
 
 /// Generate Python enums file.
-pub fn generate_python_enums(enums: &HashMap<String, EnumIr>) -> String {
+pub fn generate_python_enums(enums: &HashMap<String, EnumIr>) -> Result<String> {
     let mut context = Context::new();
 
     #[derive(Serialize)]
@@ -803,7 +805,7 @@ pub fn generate_python_client(
     models: &HashMap<String, ModelIr>,
     schema_path: &str,
     is_async: bool,
-) -> String {
+) -> Result<String> {
     let mut context = Context::new();
 
     #[derive(Serialize)]
@@ -829,7 +831,7 @@ pub fn generate_python_client(
 }
 
 /// Generate package __init__.py
-pub fn generate_package_init(has_enums: bool) -> String {
+pub fn generate_package_init(has_enums: bool) -> Result<String> {
     let mut context = Context::new();
     context.insert("has_enums", &has_enums);
 
@@ -837,7 +839,7 @@ pub fn generate_package_init(has_enums: bool) -> String {
 }
 
 /// Generate models/__init__.py
-pub fn generate_models_init(models: &[(String, String)]) -> String {
+pub fn generate_models_init(models: &[(String, String)]) -> Result<String> {
     let mut context = Context::new();
 
     let mut model_modules: Vec<String> = models
@@ -856,7 +858,7 @@ pub fn generate_models_init(models: &[(String, String)]) -> String {
 }
 
 /// Generate enums/__init__.py
-pub fn generate_enums_init(has_enums: bool) -> String {
+pub fn generate_enums_init(has_enums: bool) -> Result<String> {
     let mut context = Context::new();
     context.insert("has_enums", &has_enums);
 

@@ -1,5 +1,6 @@
 //! Composite type code generator (Rust backend).
 
+use anyhow::Result;
 use heck::ToSnakeCase;
 use nautilus_schema::ir::{ResolvedFieldType, SchemaIr};
 use serde::Serialize;
@@ -40,7 +41,7 @@ fn composite_field_rust_type(
 /// Generate Rust code for all composite types in the schema.
 ///
 /// Returns `None` when there are no composite types.
-pub fn generate_all_composite_types(ir: &SchemaIr) -> Option<String> {
+pub fn generate_all_composite_types(ir: &SchemaIr) -> Result<Option<String>> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_all_composite_types_with_registry(ir, &extensions)
 }
@@ -48,9 +49,9 @@ pub fn generate_all_composite_types(ir: &SchemaIr) -> Option<String> {
 pub(crate) fn generate_all_composite_types_with_registry(
     ir: &SchemaIr,
     extensions: &ExtensionRegistry,
-) -> Option<String> {
+) -> Result<Option<String>> {
     if ir.composite_types.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let mut output = String::new();
@@ -80,17 +81,10 @@ pub(crate) fn generate_all_composite_types_with_registry(
 
         context.insert("fields", &fields);
 
-        let code = TEMPLATES
-            .render("composite_type.tera", &context)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "template rendering failed for composite type '{}': {:?}",
-                    name, e
-                )
-            });
+        let code = crate::template::render(&TEMPLATES, "composite_type.tera", &context)?;
 
         output.push_str(&code);
     }
 
-    Some(output)
+    Ok(Some(output))
 }

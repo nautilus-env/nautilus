@@ -36,7 +36,8 @@ uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true, default-features = true, features = ["serde"] }
 rust_decimal = { workspace = true }
 futures = { workspace = true }
-console = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true

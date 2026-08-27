@@ -10,6 +10,15 @@
   `ChangeDescription` struct (sigil, subject, annotation) and replaces the
   parallel match the CLI kept in its TUI module. The free function
   `change_risk()` is retained and now delegates to `Change::risk()`.
+- Added structured logging to the engine, replacing the unconditional
+  `eprintln!` diagnostics. Records are emitted on stderr through `tracing` and
+  filtered by `NAUTILUS_LOG` (falling back to `RUST_LOG`, defaulting to
+  `nautilus_engine=info`), so per-request transaction lifecycle events now sit
+  at `debug` instead of being printed on every call.
+- Added a slow-statement log to the engine, enabled by setting
+  `NAUTILUS_SLOW_QUERY_MS`. Statements running past the threshold are logged on
+  the `nautilus_engine::slow_query` target with their SQL text, operation tag
+  and duration. Unset — the default — the timing path is skipped entirely.
 - Added `max_concurrent_requests` to `EnginePoolOptions`, exposed as
   `nautilus engine serve --max-concurrent-requests`, the engine
   `--max-concurrent-requests` flag, and `maxConcurrentRequests` /
@@ -24,6 +33,19 @@
 - The workspace now declares `rust-version = "1.92"`, so an older toolchain
   reports an unsupported-version error instead of failing later with unrelated
   compilation errors.
+- Template rendering in the code generators now returns an error instead of
+  panicking. A regressed template used to abort `nautilus generate` with a Rust
+  backtrace that did not name the template; the failure is now reported as a
+  CLI error naming it. The generator entry points that render templates —
+  `generate_all_models`, `generate_all_python_models`, `generate_all_js_models`,
+  `generate_java_client`, the enum / composite type / extension file
+  generators and the per-language client and `__init__` generators — return
+  `Result` accordingly.
+- The engine read-plan cache now reclaims its least-recently-used entries a
+  batch at a time instead of ranking all 1024 slots on every insert at
+  capacity. The recency scan runs under the write lock with every reader
+  blocked, so a saturated cache now pays for it once per batch rather than on
+  each miss. The cap is unchanged; evictions are logged at `debug`.
 - The four code generation backends now share a single language-neutral
   `ModelView` of each model instead of each walking the IR on its own. Primary
   key membership, numeric and orderable classification, enum / composite type /

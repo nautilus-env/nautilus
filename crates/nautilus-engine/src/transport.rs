@@ -199,7 +199,7 @@ pub async fn run_request_loop(state: EngineState) -> Result<(), Box<dyn std::err
             for response in batch.drain(..) {
                 serialized.clear();
                 if let Err(e) = serde_json::to_writer(&mut serialized, &response) {
-                    eprintln!("[engine] Failed to serialize response: {}", e);
+                    tracing::error!(error = %e, "failed to serialize response");
                     serialized.clear();
                     let fallback = err(
                         response.id.clone(),
@@ -213,7 +213,7 @@ pub async fn run_request_loop(state: EngineState) -> Result<(), Box<dyn std::err
                 }
                 serialized.push(b'\n');
                 if let Err(e) = stdout.write_all(&serialized).await {
-                    eprintln!("[engine] Failed to write response: {}", e);
+                    tracing::error!(error = %e, "failed to write response");
                     write_failed = true;
                     break;
                 }
@@ -224,7 +224,7 @@ pub async fn run_request_loop(state: EngineState) -> Result<(), Box<dyn std::err
             }
 
             if let Err(e) = stdout.flush().await {
-                eprintln!("[engine] Failed to flush stdout: {}", e);
+                tracing::error!(error = %e, "failed to flush stdout");
                 break;
             }
         }
@@ -240,7 +240,7 @@ pub async fn run_request_loop(state: EngineState) -> Result<(), Box<dyn std::err
         let request = match read_request_line(&mut reader, &mut line, MAX_REQUEST_LINE_BYTES).await
         {
             Ok(RequestLine::Eof) => {
-                eprintln!("[engine] Received EOF, shutting down");
+                tracing::info!("received EOF, shutting down");
                 break;
             }
             Ok(RequestLine::TooLong) => {
@@ -248,7 +248,10 @@ pub async fn run_request_loop(state: EngineState) -> Result<(), Box<dyn std::err
                     "Invalid Request: line exceeds the {}-byte limit",
                     MAX_REQUEST_LINE_BYTES
                 );
-                eprintln!("[engine] {}", message);
+                tracing::warn!(
+                    limit_bytes = MAX_REQUEST_LINE_BYTES,
+                    "discarded oversized request line"
+                );
                 let _ = tx.send(err(None, -32600, message, None)).await;
                 continue;
             }
@@ -261,7 +264,7 @@ pub async fn run_request_loop(state: EngineState) -> Result<(), Box<dyn std::err
                 match serde_json::from_slice::<RpcRequest>(line_trimmed) {
                     Ok(request) => request,
                     Err(e) => {
-                        eprintln!("[engine] JSON parse error: {}", e);
+                        tracing::warn!(error = %e, "JSON parse error");
                         let response = err(None, -32700, "Parse error".to_string(), None);
                         let _ = tx.send(response).await;
                         continue;
@@ -269,7 +272,7 @@ pub async fn run_request_loop(state: EngineState) -> Result<(), Box<dyn std::err
                 }
             }
             Err(e) => {
-                eprintln!("[engine] Read error: {}", e);
+                tracing::error!(error = %e, "stdin read error");
                 break;
             }
         };
@@ -325,7 +328,7 @@ pub async fn run_request_loop(state: EngineState) -> Result<(), Box<dyn std::err
                 } else {
                     "Internal engine panic (unknown)".to_string()
                 };
-                eprintln!("[engine] Handler panicked: {}", msg);
+                tracing::error!(panic = %msg, "handler panicked");
                 err(request_id, -32603, msg, None)
             });
             let _ = tx_clone.send(response).await;

@@ -8,9 +8,10 @@
 //! Only the parameter values are bound per call, skipping the AST build, the
 //! filter qualification clone and the dialect render entirely.
 //!
-//! Both cache sections are bounded ([`PLAN_CACHE_CAP`]) with
-//! least-recently-used eviction, so adversarial or highly dynamic workloads
-//! cannot grow them without limit.
+//! Both cache sections are bounded ([`PLAN_CACHE_CAP`]) and reclaim their
+//! least-recently-used entries in batches ([`EVICTION_BATCH`]), so adversarial
+//! or highly dynamic workloads cannot grow them without limit and cannot make
+//! every miss pay for a full recency scan under the write lock.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -23,8 +24,18 @@ use nautilus_core::{BinaryOp, Expr, OrderDir, Value};
 use crate::conversion::ValueHint;
 
 /// Maximum number of cached plans per section (`findUnique`, `findMany`).
-/// When a section is full, the least-recently-used entry is evicted on insert.
+/// When a section is full, its least-recently-used entries are evicted on
+/// insert — see [`EVICTION_BATCH`].
 const PLAN_CACHE_CAP: usize = 1024;
+
+/// How many entries one eviction pass reclaims.
+///
+/// Ranking entries by recency costs a full scan of the section, taken while
+/// the write lock is held and therefore with every reader blocked. Reclaiming
+/// a batch amortises that scan over the inserts that follow, so a workload
+/// that keeps the section saturated pays the scan once per batch rather than
+/// on every miss.
+const EVICTION_BATCH: usize = PLAN_CACHE_CAP / 8;
 
 /// Cache key for `findUnique` plans.
 ///
@@ -80,12 +91,14 @@ struct CacheSlot {
 #[derive(Debug)]
 struct BoundedPlanMap<K> {
     entries: RwLock<HashMap<K, CacheSlot>>,
+    section: &'static str,
 }
 
 impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
-    fn new() -> Self {
+    fn new(section: &'static str) -> Self {
         Self {
             entries: RwLock::new(HashMap::new()),
+            section,
         }
     }
 
@@ -117,13 +130,7 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
     fn insert(&self, key: K, plan: Arc<CachedReadPlan>, clock: &AtomicU64) {
         let mut guard = self.write_entries();
         if !guard.contains_key(&key) && guard.len() >= PLAN_CACHE_CAP {
-            let evict = guard
-                .iter()
-                .min_by_key(|(_, slot)| slot.last_used.load(Ordering::Relaxed))
-                .map(|(key, _)| key.clone());
-            if let Some(evict) = evict {
-                guard.remove(&evict);
-            }
+            evict_oldest_batch(&mut guard, self.section);
         }
         let stamp = clock.fetch_add(1, Ordering::Relaxed);
         guard.entry(key).or_insert_with(|| CacheSlot {
@@ -138,6 +145,42 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
     }
 }
 
+/// Drop the [`EVICTION_BATCH`] least-recently-used entries of a section.
+///
+/// Ranking is done over the recency stamps alone — one `u64` per entry — so
+/// the pass never clones a key, and the map is walked twice instead of once
+/// per evicted entry.
+fn evict_oldest_batch<K: Eq + Hash>(entries: &mut HashMap<K, CacheSlot>, section: &'static str) {
+    let batch = EVICTION_BATCH.min(entries.len());
+    if batch == 0 {
+        return;
+    }
+
+    let mut stamps: Vec<u64> = entries
+        .values()
+        .map(|slot| slot.last_used.load(Ordering::Relaxed))
+        .collect();
+    let (_, cutoff, _) = stamps.select_nth_unstable(batch - 1);
+    let cutoff = *cutoff;
+
+    let mut remaining = batch;
+    entries.retain(|_, slot| {
+        if remaining > 0 && slot.last_used.load(Ordering::Relaxed) <= cutoff {
+            remaining -= 1;
+            false
+        } else {
+            true
+        }
+    });
+
+    tracing::debug!(
+        section,
+        evicted = batch - remaining,
+        retained = entries.len(),
+        "plan cache evicted least-recently-used entries"
+    );
+}
+
 /// Process-wide read-plan cache held by `EngineState`.
 #[derive(Debug)]
 pub(crate) struct PlanCache {
@@ -150,8 +193,8 @@ impl Default for PlanCache {
     fn default() -> Self {
         Self {
             clock: AtomicU64::new(0),
-            find_unique: BoundedPlanMap::new(),
-            find_many: BoundedPlanMap::new(),
+            find_unique: BoundedPlanMap::new("findUnique"),
+            find_many: BoundedPlanMap::new("findMany"),
         }
     }
 }
@@ -495,7 +538,11 @@ mod tests {
         assert!(cache.get_find_many(&many_key(0)).is_some());
 
         cache.insert_find_many(many_key(PLAN_CACHE_CAP), test_plan("SELECT 2"));
-        assert_eq!(cache.find_many_len(), PLAN_CACHE_CAP, "cap must hold");
+        assert_eq!(
+            cache.find_many_len(),
+            PLAN_CACHE_CAP - EVICTION_BATCH + 1,
+            "one eviction pass reclaims a whole batch"
+        );
         assert!(
             cache.get_find_many(&many_key(0)).is_some(),
             "recently touched entry must survive eviction"
@@ -505,5 +552,23 @@ mod tests {
             "least-recently-used entry must be evicted"
         );
         assert!(cache.get_find_many(&many_key(PLAN_CACHE_CAP)).is_some());
+    }
+
+    #[test]
+    fn cache_never_grows_past_the_cap_across_repeated_evictions() {
+        let cache = PlanCache::default();
+        for tag in 0..(PLAN_CACHE_CAP * 3) {
+            cache.insert_find_many(many_key(tag), test_plan("SELECT 1"));
+            assert!(
+                cache.find_many_len() <= PLAN_CACHE_CAP,
+                "cap must hold after every insert"
+            );
+        }
+        assert!(
+            cache
+                .get_find_many(&many_key(PLAN_CACHE_CAP * 3 - 1))
+                .is_some(),
+            "the most recent insert must still be cached"
+        );
     }
 }

@@ -1,5 +1,6 @@
 //! Code generator for Nautilus models, delegates, and builders.
 
+use anyhow::{Context as _, Result};
 use heck::{ToPascalCase, ToSnakeCase};
 use nautilus_schema::ast::StorageStrategy;
 use nautilus_schema::ir::{
@@ -65,7 +66,7 @@ pub static TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
     tera
 });
 
-fn render(template: &str, ctx: &Context) -> String {
+fn render(template: &str, ctx: &Context) -> Result<String> {
     crate::template::render(&TEMPLATES, template, ctx)
 }
 
@@ -250,7 +251,7 @@ fn build_nested_order_by_fields(
 ///
 /// `is_async` determines whether the generated delegate methods and internal
 /// builders use `async fn`/`.await` (`true`) or blocking sync wrappers (`false`).
-pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> String {
+pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> Result<String> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_model_with_registry(model, ir, is_async, &extensions)
 }
@@ -260,7 +261,7 @@ fn generate_model_with_registry(
     ir: &SchemaIr,
     is_async: bool,
     extensions: &ExtensionRegistry,
-) -> String {
+) -> Result<String> {
     let view = ModelView::new(model, ir, extensions);
     let mut context = Context::new();
     insert_derived_names(&mut context, &view);
@@ -307,6 +308,7 @@ fn generate_model_with_registry(
     context.insert("is_async", &is_async);
 
     render("model_file.tera", &context)
+        .with_context(|| format!("Failed to generate Rust model '{}'", view.logical_name()))
 }
 
 /// Insert the `{Model}Delegate` / `{Model}FindMany` / … type names the
@@ -527,7 +529,7 @@ fn build_relations(
 /// Generate all models from a schema IR.
 ///
 /// `is_async` is forwarded to every [`generate_model`] call.
-pub fn generate_all_models(ir: &SchemaIr, is_async: bool) -> HashMap<String, String> {
+pub fn generate_all_models(ir: &SchemaIr, is_async: bool) -> Result<HashMap<String, String>> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_all_models_with_registry(ir, is_async, &extensions)
 }
@@ -536,13 +538,13 @@ pub(crate) fn generate_all_models_with_registry(
     ir: &SchemaIr,
     is_async: bool,
     extensions: &ExtensionRegistry,
-) -> HashMap<String, String> {
+) -> Result<HashMap<String, String>> {
     let mut generated = HashMap::new();
 
     for (model_name, model_ir) in &ir.models {
-        let code = generate_model_with_registry(model_ir, ir, is_async, extensions);
+        let code = generate_model_with_registry(model_ir, ir, is_async, extensions)?;
         generated.insert(model_name.clone(), code);
     }
 
-    generated
+    Ok(generated)
 }

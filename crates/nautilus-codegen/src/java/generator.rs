@@ -1,6 +1,6 @@
 //! Java client generator.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 use heck::ToLowerCamelCase;
 use heck::ToUpperCamelCase;
 use nautilus_schema::ir::{
@@ -358,12 +358,12 @@ struct NautilusTemplateContext {
     is_async: bool,
 }
 
-fn render(template: &str, context: &Context) -> String {
+fn render(template: &str, context: &Context) -> Result<String> {
     crate::template::render(&JAVA_TEMPLATES, template, context)
 }
 
 /// Render a template that only requires `package_name`.
-fn render_pkg(template: &str, package_name: &str) -> String {
+fn render_pkg(template: &str, package_name: &str) -> Result<String> {
     let mut ctx = Context::new();
     crate::template::insert_protocol_version(&mut ctx);
     ctx.insert("package_name", package_name);
@@ -418,31 +418,31 @@ pub(crate) fn generate_java_client_with_registry(
         .collect();
 
     let mut files = Vec::new();
-    files.push(("pom.xml".to_string(), generate_pom(&config)));
-    files.extend(java_runtime_files(&config.root_package));
+    files.push(("pom.xml".to_string(), generate_pom(&config)?));
+    files.extend(java_runtime_files(&config.root_package)?);
     files.push((
         java_source_path(&config.root_package, "model", "NautilusModel.java"),
-        render_pkg("java_nautilus_model.tera", &config.root_package),
+        render_pkg("java_nautilus_model.tera", &config.root_package)?,
     ));
     files.push((
         java_source_path(&config.root_package, "dsl", "SortOrder.java"),
-        render_pkg("java_sort_order.tera", &config.root_package),
+        render_pkg("java_sort_order.tera", &config.root_package)?,
     ));
     files.push((
         java_source_path(&config.root_package, "dsl", "Filters.java"),
-        render_pkg("java_filters.tera", &config.root_package),
+        render_pkg("java_filters.tera", &config.root_package)?,
     ));
     files.push((
         java_source_path(&config.root_package, "client", "NautilusOptions.java"),
-        render_pkg("java_nautilus_options.tera", &config.root_package),
+        render_pkg("java_nautilus_options.tera", &config.root_package)?,
     ));
     files.push((
         java_source_path(&config.root_package, "client", "IsolationLevel.java"),
-        render_pkg("java_isolation_level.tera", &config.root_package),
+        render_pkg("java_isolation_level.tera", &config.root_package)?,
     ));
     files.push((
         java_source_path(&config.root_package, "client", "TransactionOptions.java"),
-        render_pkg("java_transaction_options.tera", &config.root_package),
+        render_pkg("java_transaction_options.tera", &config.root_package)?,
     ));
     files.push((
         java_source_path(
@@ -450,13 +450,13 @@ pub(crate) fn generate_java_client_with_registry(
             "client",
             "TransactionBatchOperation.java",
         ),
-        render_pkg("java_transaction_batch_op.tera", &config.root_package),
+        render_pkg("java_transaction_batch_op.tera", &config.root_package)?,
     ));
-    files.extend(java_event_files(&config.root_package));
+    files.extend(java_event_files(&config.root_package)?);
     files.extend(generate_java_extension_files(
         &config.extensions,
         &config.root_package,
-    ));
+    )?);
 
     for enum_ir in sorted_named(ir.enums.values(), |item| item.logical_name.clone()) {
         files.push((
@@ -465,7 +465,7 @@ pub(crate) fn generate_java_client_with_registry(
                 "enums",
                 &format!("{}.java", enum_ir.logical_name),
             ),
-            generate_enum_file(&config, enum_ir),
+            generate_enum_file(&config, enum_ir)?,
         ));
     }
 
@@ -478,7 +478,7 @@ pub(crate) fn generate_java_client_with_registry(
                 "types",
                 &format!("{}.java", composite.logical_name),
             ),
-            generate_composite_file(&config, composite),
+            generate_composite_file(&config, composite)?,
         ));
     }
 
@@ -489,7 +489,7 @@ pub(crate) fn generate_java_client_with_registry(
                 "dsl",
                 &format!("{}Dsl.java", model.logical_name),
             ),
-            generate_dsl_file(&config, model, ir, &enums_map),
+            generate_dsl_file(&config, model, ir, &enums_map)?,
         ));
         files.push((
             java_source_path(
@@ -497,7 +497,7 @@ pub(crate) fn generate_java_client_with_registry(
                 "client",
                 &format!("{}Delegate.java", model.logical_name),
             ),
-            generate_delegate_file(&config, model),
+            generate_delegate_file(&config, model)?,
         ));
         files.push((
             java_source_path(
@@ -505,7 +505,9 @@ pub(crate) fn generate_java_client_with_registry(
                 "model",
                 &format!("{}.java", model.logical_name),
             ),
-            generate_model_file(&config, model),
+            generate_model_file(&config, model).with_context(|| {
+                format!("Failed to generate Java model '{}'", model.logical_name)
+            })?,
         ));
         files.push((
             java_source_path(
@@ -513,17 +515,17 @@ pub(crate) fn generate_java_client_with_registry(
                 "model",
                 &format!("{}Projection.java", model.logical_name),
             ),
-            generate_projection_file(&config, model),
+            generate_projection_file(&config, model)?,
         ));
     }
 
     files.push((
         java_source_path(&config.root_package, "client", "TransactionClient.java"),
-        generate_transaction_client(&config, &models),
+        generate_transaction_client(&config, &models)?,
     ));
     files.push((
         java_source_path(&config.root_package, "client", "Nautilus.java"),
-        generate_nautilus_client(&config, &models),
+        generate_nautilus_client(&config, &models)?,
     ));
 
     Ok(files)
@@ -536,7 +538,7 @@ pub(crate) fn generate_java_client_with_registry(
 /// the source content lives in `templates/java/runtime/*.java.tera` and is
 /// embedded at compile time; only `package_name` (and `version`) are substituted
 /// at generation time.
-pub fn java_runtime_files(package_name: &str) -> Vec<(String, String)> {
+pub fn java_runtime_files(package_name: &str) -> Result<Vec<(String, String)>> {
     let mut ctx_pkg = Context::new();
     crate::template::insert_protocol_version(&mut ctx_pkg);
     ctx_pkg.insert("package_name", package_name);
@@ -547,105 +549,105 @@ pub fn java_runtime_files(package_name: &str) -> Vec<(String, String)> {
     ctx_ver.insert("version", env!("CARGO_PKG_VERSION"));
 
     let pkg = package_name;
-    vec![
+    Ok(vec![
         (
             java_source_path(pkg, "internal", "WireSerializable.java"),
-            render("java_rt_wire_serializable.tera", &ctx_pkg),
+            render("java_rt_wire_serializable.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "RpcCaller.java"),
-            render("java_rt_rpc_caller.tera", &ctx_pkg),
+            render("java_rt_rpc_caller.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "GlobalNautilusRegistry.java"),
-            render("java_rt_global_registry.tera", &ctx_pkg),
+            render("java_rt_global_registry.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "NautilusException.java"),
-            render("java_rt_nautilus_exception.tera", &ctx_pkg),
+            render("java_rt_nautilus_exception.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "ProtocolException.java"),
-            render("java_rt_protocol_exception.tera", &ctx_pkg),
+            render("java_rt_protocol_exception.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "HandshakeException.java"),
-            render("java_rt_handshake_exception.tera", &ctx_pkg),
+            render("java_rt_handshake_exception.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "TransactionException.java"),
-            render("java_rt_transaction_exception.tera", &ctx_pkg),
+            render("java_rt_transaction_exception.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "NotFoundException.java"),
-            render("java_rt_not_found_exception.tera", &ctx_pkg),
+            render("java_rt_not_found_exception.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "JsonSupport.java"),
-            render("java_rt_json_support.tera", &ctx_pkg),
+            render("java_rt_json_support.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "EngineProcess.java"),
-            render("java_rt_engine_process.tera", &ctx_pkg),
+            render("java_rt_engine_process.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "BaseNautilusClient.java"),
-            render("java_rt_base_client.tera", &ctx_ver),
+            render("java_rt_base_client.tera", &ctx_ver)?,
         ),
         (
             java_source_path(pkg, "internal", "BaseTransactionClient.java"),
-            render("java_rt_base_tx_client.tera", &ctx_pkg),
+            render("java_rt_base_tx_client.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "AbstractDelegate.java"),
-            render("java_rt_abstract_delegate.tera", &ctx_pkg),
+            render("java_rt_abstract_delegate.tera", &ctx_pkg)?,
         ),
         (
             java_source_path(pkg, "internal", "EventRegistry.java"),
-            render("java_rt_event_registry.tera", &ctx_pkg),
+            render("java_rt_event_registry.tera", &ctx_pkg)?,
         ),
-    ]
+    ])
 }
 
-fn java_event_files(package_name: &str) -> Vec<(String, String)> {
+fn java_event_files(package_name: &str) -> Result<Vec<(String, String)>> {
     let pkg = package_name;
-    vec![
+    Ok(vec![
         (
             java_source_path(pkg, "events", "EventPhase.java"),
-            render_pkg("java_event_phase.tera", pkg),
+            render_pkg("java_event_phase.tera", pkg)?,
         ),
         (
             java_source_path(pkg, "events", "CrudEventContext.java"),
-            render_pkg("java_event_context.tera", pkg),
+            render_pkg("java_event_context.tera", pkg)?,
         ),
         (
             java_source_path(pkg, "events", "StopPropagation.java"),
-            render_pkg("java_stop_propagation.tera", pkg),
+            render_pkg("java_stop_propagation.tera", pkg)?,
         ),
         (
             java_source_path(pkg, "events", "OnCreate.java"),
-            render_pkg("java_on_create.tera", pkg),
+            render_pkg("java_on_create.tera", pkg)?,
         ),
         (
             java_source_path(pkg, "events", "OnCreateMany.java"),
-            render_pkg("java_on_create_many.tera", pkg),
+            render_pkg("java_on_create_many.tera", pkg)?,
         ),
         (
             java_source_path(pkg, "events", "OnUpdate.java"),
-            render_pkg("java_on_update.tera", pkg),
+            render_pkg("java_on_update.tera", pkg)?,
         ),
         (
             java_source_path(pkg, "events", "OnDelete.java"),
-            render_pkg("java_on_delete.tera", pkg),
+            render_pkg("java_on_delete.tera", pkg)?,
         ),
         (
             java_source_path(pkg, "events", "OnDeleteMany.java"),
-            render_pkg("java_on_delete_many.tera", pkg),
+            render_pkg("java_on_delete_many.tera", pkg)?,
         ),
-    ]
+    ])
 }
 
-fn generate_pom(config: &JavaConfig) -> String {
+fn generate_pom(config: &JavaConfig) -> Result<String> {
     let context = Context::from_serialize(&PomContext {
         group_id: config.group_id.clone(),
         artifact_id: config.artifact_id.clone(),
@@ -656,7 +658,7 @@ fn generate_pom(config: &JavaConfig) -> String {
     render("java_pom.tera", &context)
 }
 
-fn generate_enum_file(config: &JavaConfig, enum_ir: &EnumIr) -> String {
+fn generate_enum_file(config: &JavaConfig, enum_ir: &EnumIr) -> Result<String> {
     let context = Context::from_serialize(&EnumTemplateContext {
         package_name: config.root_package.clone(),
         name: enum_ir.logical_name.clone(),
@@ -746,7 +748,7 @@ where
     .expect("Java record context should serialize")
 }
 
-fn generate_composite_file(config: &JavaConfig, composite: &CompositeTypeIr) -> String {
+fn generate_composite_file(config: &JavaConfig, composite: &CompositeTypeIr) -> Result<String> {
     let extra_imports = [format!("{}.internal.WireSerializable", config.root_package)];
     let context = build_record_context(
         config,
@@ -777,7 +779,7 @@ fn generate_composite_file(config: &JavaConfig, composite: &CompositeTypeIr) -> 
     render("java_composite.tera", &context)
 }
 
-fn generate_model_file(config: &JavaConfig, model: &ModelIr) -> String {
+fn generate_model_file(config: &JavaConfig, model: &ModelIr) -> Result<String> {
     let extra_imports = [
         format!("{}.client.Nautilus", config.root_package),
         format!(
@@ -818,7 +820,7 @@ fn generate_model_file(config: &JavaConfig, model: &ModelIr) -> String {
     render("java_model.tera", &context)
 }
 
-fn generate_projection_file(config: &JavaConfig, model: &ModelIr) -> String {
+fn generate_projection_file(config: &JavaConfig, model: &ModelIr) -> Result<String> {
     let projection_name = format!("{}Projection", model.logical_name);
     let mut imports = BTreeSet::new();
     imports.insert(format!("{}.internal.JsonSupport", config.root_package));
@@ -856,7 +858,7 @@ fn generate_projection_file(config: &JavaConfig, model: &ModelIr) -> String {
     render("java_projection.tera", &context)
 }
 
-fn generate_delegate_file(config: &JavaConfig, model: &ModelIr) -> String {
+fn generate_delegate_file(config: &JavaConfig, model: &ModelIr) -> Result<String> {
     let delegate_name = format!("{}Delegate", model.logical_name);
     let dsl_name = format!("{}Dsl", model.logical_name);
     let projection_name = format!("{}Projection", model.logical_name);
@@ -931,7 +933,7 @@ fn generate_dsl_file(
     model: &ModelIr,
     ir: &SchemaIr,
     enums: &BTreeMap<String, EnumIr>,
-) -> String {
+) -> Result<String> {
     let dsl_name = format!("{}Dsl", model.logical_name);
     let pk_fields = model.primary_key.fields();
 
@@ -1073,7 +1075,7 @@ fn generate_dsl_file(
     render("java_dsl.tera", &context)
 }
 
-fn generate_transaction_client(config: &JavaConfig, models: &[ModelMeta]) -> String {
+fn generate_transaction_client(config: &JavaConfig, models: &[ModelMeta]) -> Result<String> {
     let mut imports = BTreeSet::new();
     imports.insert(format!(
         "{}.internal.BaseNautilusClient",
@@ -1105,7 +1107,7 @@ fn generate_transaction_client(config: &JavaConfig, models: &[ModelMeta]) -> Str
     render("java_transaction_client.tera", &context)
 }
 
-fn generate_nautilus_client(config: &JavaConfig, models: &[ModelMeta]) -> String {
+fn generate_nautilus_client(config: &JavaConfig, models: &[ModelMeta]) -> Result<String> {
     let mut imports = BTreeSet::new();
     imports.insert(format!(
         "{}.internal.BaseNautilusClient",

@@ -9,6 +9,7 @@ pub mod conversion;
 pub mod filter;
 pub mod handlers;
 mod metadata;
+pub mod observability;
 mod plan_cache;
 pub mod pool_options;
 pub mod state;
@@ -20,14 +21,6 @@ use nautilus_schema::{ir::SchemaIr, validate_schema_source};
 pub use args::CliArgs;
 pub use pool_options::EnginePoolOptions;
 pub use state::EngineState;
-
-fn eprint_warning(message: &str) {
-    eprintln!(
-        "{} {}",
-        console::style("[engine] warning:").yellow().bold(),
-        console::style(message).yellow()
-    );
-}
 
 /// Resolve the schema path, auto-detecting the first `.nautilus` file in the
 /// current working directory when `--schema` is omitted.
@@ -45,10 +38,11 @@ pub fn resolve_schema_path_arg(
     )?;
 
     if nautilus_files.len() > 1 {
-        eprint_warning(&format!(
-            "multiple .nautilus files found, using: {}",
-            schema_path.display()
-        ));
+        tracing::warn!(
+            schema_path = %schema_path.display(),
+            candidates = nautilus_files.len(),
+            "multiple .nautilus files found, using the first one"
+        );
     }
 
     Ok(schema_path.to_string_lossy().into_owned())
@@ -61,6 +55,7 @@ pub async fn run_engine_with_schema_resolution(
     migrate: bool,
     pool_options: EnginePoolOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    observability::init();
     let schema_path = resolve_schema_path_arg(schema_path)?;
     run_engine(schema_path, database_url, migrate, pool_options).await
 }
@@ -75,11 +70,13 @@ pub async fn run_engine(
     migrate: bool,
     pool_options: EnginePoolOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    observability::init();
+
     let schema_source = std::fs::read_to_string(&schema_path)?;
     let schema_ir = validate_schema_source(&schema_source)?.ir;
 
     if migrate {
-        eprintln!("[engine] Running schema migrations (--migrate)...");
+        tracing::info!("running schema migrations (--migrate)");
 
         let datasource = schema_ir
             .datasource
@@ -106,7 +103,7 @@ pub async fn run_engine(
         .await?;
         migration_state.execute_ddl_sql(statements).await?;
 
-        eprintln!("[engine] Migrations applied successfully");
+        tracing::info!("migrations applied successfully");
     }
 
     let runtime_url = resolve_engine_runtime_url(database_url.as_deref(), &schema_ir)?;
@@ -123,10 +120,10 @@ pub async fn run_engine(
             .and_then(|raw| match resolve_datasource_url(raw) {
                 Ok(url) => Some(url),
                 Err(e) => {
-                    eprint_warning(&format!(
-                        "direct_url could not be resolved ({}), raw queries will use the pooled connection",
-                        e
-                    ));
+                    tracing::warn!(
+                        error = %e,
+                        "direct_url could not be resolved, raw queries will use the pooled connection"
+                    );
                     None
                 }
             })
@@ -142,11 +139,14 @@ pub async fn run_engine(
     )
     .await?;
 
-    eprintln!("[engine] Engine initialized, entering request loop");
+    tracing::info!(
+        max_concurrent_requests = state.max_concurrent_requests(),
+        "engine initialized, entering request loop"
+    );
 
     transport::run_request_loop(state).await?;
 
-    eprintln!("[engine] Shutting down gracefully");
+    tracing::info!("shutting down gracefully");
     Ok(())
 }
 

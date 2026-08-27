@@ -295,11 +295,13 @@ impl<'a> GenerationContext<'a> {
     }
 
     fn generate_rust(&self) -> Result<Option<GeneratedClient>> {
-        let models = generate_all_models_with_registry(self.ir, self.is_async, &self.registry);
-        let enums_code = (!self.ir.enums.is_empty()).then(|| generate_all_enums(&self.ir.enums));
+        let models = generate_all_models_with_registry(self.ir, self.is_async, &self.registry)?;
+        let enums_code = (!self.ir.enums.is_empty())
+            .then(|| generate_all_enums(&self.ir.enums))
+            .transpose()?;
         let composite_types_code =
-            generate_all_composite_types_with_registry(self.ir, &self.registry);
-        let extension_files = generate_rust_extension_files(&self.registry);
+            generate_all_composite_types_with_registry(self.ir, &self.registry)?;
+        let extension_files = generate_rust_extension_files(&self.registry)?;
 
         // Rust integration always needs a persistent output path because
         // `integrate_rust_package` adds a Cargo path-dependency pointing to
@@ -336,15 +338,17 @@ impl<'a> GenerationContext<'a> {
             self.is_async,
             self.recursive_type_depth,
             &self.registry,
-        );
-        let enums_code = (!self.ir.enums.is_empty()).then(|| generate_python_enums(&self.ir.enums));
-        let composite_types_code = generate_python_composite_types(&self.ir.composite_types);
-        let extension_files = generate_python_extension_files(&self.registry);
+        )?;
+        let enums_code = (!self.ir.enums.is_empty())
+            .then(|| generate_python_enums(&self.ir.enums))
+            .transpose()?;
+        let composite_types_code = generate_python_composite_types(&self.ir.composite_types)?;
+        let extension_files = generate_python_extension_files(&self.registry)?;
         let client_code = python::generate_python_client(
             &self.ir.models,
             &self.embedded_schema_path(),
             self.is_async,
-        );
+        )?;
         let runtime = python_runtime_files();
 
         let output = self.emit_package(
@@ -371,18 +375,19 @@ impl<'a> GenerationContext<'a> {
 
     fn generate_js(&self) -> Result<Option<GeneratedClient>> {
         let (js_models, dts_models) =
-            crate::js::generator::generate_all_js_models_with_registry(self.ir, &self.registry);
+            crate::js::generator::generate_all_js_models_with_registry(self.ir, &self.registry)?;
         let (js_enums, dts_enums) = if !self.ir.enums.is_empty() {
-            let (js, dts) = generate_js_enums(&self.ir.enums);
+            let (js, dts) = generate_js_enums(&self.ir.enums)?;
             (Some(js), Some(dts))
         } else {
             (None, None)
         };
-        let dts_composite_types = generate_js_composite_types(&self.ir.composite_types);
-        let (js_extension_files, dts_extension_files) = generate_js_extension_files(&self.registry);
+        let dts_composite_types = generate_js_composite_types(&self.ir.composite_types)?;
+        let (js_extension_files, dts_extension_files) =
+            generate_js_extension_files(&self.registry)?;
         let (js_client, dts_client) =
-            generate_js_client(&self.ir.models, &self.embedded_schema_path());
-        let (js_models_index, dts_models_index) = generate_js_models_index(&js_models);
+            generate_js_client(&self.ir.models, &self.embedded_schema_path())?;
+        let (js_models_index, dts_models_index) = generate_js_models_index(&js_models)?;
         let runtime = js_runtime_files();
 
         let output = self.emit_package(
