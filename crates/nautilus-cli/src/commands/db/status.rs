@@ -1,5 +1,5 @@
 use anyhow::Context;
-use nautilus_migrate::{change_risk, Change, ChangeRisk, SchemaDiff, SchemaInspector};
+use nautilus_migrate::{Change, ChangeRisk, SchemaDiff, SchemaInspector};
 
 use super::connection::DbContext;
 use crate::tui;
@@ -37,7 +37,7 @@ pub async fn run(schema_arg: Option<String>, db_url_arg: Option<String>) -> anyh
     let classified: Vec<(Change, ChangeRisk)> = raw_changes
         .into_iter()
         .map(|c| {
-            let r = change_risk(&c);
+            let r = c.risk();
             (c, r)
         })
         .collect();

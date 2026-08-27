@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use anyhow::{bail, Context};
-use nautilus_migrate::{change_risk, DdlGenerator, DiffApplier, SchemaDiff, SchemaInspector};
+use nautilus_migrate::{DdlGenerator, DiffApplier, SchemaDiff, SchemaInspector};
 
 use super::connection::{apply_changes, DbContext};
 use crate::tui;
@@ -81,7 +81,7 @@ pub async fn run(
     let classified: Vec<_> = raw_changes
         .into_iter()
         .map(|c| {
-            let r = change_risk(&c);
+            let r = c.risk();
             (c, r)
         })
         .collect();

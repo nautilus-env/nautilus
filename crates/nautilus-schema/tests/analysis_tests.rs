@@ -206,16 +206,14 @@ model User {
     let r = analyze(src);
 
     assert!(
-        !r.diagnostics
-            .iter()
-            .any(|d| d.severity == Severity::Error),
+        !r.diagnostics.iter().any(|d| d.severity == Severity::Error),
         "uuidv7() without a datasource must not be an error: {:?}",
         r.diagnostics
     );
     assert!(
-        r.diagnostics.iter().any(|d| {
-            d.severity == Severity::Warning && d.message.contains("uuidv7()")
-        }),
+        r.diagnostics
+            .iter()
+            .any(|d| { d.severity == Severity::Warning && d.message.contains("uuidv7()") }),
         "missing uuidv7 no-datasource warning: {:?}",
         r.diagnostics
     );

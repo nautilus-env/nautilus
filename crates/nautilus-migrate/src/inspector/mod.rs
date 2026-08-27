@@ -195,10 +195,9 @@ fn extract_sqlite_check_expr(seg: &str) -> Option<String> {
     let seg_lower = seg.to_lowercase();
     let (check_pos, content_offset) = if let Some(p) = seg_lower.find("check (") {
         (p, 7usize)
-    } else if let Some(p) = seg_lower.find("check(") {
-        (p, 6usize)
     } else {
-        return None;
+        let p = seg_lower.find("check(")?;
+        (p, 6usize)
     };
     let after = &seg[check_pos + content_offset..];
     let mut depth = 1i32;

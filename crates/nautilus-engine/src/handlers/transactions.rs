@@ -19,7 +19,7 @@ pub(super) async fn handle_transaction_start(
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: TransactionStartParams = parse_params(&request, "transactionStart")?;
 
-    let timeout = std::time::Duration::from_millis(params.timeout_ms.unwrap_or(5000) as u64);
+    let timeout = std::time::Duration::from_millis(params.timeout_ms.unwrap_or(5000));
 
     let tx_id = uuid::Uuid::new_v4().to_string();
     eprintln!("[engine] Starting transaction {}", tx_id);
@@ -82,7 +82,7 @@ pub(super) async fn handle_transaction_batch(
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: TransactionBatchParams = parse_params(&request, "transactionBatch")?;
 
-    let timeout = std::time::Duration::from_millis(params.timeout_ms.unwrap_or(5000) as u64);
+    let timeout = std::time::Duration::from_millis(params.timeout_ms.unwrap_or(5000));
 
     let tx_id = uuid::Uuid::new_v4().to_string();
     eprintln!(

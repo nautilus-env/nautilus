@@ -90,10 +90,7 @@ impl MigrationExecutor {
 
         match change {
             Change::NewTable(model) => {
-                vec![strategy.drop_table_sql(
-                    &model.db_name,
-                    provider == DatabaseProvider::Postgres,
-                )]
+                vec![strategy.drop_table_sql(&model.db_name, provider == DatabaseProvider::Postgres)]
             }
 
             Change::AddedColumn { table, field } => match provider {

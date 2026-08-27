@@ -1115,7 +1115,7 @@ fn live_table_names_for_truncate(live: &crate::live::LiveSchema) -> Vec<String> 
             .collect();
 
         if ready.is_empty() {
-            ordered.extend(remaining.into_iter());
+            ordered.extend(remaining);
             break;
         }
 

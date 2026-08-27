@@ -243,68 +243,298 @@ pub enum ChangeRisk {
     Destructive,
 }
 
+/// Presentation metadata for a schema [`Change`], as produced by
+/// [`Change::describe`].
+///
+/// Carries only the text; rendering (colour, alignment, terminal width) is left
+/// to the caller.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeDescription {
+    /// Single-character marker: `+` for additions, `-` for removals, `~` for
+    /// in-place alterations.
+    pub sigil: &'static str,
+    /// The object the change applies to, e.g. `users.email`, `type:address`.
+    pub subject: String,
+    /// Human-readable summary of the operation and its risk.
+    pub annotation: String,
+}
+
 /// Classify a [`Change`] by its risk level.
+///
+/// Retained for backwards compatibility; prefer [`Change::risk`].
 pub fn change_risk(change: &Change) -> ChangeRisk {
-    match change {
-        Change::NewTable(_)
-        | Change::DefaultChanged { .. }
-        | Change::IndexAdded { .. }
-        | Change::IndexDropped { .. }
-        | Change::ComputedExprChanged { .. }
-        | Change::CheckChanged { .. } => ChangeRisk::Safe,
+    change.risk()
+}
 
-        Change::AddedColumn { field, .. } => {
-            if field.is_required && field.default_value.is_none() && field.computed.is_none() {
-                ChangeRisk::Destructive
-            } else {
-                ChangeRisk::Safe
+impl Change {
+    /// Classify this change by its risk level.
+    pub fn risk(&self) -> ChangeRisk {
+        match self {
+            Change::NewTable(_)
+            | Change::DefaultChanged { .. }
+            | Change::IndexAdded { .. }
+            | Change::IndexDropped { .. }
+            | Change::ComputedExprChanged { .. }
+            | Change::CheckChanged { .. } => ChangeRisk::Safe,
+
+            Change::AddedColumn { field, .. } => {
+                if field.is_required && field.default_value.is_none() && field.computed.is_none() {
+                    ChangeRisk::Destructive
+                } else {
+                    ChangeRisk::Safe
+                }
             }
-        }
 
-        Change::NullabilityChanged {
-            now_required: false,
-            ..
-        } => ChangeRisk::Safe,
+            Change::NullabilityChanged {
+                now_required: false,
+                ..
+            } => ChangeRisk::Safe,
 
-        Change::DroppedTable { .. }
-        | Change::DroppedColumn { .. }
-        | Change::TypeChanged { .. }
-        | Change::PrimaryKeyChanged { .. }
-        | Change::NullabilityChanged {
-            now_required: true, ..
-        }
-        | Change::DropEnum { .. }
-        | Change::DropCompositeType { .. }
-        | Change::DropExtension { .. } => ChangeRisk::Destructive,
-
-        Change::CreateEnum { .. }
-        | Change::CreateCompositeType { .. }
-        | Change::CreateExtension { .. } => ChangeRisk::Safe,
-
-        Change::AlterEnum {
-            removed_variants, ..
-        } => {
-            if removed_variants.is_empty() {
-                ChangeRisk::Safe
-            } else {
-                ChangeRisk::Destructive
+            Change::DroppedTable { .. }
+            | Change::DroppedColumn { .. }
+            | Change::TypeChanged { .. }
+            | Change::PrimaryKeyChanged { .. }
+            | Change::NullabilityChanged {
+                now_required: true, ..
             }
-        }
+            | Change::DropEnum { .. }
+            | Change::DropCompositeType { .. }
+            | Change::DropExtension { .. } => ChangeRisk::Destructive,
 
-        Change::AlterCompositeType {
-            dropped_fields,
-            type_changed_fields,
-            ..
-        } => {
-            if dropped_fields.is_empty() && type_changed_fields.is_empty() {
-                ChangeRisk::Safe
-            } else {
-                ChangeRisk::Destructive
+            Change::CreateEnum { .. }
+            | Change::CreateCompositeType { .. }
+            | Change::CreateExtension { .. } => ChangeRisk::Safe,
+
+            Change::AlterEnum {
+                removed_variants, ..
+            } => {
+                if removed_variants.is_empty() {
+                    ChangeRisk::Safe
+                } else {
+                    ChangeRisk::Destructive
+                }
             }
-        }
 
-        Change::ForeignKeyAdded { .. } => ChangeRisk::Destructive,
-        Change::ForeignKeyDropped { .. } => ChangeRisk::Safe,
+            Change::AlterCompositeType {
+                dropped_fields,
+                type_changed_fields,
+                ..
+            } => {
+                if dropped_fields.is_empty() && type_changed_fields.is_empty() {
+                    ChangeRisk::Safe
+                } else {
+                    ChangeRisk::Destructive
+                }
+            }
+
+            Change::ForeignKeyAdded { .. } => ChangeRisk::Destructive,
+            Change::ForeignKeyDropped { .. } => ChangeRisk::Safe,
+        }
+    }
+
+    /// Describe this change for display to the user.
+    ///
+    /// The wording of the annotation mirrors [`Change::risk`]: every change
+    /// classified as [`ChangeRisk::Destructive`] says so, and explains why.
+    pub fn describe(&self) -> ChangeDescription {
+        let (sigil, subject, annotation) = match self {
+            Change::NewTable(model) => ("+", model.db_name.clone(), "CREATE TABLE (safe)".into()),
+            Change::DroppedTable { name } => (
+                "-",
+                name.clone(),
+                "DROP TABLE (destructive — data will be lost)".into(),
+            ),
+            Change::AddedColumn { table, field } => (
+                "+",
+                format!("{}.{}", table, field.db_name),
+                "ADD COLUMN (safe)".into(),
+            ),
+            Change::DroppedColumn { table, column } => (
+                "-",
+                format!("{}.{}", table, column),
+                "DROP COLUMN (destructive — data will be lost)".into(),
+            ),
+            Change::TypeChanged {
+                table,
+                column,
+                from,
+                to,
+            } => (
+                "~",
+                format!("{}.{}", table, column),
+                format!("TYPE {} -> {} (destructive — may truncate data)", from, to),
+            ),
+            Change::NullabilityChanged {
+                table,
+                column,
+                now_required: true,
+            } => (
+                "~",
+                format!("{}.{}", table, column),
+                "NOT NULL (destructive — column may contain NULLs)".into(),
+            ),
+            Change::NullabilityChanged {
+                table,
+                column,
+                now_required: false,
+            } => ("~", format!("{}.{}", table, column), "NULL (safe)".into()),
+            Change::DefaultChanged {
+                table,
+                column,
+                from,
+                to,
+            } => (
+                "~",
+                format!("{}.{}", table, column),
+                format!(
+                    "DEFAULT {} -> {} (safe)",
+                    from.as_deref().unwrap_or("none"),
+                    to.as_deref().unwrap_or("none"),
+                ),
+            ),
+            Change::PrimaryKeyChanged { table } => (
+                "~",
+                table.clone(),
+                "PRIMARY KEY changed (destructive — requires rebuild)".into(),
+            ),
+            Change::IndexAdded {
+                table,
+                columns,
+                unique,
+                kind,
+                ..
+            } => ("+", format!("{} ({})", table, columns.join(", ")), {
+                let type_str = kind
+                    .as_type_str()
+                    .map(|t| format!(" {} ", t))
+                    .unwrap_or_default();
+                if *unique {
+                    format!("ADD UNIQUE{}INDEX (safe)", type_str)
+                } else {
+                    format!("ADD{}INDEX (safe)", type_str)
+                }
+            }),
+            Change::IndexDropped { table, columns, .. } => (
+                "-",
+                format!("{} ({})", table, columns.join(", ")),
+                "DROP INDEX (safe)".into(),
+            ),
+            Change::ComputedExprChanged { table, column, .. } => (
+                "~",
+                format!("{}.{}", table, column),
+                "COMPUTED expression changed (safe — DROP + ADD COLUMN)".into(),
+            ),
+            Change::CheckChanged {
+                table,
+                column,
+                from,
+                to,
+            } => (
+                "~",
+                match column {
+                    Some(col) => format!("{}.{}", table, col),
+                    None => table.clone(),
+                },
+                format!(
+                    "CHECK {} -> {} (safe)",
+                    from.as_deref().unwrap_or("none"),
+                    to.as_deref().unwrap_or("none"),
+                ),
+            ),
+            Change::CreateCompositeType { name } => (
+                "+",
+                format!("type:{}", name),
+                "CREATE TYPE composite (safe)".into(),
+            ),
+            Change::DropCompositeType { name } => (
+                "-",
+                format!("type:{}", name),
+                "DROP TYPE composite (destructive — data will be lost)".into(),
+            ),
+            Change::AlterCompositeType {
+                name,
+                added_fields,
+                dropped_fields,
+                type_changed_fields,
+            } => {
+                let annotation = if dropped_fields.is_empty() && type_changed_fields.is_empty() {
+                    format!("ADD ATTRIBUTE {} field(s) (safe)", added_fields.len())
+                } else {
+                    format!(
+                        "ALTER TYPE: +{} ~{} -{} field(s) (destructive)",
+                        added_fields.len(),
+                        type_changed_fields.len(),
+                        dropped_fields.len(),
+                    )
+                };
+                ("~", format!("type:{}", name), annotation)
+            }
+            Change::CreateEnum { name, .. } => (
+                "+",
+                format!("enum:{}", name),
+                "CREATE TYPE enum (safe)".into(),
+            ),
+            Change::DropEnum { name } => (
+                "-",
+                format!("enum:{}", name),
+                "DROP TYPE enum (destructive — data will be lost)".into(),
+            ),
+            Change::AlterEnum {
+                name,
+                added_variants,
+                removed_variants,
+            } => {
+                let annotation = if removed_variants.is_empty() {
+                    format!("ADD VALUE {} variant(s) (safe)", added_variants.len())
+                } else {
+                    format!(
+                        "ALTER ENUM: +{} -{} variant(s) (destructive — drop + recreate)",
+                        added_variants.len(),
+                        removed_variants.len(),
+                    )
+                };
+                ("~", format!("enum:{}", name), annotation)
+            }
+            Change::CreateExtension { name, schema } => {
+                let annotation = match schema {
+                    Some(s) => format!("CREATE EXTENSION ... WITH SCHEMA \"{}\" (safe)", s),
+                    None => "CREATE EXTENSION (safe)".to_string(),
+                };
+                ("+", format!("ext:{}", name), annotation)
+            }
+            Change::DropExtension { name } => (
+                "-",
+                format!("ext:{}", name),
+                "DROP EXTENSION (destructive — fails if objects still depend on it)".into(),
+            ),
+            Change::ForeignKeyAdded {
+                table,
+                columns,
+                referenced_table,
+                ..
+            } => (
+                "+",
+                format!("{} ({})", table, columns.join(", ")),
+                format!(
+                    "ADD FOREIGN KEY -> {} (destructive — may fail on existing data)",
+                    referenced_table,
+                ),
+            ),
+            Change::ForeignKeyDropped {
+                table,
+                constraint_name,
+            } => (
+                "-",
+                table.clone(),
+                format!("DROP FOREIGN KEY {} (safe)", constraint_name),
+            ),
+        };
+
+        ChangeDescription {
+            sigil,
+            subject,
+            annotation,
+        }
     }
 }
 
@@ -403,215 +633,290 @@ impl SchemaDiff {
         target: &SchemaIr,
         provider: DatabaseProvider,
     ) -> Vec<Change> {
-        let gen = DdlGenerator::new(provider);
-        let mut changes: Vec<Change> = Vec::new();
+        let mut acc = DiffAccumulator::new(provider);
+        acc.diff_extensions(live, target);
+        acc.diff_composite_types(live, target);
+        acc.diff_enums(live, target);
+        acc.diff_new_tables(live, target);
+        acc.diff_dropped_tables(live, target);
+        acc.diff_existing_tables(live, target);
+        acc.finish()
+    }
+}
 
-        let mut pre_type_changes: Vec<Change> = Vec::new();
-        let mut post_type_changes: Vec<Change> = Vec::new();
+/// Accumulates the changes produced by the per-domain diff passes.
+///
+/// Changes land in one of three buckets because type definitions must be
+/// created before the tables that reference them and dropped only after those
+/// tables are gone: `pre_type` runs first, then the structural `changes`, then
+/// `post_type`.  [`DiffAccumulator::finish`] concatenates them in that order.
+struct DiffAccumulator {
+    ddl: DdlGenerator,
+    provider: DatabaseProvider,
+    changes: Vec<Change>,
+    pre_type: Vec<Change>,
+    post_type: Vec<Change>,
+}
 
-        if provider == DatabaseProvider::Postgres {
-            let target_extensions: &[PostgresExtensionIr] = target
-                .datasource
-                .as_ref()
-                .map(|d| d.extensions.as_slice())
-                .unwrap_or(&[]);
-            let preserve_extensions = target
-                .datasource
-                .as_ref()
-                .is_some_and(|d| d.preserve_extensions);
-            let target_extensions_set: std::collections::HashSet<&str> =
-                target_extensions.iter().map(|e| e.name.as_str()).collect();
+impl DiffAccumulator {
+    fn new(provider: DatabaseProvider) -> Self {
+        Self {
+            ddl: DdlGenerator::new(provider),
+            provider,
+            changes: Vec::new(),
+            pre_type: Vec::new(),
+            post_type: Vec::new(),
+        }
+    }
 
-            for ext in target_extensions {
-                if !live.extensions.contains_key(&ext.name) {
-                    pre_type_changes.push(Change::CreateExtension {
-                        name: ext.name.clone(),
-                        schema: ext.schema.clone(),
-                    });
-                }
-            }
+    /// Consume the accumulator and return the three buckets concatenated in
+    /// execution order.
+    fn finish(mut self) -> Vec<Change> {
+        let mut all_changes = self.pre_type;
+        all_changes.append(&mut self.changes);
+        all_changes.append(&mut self.post_type);
+        all_changes
+    }
 
-            if !preserve_extensions {
-                let mut live_extension_names: Vec<&str> =
-                    live.extensions.keys().map(String::as_str).collect();
-                live_extension_names.sort_unstable();
-                for live_ext in live_extension_names {
-                    if !target_extensions_set.contains(live_ext) {
-                        post_type_changes.push(Change::DropExtension {
-                            name: live_ext.to_string(),
-                        });
-                    }
-                }
-            }
-
-            for ct in target.composite_types.values() {
-                let db_name = ct.db_name.clone();
-                if !live.composite_types.contains_key(&db_name) {
-                    pre_type_changes.push(Change::CreateCompositeType { name: db_name });
-                }
-            }
-
-            for live_ct_name in live.composite_types.keys() {
-                let still_in_target = target
-                    .composite_types
-                    .values()
-                    .any(|ct| ct.db_name == *live_ct_name);
-                if !still_in_target {
-                    post_type_changes.push(Change::DropCompositeType {
-                        name: live_ct_name.clone(),
-                    });
-                }
-            }
-
-            for ct in target.composite_types.values() {
-                let db_name = ct.db_name.clone();
-                if let Some(live_ct) = live.composite_types.get(&db_name) {
-                    let live_field_map: std::collections::HashMap<&str, &str> = live_ct
-                        .fields
-                        .iter()
-                        .map(|f| (f.name.as_str(), f.col_type.as_str()))
-                        .collect();
-                    let target_field_map: std::collections::HashMap<&str, String> = ct
-                        .fields
-                        .iter()
-                        .filter_map(|f| {
-                            gen.column_type_sql_for_composite(f)
-                                .ok()
-                                .map(|t| (f.db_name.as_str(), t))
-                        })
-                        .collect();
-
-                    let mut added_fields: Vec<(String, String)> = Vec::new();
-                    let mut type_changed_fields: Vec<(String, String, String)> = Vec::new();
-                    let mut dropped_fields: Vec<String> = Vec::new();
-
-                    for (db_name_f, sql_type) in &target_field_map {
-                        match live_field_map.get(db_name_f) {
-                            None => added_fields.push((db_name_f.to_string(), sql_type.clone())),
-                            Some(&live_type) if live_type != sql_type.as_str() => {
-                                type_changed_fields.push((
-                                    db_name_f.to_string(),
-                                    live_type.to_string(),
-                                    sql_type.clone(),
-                                ));
-                            }
-                            _ => {}
-                        }
-                    }
-                    for live_field in &live_ct.fields {
-                        if !target_field_map.contains_key(live_field.name.as_str()) {
-                            dropped_fields.push(live_field.name.clone());
-                        }
-                    }
-
-                    if !added_fields.is_empty()
-                        || !dropped_fields.is_empty()
-                        || !type_changed_fields.is_empty()
-                    {
-                        let change = Change::AlterCompositeType {
-                            name: db_name,
-                            added_fields,
-                            dropped_fields: dropped_fields.clone(),
-                            type_changed_fields: type_changed_fields.clone(),
-                        };
-                        if dropped_fields.is_empty() && type_changed_fields.is_empty() {
-                            pre_type_changes.push(change);
-                        } else {
-                            post_type_changes.push(change);
-                        }
-                    }
-                }
-            }
-
-            for enum_def in target.enums.values() {
-                let db_name = enum_def.logical_name.to_lowercase();
-                if !live.enums.contains_key(&db_name) {
-                    pre_type_changes.push(Change::CreateEnum {
-                        name: db_name,
-                        variants: enum_def.variants.clone(),
-                    });
-                }
-            }
-
-            for live_enum_name in live.enums.keys() {
-                let still_in_target = target
-                    .enums
-                    .values()
-                    .any(|e| e.logical_name.to_lowercase() == *live_enum_name);
-                if !still_in_target {
-                    post_type_changes.push(Change::DropEnum {
-                        name: live_enum_name.clone(),
-                    });
-                }
-            }
-
-            for enum_def in target.enums.values() {
-                let db_name = enum_def.logical_name.to_lowercase();
-                if let Some(live_variants) = live.enums.get(&db_name) {
-                    let added: Vec<String> = enum_def
-                        .variants
-                        .iter()
-                        .filter(|v| !live_variants.contains(*v))
-                        .cloned()
-                        .collect();
-                    let removed: Vec<String> = live_variants
-                        .iter()
-                        .filter(|v| !enum_def.variants.contains(*v))
-                        .cloned()
-                        .collect();
-                    if !added.is_empty() || !removed.is_empty() {
-                        let change = Change::AlterEnum {
-                            name: db_name,
-                            added_variants: added,
-                            removed_variants: removed.clone(),
-                        };
-                        if removed.is_empty() {
-                            pre_type_changes.push(change);
-                        } else {
-                            post_type_changes.push(change);
-                        }
-                    }
-                }
-            }
+    /// Diff the declared PostgreSQL extensions against the installed ones.
+    ///
+    /// No-op on other providers.
+    fn diff_extensions(&mut self, live: &LiveSchema, target: &SchemaIr) {
+        if self.provider != DatabaseProvider::Postgres {
+            return;
         }
 
-        let target_by_db: std::collections::HashMap<&str, &ModelIr> = target
-            .models
-            .values()
-            .map(|m| (m.db_name.as_str(), m))
-            .collect();
+        let target_extensions: &[PostgresExtensionIr] = target
+            .datasource
+            .as_ref()
+            .map(|d| d.extensions.as_slice())
+            .unwrap_or(&[]);
+        let preserve_extensions = target
+            .datasource
+            .as_ref()
+            .is_some_and(|d| d.preserve_extensions);
+        let target_extensions_set: std::collections::HashSet<&str> =
+            target_extensions.iter().map(|e| e.name.as_str()).collect();
 
-        {
-            let new_models: Vec<&ModelIr> = target
-                .models
-                .values()
-                .filter(|m| !live.tables.contains_key(&m.db_name))
-                .collect();
-
-            for model in topo_sort_models(&new_models) {
-                changes.push(Change::NewTable(model.clone()));
-            }
-        }
-
-        for live_table_name in live.tables.keys() {
-            if !target_by_db.contains_key(live_table_name.as_str()) {
-                changes.push(Change::DroppedTable {
-                    name: live_table_name.clone(),
+        for ext in target_extensions {
+            if !live.extensions.contains_key(&ext.name) {
+                self.pre_type.push(Change::CreateExtension {
+                    name: ext.name.clone(),
+                    schema: ext.schema.clone(),
                 });
             }
         }
 
-        for (table_name, live_table) in &live.tables {
-            let model = match target_by_db.get(table_name.as_str()) {
-                Some(m) => m,
-                None => continue, // already emitted DroppedTable
+        if !preserve_extensions {
+            let mut live_extension_names: Vec<&str> =
+                live.extensions.keys().map(String::as_str).collect();
+            live_extension_names.sort_unstable();
+            for live_ext in live_extension_names {
+                if !target_extensions_set.contains(live_ext) {
+                    self.post_type.push(Change::DropExtension {
+                        name: live_ext.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Diff PostgreSQL composite types: creations, drops, and field-level
+    /// alterations.
+    ///
+    /// No-op on other providers.
+    fn diff_composite_types(&mut self, live: &LiveSchema, target: &SchemaIr) {
+        if self.provider != DatabaseProvider::Postgres {
+            return;
+        }
+
+        for ct in target.composite_types.values() {
+            let db_name = ct.db_name.clone();
+            if !live.composite_types.contains_key(&db_name) {
+                self.pre_type
+                    .push(Change::CreateCompositeType { name: db_name });
+            }
+        }
+
+        for live_ct_name in live.composite_types.keys() {
+            let still_in_target = target
+                .composite_types
+                .values()
+                .any(|ct| ct.db_name == *live_ct_name);
+            if !still_in_target {
+                self.post_type.push(Change::DropCompositeType {
+                    name: live_ct_name.clone(),
+                });
+            }
+        }
+
+        for ct in target.composite_types.values() {
+            let db_name = ct.db_name.clone();
+            let Some(live_ct) = live.composite_types.get(&db_name) else {
+                continue;
             };
 
-            let live_cols: std::collections::HashMap<&str, _> = live_table
-                .columns
+            let live_field_map: std::collections::HashMap<&str, &str> = live_ct
+                .fields
                 .iter()
-                .map(|c| (c.name.as_str(), c))
+                .map(|f| (f.name.as_str(), f.col_type.as_str()))
                 .collect();
+            let target_field_map: std::collections::HashMap<&str, String> = ct
+                .fields
+                .iter()
+                .filter_map(|f| {
+                    self.ddl
+                        .column_type_sql_for_composite(f)
+                        .ok()
+                        .map(|t| (f.db_name.as_str(), t))
+                })
+                .collect();
+
+            let mut added_fields: Vec<(String, String)> = Vec::new();
+            let mut type_changed_fields: Vec<(String, String, String)> = Vec::new();
+            let mut dropped_fields: Vec<String> = Vec::new();
+
+            for (db_name_f, sql_type) in &target_field_map {
+                match live_field_map.get(db_name_f) {
+                    None => added_fields.push((db_name_f.to_string(), sql_type.clone())),
+                    Some(&live_type) if live_type != sql_type.as_str() => {
+                        type_changed_fields.push((
+                            db_name_f.to_string(),
+                            live_type.to_string(),
+                            sql_type.clone(),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            for live_field in &live_ct.fields {
+                if !target_field_map.contains_key(live_field.name.as_str()) {
+                    dropped_fields.push(live_field.name.clone());
+                }
+            }
+
+            if added_fields.is_empty()
+                && dropped_fields.is_empty()
+                && type_changed_fields.is_empty()
+            {
+                continue;
+            }
+
+            let destructive = !dropped_fields.is_empty() || !type_changed_fields.is_empty();
+            let change = Change::AlterCompositeType {
+                name: db_name,
+                added_fields,
+                dropped_fields,
+                type_changed_fields,
+            };
+            if destructive {
+                self.post_type.push(change);
+            } else {
+                self.pre_type.push(change);
+            }
+        }
+    }
+
+    /// Diff PostgreSQL enum types: creations, drops, and variant-list changes.
+    ///
+    /// No-op on other providers.
+    fn diff_enums(&mut self, live: &LiveSchema, target: &SchemaIr) {
+        if self.provider != DatabaseProvider::Postgres {
+            return;
+        }
+
+        for enum_def in target.enums.values() {
+            let db_name = enum_def.logical_name.to_lowercase();
+            if !live.enums.contains_key(&db_name) {
+                self.pre_type.push(Change::CreateEnum {
+                    name: db_name,
+                    variants: enum_def.variants.clone(),
+                });
+            }
+        }
+
+        for live_enum_name in live.enums.keys() {
+            let still_in_target = target
+                .enums
+                .values()
+                .any(|e| e.logical_name.to_lowercase() == *live_enum_name);
+            if !still_in_target {
+                self.post_type.push(Change::DropEnum {
+                    name: live_enum_name.clone(),
+                });
+            }
+        }
+
+        for enum_def in target.enums.values() {
+            let db_name = enum_def.logical_name.to_lowercase();
+            let Some(live_variants) = live.enums.get(&db_name) else {
+                continue;
+            };
+
+            let added: Vec<String> = enum_def
+                .variants
+                .iter()
+                .filter(|v| !live_variants.contains(*v))
+                .cloned()
+                .collect();
+            let removed: Vec<String> = live_variants
+                .iter()
+                .filter(|v| !enum_def.variants.contains(*v))
+                .cloned()
+                .collect();
+
+            if added.is_empty() && removed.is_empty() {
+                continue;
+            }
+
+            let destructive = !removed.is_empty();
+            let change = Change::AlterEnum {
+                name: db_name,
+                added_variants: added,
+                removed_variants: removed,
+            };
+            if destructive {
+                self.post_type.push(change);
+            } else {
+                self.pre_type.push(change);
+            }
+        }
+    }
+
+    /// Emit a [`Change::NewTable`] for every target model without a live table,
+    /// ordered so that referenced tables are created before their dependents.
+    fn diff_new_tables(&mut self, live: &LiveSchema, target: &SchemaIr) {
+        let new_models: Vec<&ModelIr> = target
+            .models
+            .values()
+            .filter(|m| !live.tables.contains_key(&m.db_name))
+            .collect();
+
+        for model in topo_sort_models(&new_models) {
+            self.changes.push(Change::NewTable(model.clone()));
+        }
+    }
+
+    /// Emit a [`Change::DroppedTable`] for every live table with no target model.
+    fn diff_dropped_tables(&mut self, live: &LiveSchema, target: &SchemaIr) {
+        let target_by_db = target_models_by_db_name(target);
+        for live_table_name in live.tables.keys() {
+            if !target_by_db.contains_key(live_table_name.as_str()) {
+                self.changes.push(Change::DroppedTable {
+                    name: live_table_name.clone(),
+                });
+            }
+        }
+    }
+
+    /// Diff every table present in both the live database and the target schema.
+    fn diff_existing_tables(&mut self, live: &LiveSchema, target: &SchemaIr) {
+        let target_by_db = target_models_by_db_name(target);
+
+        for (table_name, live_table) in &live.tables {
+            let Some(model) = target_by_db.get(table_name.as_str()) else {
+                continue; // already emitted DroppedTable
+            };
 
             let target_scalar_fields: Vec<&FieldIr> = model
                 .fields
@@ -619,425 +924,474 @@ impl SchemaDiff {
                 .filter(|f| !matches!(f.field_type, ResolvedFieldType::Relation(_)))
                 .collect();
 
-            let target_cols_by_db: std::collections::HashMap<&str, &FieldIr> = target_scalar_fields
-                .iter()
-                .map(|f| (f.db_name.as_str(), *f))
-                .collect();
+            self.diff_columns(table_name, live_table, &target_scalar_fields);
+            self.diff_table_checks(table_name, live_table, model, &target_scalar_fields);
+            self.diff_primary_key(table_name, live_table, model);
+            self.diff_indexes(table_name, live_table, model);
+            self.diff_foreign_keys(table_name, live_table, model, target);
+        }
+    }
 
-            for field in &target_scalar_fields {
-                if !live_cols.contains_key(field.db_name.as_str()) {
-                    changes.push(Change::AddedColumn {
-                        table: table_name.clone(),
-                        field: (*field).clone(),
-                    });
-                }
-            }
+    /// Diff the scalar columns of one table: additions, drops, and per-column
+    /// type, nullability, default, generation-expression and CHECK changes.
+    fn diff_columns(
+        &mut self,
+        table_name: &str,
+        live_table: &crate::live::LiveTable,
+        target_scalar_fields: &[&FieldIr],
+    ) {
+        let live_cols: std::collections::HashMap<&str, _> = live_table
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), c))
+            .collect();
 
-            for live_col_name in live_cols.keys() {
-                if !target_cols_by_db.contains_key(*live_col_name) {
-                    changes.push(Change::DroppedColumn {
-                        table: table_name.clone(),
-                        column: (*live_col_name).to_string(),
-                    });
-                }
-            }
+        let target_cols_by_db: std::collections::HashMap<&str, &FieldIr> = target_scalar_fields
+            .iter()
+            .map(|f| (f.db_name.as_str(), *f))
+            .collect();
 
-            for field in &target_scalar_fields {
-                let live_col = match live_cols.get(field.db_name.as_str()) {
-                    Some(c) => c,
-                    None => continue, // AddedColumn already emitted
-                };
-
-                let target_type = gen.column_type_sql(field).unwrap_or_default();
-                if !target_type.is_empty()
-                    && target_type != live_col.col_type
-                    && !types_storage_equivalent(provider, &live_col.col_type, &target_type)
-                {
-                    changes.push(Change::TypeChanged {
-                        table: table_name.clone(),
-                        column: field.db_name.clone(),
-                        from: live_col.col_type.clone(),
-                        to: target_type,
-                    });
-                }
-
-                // `field.is_required` means NOT NULL; `live_col.nullable` means NULL allowed.
-                let target_nullable = !field.is_required;
-                if target_nullable != live_col.nullable {
-                    changes.push(Change::NullabilityChanged {
-                        table: table_name.clone(),
-                        column: field.db_name.clone(),
-                        now_required: !target_nullable,
-                    });
-                }
-
-                // Normalise both sides so that superficial formatting differences
-                // (e.g. outer parentheses that some databases strip) don't produce
-                // false positives.
-                //
-                // Skip entirely for `autoincrement()` fields: PostgreSQL SERIAL
-                // implicitly creates a `nextval(...)` column default that the
-                // inspector reports; `column_default_sql()` returns `None` for
-                // autoincrement (it's managed by the SERIAL type, not a plain
-                // DEFAULT clause).  Without this guard the diff would see
-                // `None` vs `Some("nextval(...)")` and emit `DROP DEFAULT`,
-                // destroying the sequence link and breaking all future INSERTs.
-                let is_autoincrement = matches!(
-                    &field.default_value,
-                    Some(nautilus_schema::ir::DefaultValue::Function(f)) if f.name == "autoincrement"
-                );
-                if !is_autoincrement {
-                    let target_default = gen
-                        .column_default_sql(field)
-                        .unwrap_or(None)
-                        .map(|s| normalize_default(&s));
-                    let live_default = live_col.default_value.as_deref().map(normalize_default);
-                    if target_default != live_default {
-                        changes.push(Change::DefaultChanged {
-                            table: table_name.clone(),
-                            column: field.db_name.clone(),
-                            from: live_col.default_value.clone(),
-                            to: gen.column_default_sql(field).unwrap_or(None),
-                        });
-                    }
-                }
-
-                // Database engines reformat generated expressions heavily
-                // (adding casts, parens, spacing), so canonicalise both sides
-                // before comparing.
-                let target_expr = field
-                    .computed
-                    .as_ref()
-                    .map(|(expr, _)| normalize_generated_expr(expr));
-                let live_expr = live_col
-                    .generated_expr
-                    .as_deref()
-                    .map(normalize_generated_expr);
-                if target_expr != live_expr {
-                    changes.push(Change::ComputedExprChanged {
-                        table: table_name.clone(),
-                        column: field.db_name.clone(),
-                        field: (*field).clone(),
-                    });
-                }
-
-                // Suppress the change when the expression already exists
-                // somewhere in the table's check-constraint pool.  This
-                // handles older databases where column checks were created
-                // inline (auto-named by PG, e.g. `order_items_quantity_check`)
-                // and therefore ended up in live_table.check_constraints rather
-                // than live_col.check_expr.
-                let target_check = field.check.as_deref().map(normalize_check_expr);
-                let live_check = live_col.check_expr.as_deref().map(normalize_check_expr);
-                let check_already_in_table_pool = target_check.as_ref().is_some_and(|tc| {
-                    live_table
-                        .check_constraints
-                        .iter()
-                        .map(|lc| normalize_check_expr(lc))
-                        .any(|lc| lc == *tc)
-                });
-                if target_check != live_check && !check_already_in_table_pool {
-                    changes.push(Change::CheckChanged {
-                        table: table_name.clone(),
-                        column: Some(field.db_name.clone()),
-                        from: live_col.check_expr.clone(),
-                        to: field.check.clone(),
-                    });
-                }
-            }
-
-            {
-                // Expressions covered by column-level @check fields — we must
-                // not emit a "drop" for auto-named column constraints that were
-                // bucketed into the table pool by the inspector.
-                let column_check_exprs: std::collections::HashSet<String> = target_scalar_fields
-                    .iter()
-                    .filter_map(|f| f.check.as_deref())
-                    .map(normalize_check_expr)
-                    .collect();
-
-                let mut target_checks: Vec<String> = model
-                    .check_constraints
-                    .iter()
-                    .map(|s| normalize_check_expr(s))
-                    .collect();
-                target_checks.sort();
-                let mut live_checks: Vec<String> = live_table
-                    .check_constraints
-                    .iter()
-                    .map(|s| normalize_check_expr(s))
-                    .collect();
-                live_checks.sort();
-
-                for tc in &target_checks {
-                    if !live_checks.contains(tc) {
-                        changes.push(Change::CheckChanged {
-                            table: table_name.clone(),
-                            column: None,
-                            from: None,
-                            to: Some(tc.clone()),
-                        });
-                    }
-                }
-                // Do not drop auto-named column constraints that belong to a
-                // column-level @check target.
-                for lc in &live_checks {
-                    if !target_checks.contains(lc) && !column_check_exprs.contains(lc.as_str()) {
-                        changes.push(Change::CheckChanged {
-                            table: table_name.clone(),
-                            column: None,
-                            from: Some(lc.clone()),
-                            to: None,
-                        });
-                    }
-                }
-            }
-
-            // `model.primary_key.fields()` returns *logical* field names; the
-            // live PKs come from the DB and use *db* column names.  Resolve
-            // logical -> db before comparing so @map doesn't cause false positives.
-            let mut target_pk: Vec<String> = model
-                .primary_key
-                .fields()
-                .iter()
-                .map(|logical| {
-                    model
-                        .find_field(logical)
-                        .map(|f| f.db_name.clone())
-                        .unwrap_or_else(|| (*logical).to_string())
-                })
-                .collect();
-            target_pk.sort();
-            let mut live_pk: Vec<String> = live_table.primary_key.clone();
-            live_pk.sort();
-
-            if target_pk != live_pk {
-                changes.push(Change::PrimaryKeyChanged {
-                    table: table_name.clone(),
+        for field in target_scalar_fields {
+            if !live_cols.contains_key(field.db_name.as_str()) {
+                self.changes.push(Change::AddedColumn {
+                    table: table_name.to_string(),
+                    field: (*field).clone(),
                 });
             }
+        }
 
-            struct TargetIdx {
-                sorted_cols: Vec<String>,
-                unique: bool,
-                kind: IndexKind,
-                effective_name: String,
-                name_must_match: bool,
+        for live_col_name in live_cols.keys() {
+            if !target_cols_by_db.contains_key(*live_col_name) {
+                self.changes.push(Change::DroppedColumn {
+                    table: table_name.to_string(),
+                    column: (*live_col_name).to_string(),
+                });
             }
+        }
 
-            let target_indexes: Vec<TargetIdx> = {
-                let mut idxs: Vec<TargetIdx> = Vec::new();
-
-                for idx in &model.indexes {
-                    let mut cols: Vec<String> = idx
-                        .fields
-                        .iter()
-                        .map(|name| {
-                            model
-                                .find_field(name)
-                                .map(|f| f.db_name.clone())
-                                .unwrap_or_else(|| name.clone())
-                        })
-                        .collect();
-                    cols.sort();
-                    let ddl_name = idx
-                        .map
-                        .clone()
-                        .unwrap_or_else(|| format!("idx_{}_{}", table_name, cols.join("_")));
-                    idxs.push(TargetIdx {
-                        sorted_cols: cols,
-                        unique: false,
-                        kind: idx.kind.clone(),
-                        effective_name: ddl_name,
-                        name_must_match: idx.map.is_some(),
-                    });
-                }
-
-                for uc in &model.unique_constraints {
-                    let mut cols: Vec<String> = uc
-                        .fields
-                        .iter()
-                        .map(|name| {
-                            model
-                                .find_field(name)
-                                .map(|f| f.db_name.clone())
-                                .unwrap_or_else(|| name.clone())
-                        })
-                        .collect();
-                    cols.sort();
-                    let ddl_name = format!("idx_{}_{}", table_name, cols.join("_"));
-                    idxs.push(TargetIdx {
-                        sorted_cols: cols,
-                        unique: true,
-                        kind: IndexKind::Default,
-                        effective_name: ddl_name,
-                        name_must_match: false,
-                    });
-                }
-
-                idxs
+        for field in target_scalar_fields {
+            let Some(live_col) = live_cols.get(field.db_name.as_str()) else {
+                continue; // AddedColumn already emitted
             };
 
-            struct LiveIdxNorm<'a> {
-                sorted_cols: Vec<String>,
-                unique: bool,
-                live: &'a LiveIndex,
+            let target_type = self.ddl.column_type_sql(field).unwrap_or_default();
+            if !target_type.is_empty()
+                && target_type != live_col.col_type
+                && !types_storage_equivalent(self.provider, &live_col.col_type, &target_type)
+            {
+                self.changes.push(Change::TypeChanged {
+                    table: table_name.to_string(),
+                    column: field.db_name.clone(),
+                    from: live_col.col_type.clone(),
+                    to: target_type,
+                });
             }
 
-            let live_indexes: Vec<LiveIdxNorm<'_>> = live_table
-                .indexes
-                .iter()
-                .map(|i| {
-                    let mut cols = i.columns.clone();
-                    cols.sort();
-                    LiveIdxNorm {
-                        sorted_cols: cols,
-                        unique: i.unique,
-                        live: i,
-                    }
-                })
-                .collect();
-
-            for ti in &target_indexes {
-                let found = live_indexes.iter().any(|li| {
-                    li.sorted_cols == ti.sorted_cols
-                        && li.unique == ti.unique
-                        && (!ti.name_must_match || li.live.name == ti.effective_name)
-                        && index_kinds_match(&ti.kind, &li.live.kind)
+            // `field.is_required` means NOT NULL; `live_col.nullable` means NULL allowed.
+            let target_nullable = !field.is_required;
+            if target_nullable != live_col.nullable {
+                self.changes.push(Change::NullabilityChanged {
+                    table: table_name.to_string(),
+                    column: field.db_name.clone(),
+                    now_required: !target_nullable,
                 });
-                if !found {
-                    changes.push(Change::IndexAdded {
-                        table: table_name.clone(),
-                        columns: ti.sorted_cols.clone(),
-                        unique: ti.unique,
-                        kind: ti.kind.clone(),
-                        index_name: Some(ti.effective_name.clone()),
+            }
+
+            // Normalise both sides so that superficial formatting differences
+            // (e.g. outer parentheses that some databases strip) don't produce
+            // false positives.
+            //
+            // Skip entirely for `autoincrement()` fields: PostgreSQL SERIAL
+            // implicitly creates a `nextval(...)` column default that the
+            // inspector reports; `column_default_sql()` returns `None` for
+            // autoincrement (it's managed by the SERIAL type, not a plain
+            // DEFAULT clause).  Without this guard the diff would see
+            // `None` vs `Some("nextval(...)")` and emit `DROP DEFAULT`,
+            // destroying the sequence link and breaking all future INSERTs.
+            let is_autoincrement = matches!(
+                &field.default_value,
+                Some(nautilus_schema::ir::DefaultValue::Function(f)) if f.name == "autoincrement"
+            );
+            if !is_autoincrement {
+                let target_default_sql = self.ddl.column_default_sql(field).unwrap_or(None);
+                let target_default = target_default_sql.as_deref().map(normalize_default);
+                let live_default = live_col.default_value.as_deref().map(normalize_default);
+                if target_default != live_default {
+                    self.changes.push(Change::DefaultChanged {
+                        table: table_name.to_string(),
+                        column: field.db_name.clone(),
+                        from: live_col.default_value.clone(),
+                        to: target_default_sql,
                     });
                 }
             }
 
-            for li in &live_indexes {
-                let found = target_indexes.iter().any(|ti| {
-                    li.sorted_cols == ti.sorted_cols
-                        && li.unique == ti.unique
-                        && (!ti.name_must_match || li.live.name == ti.effective_name)
-                        && index_kinds_match(&ti.kind, &li.live.kind)
+            // Database engines reformat generated expressions heavily
+            // (adding casts, parens, spacing), so canonicalise both sides
+            // before comparing.
+            let target_expr = field
+                .computed
+                .as_ref()
+                .map(|(expr, _)| normalize_generated_expr(expr));
+            let live_expr = live_col
+                .generated_expr
+                .as_deref()
+                .map(normalize_generated_expr);
+            if target_expr != live_expr {
+                self.changes.push(Change::ComputedExprChanged {
+                    table: table_name.to_string(),
+                    column: field.db_name.clone(),
+                    field: (*field).clone(),
                 });
-                if !found {
-                    changes.push(Change::IndexDropped {
-                        table: table_name.clone(),
-                        columns: li.sorted_cols.clone(),
-                        unique: li.unique,
-                        index_name: li.live.name.clone(),
-                    });
-                }
             }
 
-            let target_fks: Vec<TargetFkDescriptor> = model
-                .fields
-                .iter()
-                .filter_map(|field| {
-                    if let ResolvedFieldType::Relation(rel) = &field.field_type {
-                        if rel.fields.is_empty() {
-                            return None;
-                        }
-                        let target_model = target.models.get(&rel.target_model)?;
-                        let fk_cols: Vec<String> = rel
-                            .fields
-                            .iter()
-                            .filter_map(|fname| model.find_field(fname))
-                            .map(|f| f.db_name.clone())
-                            .collect();
-                        if fk_cols.is_empty() {
-                            return None;
-                        }
-                        let ref_cols: Vec<String> = rel
-                            .references
-                            .iter()
-                            .filter_map(|rname| target_model.find_field(rname))
-                            .map(|f| f.db_name.clone())
-                            .collect();
-                        let on_delete = rel.on_delete.as_ref().map(fk_action_to_str);
-                        let on_update = rel.on_update.as_ref().map(fk_action_to_str);
-                        Some(TargetFkDescriptor {
-                            columns: fk_cols,
-                            referenced_table: target_model.db_name.clone(),
-                            referenced_columns: ref_cols,
-                            on_delete,
-                            on_update,
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            for tfk in &target_fks {
-                let live_match = live_table.foreign_keys.iter().find(|lk| {
-                    lk.columns == tfk.columns
-                        && lk.referenced_table == tfk.referenced_table
-                        && lk.referenced_columns == tfk.referenced_columns
+            // Suppress the change when the expression already exists
+            // somewhere in the table's check-constraint pool.  This
+            // handles older databases where column checks were created
+            // inline (auto-named by PG, e.g. `order_items_quantity_check`)
+            // and therefore ended up in live_table.check_constraints rather
+            // than live_col.check_expr.
+            let target_check = field.check.as_deref().map(normalize_check_expr);
+            let live_check = live_col.check_expr.as_deref().map(normalize_check_expr);
+            let check_already_in_table_pool = target_check.as_ref().is_some_and(|tc| {
+                live_table
+                    .check_constraints
+                    .iter()
+                    .map(|lc| normalize_check_expr(lc))
+                    .any(|lc| lc == *tc)
+            });
+            if target_check != live_check && !check_already_in_table_pool {
+                self.changes.push(Change::CheckChanged {
+                    table: table_name.to_string(),
+                    column: Some(field.db_name.clone()),
+                    from: live_col.check_expr.clone(),
+                    to: field.check.clone(),
                 });
-                match live_match {
-                    None => {
-                        changes.push(Change::ForeignKeyAdded {
-                            table: table_name.clone(),
-                            constraint_name: fk_auto_name(table_name, &tfk.columns),
-                            columns: tfk.columns.clone(),
-                            referenced_table: tfk.referenced_table.clone(),
-                            referenced_columns: tfk.referenced_columns.clone(),
-                            on_delete: tfk.on_delete.clone(),
-                            on_update: tfk.on_update.clone(),
+            }
+        }
+    }
+
+    /// Diff the table-level CHECK constraints of one table.
+    fn diff_table_checks(
+        &mut self,
+        table_name: &str,
+        live_table: &crate::live::LiveTable,
+        model: &ModelIr,
+        target_scalar_fields: &[&FieldIr],
+    ) {
+        // Expressions covered by column-level @check fields — we must
+        // not emit a "drop" for auto-named column constraints that were
+        // bucketed into the table pool by the inspector.
+        let column_check_exprs: std::collections::HashSet<String> = target_scalar_fields
+            .iter()
+            .filter_map(|f| f.check.as_deref())
+            .map(normalize_check_expr)
+            .collect();
+
+        let mut target_checks: Vec<String> = model
+            .check_constraints
+            .iter()
+            .map(|s| normalize_check_expr(s))
+            .collect();
+        target_checks.sort();
+        let mut live_checks: Vec<String> = live_table
+            .check_constraints
+            .iter()
+            .map(|s| normalize_check_expr(s))
+            .collect();
+        live_checks.sort();
+
+        for tc in &target_checks {
+            if !live_checks.contains(tc) {
+                self.changes.push(Change::CheckChanged {
+                    table: table_name.to_string(),
+                    column: None,
+                    from: None,
+                    to: Some(tc.clone()),
+                });
+            }
+        }
+        // Do not drop auto-named column constraints that belong to a
+        // column-level @check target.
+        for lc in &live_checks {
+            if !target_checks.contains(lc) && !column_check_exprs.contains(lc.as_str()) {
+                self.changes.push(Change::CheckChanged {
+                    table: table_name.to_string(),
+                    column: None,
+                    from: Some(lc.clone()),
+                    to: None,
+                });
+            }
+        }
+    }
+
+    /// Compare the live primary key against the target model's.
+    fn diff_primary_key(
+        &mut self,
+        table_name: &str,
+        live_table: &crate::live::LiveTable,
+        model: &ModelIr,
+    ) {
+        // `model.primary_key.fields()` returns *logical* field names; the
+        // live PKs come from the DB and use *db* column names.  Resolve
+        // logical -> db before comparing so @map doesn't cause false positives.
+        let mut target_pk: Vec<String> = model
+            .primary_key
+            .fields()
+            .iter()
+            .map(|logical| {
+                model
+                    .find_field(logical)
+                    .map(|f| f.db_name.clone())
+                    .unwrap_or_else(|| (*logical).to_string())
+            })
+            .collect();
+        target_pk.sort();
+        let mut live_pk: Vec<String> = live_table.primary_key.clone();
+        live_pk.sort();
+
+        if target_pk != live_pk {
+            self.changes.push(Change::PrimaryKeyChanged {
+                table: table_name.to_string(),
+            });
+        }
+    }
+
+    /// Diff the indexes of one table, matching on sorted column list,
+    /// uniqueness, access method, and — for explicitly named indexes — name.
+    fn diff_indexes(
+        &mut self,
+        table_name: &str,
+        live_table: &crate::live::LiveTable,
+        model: &ModelIr,
+    ) {
+        let target_indexes = collect_target_indexes(table_name, model);
+
+        let live_indexes: Vec<NormalizedLiveIndex<'_>> = live_table
+            .indexes
+            .iter()
+            .map(|i| {
+                let mut cols = i.columns.clone();
+                cols.sort();
+                NormalizedLiveIndex {
+                    sorted_cols: cols,
+                    unique: i.unique,
+                    live: i,
+                }
+            })
+            .collect();
+
+        for ti in &target_indexes {
+            let found = live_indexes.iter().any(|li| indexes_match(ti, li));
+            if !found {
+                self.changes.push(Change::IndexAdded {
+                    table: table_name.to_string(),
+                    columns: ti.sorted_cols.clone(),
+                    unique: ti.unique,
+                    kind: ti.kind.clone(),
+                    index_name: Some(ti.effective_name.clone()),
+                });
+            }
+        }
+
+        for li in &live_indexes {
+            let found = target_indexes.iter().any(|ti| indexes_match(ti, li));
+            if !found {
+                self.changes.push(Change::IndexDropped {
+                    table: table_name.to_string(),
+                    columns: li.sorted_cols.clone(),
+                    unique: li.unique,
+                    index_name: li.live.name.clone(),
+                });
+            }
+        }
+    }
+
+    /// Diff the foreign keys of one table.
+    ///
+    /// A referential-action change cannot be altered in place, so it is emitted
+    /// as a drop followed by an add of the same constraint.
+    fn diff_foreign_keys(
+        &mut self,
+        table_name: &str,
+        live_table: &crate::live::LiveTable,
+        model: &ModelIr,
+        target: &SchemaIr,
+    ) {
+        let target_fks = collect_target_foreign_keys(model, target);
+
+        for tfk in &target_fks {
+            let live_match = live_table.foreign_keys.iter().find(|lk| {
+                lk.columns == tfk.columns
+                    && lk.referenced_table == tfk.referenced_table
+                    && lk.referenced_columns == tfk.referenced_columns
+            });
+
+            match live_match {
+                None => {
+                    self.changes.push(tfk.as_added(table_name));
+                }
+                Some(live_fk) => {
+                    let actions_differ = !fk_actions_equal(
+                        self.provider,
+                        live_fk.on_delete.as_deref(),
+                        tfk.on_delete.as_deref(),
+                    ) || !fk_actions_equal(
+                        self.provider,
+                        live_fk.on_update.as_deref(),
+                        tfk.on_update.as_deref(),
+                    );
+                    if actions_differ {
+                        self.changes.push(Change::ForeignKeyDropped {
+                            table: table_name.to_string(),
+                            constraint_name: live_fk.constraint_name.clone(),
                         });
+                        self.changes.push(tfk.as_added(table_name));
                     }
-                    Some(live_fk) => {
-                        if !fk_actions_equal(
-                            provider,
-                            live_fk.on_delete.as_deref(),
-                            tfk.on_delete.as_deref(),
-                        ) || !fk_actions_equal(
-                            provider,
-                            live_fk.on_update.as_deref(),
-                            tfk.on_update.as_deref(),
-                        ) {
-                            changes.push(Change::ForeignKeyDropped {
-                                table: table_name.clone(),
-                                constraint_name: live_fk.constraint_name.clone(),
-                            });
-                            changes.push(Change::ForeignKeyAdded {
-                                table: table_name.clone(),
-                                constraint_name: fk_auto_name(table_name, &tfk.columns),
-                                columns: tfk.columns.clone(),
-                                referenced_table: tfk.referenced_table.clone(),
-                                referenced_columns: tfk.referenced_columns.clone(),
-                                on_delete: tfk.on_delete.clone(),
-                                on_update: tfk.on_update.clone(),
-                            });
-                        }
-                    }
-                }
-            }
-
-            for live_fk in &live_table.foreign_keys {
-                let still_in_target = target_fks.iter().any(|tf| {
-                    tf.columns == live_fk.columns
-                        && tf.referenced_table == live_fk.referenced_table
-                        && tf.referenced_columns == live_fk.referenced_columns
-                });
-                if !still_in_target {
-                    changes.push(Change::ForeignKeyDropped {
-                        table: table_name.clone(),
-                        constraint_name: live_fk.constraint_name.clone(),
-                    });
                 }
             }
         }
 
-        let mut all_changes = pre_type_changes;
-        all_changes.append(&mut changes);
-        all_changes.append(&mut post_type_changes);
-        all_changes
+        for live_fk in &live_table.foreign_keys {
+            let still_in_target = target_fks.iter().any(|tf| {
+                tf.columns == live_fk.columns
+                    && tf.referenced_table == live_fk.referenced_table
+                    && tf.referenced_columns == live_fk.referenced_columns
+            });
+            if !still_in_target {
+                self.changes.push(Change::ForeignKeyDropped {
+                    table: table_name.to_string(),
+                    constraint_name: live_fk.constraint_name.clone(),
+                });
+            }
+        }
     }
+}
+
+/// Index the target models by their DB table name.
+fn target_models_by_db_name(target: &SchemaIr) -> std::collections::HashMap<&str, &ModelIr> {
+    target
+        .models
+        .values()
+        .map(|m| (m.db_name.as_str(), m))
+        .collect()
+}
+
+/// An index declared in the target schema, normalised for comparison against
+/// the live database.
+struct TargetIndex {
+    sorted_cols: Vec<String>,
+    unique: bool,
+    kind: IndexKind,
+    effective_name: String,
+    /// Only indexes with an explicit `map:`/`name:` require the physical name
+    /// to match; auto-named ones are matched structurally.
+    name_must_match: bool,
+}
+
+/// A live index with its column list sorted, so it can be compared against a
+/// [`TargetIndex`] regardless of declaration order.
+struct NormalizedLiveIndex<'a> {
+    sorted_cols: Vec<String>,
+    unique: bool,
+    live: &'a LiveIndex,
+}
+
+/// Collect the target indexes of `model`, merging `@@index` declarations and
+/// `@@unique` constraints into a single comparable list.
+fn collect_target_indexes(table_name: &str, model: &ModelIr) -> Vec<TargetIndex> {
+    let resolve_cols = |fields: &[String]| -> Vec<String> {
+        let mut cols: Vec<String> = fields
+            .iter()
+            .map(|name| {
+                model
+                    .find_field(name)
+                    .map(|f| f.db_name.clone())
+                    .unwrap_or_else(|| name.clone())
+            })
+            .collect();
+        cols.sort();
+        cols
+    };
+
+    let mut idxs: Vec<TargetIndex> = Vec::new();
+
+    for idx in &model.indexes {
+        let cols = resolve_cols(&idx.fields);
+        let ddl_name = idx
+            .map
+            .clone()
+            .unwrap_or_else(|| format!("idx_{}_{}", table_name, cols.join("_")));
+        idxs.push(TargetIndex {
+            sorted_cols: cols,
+            unique: false,
+            kind: idx.kind.clone(),
+            effective_name: ddl_name,
+            name_must_match: idx.map.is_some(),
+        });
+    }
+
+    for uc in &model.unique_constraints {
+        let cols = resolve_cols(&uc.fields);
+        let ddl_name = format!("idx_{}_{}", table_name, cols.join("_"));
+        idxs.push(TargetIndex {
+            sorted_cols: cols,
+            unique: true,
+            kind: IndexKind::Default,
+            effective_name: ddl_name,
+            name_must_match: false,
+        });
+    }
+
+    idxs
+}
+
+/// Returns `true` when a target index and a live index describe the same
+/// physical index.
+fn indexes_match(target: &TargetIndex, live: &NormalizedLiveIndex<'_>) -> bool {
+    live.sorted_cols == target.sorted_cols
+        && live.unique == target.unique
+        && (!target.name_must_match || live.live.name == target.effective_name)
+        && index_kinds_match(&target.kind, &live.live.kind)
+}
+
+/// Collect the foreign keys implied by the relation fields of `model`.
+fn collect_target_foreign_keys(model: &ModelIr, target: &SchemaIr) -> Vec<TargetFkDescriptor> {
+    model
+        .fields
+        .iter()
+        .filter_map(|field| {
+            let ResolvedFieldType::Relation(rel) = &field.field_type else {
+                return None;
+            };
+            if rel.fields.is_empty() {
+                return None;
+            }
+            let target_model = target.models.get(&rel.target_model)?;
+            let fk_cols: Vec<String> = rel
+                .fields
+                .iter()
+                .filter_map(|fname| model.find_field(fname))
+                .map(|f| f.db_name.clone())
+                .collect();
+            if fk_cols.is_empty() {
+                return None;
+            }
+            let ref_cols: Vec<String> = rel
+                .references
+                .iter()
+                .filter_map(|rname| target_model.find_field(rname))
+                .map(|f| f.db_name.clone())
+                .collect();
+            Some(TargetFkDescriptor {
+                columns: fk_cols,
+                referenced_table: target_model.db_name.clone(),
+                referenced_columns: ref_cols,
+                on_delete: rel.on_delete.as_ref().map(fk_action_to_str),
+                on_update: rel.on_update.as_ref().map(fk_action_to_str),
+            })
+        })
+        .collect()
 }
 
 /// Returns `true` when `a` and `b` are storage-equivalent for the given provider,
@@ -1336,8 +1690,6 @@ fn normalize_generated_expr(s: &str) -> String {
     s
 }
 
-/// Sort models so that a table is always created *before* any table that holds
-/// a foreign-key pointing to it.
 /// Internal descriptor for a foreign-key constraint derived from the target schema IR.
 struct TargetFkDescriptor {
     columns: Vec<String>,
@@ -1345,6 +1697,22 @@ struct TargetFkDescriptor {
     referenced_columns: Vec<String>,
     on_delete: Option<String>,
     on_update: Option<String>,
+}
+
+impl TargetFkDescriptor {
+    /// Build the [`Change::ForeignKeyAdded`] that creates this constraint on
+    /// `table`.
+    fn as_added(&self, table: &str) -> Change {
+        Change::ForeignKeyAdded {
+            table: table.to_string(),
+            constraint_name: fk_auto_name(table, &self.columns),
+            columns: self.columns.clone(),
+            referenced_table: self.referenced_table.clone(),
+            referenced_columns: self.referenced_columns.clone(),
+            on_delete: self.on_delete.clone(),
+            on_update: self.on_update.clone(),
+        }
+    }
 }
 
 /// Convert a [`ReferentialAction`] to its SQL keyword string (upper-cased).
@@ -1454,6 +1822,8 @@ fn order_dropped_live_tables(live: &LiveSchema, dropped_tables: &[String]) -> Ve
     create_order.into_iter().map(str::to_string).collect()
 }
 
+/// Sort models so that a table is always created *before* any table that holds
+/// a foreign-key pointing to it.
 pub(crate) fn topo_sort_models<'a>(models: &[&'a ModelIr]) -> Vec<&'a ModelIr> {
     use std::collections::{HashMap, HashSet, VecDeque};
 

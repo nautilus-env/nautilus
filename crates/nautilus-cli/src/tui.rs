@@ -215,203 +215,6 @@ pub fn format_error_chain(err: &Error) -> String {
     lines.join("\n")
 }
 
-/// Describe a single [`Change`] as `(sigil, subject, annotation)`.
-fn describe_change(change: &nautilus_migrate::Change) -> (&'static str, String, String) {
-    use nautilus_migrate::Change;
-    match change {
-        Change::NewTable(model) => ("+", model.db_name.clone(), "CREATE TABLE (safe)".into()),
-        Change::DroppedTable { name } => (
-            "-",
-            name.clone(),
-            "DROP TABLE (destructive — data will be lost)".into(),
-        ),
-        Change::AddedColumn { table, field } => (
-            "+",
-            format!("{}.{}", table, field.db_name),
-            "ADD COLUMN (safe)".into(),
-        ),
-        Change::DroppedColumn { table, column } => (
-            "-",
-            format!("{}.{}", table, column),
-            "DROP COLUMN (destructive — data will be lost)".into(),
-        ),
-        Change::TypeChanged {
-            table,
-            column,
-            from,
-            to,
-        } => (
-            "~",
-            format!("{}.{}", table, column),
-            format!("TYPE {} -> {} (destructive — may truncate data)", from, to),
-        ),
-        Change::NullabilityChanged {
-            table,
-            column,
-            now_required: true,
-        } => (
-            "~",
-            format!("{}.{}", table, column),
-            "NOT NULL (destructive — column may contain NULLs)".into(),
-        ),
-        Change::NullabilityChanged {
-            table,
-            column,
-            now_required: false,
-        } => ("~", format!("{}.{}", table, column), "NULL (safe)".into()),
-        Change::DefaultChanged {
-            table,
-            column,
-            from,
-            to,
-        } => (
-            "~",
-            format!("{}.{}", table, column),
-            format!(
-                "DEFAULT {} -> {} (safe)",
-                from.as_deref().unwrap_or("none"),
-                to.as_deref().unwrap_or("none"),
-            ),
-        ),
-        Change::PrimaryKeyChanged { table } => (
-            "~",
-            table.clone(),
-            "PRIMARY KEY changed (destructive — requires rebuild)".into(),
-        ),
-        Change::IndexAdded {
-            table,
-            columns,
-            unique,
-            kind,
-            ..
-        } => ("+", format!("{} ({})", table, columns.join(", ")), {
-            let type_str = kind
-                .as_type_str()
-                .map(|t| format!(" {} ", t))
-                .unwrap_or_default();
-            if *unique {
-                format!("ADD UNIQUE{}INDEX (safe)", type_str)
-            } else {
-                format!("ADD{}INDEX (safe)", type_str)
-            }
-        }),
-        Change::IndexDropped { table, columns, .. } => (
-            "-",
-            format!("{} ({})", table, columns.join(", ")),
-            "DROP INDEX (safe)".into(),
-        ),
-        Change::ComputedExprChanged { table, column, .. } => (
-            "~",
-            format!("{}.{}", table, column),
-            "COMPUTED expression changed (safe — DROP + ADD COLUMN)".into(),
-        ),
-        Change::CheckChanged {
-            table,
-            column,
-            from,
-            to,
-        } => (
-            "~",
-            match column {
-                Some(col) => format!("{}.{}", table, col),
-                None => table.clone(),
-            },
-            format!(
-                "CHECK {} -> {} (safe)",
-                from.as_deref().unwrap_or("none"),
-                to.as_deref().unwrap_or("none"),
-            ),
-        ),
-        Change::CreateCompositeType { name } => (
-            "+",
-            format!("type:{}", name),
-            "CREATE TYPE composite (safe)".into(),
-        ),
-        Change::DropCompositeType { name } => (
-            "-",
-            format!("type:{}", name),
-            "DROP TYPE composite (destructive — data will be lost)".into(),
-        ),
-        Change::AlterCompositeType {
-            name,
-            added_fields,
-            dropped_fields,
-            type_changed_fields,
-        } => {
-            let annotation = if dropped_fields.is_empty() && type_changed_fields.is_empty() {
-                format!("ADD ATTRIBUTE {} field(s) (safe)", added_fields.len())
-            } else {
-                format!(
-                    "ALTER TYPE: +{} ~{} -{} field(s) (destructive)",
-                    added_fields.len(),
-                    type_changed_fields.len(),
-                    dropped_fields.len(),
-                )
-            };
-            ("~", format!("type:{}", name), annotation)
-        }
-        Change::CreateEnum { name, .. } => (
-            "+",
-            format!("enum:{}", name),
-            "CREATE TYPE enum (safe)".into(),
-        ),
-        Change::DropEnum { name } => (
-            "-",
-            format!("enum:{}", name),
-            "DROP TYPE enum (destructive — data will be lost)".into(),
-        ),
-        Change::AlterEnum {
-            name,
-            added_variants,
-            removed_variants,
-        } => {
-            let annotation = if removed_variants.is_empty() {
-                format!("ADD VALUE {} variant(s) (safe)", added_variants.len())
-            } else {
-                format!(
-                    "ALTER ENUM: +{} -{} variant(s) (destructive — drop + recreate)",
-                    added_variants.len(),
-                    removed_variants.len(),
-                )
-            };
-            ("~", format!("enum:{}", name), annotation)
-        }
-        Change::CreateExtension { name, schema } => {
-            let annotation = match schema {
-                Some(s) => format!("CREATE EXTENSION ... WITH SCHEMA \"{}\" (safe)", s),
-                None => "CREATE EXTENSION (safe)".to_string(),
-            };
-            ("+", format!("ext:{}", name), annotation)
-        }
-        Change::DropExtension { name } => (
-            "-",
-            format!("ext:{}", name),
-            "DROP EXTENSION (destructive — fails if objects still depend on it)".into(),
-        ),
-        Change::ForeignKeyAdded {
-            table,
-            columns,
-            referenced_table,
-            ..
-        } => (
-            "+",
-            format!("{} ({})", table, columns.join(", ")),
-            format!(
-                "ADD FOREIGN KEY -> {} (destructive — may fail on existing data)",
-                referenced_table,
-            ),
-        ),
-        Change::ForeignKeyDropped {
-            table,
-            constraint_name,
-        } => (
-            "-",
-            table.clone(),
-            format!("DROP FOREIGN KEY {} (safe)", constraint_name),
-        ),
-    }
-}
-
 /// Print a formatted diff summary table.
 pub fn print_diff_summary(changes: &[(nautilus_migrate::Change, nautilus_migrate::ChangeRisk)]) {
     use nautilus_migrate::ChangeRisk;
@@ -420,22 +223,22 @@ pub fn print_diff_summary(changes: &[(nautilus_migrate::Change, nautilus_migrate
     println!("  {}  {}", ARROW, style("Changes detected").bold());
     println!("  {}", style(rule(w)).dim());
     for (change, risk) in changes {
-        let (sigil, subject, annotation) = describe_change(change);
+        let d = change.describe();
         match risk {
             ChangeRisk::Safe => {
                 println!(
                     "  {}  {}  {}",
-                    style(sigil).green(),
-                    style(&subject).white(),
-                    style(&annotation).dim(),
+                    style(d.sigil).green(),
+                    style(&d.subject).white(),
+                    style(&d.annotation).dim(),
                 );
             }
             ChangeRisk::Destructive => {
                 println!(
                     "  {}  {}  {}",
-                    style(sigil).red().bold(),
-                    style(&subject).white(),
-                    style(&annotation).red(),
+                    style(d.sigil).red().bold(),
+                    style(&d.subject).white(),
+                    style(&d.annotation).red(),
                 );
             }
         }

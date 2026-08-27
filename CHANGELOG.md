@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added `Change::risk()` and `Change::describe()` on the migration `Change`
+  enum, so a change's risk classification and its user-facing description live
+  next to the variant they describe. `describe()` returns the new
+  `ChangeDescription` struct (sigil, subject, annotation) and replaces the
+  parallel match the CLI kept in its TUI module. The free function
+  `change_risk()` is retained and now delegates to `Change::risk()`.
+
 ## Version 1.3.5
 
 ### Added

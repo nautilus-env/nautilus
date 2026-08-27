@@ -420,7 +420,7 @@ pub(super) async fn hydrate_rows_with_includes(
     let relation_map = state.relation_map_for_model(model)?;
 
     let mut include_entries: Vec<(&String, &IncludeNode)> = includes.iter().collect();
-    include_entries.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+    include_entries.sort_unstable_by_key(|(a, _)| *a);
 
     let mut per_relation_values: Vec<(String, Vec<Value>)> = if tx_id.is_none() {
         let rows_ref = &rows;
