@@ -17,6 +17,7 @@ members = [
 [workspace.package]
 version = "1.3.5"
 edition = "2021"
+rust-version = "1.92"
 license = "MIT OR Apache-2.0"
 authors = ["nautilus-env"]
 repository = "https://github.com/nautilus-env/nautilus"

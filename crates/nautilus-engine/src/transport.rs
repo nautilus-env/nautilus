@@ -4,12 +4,16 @@
 //! per request for concurrent handling, and writes responses through a
 //! dedicated writer task. Handler panics are caught via `catch_unwind` and
 //! converted into JSON-RPC internal-error responses so the client never hangs.
+//!
+//! Admission is bounded on both axes: an oversized request line is discarded
+//! instead of buffered, and at most
+//! [`EngineState::max_concurrent_requests`] handlers run at once.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{self as tokio_io, AsyncBufReadExt, AsyncWriteExt};
-use tokio::sync::{mpsc, Mutex};
+use tokio::io::{self as tokio_io, AsyncBufRead, AsyncBufReadExt, AsyncWriteExt};
+use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
@@ -26,7 +30,82 @@ use futures::FutureExt;
 use std::panic::AssertUnwindSafe;
 
 const TRANSACTION_REAPER_INTERVAL: Duration = Duration::from_millis(250);
+
+/// Maximum accepted size, in bytes, of a single newline-delimited request.
+///
+/// stdin is written by the client library, so a line this large means a
+/// malformed or hostile writer; without a cap the read buffer would grow along
+/// with it until the process runs out of memory.
+const MAX_REQUEST_LINE_BYTES: usize = 64 * 1024 * 1024;
+
 type ActiveRequests = Arc<Mutex<HashMap<RpcId, JoinHandle<()>>>>;
+
+/// Outcome of reading one newline-delimited request from stdin.
+enum RequestLine {
+    /// A complete line was read into the buffer.
+    Read,
+    /// The line exceeded the byte limit and was discarded.
+    TooLong,
+    /// stdin reached end of file.
+    Eof,
+}
+
+/// Read one newline-delimited line into `line`, discarding it entirely when it
+/// grows past `max_bytes`.
+///
+/// Tokio's `read_line` has no length bound, so a single unterminated line would
+/// otherwise be buffered in full before the parser ever saw it. An oversized
+/// line is drained up to its newline so the following requests stay readable.
+async fn read_request_line<R>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    max_bytes: usize,
+) -> std::io::Result<RequestLine>
+where
+    R: AsyncBufRead + Unpin,
+{
+    line.clear();
+    let mut too_long = false;
+
+    loop {
+        let (consumed, complete) = {
+            let available = reader.fill_buf().await?;
+            if available.is_empty() {
+                return Ok(if too_long {
+                    RequestLine::TooLong
+                } else if line.is_empty() {
+                    RequestLine::Eof
+                } else {
+                    RequestLine::Read
+                });
+            }
+
+            let (chunk, complete) = match available.iter().position(|byte| *byte == b'\n') {
+                Some(index) => (&available[..=index], true),
+                None => (available, false),
+            };
+
+            if too_long || line.len() + chunk.len() > max_bytes {
+                too_long = true;
+                line.clear();
+            } else {
+                line.extend_from_slice(chunk);
+            }
+
+            (chunk.len(), complete)
+        };
+
+        reader.consume(consumed);
+
+        if complete {
+            return Ok(if too_long {
+                RequestLine::TooLong
+            } else {
+                RequestLine::Read
+            });
+        }
+    }
+}
 
 fn spawn_transaction_reaper(state: Arc<EngineState>) -> JoinHandle<()> {
     spawn_transaction_reaper_with_interval(state, TRANSACTION_REAPER_INTERVAL)
@@ -151,102 +230,119 @@ pub async fn run_request_loop(state: EngineState) -> Result<(), Box<dyn std::err
         }
     });
 
-    let mut line = String::new();
+    // Acquired before spawning, so a client that pipelines faster than the
+    // engine drains cannot grow the task set without bound. `request.cancel` is
+    // answered before the permit is taken and stays responsive under saturation.
+    let permits = Arc::new(Semaphore::new(state.max_concurrent_requests()));
+    let mut line: Vec<u8> = Vec::new();
 
     loop {
-        line.clear();
-
-        match reader.read_line(&mut line).await {
-            Ok(0) => {
+        let request = match read_request_line(&mut reader, &mut line, MAX_REQUEST_LINE_BYTES).await
+        {
+            Ok(RequestLine::Eof) => {
                 eprintln!("[engine] Received EOF, shutting down");
                 break;
             }
-            Ok(_) => {
-                let line_trimmed = line.trim();
+            Ok(RequestLine::TooLong) => {
+                let message = format!(
+                    "Invalid Request: line exceeds the {}-byte limit",
+                    MAX_REQUEST_LINE_BYTES
+                );
+                eprintln!("[engine] {}", message);
+                let _ = tx.send(err(None, -32600, message, None)).await;
+                continue;
+            }
+            Ok(RequestLine::Read) => {
+                let line_trimmed = line.trim_ascii();
                 if line_trimmed.is_empty() {
                     continue;
                 }
 
-                let request: RpcRequest = match serde_json::from_str(line_trimmed) {
-                    Ok(req) => req,
+                match serde_json::from_slice::<RpcRequest>(line_trimmed) {
+                    Ok(request) => request,
                     Err(e) => {
                         eprintln!("[engine] JSON parse error: {}", e);
                         let response = err(None, -32700, "Parse error".to_string(), None);
                         let _ = tx.send(response).await;
                         continue;
                     }
-                };
-
-                if request.jsonrpc != "2.0" {
-                    let response = err(
-                        request.id.clone(),
-                        -32600,
-                        "Invalid Request: jsonrpc must be '2.0'".to_string(),
-                        None,
-                    );
-                    let _ = tx.send(response).await;
-                    continue;
                 }
-
-                if request.method == REQUEST_CANCEL {
-                    if let Some(response) = handle_cancel_request(request, &active_requests).await {
-                        let _ = tx.send(response).await;
-                    }
-                    continue;
-                }
-
-                let state_ref = Arc::clone(&state);
-                let tx_clone = tx.clone();
-                let active_requests_ref = Arc::clone(&active_requests);
-                let tracked_request_id = request.id.clone();
-                let cleanup_request_id = tracked_request_id.clone();
-                let (start_tx, start_rx) = tokio::sync::oneshot::channel();
-
-                let request_task = tokio::spawn(async move {
-                    if start_rx.await.is_err() {
-                        return;
-                    }
-
-                    let request_id = request.id.clone();
-                    let response = AssertUnwindSafe(handlers::handle_request(
-                        &state_ref,
-                        request,
-                        tx_clone.clone(),
-                    ))
-                    .catch_unwind()
-                    .await
-                    .unwrap_or_else(|panic_err| {
-                        let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
-                            format!("Internal engine panic: {}", s)
-                        } else if let Some(s) = panic_err.downcast_ref::<String>() {
-                            format!("Internal engine panic: {}", s)
-                        } else {
-                            "Internal engine panic (unknown)".to_string()
-                        };
-                        eprintln!("[engine] Handler panicked: {}", msg);
-                        err(request_id, -32603, msg, None)
-                    });
-                    let _ = tx_clone.send(response).await;
-
-                    if let Some(request_id) = cleanup_request_id {
-                        active_requests_ref.lock().await.remove(&request_id);
-                    }
-                });
-
-                if let Some(request_id) = tracked_request_id {
-                    active_requests
-                        .lock()
-                        .await
-                        .insert(request_id, request_task);
-                }
-
-                let _ = start_tx.send(());
             }
             Err(e) => {
                 eprintln!("[engine] Read error: {}", e);
                 break;
             }
+        };
+
+        if request.jsonrpc != "2.0" {
+            let response = err(
+                request.id.clone(),
+                -32600,
+                "Invalid Request: jsonrpc must be '2.0'".to_string(),
+                None,
+            );
+            let _ = tx.send(response).await;
+            continue;
         }
+
+        if request.method == REQUEST_CANCEL {
+            if let Some(response) = handle_cancel_request(request, &active_requests).await {
+                let _ = tx.send(response).await;
+            }
+            continue;
+        }
+
+        let Ok(permit) = Arc::clone(&permits).acquire_owned().await else {
+            break;
+        };
+
+        let state_ref = Arc::clone(&state);
+        let tx_clone = tx.clone();
+        let active_requests_ref = Arc::clone(&active_requests);
+        let tracked_request_id = request.id.clone();
+        let cleanup_request_id = tracked_request_id.clone();
+        let (start_tx, start_rx) = tokio::sync::oneshot::channel();
+
+        let request_task = tokio::spawn(async move {
+            let _permit = permit;
+            if start_rx.await.is_err() {
+                return;
+            }
+
+            let request_id = request.id.clone();
+            let response = AssertUnwindSafe(handlers::handle_request(
+                &state_ref,
+                request,
+                tx_clone.clone(),
+            ))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|panic_err| {
+                let msg = if let Some(s) = panic_err.downcast_ref::<&str>() {
+                    format!("Internal engine panic: {}", s)
+                } else if let Some(s) = panic_err.downcast_ref::<String>() {
+                    format!("Internal engine panic: {}", s)
+                } else {
+                    "Internal engine panic (unknown)".to_string()
+                };
+                eprintln!("[engine] Handler panicked: {}", msg);
+                err(request_id, -32603, msg, None)
+            });
+            let _ = tx_clone.send(response).await;
+
+            if let Some(request_id) = cleanup_request_id {
+                active_requests_ref.lock().await.remove(&request_id);
+            }
+        });
+
+        if let Some(request_id) = tracked_request_id {
+            active_requests
+                .lock()
+                .await
+                .insert(request_id, request_task);
+        }
+
+        let _ = start_tx.send(());
     }
 
     drop(tx);
@@ -338,6 +434,50 @@ model User {
             .await
             .expect("count query should succeed")
             .len()
+    }
+
+    async fn read_capped(input: &[u8], max_bytes: usize) -> Vec<Result<Vec<u8>, ()>> {
+        let mut reader = tokio_io::BufReader::new(input);
+        let mut line = Vec::new();
+        let mut read = Vec::new();
+
+        loop {
+            match read_request_line(&mut reader, &mut line, max_bytes)
+                .await
+                .expect("reading from a slice cannot fail")
+            {
+                RequestLine::Read => read.push(Ok(line.trim_ascii().to_vec())),
+                RequestLine::TooLong => read.push(Err(())),
+                RequestLine::Eof => break,
+            }
+        }
+
+        read
+    }
+
+    #[tokio::test]
+    async fn capped_reader_splits_lines_and_reports_eof() {
+        let read = read_capped(b"{\"a\":1}\n{\"b\":2}\n", 1024).await;
+        assert_eq!(
+            read,
+            vec![Ok(br#"{"a":1}"#.to_vec()), Ok(br#"{"b":2}"#.to_vec())]
+        );
+    }
+
+    #[tokio::test]
+    async fn capped_reader_yields_trailing_line_without_newline() {
+        let read = read_capped(b"{\"a\":1}", 1024).await;
+        assert_eq!(read, vec![Ok(br#"{"a":1}"#.to_vec())]);
+    }
+
+    #[tokio::test]
+    async fn capped_reader_discards_oversized_line_and_resumes() {
+        let oversized = "x".repeat(64);
+        let input = format!("{oversized}\n{{\"b\":2}}\n");
+
+        let read = read_capped(input.as_bytes(), 16).await;
+
+        assert_eq!(read, vec![Err(()), Ok(br#"{"b":2}"#.to_vec())]);
     }
 
     #[tokio::test]

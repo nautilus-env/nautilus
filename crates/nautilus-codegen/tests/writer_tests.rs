@@ -507,17 +507,39 @@ model Post {
     );
 }
 
+/// Seed `crate_dir` with the workspace `Cargo.lock` before compiling it.
+///
+/// The generated client declares its own `[workspace]`, so cargo resolves it
+/// from scratch. A fresh resolution fails whenever a version pinned in the
+/// workspace lock has since been yanked from crates.io — a transitive
+/// dependency the generated code never mentions is enough to break the test.
+/// Starting from the workspace lock keeps these compile checks pinned to the
+/// same dependency versions the rest of the workspace builds against.
+fn seed_workspace_lockfile(crate_dir: &std::path::Path, workspace_root: &std::path::Path) {
+    std::fs::copy(
+        workspace_root.join("Cargo.lock"),
+        crate_dir.join("Cargo.lock"),
+    )
+    .expect("failed to seed the generated crate with the workspace lockfile");
+}
+
 /// A generated standalone Rust client with relations should compile as a crate.
 #[test]
 fn test_write_rust_code_standalone_generated_client_compiles() {
     let ir = validate(RELATION_SCHEMA);
     let models = generate_all_models(&ir, false);
-    let workspace_root = std::env::current_dir().expect("failed to get current directory");
-    let tmp = tempfile::tempdir_in(workspace_root).expect("failed to create temp dir");
+    let crate_dir = std::env::current_dir().expect("failed to get current directory");
+    let workspace_root = crate_dir
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("codegen crate should live under workspace/crates")
+        .to_path_buf();
+    let tmp = tempfile::tempdir_in(&crate_dir).expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
     write_rust_code(path, &models, None, None, &[], RELATION_SCHEMA, true)
         .expect("write_rust_code failed");
+    seed_workspace_lockfile(tmp.path(), &workspace_root);
 
     let status = std::process::Command::new("cargo")
         .args(["check", "--quiet", "--offline", "--manifest-path"])
@@ -613,6 +635,7 @@ fn main() {}
 "#,
     )
     .expect("failed to write consumer main.rs");
+    seed_workspace_lockfile(&consumer_dir, &workspace_root);
 
     let status = std::process::Command::new("cargo")
         .args(["check", "--quiet", "--offline", "--manifest-path"])

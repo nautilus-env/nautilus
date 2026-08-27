@@ -35,18 +35,148 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Format check
-        continue-on-error: true
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        continue-on-error: true
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --locked --workspace
 
       - name: Test (unit + no-DB)
-        run: cargo test --workspace --exclude nautilus-orm-connector --exclude nautilus-orm-codegen
+        run: cargo test --locked --workspace --exclude nautilus-orm-connector --exclude nautilus-orm-codegen
+
+      # `nautilus-orm-codegen` is excluded above because `stream_runtime_e2e_tests`
+      # shells out to Python, Node and the JDK. Every other test file in the crate
+      # is pure Rust and belongs in the fast job.
+      - name: Test codegen (no external toolchains)
+        run: |
+          cargo test --locked -p nautilus-orm-codegen \
+            --test snapshot_tests \
+            --test type_helpers_tests \
+            --test writer_tests \
+            --test parse_schema_tests \
+            --test readme_contract_tests
+
+  msrv:
+    name: Minimum supported Rust version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve MSRV from Cargo.toml
+        id: msrv
+        run: |
+          version="$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: Check
+        run: cargo check --locked --workspace --all-targets
+
+  cross-platform:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-check-
+
+      - name: Check
+        run: cargo check --locked --workspace --all-targets
+
+  codegen-e2e:
+    name: Codegen runtime end-to-end
+    runs-on: ubuntu-latest
+    needs: ci
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-codegen-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-codegen-
+
+      - name: Install Python runtime dependencies
+        run: python -m pip install --upgrade pip pydantic
+
+      # The tests fall back to an `--offline` build of this binary, which cannot
+      # fetch the CLI-only dependencies; build it online first.
+      - name: Build the nautilus binary
+        run: cargo build --locked -p nautilus-cli --bin nautilus
+
+      # The Java client tests skip themselves when the Jackson jars are missing,
+      # so fetch them from the version the test itself declares.
+      - name: Fetch Jackson jars for the Java client tests
+        run: |
+          version="$(grep -oP 'JAVA_JACKSON_VERSION: &str = "\K[^"]+' \
+            crates/nautilus-codegen/tests/stream_runtime_e2e_tests.rs)"
+          test -n "$version"
+          dir="target/test-jars/jackson-${version}"
+          mkdir -p "$dir"
+          base=https://repo1.maven.org/maven2/com/fasterxml/jackson
+          for artifact in jackson-annotations jackson-core jackson-databind; do
+            curl -fsSL -o "${dir}/${artifact}-${version}.jar" \
+              "${base}/core/${artifact}/${version}/${artifact}-${version}.jar"
+          done
+          curl -fsSL -o "${dir}/jackson-datatype-jsr310-${version}.jar" \
+            "${base}/datatype/jackson-datatype-jsr310/${version}/jackson-datatype-jsr310-${version}.jar"
+
+      - name: Run codegen runtime end-to-end tests
+        run: cargo test --locked -p nautilus-orm-codegen --test stream_runtime_e2e_tests
 
   integration:
     name: Integration tests (Postgres + MySQL + SQLite)
@@ -105,14 +235,14 @@ jobs:
         env:
           DATABASE_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
           MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
-        run: cargo test -p nautilus-orm-connector
+        run: cargo test --locked -p nautilus-orm-connector
 
       - name: Run PostgreSQL integration tests
         env:
           DATABASE_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
-        run: cargo test -p nautilus-orm-connector --test integration_pg -- --ignored --test-threads=1
+        run: cargo test --locked -p nautilus-orm-connector --test integration_pg -- --ignored --test-threads=1
 
       - name: Run MySQL integration tests
         env:
           MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
-        run: cargo test -p nautilus-orm-connector --test integration_mysql -- --ignored --test-threads=1
+        run: cargo test --locked -p nautilus-orm-connector --test integration_mysql -- --ignored --test-threads=1

@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::mem::Discriminant;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use nautilus_core::{BinaryOp, Expr, OrderDir, Value};
 
@@ -89,8 +89,25 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
         }
     }
 
+    /// Take the read guard, ignoring poisoning.
+    ///
+    /// The transport converts handler panics into JSON-RPC errors instead of
+    /// aborting the process (see `transport.rs`), so a panic taken while this
+    /// lock is held would poison it for the remaining lifetime of the engine.
+    /// Honouring the poison would turn the cache into a permanent no-op — a
+    /// silent, unrecoverable slowdown with no error surface. The map only ever
+    /// holds fully built plans, so no partial write can be observed here.
+    fn read_entries(&self) -> RwLockReadGuard<'_, HashMap<K, CacheSlot>> {
+        self.entries.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Take the write guard, ignoring poisoning. See [`Self::read_entries`].
+    fn write_entries(&self) -> RwLockWriteGuard<'_, HashMap<K, CacheSlot>> {
+        self.entries.write().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn get(&self, key: &K, clock: &AtomicU64) -> Option<Arc<CachedReadPlan>> {
-        let guard = self.entries.read().ok()?;
+        let guard = self.read_entries();
         let slot = guard.get(key)?;
         slot.last_used
             .store(clock.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
@@ -98,9 +115,7 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
     }
 
     fn insert(&self, key: K, plan: Arc<CachedReadPlan>, clock: &AtomicU64) {
-        let Ok(mut guard) = self.entries.write() else {
-            return;
-        };
+        let mut guard = self.write_entries();
         if !guard.contains_key(&key) && guard.len() >= PLAN_CACHE_CAP {
             let evict = guard
                 .iter()
@@ -119,7 +134,7 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
 
     #[cfg(test)]
     fn len(&self) -> usize {
-        self.entries.read().map(|g| g.len()).unwrap_or(0)
+        self.read_entries().len()
     }
 }
 
@@ -300,6 +315,7 @@ fn walk_param_chain<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::panic::AssertUnwindSafe;
 
     fn col(name: &str) -> Expr {
         Expr::Column(name.to_string())
@@ -437,6 +453,35 @@ mod tests {
         let got = cache.get_find_unique(&key).expect("plan should be cached");
         assert!(Arc::ptr_eq(&plan, &got));
         assert_eq!(cache.find_unique_len(), 1);
+    }
+
+    #[test]
+    fn cache_keeps_serving_after_lock_poisoning() {
+        let cache = PlanCache::default();
+        let key = many_key(0);
+        cache.insert_find_many(key.clone(), test_plan("SELECT 1"));
+
+        let poisoned = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            let _guard = cache
+                .find_many
+                .entries
+                .write()
+                .expect("lock starts healthy");
+            panic!("handler panic while holding the plan cache lock");
+        }));
+        assert!(poisoned.is_err());
+        assert!(cache.find_many.entries.is_poisoned());
+
+        assert!(
+            cache.get_find_many(&key).is_some(),
+            "existing plans must still be served after a poisoning panic"
+        );
+
+        cache.insert_find_many(many_key(1), test_plan("SELECT 2"));
+        assert!(
+            cache.get_find_many(&many_key(1)).is_some(),
+            "inserts must still land after a poisoning panic"
+        );
     }
 
     #[test]

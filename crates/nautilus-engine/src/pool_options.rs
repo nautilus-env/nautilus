@@ -2,10 +2,20 @@ use std::time::Duration;
 
 use nautilus_connector::ConnectorPoolOptions;
 
-/// Engine-level connection-pool overrides exposed by the subprocess clients.
+/// In-flight requests allowed per pooled connection when
+/// `max_concurrent_requests` is not set explicitly.
+const REQUESTS_PER_POOLED_CONNECTION: usize = 4;
+
+/// Pool size assumed when the datasource leaves `max_connections` unset;
+/// matches the largest connector default (PostgreSQL).
+const ASSUMED_POOL_CONNECTIONS: usize = 10;
+
+/// Engine-level runtime overrides exposed by the subprocess clients.
 ///
 /// This keeps the engine CLI and generated non-Rust clients decoupled from the
 /// connector crate while still mapping 1:1 to the underlying pool controls.
+/// [`Self::max_concurrent_requests`] is the one knob that has no connector
+/// counterpart: it bounds the engine transport rather than the pool.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EnginePoolOptions {
     max_connections: Option<u32>,
@@ -14,6 +24,7 @@ pub struct EnginePoolOptions {
     idle_timeout: Option<Option<Duration>>,
     test_before_acquire: Option<bool>,
     statement_cache_capacity: Option<usize>,
+    max_concurrent_requests: Option<usize>,
 }
 
 impl EnginePoolOptions {
@@ -26,6 +37,7 @@ impl EnginePoolOptions {
             idle_timeout: None,
             test_before_acquire: None,
             statement_cache_capacity: None,
+            max_concurrent_requests: None,
         }
     }
 
@@ -84,6 +96,16 @@ impl EnginePoolOptions {
         self
     }
 
+    /// Override how many requests the transport handles concurrently.
+    ///
+    /// Values below `1` are clamped to `1`. When left unset the limit is
+    /// derived from the pool size — see
+    /// [`resolved_max_concurrent_requests`](Self::resolved_max_concurrent_requests).
+    pub fn max_concurrent_requests(mut self, max_concurrent_requests: usize) -> Self {
+        self.max_concurrent_requests = Some(max_concurrent_requests.max(1));
+        self
+    }
+
     /// Return the configured maximum-connection override, if any.
     pub const fn get_max_connections(&self) -> Option<u32> {
         self.max_connections
@@ -112,6 +134,28 @@ impl EnginePoolOptions {
     /// Return the configured statement-cache-capacity override, if any.
     pub const fn get_statement_cache_capacity(&self) -> Option<usize> {
         self.statement_cache_capacity
+    }
+
+    /// Return the configured concurrent-request override, if any.
+    pub const fn get_max_concurrent_requests(&self) -> Option<usize> {
+        self.max_concurrent_requests
+    }
+
+    /// Number of requests the transport may handle concurrently.
+    ///
+    /// Without an explicit override the limit tracks the pool size: past a few
+    /// in-flight requests per connection the extra tasks only queue on the
+    /// pool, while their buffers and response slots keep accumulating in the
+    /// engine process.
+    pub fn resolved_max_concurrent_requests(&self) -> usize {
+        self.max_concurrent_requests
+            .unwrap_or_else(|| {
+                let connections = self
+                    .max_connections
+                    .map_or(ASSUMED_POOL_CONNECTIONS, |max| max as usize);
+                connections.saturating_mul(REQUESTS_PER_POOLED_CONNECTION)
+            })
+            .max(1)
     }
 
     /// Convert engine-level overrides into connector-level pool options.
@@ -147,6 +191,7 @@ impl EnginePoolOptions {
             idle_timeout: options.get_idle_timeout(),
             test_before_acquire: options.get_test_before_acquire(),
             statement_cache_capacity: options.get_statement_cache_capacity(),
+            max_concurrent_requests: None,
         }
     }
 }
@@ -177,6 +222,31 @@ mod tests {
         assert_eq!(connector.get_idle_timeout(), Some(None));
         assert_eq!(connector.get_test_before_acquire(), Some(false));
         assert_eq!(connector.get_statement_cache_capacity(), Some(12));
+    }
+
+    #[test]
+    fn max_concurrent_requests_defaults_to_a_multiple_of_the_pool() {
+        assert_eq!(
+            EnginePoolOptions::new().resolved_max_concurrent_requests(),
+            40
+        );
+        assert_eq!(
+            EnginePoolOptions::new()
+                .max_connections(25)
+                .resolved_max_concurrent_requests(),
+            100
+        );
+    }
+
+    #[test]
+    fn max_concurrent_requests_override_wins_and_clamps_to_one() {
+        let options = EnginePoolOptions::new()
+            .max_connections(25)
+            .max_concurrent_requests(7);
+        assert_eq!(options.resolved_max_concurrent_requests(), 7);
+
+        let clamped = EnginePoolOptions::new().max_concurrent_requests(0);
+        assert_eq!(clamped.resolved_max_concurrent_requests(), 1);
     }
 
     #[test]

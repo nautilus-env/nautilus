@@ -46,6 +46,10 @@ pub enum EngineCommand {
         /// Override the per-connection sqlx statement cache capacity.
         #[arg(long)]
         statement_cache_capacity: Option<usize>,
+
+        /// Override how many requests the engine handles concurrently.
+        #[arg(long)]
+        max_concurrent_requests: Option<usize>,
     },
 }
 
@@ -62,6 +66,7 @@ pub async fn run(cmd: EngineCommand) -> anyhow::Result<()> {
             disable_idle_timeout,
             test_before_acquire,
             statement_cache_capacity,
+            max_concurrent_requests,
         } => {
             let mut pool_options = EnginePoolOptions::new();
             if let Some(max_connections) = max_connections {
@@ -84,6 +89,9 @@ pub async fn run(cmd: EngineCommand) -> anyhow::Result<()> {
             }
             if let Some(statement_cache_capacity) = statement_cache_capacity {
                 pool_options = pool_options.statement_cache_capacity(statement_cache_capacity);
+            }
+            if let Some(max_concurrent_requests) = max_concurrent_requests {
+                pool_options = pool_options.max_concurrent_requests(max_concurrent_requests);
             }
 
             nautilus_engine::run_engine_with_schema_resolution(

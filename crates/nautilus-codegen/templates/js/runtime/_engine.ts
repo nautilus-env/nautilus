@@ -22,6 +22,7 @@ export interface EnginePoolOptions {
   idleTimeoutMs?: number | null;
   testBeforeAcquire?: boolean;
   statementCacheCapacity?: number;
+  maxConcurrentRequests?: number;
 }
 
 /**
@@ -131,6 +132,12 @@ export class EngineProcess {
       args.push(
         '--statement-cache-capacity',
         String(this.poolOptions.statementCacheCapacity),
+      );
+    }
+    if (this.poolOptions.maxConcurrentRequests != null) {
+      args.push(
+        '--max-concurrent-requests',
+        String(this.poolOptions.maxConcurrentRequests),
       );
     }
 

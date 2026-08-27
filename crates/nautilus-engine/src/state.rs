@@ -61,6 +61,8 @@ pub struct EngineState {
     expired_transactions: Arc<Mutex<HashMap<String, Instant>>>,
     /// Cached SQL plans for repeated read shapes (e.g. `findUnique` by id).
     plan_cache: PlanCache,
+    /// Upper bound on requests the transport handles concurrently.
+    max_concurrent_requests: usize,
 }
 
 /// An active interactive transaction managed by the engine.
@@ -275,6 +277,7 @@ impl EngineState {
             transactions: Arc::new(Mutex::new(HashMap::new())),
             expired_transactions: Arc::new(Mutex::new(HashMap::new())),
             plan_cache: PlanCache::default(),
+            max_concurrent_requests: pool_options.resolved_max_concurrent_requests(),
         })
     }
 
@@ -286,6 +289,11 @@ impl EngineState {
     /// Read-plan cache shared by hot read paths.
     pub(crate) fn plan_cache(&self) -> &PlanCache {
         &self.plan_cache
+    }
+
+    /// Upper bound on requests the transport handles concurrently.
+    pub fn max_concurrent_requests(&self) -> usize {
+        self.max_concurrent_requests
     }
 
     /// Whether the active backend stores composite types as native PostgreSQL

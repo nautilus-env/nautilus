@@ -72,6 +72,12 @@ export class EngineProcess {
         String(this.poolOptions.statementCacheCapacity),
       );
     }
+    if (this.poolOptions.maxConcurrentRequests != null) {
+      args.push(
+        '--max-concurrent-requests',
+        String(this.poolOptions.maxConcurrentRequests),
+      );
+    }
 
     return args;
   }

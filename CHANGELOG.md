@@ -10,6 +10,30 @@
   `ChangeDescription` struct (sigil, subject, annotation) and replaces the
   parallel match the CLI kept in its TUI module. The free function
   `change_risk()` is retained and now delegates to `Change::risk()`.
+- Added `max_concurrent_requests` to `EnginePoolOptions`, exposed as
+  `nautilus engine serve --max-concurrent-requests`, the engine
+  `--max-concurrent-requests` flag, and `maxConcurrentRequests` /
+  `max_concurrent_requests` on the generated JS and Python clients. The engine
+  transport now admits at most this many handlers at once instead of spawning a
+  task per input line, so a client that pipelines faster than the engine drains
+  no longer grows the task set without bound. Unset, the limit is four times the
+  configured pool size.
+
+### Changed
+
+- The workspace now declares `rust-version = "1.92"`, so an older toolchain
+  reports an unsupported-version error instead of failing later with unrelated
+  compilation errors.
+
+### Fixed
+
+- The engine read-plan cache no longer becomes a permanent no-op after a handler
+  panic. The transport converts panics into JSON-RPC errors rather than aborting,
+  so a panic taken while the cache lock was held poisoned it for the rest of the
+  process lifetime and silently disabled plan reuse with no error surface.
+- The engine transport now rejects a request line above 64 MiB instead of
+  buffering it, so a malformed writer can no longer grow the read buffer without
+  bound.
 
 ## Version 1.3.5
 

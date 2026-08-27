@@ -33,6 +33,7 @@ class EnginePoolOptions:
     disable_idle_timeout: bool = False
     test_before_acquire: Optional[bool] = None
     statement_cache_capacity: Optional[int] = None
+    max_concurrent_requests: Optional[int] = None
 
     def to_cli_args(self) -> list[str]:
         if self.disable_idle_timeout and self.idle_timeout_ms is not None:
@@ -58,6 +59,10 @@ class EnginePoolOptions:
         if self.statement_cache_capacity is not None:
             args.extend(
                 ["--statement-cache-capacity", str(self.statement_cache_capacity)]
+            )
+        if self.max_concurrent_requests is not None:
+            args.extend(
+                ["--max-concurrent-requests", str(self.max_concurrent_requests)]
             )
         return args
 

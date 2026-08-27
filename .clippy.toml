@@ -1,2 +1,3 @@
 # Clippy configuration for Nautilus
 # Additional project-specific lints can be configured here
+msrv = "1.92"
