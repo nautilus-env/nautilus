@@ -10,10 +10,10 @@ use std::collections::{HashMap, HashSet};
 use tera::{Context, Tera};
 
 use crate::extension_types::ExtensionRegistry;
+use crate::model_view::{FieldView, ModelView};
 use crate::type_helpers::{
     field_to_rust_avg_type, field_to_rust_base_type, field_to_rust_sum_type, field_to_rust_type,
-    is_orderable_composite_field, is_orderable_model_field, json_path_cast_variant,
-    scalar_to_rust_type,
+    is_orderable_composite_field, json_path_cast_variant, scalar_to_rust_type,
 };
 
 pub static TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
@@ -145,38 +145,6 @@ struct RelationContext {
     target_scalar_fields: Vec<FieldContext>,
 }
 
-fn resolve_inverse_relation_fields(
-    source_model_name: &str,
-    relation_name: Option<&str>,
-    target_model: &ModelIr,
-) -> (Vec<String>, Vec<String>) {
-    let inverse = target_model.relation_fields().find(|field| {
-        if let ResolvedFieldType::Relation(inv_rel) = &field.field_type {
-            if inv_rel.target_model != source_model_name {
-                return false;
-            }
-
-            match (relation_name, inv_rel.name.as_deref()) {
-                (Some(expected), Some(actual)) => actual == expected,
-                (Some(_), None) => false,
-                (None, Some(_)) => false,
-                (None, None) => true,
-            }
-        } else {
-            false
-        }
-    });
-
-    let Some(inverse_field) = inverse else {
-        return (vec![], vec![]);
-    };
-    let ResolvedFieldType::Relation(inv_rel) = &inverse_field.field_type else {
-        return (vec![], vec![]);
-    };
-
-    (inv_rel.references.clone(), inv_rel.fields.clone())
-}
-
 fn field_read_hint_expr(field: &FieldIr) -> String {
     if field.is_array && field.storage_strategy == Some(StorageStrategy::Json) {
         return "Some(crate::ValueHint::Json)".to_string();
@@ -293,20 +261,20 @@ fn generate_model_with_registry(
     is_async: bool,
     extensions: &ExtensionRegistry,
 ) -> String {
+    let view = ModelView::new(model, ir, extensions);
     let mut context = Context::new();
-    insert_derived_names(&mut context, model);
+    insert_derived_names(&mut context, &view);
 
-    let pk_field_names = model.primary_key.fields();
-    context.insert("primary_key_fields", &pk_field_names);
+    context.insert("primary_key_fields", &view.primary_key_fields);
 
-    let pk_fields_with_db = build_pk_fields(model, &pk_field_names);
+    let pk_fields_with_db = build_pk_fields(&view);
     context.insert("pk_fields_with_db", &pk_fields_with_db);
     context.insert(
         "single_record_constraints",
         &build_single_record_constraints(model, &pk_fields_with_db),
     );
 
-    let fields = build_scalar_fields(model, ir, extensions, &pk_field_names);
+    let fields = build_scalar_fields(&view, extensions);
     let reserved_order_methods: HashSet<String> = fields
         .scalar
         .iter()
@@ -315,34 +283,19 @@ fn generate_model_with_registry(
     let nested_order_by_fields =
         build_nested_order_by_fields(model, ir, extensions, &reserved_order_methods);
 
-    let relation_imports: Vec<String> = model
-        .relation_fields()
-        .filter_map(|field| match &field.field_type {
-            ResolvedFieldType::Relation(rel) => Some(rel.target_model.clone()),
-            _ => None,
-        })
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-
-    context.insert("has_enums", &!fields.enum_imports.is_empty());
-    context.insert("enum_imports", &fields.enum_imports);
-    context.insert("has_relations", &!relation_imports.is_empty());
-    context.insert("relation_imports", &relation_imports);
+    context.insert("has_enums", &!view.enum_imports.is_empty());
+    context.insert("enum_imports", &view.enum_imports);
+    context.insert("has_relations", &!view.relation_imports.is_empty());
+    context.insert("relation_imports", &view.relation_imports);
     context.insert(
         "has_composite_types",
-        &!fields.composite_type_imports.is_empty(),
+        &!view.composite_type_imports.is_empty(),
     );
-    context.insert("composite_type_imports", &fields.composite_type_imports);
-
-    let relation_fields: Vec<FieldContext> = model
-        .relation_fields()
-        .map(|field| relation_field_context(model, field, extensions))
-        .collect();
+    context.insert("composite_type_imports", &view.composite_type_imports);
 
     context.insert("scalar_fields", &fields.scalar);
-    context.insert("relation_fields", &relation_fields);
-    context.insert("relations", &build_relations(model, ir, extensions));
+    context.insert("relation_fields", &build_relation_fields(&view, extensions));
+    context.insert("relations", &build_relations(&view, ir, extensions));
     context.insert("create_fields", &fields.create);
     context.insert("updated_at_fields", &fields.updated_at);
     context.insert("all_scalar_fields", &fields.scalar);
@@ -358,10 +311,10 @@ fn generate_model_with_registry(
 
 /// Insert the `{Model}Delegate` / `{Model}FindMany` / … type names the
 /// templates refer to.
-fn insert_derived_names(context: &mut Context, model: &ModelIr) {
-    let name = &model.logical_name;
+fn insert_derived_names(context: &mut Context, view: &ModelView<'_>) {
+    let name = view.logical_name();
     context.insert("model_name", name);
-    context.insert("table_name", &model.db_name);
+    context.insert("table_name", view.db_name());
     context.insert("delegate_name", &format!("{}Delegate", name));
     context.insert("columns_name", &format!("{}Columns", name));
     context.insert("find_many_name", &format!("{}FindMany", name));
@@ -372,14 +325,14 @@ fn insert_derived_names(context: &mut Context, model: &ModelIr) {
     context.insert("delete_name", &format!("{}Delete", name));
 }
 
-fn build_pk_fields(model: &ModelIr, pk_field_names: &[&str]) -> Vec<PkFieldContext> {
-    pk_field_names
+fn build_pk_fields(view: &ModelView<'_>) -> Vec<PkFieldContext> {
+    view.primary_key_fields
         .iter()
         .filter_map(|logical| {
-            model
-                .scalar_fields()
-                .find(|f| f.logical_name.as_str() == *logical)
-                .map(pk_field_context)
+            view.scalars
+                .iter()
+                .find(|scalar| scalar.logical_name() == *logical)
+                .map(|scalar| pk_field_context(scalar.field))
         })
         .collect()
 }
@@ -432,64 +385,36 @@ fn build_single_record_constraints(
 }
 
 /// The per-field template contexts a model needs, collected in a single pass
-/// over its scalar fields.
+/// over the shared [`ModelView`].
+#[derive(Default)]
 struct ScalarFieldContexts {
     scalar: Vec<FieldContext>,
     create: Vec<FieldContext>,
     updated_at: Vec<FieldContext>,
     numeric: Vec<AggregateFieldContext>,
     orderable: Vec<AggregateFieldContext>,
-    enum_imports: Vec<String>,
-    composite_type_imports: Vec<String>,
 }
 
 fn build_scalar_fields(
-    model: &ModelIr,
-    ir: &SchemaIr,
+    view: &ModelView<'_>,
     extensions: &ExtensionRegistry,
-    pk_field_names: &[&str],
 ) -> ScalarFieldContexts {
-    let mut scalar = Vec::new();
-    let mut create = Vec::new();
-    let mut updated_at = Vec::new();
-    let mut numeric = Vec::new();
-    let mut orderable = Vec::new();
-    let mut enum_imports = HashSet::new();
-    let mut composite_type_imports = HashSet::new();
+    let mut contexts = ScalarFieldContexts::default();
 
-    for (idx, field) in model.scalar_fields().enumerate() {
-        match &field.field_type {
-            ResolvedFieldType::Enum { enum_name } if ir.enums.contains_key(enum_name) => {
-                enum_imports.insert(enum_name.clone());
-            }
-            ResolvedFieldType::CompositeType { type_name, .. }
-                if ir.composite_types.contains_key(type_name) =>
-            {
-                composite_type_imports.insert(type_name.clone());
-            }
-            _ => {}
-        }
-
-        let is_pk = pk_field_names.contains(&field.logical_name.as_str());
-        let field_ctx = scalar_field_context(model, field, idx, is_pk, extensions);
+    for scalar in &view.scalars {
+        let field = scalar.field;
+        let field_ctx = scalar_field_context(scalar, extensions);
         let base_rust_type = field_ctx.base_rust_type.clone();
 
-        create.push(field_ctx.clone());
+        contexts.create.push(field_ctx.clone());
         if field.is_updated_at {
-            updated_at.push(field_ctx.clone());
+            contexts.updated_at.push(field_ctx.clone());
         }
-        scalar.push(field_ctx);
+        contexts.scalar.push(field_ctx);
 
-        let is_numeric = matches!(
-            &field.field_type,
-            ResolvedFieldType::Scalar(ScalarType::Int)
-                | ResolvedFieldType::Scalar(ScalarType::BigInt)
-                | ResolvedFieldType::Scalar(ScalarType::Float)
-                | ResolvedFieldType::Scalar(ScalarType::Decimal { .. })
-        );
-        if is_numeric {
-            numeric.push(AggregateFieldContext {
-                name: field.logical_name.to_snake_case(),
+        if scalar.numeric_scalar().is_some() {
+            contexts.numeric.push(AggregateFieldContext {
+                name: scalar.snake_name(),
                 logical_name: field.logical_name.clone(),
                 rust_type: base_rust_type.clone(),
                 avg_rust_type: field_to_rust_avg_type(field),
@@ -498,9 +423,9 @@ fn build_scalar_fields(
             });
         }
 
-        if is_orderable_model_field(field) {
-            orderable.push(AggregateFieldContext {
-                name: field.logical_name.to_snake_case(),
+        if scalar.is_orderable() {
+            contexts.orderable.push(AggregateFieldContext {
+                name: scalar.snake_name(),
                 logical_name: field.logical_name.clone(),
                 rust_type: base_rust_type,
                 avg_rust_type: String::new(),
@@ -510,24 +435,11 @@ fn build_scalar_fields(
         }
     }
 
-    ScalarFieldContexts {
-        scalar,
-        create,
-        updated_at,
-        numeric,
-        orderable,
-        enum_imports: enum_imports.into_iter().collect(),
-        composite_type_imports: composite_type_imports.into_iter().collect(),
-    }
+    contexts
 }
 
-fn scalar_field_context(
-    model: &ModelIr,
-    field: &FieldIr,
-    index: usize,
-    is_pk: bool,
-    extensions: &ExtensionRegistry,
-) -> FieldContext {
+fn scalar_field_context(scalar: &FieldView<'_>, extensions: &ExtensionRegistry) -> FieldContext {
+    let field = scalar.field;
     let column_type = match &field.field_type {
         ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, extensions),
         ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
@@ -536,7 +448,7 @@ fn scalar_field_context(
     };
 
     FieldContext {
-        name: field.logical_name.to_snake_case(),
+        name: scalar.snake_name(),
         logical_name: field.logical_name.clone(),
         db_name: field.db_name.clone(),
         rust_type: field_to_rust_type(field, extensions),
@@ -545,97 +457,69 @@ fn scalar_field_context(
         read_hint_expr: field_read_hint_expr(field),
         variant_name: field.logical_name.to_pascal_case(),
         is_array: field.is_array,
-        index,
-        is_pk,
+        index: scalar.index,
+        is_pk: scalar.is_pk,
         is_optional: !field.is_required && !field.is_array,
         is_updated_at: field.is_updated_at,
         is_computed: field.computed.is_some(),
-        doc_comment: crate::schema_docs::field_modifier_doc(model, field),
+        doc_comment: scalar.doc_comment.clone(),
     }
 }
 
 /// Relation fields carry no column of their own: they are always hydrated
 /// separately, so they get no column type, no read hint and are optional.
-fn relation_field_context(
-    model: &ModelIr,
-    field: &FieldIr,
+fn build_relation_fields(
+    view: &ModelView<'_>,
     extensions: &ExtensionRegistry,
-) -> FieldContext {
-    FieldContext {
-        name: field.logical_name.to_snake_case(),
-        logical_name: field.logical_name.clone(),
-        db_name: field.db_name.clone(),
-        rust_type: field_to_rust_type(field, extensions),
-        base_rust_type: field_to_rust_base_type(field, extensions),
-        column_type: String::new(),
-        read_hint_expr: "None".to_string(),
-        variant_name: field.logical_name.to_pascal_case(),
-        is_array: field.is_array,
-        index: 0,
-        is_pk: false,
-        is_optional: true,
-        is_updated_at: false,
-        is_computed: false,
-        doc_comment: crate::schema_docs::field_modifier_doc(model, field),
-    }
-}
-
-fn build_relations(
-    model: &ModelIr,
-    ir: &SchemaIr,
-    extensions: &ExtensionRegistry,
-) -> Vec<RelationContext> {
-    model
-        .relation_fields()
-        .filter_map(|field| {
-            let ResolvedFieldType::Relation(rel) = &field.field_type else {
-                return None;
-            };
-            let target_model = ir.models.get(&rel.target_model)?;
-            let target_pk_names = target_model.primary_key.fields();
-            let target_scalar_fields: Vec<FieldContext> = target_model
-                .scalar_fields()
-                .enumerate()
-                .map(|(idx, f)| {
-                    let is_pk = target_pk_names.contains(&f.logical_name.as_str());
-                    scalar_field_context(target_model, f, idx, is_pk, extensions)
-                })
-                .collect();
-
-            let (fields, references) = if rel.fields.is_empty() {
-                resolve_inverse_relation_fields(
-                    &model.logical_name,
-                    rel.name.as_deref(),
-                    target_model,
-                )
-            } else {
-                (rel.fields.clone(), rel.references.clone())
-            };
-
-            Some(RelationContext {
-                field_name: field.logical_name.to_snake_case(),
-                target_model: rel.target_model.clone(),
-                target_table: target_model.db_name.clone(),
+) -> Vec<FieldContext> {
+    view.relations
+        .iter()
+        .map(|relation| {
+            let field = relation.field;
+            FieldContext {
+                name: relation.snake_name(),
+                logical_name: field.logical_name.clone(),
+                db_name: field.db_name.clone(),
+                rust_type: field_to_rust_type(field, extensions),
+                base_rust_type: field_to_rust_base_type(field, extensions),
+                column_type: String::new(),
+                read_hint_expr: "None".to_string(),
+                variant_name: field.logical_name.to_pascal_case(),
                 is_array: field.is_array,
-                fields_db: db_names_for(model, &fields),
-                references_db: db_names_for(target_model, &references),
-                fields,
-                references,
-                target_scalar_fields,
-            })
+                index: 0,
+                is_pk: false,
+                is_optional: true,
+                is_updated_at: false,
+                is_computed: false,
+                doc_comment: crate::schema_docs::field_modifier_doc(view.model, field),
+            }
         })
         .collect()
 }
 
-fn db_names_for(model: &ModelIr, logical_names: &[String]) -> Vec<String> {
-    logical_names
-        .iter()
-        .filter_map(|logical_name| {
-            model
-                .fields
-                .iter()
-                .find(|f| &f.logical_name == logical_name)
-                .map(|f| f.db_name.clone())
+fn build_relations(
+    view: &ModelView<'_>,
+    ir: &SchemaIr,
+    extensions: &ExtensionRegistry,
+) -> Vec<RelationContext> {
+    view.resolved_relations()
+        .map(|(relation, target)| {
+            let target_view = ModelView::new(target, ir, extensions);
+            RelationContext {
+                field_name: relation.snake_name(),
+                target_model: relation.target_model_name().to_string(),
+                target_table: target.db_name.clone(),
+                is_array: relation.is_array(),
+                fields_db: relation.fields_db.clone(),
+                references_db: relation.references_db.clone(),
+                fields: relation.fields.clone(),
+                references: relation.references.clone(),
+                target_scalar_fields: target_view
+                    .scalars
+                    .iter()
+                    .map(|scalar| scalar_field_context(scalar, extensions))
+                    .collect(),
+            }
         })
         .collect()
 }

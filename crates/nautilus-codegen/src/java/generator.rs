@@ -14,10 +14,9 @@ use tera::{Context, Tera};
 use crate::extension_types::{generate_java_extension_files, ExtensionRegistry};
 use crate::java::type_mapper::{
     composite_field_to_java_type, extension_raw_java_type, field_base_type, field_to_java_type,
-    filter_operators_for_field, is_numeric_field, is_orderable_field, is_writable_on_create,
-    is_writable_on_update,
+    filter_operators_for_field, is_writable_on_create, is_writable_on_update,
 };
-use crate::type_helpers::is_orderable_composite_field;
+use crate::model_view::ModelView;
 
 pub(crate) const JACKSON_VERSION: &str = "2.17.2";
 const DEFAULT_MAVEN_VERSION: &str = "0.1.0-SNAPSHOT";
@@ -910,6 +909,23 @@ fn generate_delegate_file(config: &JavaConfig, model: &ModelIr) -> String {
     render("java_delegate.tera", &context)
 }
 
+/// Reserve a DSL order-by method name, suffixing it until it stops colliding
+/// with a scalar field's own order-by method.
+fn unique_order_by_method(base: &str, used: &mut BTreeSet<String>) -> String {
+    let mut name = base.to_string();
+    let mut suffix = 0usize;
+    while used.contains(&name) {
+        suffix += 1;
+        name = if suffix == 1 {
+            format!("{base}Order")
+        } else {
+            format!("{base}Order{suffix}")
+        };
+    }
+    used.insert(name.clone());
+    name
+}
+
 fn generate_dsl_file(
     config: &JavaConfig,
     model: &ModelIr,
@@ -938,6 +954,8 @@ fn generate_dsl_file(
         imports.extend(field_imports);
     }
 
+    let view = ModelView::new(model, ir, &config.extensions);
+
     let mut scalar_fields: Vec<DslScalarFieldCtx> = Vec::new();
     let mut create_fields: Vec<DslWritableFieldCtx> = Vec::new();
     let mut update_fields: Vec<DslWritableFieldCtx> = Vec::new();
@@ -948,7 +966,8 @@ fn generate_dsl_file(
     let mut all_scalar_field_names: Vec<String> = Vec::new();
     let mut used_order_by_methods: BTreeSet<String> = BTreeSet::new();
 
-    for field in model.scalar_fields() {
+    for scalar in &view.scalars {
+        let field = scalar.field;
         let (base_type, _) = field_base_type(
             field,
             &config.root_package,
@@ -979,13 +998,13 @@ fn generate_dsl_file(
 
         all_scalar_field_names.push(field.logical_name.clone());
 
-        if is_numeric_field(field) {
+        if scalar.numeric_scalar().is_some() {
             numeric_field_names.push(field.logical_name.clone());
         }
         if field.is_vector() {
             vector_field_names.push(field.logical_name.clone());
         }
-        if is_orderable_field(field) {
+        if scalar.is_orderable() {
             order_by_fields.push(DslOrderByFieldCtx {
                 method_name: field.logical_name.clone(),
                 wire_name: field.logical_name.clone(),
@@ -1015,55 +1034,21 @@ fn generate_dsl_file(
         }
     }
 
-    for parent in model.scalar_fields() {
-        if parent.is_array {
-            continue;
-        }
-        let ResolvedFieldType::CompositeType { type_name, .. } = &parent.field_type else {
-            continue;
-        };
-        let Some(composite) = ir.composite_types.get(type_name) else {
-            continue;
-        };
-        for nested in &composite.fields {
-            if !is_orderable_composite_field(nested) {
-                continue;
-            }
-
-            let base_method_name =
-                format!("{}_{}", parent.logical_name, nested.logical_name).to_lower_camel_case();
-            let mut method_name = base_method_name.clone();
-            let mut suffix = 0usize;
-            while used_order_by_methods.contains(&method_name) {
-                suffix += 1;
-                method_name = if suffix == 1 {
-                    format!("{base_method_name}Order")
-                } else {
-                    format!("{base_method_name}Order{suffix}")
-                };
-            }
-            used_order_by_methods.insert(method_name.clone());
-
-            order_by_fields.push(DslOrderByFieldCtx {
-                method_name,
-                wire_name: format!("{}.{}", parent.logical_name, nested.logical_name),
-            });
-        }
+    for dotted in &view.dotted_order_by {
+        order_by_fields.push(DslOrderByFieldCtx {
+            method_name: unique_order_by_method(
+                &format!("{}_{}", dotted.parent, dotted.child).to_lower_camel_case(),
+                &mut used_order_by_methods,
+            ),
+            wire_name: dotted.path(),
+        });
     }
 
-    // Build relation field contexts (only models that exist in the IR).
-    let relation_fields: Vec<DslRelationFieldCtx> = model
-        .relation_fields()
-        .filter_map(|field| {
-            if let ResolvedFieldType::Relation(rel) = &field.field_type {
-                if ir.models.contains_key(&rel.target_model) {
-                    return Some(DslRelationFieldCtx {
-                        name: field.logical_name.clone(),
-                        target_model: rel.target_model.clone(),
-                    });
-                }
-            }
-            None
+    let relation_fields: Vec<DslRelationFieldCtx> = view
+        .resolved_relations()
+        .map(|(relation, _)| DslRelationFieldCtx {
+            name: relation.logical_name().to_string(),
+            target_model: relation.target_model_name().to_string(),
         })
         .collect();
 

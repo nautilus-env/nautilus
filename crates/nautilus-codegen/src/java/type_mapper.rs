@@ -153,20 +153,6 @@ pub fn is_writable_on_update(field: &FieldIr, primary_key_fields: &[&str]) -> bo
     !is_auto_pk
 }
 
-pub fn is_numeric_field(field: &FieldIr) -> bool {
-    matches!(
-        field.field_type,
-        ResolvedFieldType::Scalar(ScalarType::Int)
-            | ResolvedFieldType::Scalar(ScalarType::BigInt)
-            | ResolvedFieldType::Scalar(ScalarType::Float)
-            | ResolvedFieldType::Scalar(ScalarType::Decimal { .. })
-    )
-}
-
-pub fn is_orderable_field(field: &FieldIr) -> bool {
-    crate::type_helpers::is_orderable_model_field(field)
-}
-
 pub fn filter_operators_for_field(
     field: &FieldIr,
     enums: &BTreeMap<String, EnumIr>,

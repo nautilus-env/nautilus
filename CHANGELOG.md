@@ -24,6 +24,12 @@
 - The workspace now declares `rust-version = "1.92"`, so an older toolchain
   reports an unsupported-version error instead of failing later with unrelated
   compilation errors.
+- The four code generation backends now share a single language-neutral
+  `ModelView` of each model instead of each walking the IR on its own. Primary
+  key membership, numeric and orderable classification, enum / composite type /
+  extension imports, relation foreign key resolution and composite order-by
+  paths are computed once and mapped per language, so a new field kind is added
+  in one place rather than four. Generated output is unchanged.
 
 ### Fixed
 
@@ -34,6 +40,10 @@
 - The engine transport now rejects a request line above 64 MiB instead of
   buffering it, so a malformed writer can no longer grow the read buffer without
   bound.
+- Enum, composite type and relation imports in generated model files are now
+  emitted in a stable order. They were collected in a `HashSet`, so two runs of
+  `nautilus generate` over the same schema could produce files that differed
+  only in the order of their import lines.
 
 ## Version 1.3.5
 
