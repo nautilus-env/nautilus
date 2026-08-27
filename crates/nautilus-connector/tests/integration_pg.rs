@@ -412,3 +412,78 @@ async fn test_streaming_drop_mid_iteration_keeps_pool_usable() {
 
     pg_common::teardown_test_users_table(&executor).await.ok();
 }
+
+/// Round-trips a `vector` column, which the extended protocol returns in
+/// pgvector's binary format rather than as a text literal.
+///
+/// Skips itself when the server has no pgvector available: the CI image is a
+/// stock `postgres:16`, so this only runs against a pgvector-enabled server.
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance with pgvector (run `docker-compose up -d` first)"]
+async fn test_vector_column_round_trips_through_the_binary_protocol() {
+    let executor = pg_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+
+    let create_extension = Sql {
+        text: "CREATE EXTENSION IF NOT EXISTS vector".to_string(),
+        params: vec![],
+    };
+    if execute_all(&executor, &create_extension).await.is_err() {
+        eprintln!("skipping vector round-trip test: pgvector is not available on this server");
+        return;
+    }
+
+    for statement in [
+        "DROP TABLE IF EXISTS test_vectors",
+        "CREATE TABLE test_vectors (id INT PRIMARY KEY, embedding vector(3))",
+    ] {
+        execute_all(
+            &executor,
+            &Sql {
+                text: statement.to_string(),
+                params: vec![],
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("failed to run '{statement}': {e:?}"));
+    }
+
+    let embedding = vec![1.0f32, 2.5, -3.25];
+    execute_all(
+        &executor,
+        &Sql {
+            text: "INSERT INTO test_vectors (id, embedding) VALUES ($1, $2::vector)".to_string(),
+            params: vec![Value::I32(1), Value::Vector(embedding.clone())],
+        },
+    )
+    .await
+    .expect("failed to insert a vector value");
+
+    let rows = execute_all(
+        &executor,
+        &Sql {
+            text: "SELECT embedding FROM test_vectors WHERE id = $1".to_string(),
+            params: vec![Value::I32(1)],
+        },
+    )
+    .await
+    .expect("failed to read the vector value back");
+
+    assert_eq!(rows.len(), 1, "expected the inserted row back");
+    assert_eq!(
+        rows[0].get("embedding"),
+        Some(&Value::Vector(embedding)),
+        "a vector column must decode from pgvector's binary wire format"
+    );
+
+    execute_all(
+        &executor,
+        &Sql {
+            text: "DROP TABLE IF EXISTS test_vectors".to_string(),
+            params: vec![],
+        },
+    )
+    .await
+    .ok();
+}

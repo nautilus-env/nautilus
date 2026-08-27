@@ -34,7 +34,7 @@ macro_rules! render_returning_mut {
 
 /// Mutable/owned variant of [`render_insert_body!`] used by `render_*_owned`.
 macro_rules! render_insert_body_mut {
-    ($ctx:expr, $insert:expr, $quote:expr, $supports_returning:expr, $supports_enum_cast:expr) => {{
+    ($ctx:expr, $insert:expr, $quote:expr, $supports_returning:expr, $param_cast:expr) => {{
         $ctx.sql.push_str("INSERT INTO ");
         crate::push_quoted_identifier(&mut $ctx.sql, &$insert.table, $quote);
 
@@ -60,21 +60,10 @@ macro_rules! render_insert_body_mut {
                 if matches!(value, nautilus_core::Value::Null) {
                     $ctx.sql.push_str("NULL");
                 } else {
-                    let cast_type_name = if $supports_enum_cast {
-                        if let nautilus_core::Value::Enum { type_name, .. }
-                        | nautilus_core::Value::Composite { type_name, .. } = value
-                        {
-                            Some(type_name.clone())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
+                    let cast = $param_cast(&*value);
                     $ctx.take_param(value);
-                    if let Some(type_name) = cast_type_name.as_deref() {
-                        $ctx.sql.push_str("::");
-                        crate::push_quoted_identifier(&mut $ctx.sql, type_name, $quote);
+                    if let Some(cast) = cast.as_deref() {
+                        $ctx.sql.push_str(cast);
                     }
                 }
             }
@@ -89,7 +78,7 @@ macro_rules! render_insert_body_mut {
 
 /// Mutable/owned variant of [`render_update_body!`] used by `render_*_owned`.
 macro_rules! render_update_body_mut {
-    ($ctx:expr, $update:expr, $quote:expr, $render_expr:ident, $supports_returning:expr, $supports_enum_cast:expr) => {{
+    ($ctx:expr, $update:expr, $quote:expr, $render_expr:ident, $supports_returning:expr, $param_cast:expr) => {{
         $ctx.sql.push_str("UPDATE ");
         crate::push_quoted_identifier(&mut $ctx.sql, &$update.table, $quote);
 
@@ -103,21 +92,10 @@ macro_rules! render_update_body_mut {
             if matches!(value, nautilus_core::Value::Null) {
                 $ctx.sql.push_str("NULL");
             } else {
-                let cast_type_name = if $supports_enum_cast {
-                    if let nautilus_core::Value::Enum { type_name, .. }
-                    | nautilus_core::Value::Composite { type_name, .. } = value
-                    {
-                        Some(type_name.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
+                let cast = $param_cast(&*value);
                 $ctx.take_param(value);
-                if let Some(type_name) = cast_type_name.as_deref() {
-                    $ctx.sql.push_str("::");
-                    crate::push_quoted_identifier(&mut $ctx.sql, type_name, $quote);
+                if let Some(cast) = cast.as_deref() {
+                    $ctx.sql.push_str(cast);
                 }
             }
         }
@@ -653,6 +631,15 @@ fn push_escaped_identifier(sql: &mut String, name: &str, quote: char) {
 }
 
 /// Quote a SQL identifier directly into the SQL buffer.
+/// The `$param_cast` hook for dialects that never cast a bound parameter.
+///
+/// PostgreSQL is the only dialect that needs one: it binds several values as
+/// text (pgvector, PostGIS, JSON) and the server refuses to assign text to a
+/// column of the real type without an explicit cast.
+pub(crate) fn no_param_cast(_value: &nautilus_core::Value) -> Option<String> {
+    None
+}
+
 pub(crate) fn push_quoted_identifier(sql: &mut String, name: &str, quote: char) {
     sql.push(quote);
     push_escaped_identifier(sql, name, quote);

@@ -21,7 +21,7 @@ impl Dialect for SqliteDialect {
 
     fn render_insert_owned(&self, mut insert: Insert) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_insert_render(&insert));
-        render_insert_body_mut!(&mut ctx, &mut insert, '"', true, false);
+        render_insert_body_mut!(&mut ctx, &mut insert, '"', true, crate::no_param_cast);
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,
@@ -30,7 +30,14 @@ impl Dialect for SqliteDialect {
 
     fn render_update_owned(&self, mut update: Update) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_update_render(&update));
-        render_update_body_mut!(&mut ctx, &mut update, '"', render_expr_owned, true, false);
+        render_update_body_mut!(
+            &mut ctx,
+            &mut update,
+            '"',
+            render_expr_owned,
+            true,
+            crate::no_param_cast
+        );
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,

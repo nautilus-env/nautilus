@@ -76,6 +76,15 @@
 
 ### Fixed
 
+- PostgreSQL `INSERT` and `UPDATE` now cast a bound parameter to its column
+  type, the way the `WHERE` and `SELECT` paths already did. Values that bind as
+  text — pgvector, PostGIS and JSON — were rejected by the server with
+  `column "…" is of type vector but expression is of type text`, which made a
+  `Vector`, `Geometry`, `Geography` or `jsonb` column impossible to write to.
+- A pgvector `vector` column now decodes from the binary wire format the
+  extended protocol returns. Reading one back failed with
+  `Failed to decode VECTOR: invalid utf-8 sequence`, because the decoder always
+  treated the payload as a text literal.
 - The engine read-plan cache no longer becomes a permanent no-op after a handler
   panic. The transport converts panics into JSON-RPC errors rather than aborting,
   so a panic taken while the cache lock was held poisoned it for the rest of the

@@ -2780,3 +2780,42 @@ model User {
         "expected nearest.field resolution to always exist and reject every field:\n{code}"
     );
 }
+
+#[test]
+fn test_python_client_indents_the_nearest_argument_block() {
+    let ir = validate(
+        r#"
+model Document {
+  id        Int      @id @default(autoincrement())
+  title     String
+  embedding Vector(3)
+}
+"#,
+    );
+
+    let models = generate_all_python_models(&ir, true, 0)
+        .expect("generate_all_python_models should succeed");
+    let code = generated_python_file(&models, "document.py");
+
+    let take_sites = code
+        .matches(
+            "\n        if nearest is not None:\n            args[\"nearest\"] = _serialize_nearest_input(nearest)\n        if take is not None:",
+        )
+        .count();
+    let select_sites = code
+        .matches(
+            "\n        if nearest is not None:\n            args[\"nearest\"] = _serialize_nearest_input(nearest)\n        if select is not None:",
+        )
+        .count();
+
+    assert_eq!(
+        (take_sites, select_sites),
+        (2, 1),
+        "the nearest argument block must stay indented inside its method; Tera whitespace \
+         control once stripped the leading indentation and produced invalid Python:\n{code}"
+    );
+    assert!(
+        !code.contains("\nif nearest is not None:"),
+        "the nearest argument block must never start at column 0:\n{code}"
+    );
+}

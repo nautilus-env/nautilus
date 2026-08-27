@@ -23,7 +23,7 @@ impl Dialect for PostgresDialect {
 
     fn render_insert_owned(&self, mut insert: Insert) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_insert_render(&insert));
-        render_insert_body_mut!(&mut ctx, &mut insert, '"', true, true);
+        render_insert_body_mut!(&mut ctx, &mut insert, '"', true, postgres_assignment_cast);
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,
@@ -32,7 +32,14 @@ impl Dialect for PostgresDialect {
 
     fn render_update_owned(&self, mut update: Update) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_update_render(&update));
-        render_update_body_mut!(&mut ctx, &mut update, '"', render_expr_owned, true, true);
+        render_update_body_mut!(
+            &mut ctx,
+            &mut update,
+            '"',
+            render_expr_owned,
+            true,
+            postgres_assignment_cast
+        );
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,
@@ -192,6 +199,15 @@ impl ParamCast {
             }
         }
     }
+}
+
+/// The rendered `::type` suffix a bound parameter needs in an INSERT or UPDATE,
+/// or `None` when the parameter binds as its own type already.
+fn postgres_assignment_cast(value: &Value) -> Option<String> {
+    let cast = postgres_param_cast(value)?;
+    let mut sql = String::new();
+    cast.push_sql(&mut sql);
+    Some(sql)
 }
 
 fn postgres_param_cast(value: &Value) -> Option<ParamCast> {
@@ -463,6 +479,38 @@ mod tests {
             "UPDATE \"champions\" SET \"stats\" = $1::\"ChampionStatsT\""
         );
         assert_eq!(sql.params, vec![composite]);
+    }
+
+    #[test]
+    fn text_bound_insert_and_update_params_are_cast_to_their_column_type() {
+        let dialect = PostgresDialect;
+        let vector = Value::Vector(vec![1.0, 0.0, 0.0]);
+
+        let insert = Insert::into_table("docs")
+            .column(nautilus_core::ColumnMarker::new("docs", "embedding"))
+            .values(vec![vector.clone()])
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            dialect.render_insert(&insert).unwrap().text,
+            "INSERT INTO \"docs\" (\"embedding\") VALUES ($1::vector)",
+            "pgvector, PostGIS and JSON parameters all bind as text, so PostgreSQL \
+             rejects them against their real column type without an explicit cast"
+        );
+
+        let update = Update::table("docs")
+            .set(
+                nautilus_core::ColumnMarker::new("docs", "embedding"),
+                vector,
+            )
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            dialect.render_update(&update).unwrap().text,
+            "UPDATE \"docs\" SET \"embedding\" = $1::vector"
+        );
     }
 
     #[test]

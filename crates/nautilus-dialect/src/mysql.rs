@@ -24,13 +24,20 @@ impl Dialect for MysqlDialect {
 
     fn render_insert_owned(&self, mut insert: Insert) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_insert_render(&insert));
-        render_insert_body_mut!(&mut ctx, &mut insert, '`', false, false);
+        render_insert_body_mut!(&mut ctx, &mut insert, '`', false, crate::no_param_cast);
         ctx.finish()
     }
 
     fn render_update_owned(&self, mut update: Update) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_update_render(&update));
-        render_update_body_mut!(&mut ctx, &mut update, '`', render_expr_owned, false, false);
+        render_update_body_mut!(
+            &mut ctx,
+            &mut update,
+            '`',
+            render_expr_owned,
+            false,
+            crate::no_param_cast
+        );
         ctx.finish()
     }
 
