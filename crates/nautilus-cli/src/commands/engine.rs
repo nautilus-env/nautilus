@@ -47,6 +47,10 @@ pub enum EngineCommand {
         #[arg(long)]
         statement_cache_capacity: Option<usize>,
 
+        /// Cap how long the database runs a single statement, in milliseconds.
+        #[arg(long)]
+        statement_timeout_ms: Option<u64>,
+
         /// Override how many requests the engine handles concurrently.
         #[arg(long)]
         max_concurrent_requests: Option<usize>,
@@ -66,6 +70,7 @@ pub async fn run(cmd: EngineCommand) -> anyhow::Result<()> {
             disable_idle_timeout,
             test_before_acquire,
             statement_cache_capacity,
+            statement_timeout_ms,
             max_concurrent_requests,
         } => {
             let mut pool_options = EnginePoolOptions::new();
@@ -89,6 +94,9 @@ pub async fn run(cmd: EngineCommand) -> anyhow::Result<()> {
             }
             if let Some(statement_cache_capacity) = statement_cache_capacity {
                 pool_options = pool_options.statement_cache_capacity(statement_cache_capacity);
+            }
+            if let Some(statement_timeout_ms) = statement_timeout_ms {
+                pool_options = pool_options.statement_timeout_ms(statement_timeout_ms);
             }
             if let Some(max_concurrent_requests) = max_concurrent_requests {
                 pool_options = pool_options.max_concurrent_requests(max_concurrent_requests);
