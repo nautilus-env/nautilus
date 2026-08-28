@@ -128,6 +128,21 @@ unaffected.
 
 ### Fixed
 
+- Fixed `db push` never converging on MySQL when a model has a `Boolean`
+  `@default(...)`. The DDL generator wrote `DEFAULT TRUE`, but MySQL stores
+  booleans as `tinyint(1)` and reports the default back as `1`, so every push
+  compared `true` against `1` and re-applied the same `DEFAULT` change forever.
+  MySQL now emits `1`/`0`, matching what it reports and what SQLite already did;
+  PostgreSQL, which has a real boolean type, keeps `TRUE`/`FALSE`.
+- Fixed `db pull` writing a schema that fails validation when a MySQL table has
+  a boolean column with a default. `tinyint(1) DEFAULT '1'` was rendered as
+  `Boolean @default(1)`, which the validator rejects as a type mismatch; a
+  boolean column's `1`/`0` default is now rendered as `true`/`false`.
+- Fixed `db pull` dropping `@default(autoincrement())` from MySQL keys. MySQL
+  leaves `COLUMN_DEFAULT` empty on an `AUTO_INCREMENT` column, so there was no
+  default expression to infer the key from the way PostgreSQL's `nextval(...)`
+  allows, and pulling then pushing would have removed the attribute from the
+  table. The pulled schema is now a faithful round-trip.
 - Fixed `@default(autoincrement())` on MySQL, which was silently dropped: the
   DDL generator handled SQLite (`INTEGER PRIMARY KEY AUTOINCREMENT`) and
   PostgreSQL (`SERIAL`/`BIGSERIAL`) but had no MySQL branch, so the column was

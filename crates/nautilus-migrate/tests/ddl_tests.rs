@@ -793,3 +793,40 @@ model User {
         "expected SQLite to keep the inline autoincrement key: {sqlite:?}"
     );
 }
+
+#[test]
+fn boolean_defaults_use_each_provider_own_spelling() {
+    let source = r#"
+model Flagged {
+  id       Int     @id
+  active   Boolean @default(true)
+  archived Boolean @default(false)
+}
+"#;
+    let ir = common::parse(source).unwrap();
+    let model = ir.models.values().next().unwrap();
+    let active = model.find_field("active").unwrap();
+    let archived = model.find_field("archived").unwrap();
+
+    let postgres = DdlGenerator::new(DatabaseProvider::Postgres);
+    assert_eq!(
+        postgres.column_default_sql(active).unwrap().as_deref(),
+        Some("true")
+    );
+
+    // MySQL stores booleans as tinyint(1) and SQLite as an integer; both report
+    // the default back as 1/0, so writing TRUE would never compare equal.
+    for provider in [DatabaseProvider::Mysql, DatabaseProvider::Sqlite] {
+        let generator = DdlGenerator::new(provider);
+        assert_eq!(
+            generator.column_default_sql(active).unwrap().as_deref(),
+            Some("1"),
+            "{provider:?} should render a true default as 1"
+        );
+        assert_eq!(
+            generator.column_default_sql(archived).unwrap().as_deref(),
+            Some("0"),
+            "{provider:?} should render a false default as 0"
+        );
+    }
+}

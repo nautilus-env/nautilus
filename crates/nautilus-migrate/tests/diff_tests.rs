@@ -1866,3 +1866,82 @@ fn auto_increment_repair_is_a_safe_change() {
         ChangeRisk::Safe
     );
 }
+
+/// Live table whose boolean column carries the default exactly as the given
+/// provider reports it.
+fn live_flagged_with_bool_default(int_type: &str, default_value: &str) -> LiveSchema {
+    common::make_live_schema(vec![LiveTable {
+        name: "Flagged".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: int_type.to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+            },
+            LiveColumn {
+                name: "active".to_string(),
+                col_type: "boolean".to_string(),
+                nullable: false,
+                default_value: Some(default_value.to_string()),
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }])
+}
+
+#[test]
+fn boolean_defaults_converge_on_every_provider() {
+    let target =
+        common::parse("model Flagged { id Int @id  active Boolean @default(true) }").unwrap();
+
+    // MySQL and SQLite report `1`; PostgreSQL reports `true`.
+    for (provider, int_type, live_default) in [
+        (DatabaseProvider::Mysql, "int", "1"),
+        (DatabaseProvider::Sqlite, "integer", "1"),
+        (DatabaseProvider::Postgres, "integer", "true"),
+    ] {
+        let changes = SchemaDiff::compute(
+            &live_flagged_with_bool_default(int_type, live_default),
+            &target,
+            provider,
+        );
+        assert!(
+            !changes
+                .iter()
+                .any(|change| matches!(change, Change::DefaultChanged { .. })),
+            "{provider:?} kept proposing a DEFAULT change against live `{live_default}`: {changes:?}"
+        );
+    }
+}
+
+#[test]
+fn a_genuinely_different_boolean_default_is_still_detected() {
+    let target =
+        common::parse("model Flagged { id Int @id  active Boolean @default(false) }").unwrap();
+
+    let changes = SchemaDiff::compute(
+        &live_flagged_with_bool_default("int", "1"),
+        &target,
+        DatabaseProvider::Mysql,
+    );
+
+    assert!(
+        changes.iter().any(|change| matches!(
+            change,
+            Change::DefaultChanged { column, .. } if column == "active"
+        )),
+        "expected a real default flip to be reported: {changes:?}"
+    );
+}

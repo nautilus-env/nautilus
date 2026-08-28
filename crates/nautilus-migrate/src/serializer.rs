@@ -352,6 +352,11 @@ fn render_column_lines(
                 remap_sql_expr_identifiers(expr, &naming.db_to_logical_field),
                 kind_str
             ));
+        } else if col.auto_increment && can_infer_autoincrement(&col.col_type) {
+            // MySQL keeps AUTO_INCREMENT on the column and leaves COLUMN_DEFAULT
+            // empty, so there is no default expression to infer it from the way
+            // PostgreSQL's `nextval(...)` allows.
+            attrs.push("@default(autoincrement())".to_string());
         } else if let Some(def) = &col.default_value {
             if let Some(attr) = infer_default_attr(def, &col.col_type, &live.enums) {
                 attrs.push(attr);
@@ -702,6 +707,17 @@ fn infer_default_attr(
 
     if t == "true" || t == "false" {
         return Some(format!("@default({})", t));
+    }
+
+    // MySQL stores booleans as `tinyint(1)` and reports their default as `1` or
+    // `0`. Rendering that verbatim produces `Boolean @default(1)`, which the
+    // schema validator rejects as a type mismatch.
+    if col_type.trim().eq_ignore_ascii_case("boolean") {
+        match t.as_str() {
+            "1" => return Some("@default(true)".to_string()),
+            "0" => return Some("@default(false)".to_string()),
+            _ => {}
+        }
     }
 
     if t.parse::<f64>().is_ok() {
@@ -1649,6 +1665,34 @@ mod tests {
         assert_eq!(
             infer_default_attr("true", "boolean", &no_enums),
             Some("@default(true)".into())
+        );
+    }
+
+    #[test]
+    fn default_boolean_from_mysql_tinyint() {
+        let no_enums = HashMap::new();
+        // MySQL reports a boolean default as 1/0; rendering it verbatim would
+        // produce `Boolean @default(1)`, which fails schema validation.
+        assert_eq!(
+            infer_default_attr("1", "boolean", &no_enums),
+            Some("@default(true)".into())
+        );
+        assert_eq!(
+            infer_default_attr("0", "boolean", &no_enums),
+            Some("@default(false)".into())
+        );
+    }
+
+    #[test]
+    fn numeric_defaults_on_non_boolean_columns_are_untouched() {
+        let no_enums = HashMap::new();
+        assert_eq!(
+            infer_default_attr("1", "integer", &no_enums),
+            Some("@default(1)".into())
+        );
+        assert_eq!(
+            infer_default_attr("0", "integer", &no_enums),
+            Some("@default(0)".into())
         );
     }
 

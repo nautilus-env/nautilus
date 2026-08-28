@@ -920,11 +920,16 @@ impl DdlGenerator {
         match default {
             DefaultValue::String(s) => Ok(format!("'{}'", s.replace('\'', "''"))),
             DefaultValue::Number(n) => Ok(n.clone()),
+            // Only PostgreSQL has a real boolean type and reports the default
+            // back as `true`/`false`. MySQL stores booleans as `tinyint(1)` and
+            // SQLite as an integer, and both report the default as `1`/`0` — so
+            // writing `TRUE` there leaves the diff comparing `true` against `1`
+            // and proposing the same DEFAULT change on every push, forever.
             DefaultValue::Boolean(b) => match self.provider {
-                DatabaseProvider::Postgres | DatabaseProvider::Mysql => {
-                    Ok(if *b { "TRUE" } else { "FALSE" }.to_string())
+                DatabaseProvider::Postgres => Ok(if *b { "TRUE" } else { "FALSE" }.to_string()),
+                DatabaseProvider::Mysql | DatabaseProvider::Sqlite => {
+                    Ok(if *b { "1" } else { "0" }.to_string())
                 }
-                DatabaseProvider::Sqlite => Ok(if *b { "1" } else { "0" }.to_string()),
             },
             DefaultValue::Function(func) => match func.name.as_str() {
                 "autoincrement" => Ok("AUTOINCREMENT".to_string()),

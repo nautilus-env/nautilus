@@ -1634,3 +1634,53 @@ fn an_env_reference_is_written_verbatim_into_the_datasource() {
         "a literal URL is still quoted:\n{literal}"
     );
 }
+
+#[test]
+fn pulls_a_mysql_auto_increment_key_back_as_autoincrement() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "Flagged".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "int".to_string(),
+                nullable: false,
+                // MySQL leaves COLUMN_DEFAULT empty on an AUTO_INCREMENT column,
+                // so there is no default expression to infer the key from.
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: true,
+            },
+            LiveColumn {
+                name: "active".to_string(),
+                col_type: "boolean".to_string(),
+                nullable: false,
+                default_value: Some("1".to_string()),
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let schema = serialize_live_schema(&live, DatabaseProvider::Mysql, "DATABASE_URL");
+
+    assert!(
+        schema.contains("@default(autoincrement())"),
+        "a pulled MySQL key must keep its generated id: {schema}"
+    );
+    assert!(
+        schema.contains("@default(true)"),
+        "a pulled boolean default must be a boolean literal: {schema}"
+    );
+    assert!(
+        !schema.contains("@default(1)"),
+        "a boolean column must not be pulled as a number default: {schema}"
+    );
+}
