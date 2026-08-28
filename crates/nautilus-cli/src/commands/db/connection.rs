@@ -292,6 +292,7 @@ pub fn change_display_name(change: &Change) -> String {
         | Change::TypeChanged { table, column, .. }
         | Change::NullabilityChanged { table, column, .. }
         | Change::DefaultChanged { table, column, .. }
+        | Change::AutoIncrementChanged { table, column, .. }
         | Change::ComputedExprChanged { table, column, .. } => format!("{}.{}", table, column),
         Change::CheckChanged {
             table,

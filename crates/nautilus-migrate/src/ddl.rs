@@ -401,11 +401,13 @@ impl DdlGenerator {
         ))
     }
 
-    fn sqlite_inline_primary_key<'a>(&self, model: &'a ModelIr) -> Option<&'a str> {
-        if self.provider != DatabaseProvider::Sqlite {
-            return None;
-        }
-
+    /// Logical name of the model's single-column `autoincrement()` primary key,
+    /// if it has one.
+    ///
+    /// Each provider spells this column differently — SQLite needs it inline as
+    /// `INTEGER PRIMARY KEY AUTOINCREMENT`, PostgreSQL as `SERIAL`, MySQL as
+    /// `AUTO_INCREMENT` — so they all start from this one check.
+    pub(crate) fn autoincrement_primary_key(model: &ModelIr) -> Option<&str> {
         let pk_fields = model.primary_key.fields();
         let [pk_name] = pk_fields.as_slice() else {
             return None;
@@ -413,11 +415,15 @@ impl DdlGenerator {
         let pk_name = *pk_name;
         let field = model.find_field(pk_name)?;
 
-        matches!(
-            &field.default_value,
-            Some(DefaultValue::Function(function)) if function.name == "autoincrement"
-        )
-        .then_some(pk_name)
+        field_is_autoincrement(field).then_some(pk_name)
+    }
+
+    fn sqlite_inline_primary_key<'a>(&self, model: &'a ModelIr) -> Option<&'a str> {
+        if self.provider != DatabaseProvider::Sqlite {
+            return None;
+        }
+
+        Self::autoincrement_primary_key(model)
     }
 
     /// Generate CREATE TABLE statement for a model
@@ -430,11 +436,13 @@ impl DdlGenerator {
 
         // For SQLite: detect single-field PK with autoincrement() — needs inline column definition
         let sqlite_inline_pk = self.sqlite_inline_primary_key(model);
+        let autoincrement_pk = Self::autoincrement_primary_key(model);
 
         for field in &model.fields {
-            let is_inline_pk = sqlite_inline_pk.is_some_and(|name| field.logical_name == name);
+            let is_autoincrement_pk =
+                autoincrement_pk.is_some_and(|name| field.logical_name == name);
             if let Some(column_def) =
-                self.generate_column_definition(field, schema, is_inline_pk)?
+                self.generate_column_definition(field, schema, is_autoincrement_pk)?
             {
                 lines.push(format!("  {}", column_def));
             }
@@ -596,30 +604,63 @@ impl DdlGenerator {
             .collect()
     }
 
-    /// Generate column definition
+    /// Generate column definition.
+    ///
+    /// `is_autoincrement_pk` marks the field as the model's single-column
+    /// `autoincrement()` primary key, which SQLite and MySQL both have to spell
+    /// out in the column definition itself. Callers that render a column
+    /// outside a `CREATE TABLE` still have to pass it: MySQL's `MODIFY COLUMN`
+    /// restates the whole definition, and omitting `AUTO_INCREMENT` there drops
+    /// it from the column.
     pub(crate) fn generate_column_definition(
         &self,
         field: &FieldIr,
         _schema: &SchemaIr,
-        is_inline_pk: bool,
+        is_autoincrement_pk: bool,
     ) -> Result<Option<String>> {
         if matches!(field.field_type, ResolvedFieldType::Relation(_)) {
             return Ok(None);
         }
 
         // SQLite: autoincrement PK must be `col INTEGER PRIMARY KEY AUTOINCREMENT` inline
-        if is_inline_pk && self.provider == DatabaseProvider::Sqlite {
+        if is_autoincrement_pk && self.provider == DatabaseProvider::Sqlite {
             return Ok(Some(format!(
                 "{} INTEGER PRIMARY KEY AUTOINCREMENT",
                 self.quote_identifier(&field.db_name)
             )));
         }
 
+        let is_autoincrement = field_is_autoincrement(field);
+
+        // MySQL: AUTO_INCREMENT is a column attribute, and the server rejects it
+        // unless the column is the leading column of an index — which the
+        // primary key guarantees. `autoincrement()` anywhere else has no MySQL
+        // spelling at all, so say so instead of emitting a column whose default
+        // is silently dropped and whose every INSERT then fails with error 1364.
+        if is_autoincrement && self.provider == DatabaseProvider::Mysql {
+            if !is_autoincrement_pk {
+                return Err(MigrationError::ValidationError(format!(
+                    "MySQL only supports autoincrement() on a single-column primary key, but column '{}' is not one",
+                    field.db_name
+                )));
+            }
+
+            let int_type = if matches!(
+                &field.field_type,
+                ResolvedFieldType::Scalar(ScalarType::BigInt)
+            ) {
+                "BIGINT"
+            } else {
+                "INT"
+            };
+            return Ok(Some(format!(
+                "{} {} NOT NULL AUTO_INCREMENT",
+                self.quote_identifier(&field.db_name),
+                int_type,
+            )));
+        }
+
         // Postgres: autoincrement() -> SERIAL / BIGSERIAL (has implicit NOT NULL + sequence)
-        let is_autoincrement = matches!(
-            &field.default_value,
-            Some(DefaultValue::Function(f)) if f.name == "autoincrement"
-        );
         if is_autoincrement && self.provider == DatabaseProvider::Postgres {
             let serial_type = if matches!(
                 &field.field_type,
@@ -1090,6 +1131,14 @@ impl DdlGenerator {
     fn quote_type_identifier(&self, name: &str) -> String {
         self.quote_identifier(name)
     }
+}
+
+/// Whether a field carries the `autoincrement()` default.
+pub(crate) fn field_is_autoincrement(field: &FieldIr) -> bool {
+    matches!(
+        &field.default_value,
+        Some(DefaultValue::Function(function)) if function.name == "autoincrement"
+    )
 }
 
 fn live_table_names_for_truncate(live: &crate::live::LiveSchema) -> Vec<String> {

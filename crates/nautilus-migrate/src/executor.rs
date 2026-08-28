@@ -246,6 +246,9 @@ impl<'a> ChangeReverser<'a> {
                 from,
                 ..
             } => self.reverse_default_change(table, column, from.as_deref()),
+            Change::AutoIncrementChanged { table, column, .. } => {
+                self.reverse_auto_increment_change(table, column)
+            }
             Change::ComputedExprChanged { table, column, .. } => {
                 cannot_reverse(format!("computed expression change: {}.{}", table, column))
             }
@@ -425,6 +428,43 @@ impl<'a> ChangeReverser<'a> {
                 cannot_reverse(format!("dropped column on SQLite: {}.{}", table, column))
             }
         }
+    }
+
+    /// Restore the column's `AUTO_INCREMENT` state as the live snapshot recorded
+    /// it, by restating the definition MySQL had before the change.
+    fn reverse_auto_increment_change(&self, table: &str, column: &str) -> Vec<String> {
+        if self.provider != DatabaseProvider::Mysql {
+            return cannot_reverse(format!("AUTO_INCREMENT change: {}.{}", table, column));
+        }
+
+        let Some(live_column) = self
+            .live
+            .tables
+            .get(table)
+            .and_then(|live_table| live_table.columns.iter().find(|c| c.name == column))
+        else {
+            return missing_snapshot(format!("AUTO_INCREMENT change on {}.{}", table, column));
+        };
+
+        let not_null = if live_column.nullable {
+            ""
+        } else {
+            " NOT NULL"
+        };
+        let auto_increment = if live_column.auto_increment {
+            " AUTO_INCREMENT"
+        } else {
+            ""
+        };
+
+        vec![format!(
+            "ALTER TABLE {} MODIFY COLUMN {} {}{}{}",
+            self.quote(table),
+            self.quote(column),
+            live_column.col_type.to_uppercase(),
+            not_null,
+            auto_increment,
+        )]
     }
 
     fn reverse_type_change(&self, table: &str, column: &str, from: &str) -> Vec<String> {
@@ -659,6 +699,7 @@ mod tests {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
                 LiveColumn {
                     name: column.to_string(),
@@ -668,6 +709,7 @@ mod tests {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
             ],
             primary_key: vec!["id".to_string()],

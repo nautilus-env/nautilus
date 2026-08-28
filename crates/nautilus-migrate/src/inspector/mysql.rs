@@ -162,6 +162,7 @@ impl SchemaInspector {
                     generated_expr,
                     computed_kind,
                     check_expr: None,
+                    auto_increment: extra.to_ascii_lowercase().contains("auto_increment"),
                 });
             }
 

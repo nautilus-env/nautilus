@@ -128,6 +128,24 @@ unaffected.
 
 ### Fixed
 
+- Fixed `@default(autoincrement())` on MySQL, which was silently dropped: the
+  DDL generator handled SQLite (`INTEGER PRIMARY KEY AUTOINCREMENT`) and
+  PostgreSQL (`SERIAL`/`BIGSERIAL`) but had no MySQL branch, so the column was
+  created as a plain `INT NOT NULL` and every insert that did not set the key
+  explicitly failed with MySQL error 1364. MySQL primary keys now get
+  `INT`/`BIGINT NOT NULL AUTO_INCREMENT`. `autoincrement()` outside a
+  single-column primary key has no MySQL spelling and is now reported as a
+  validation error instead of producing a table that rejects its own inserts.
+- Fixed MySQL column rewrites stripping `AUTO_INCREMENT` from a primary key. A
+  type, nullability, or default change restates the whole column through
+  `MODIFY COLUMN`, and the restated definition omitted the attribute.
+- `db push` now repairs a MySQL table created before the above fix. The live
+  schema records whether a column is `AUTO_INCREMENT`, and a mismatch against
+  the schema is reported as the new safe `Change::AutoIncrementChanged` and
+  applied as a `MODIFY COLUMN`. The check is MySQL-only: PostgreSQL carries the
+  same idea in the column's `nextval(...)` default and SQLite in the inline
+  `INTEGER PRIMARY KEY AUTOINCREMENT`, neither of which can drift from the
+  schema this way.
 - `db pull` no longer writes the database password into the schema it
   generates. The resolved connection string was embedded in the datasource
   block, in a file that normally gets committed; the pulled schema now points

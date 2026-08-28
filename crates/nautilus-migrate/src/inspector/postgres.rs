@@ -322,6 +322,7 @@ fn build_columns(rows: &[PgRow], table_name: &str) -> Result<Vec<LiveColumn>> {
             computed_kind: generated_expr.as_ref().map(|_| ComputedKind::Stored),
             generated_expr,
             check_expr: None,
+            auto_increment: false,
         });
     }
     Ok(columns)

@@ -111,6 +111,7 @@ fn add_column_postgres() {
             generated_expr: None,
             computed_kind: None,
             check_expr: None,
+            auto_increment: false,
         }],
         primary_key: vec!["id".to_string()],
         indexes: vec![],
@@ -158,6 +159,7 @@ fn drop_column_postgres() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "old".to_string(),
@@ -167,6 +169,7 @@ fn drop_column_postgres() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -203,6 +206,7 @@ fn drop_column_sqlite_triggers_rebuild() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "old".to_string(),
@@ -212,6 +216,7 @@ fn drop_column_sqlite_triggers_rebuild() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -529,5 +534,90 @@ fn drop_enum_postgres_quotes_mixed_case_name() {
     assert_eq!(
         stmts,
         vec!["DROP TYPE IF EXISTS \"PostStatus\"".to_string()]
+    );
+}
+
+#[test]
+fn auto_increment_repair_restates_the_mysql_column() {
+    let ir = common::parse(
+        r#"model User {
+  id    Int    @id @default(autoincrement())
+  email String
+}"#,
+    )
+    .unwrap();
+    let live = LiveSchema::default();
+    let ddl = DdlGenerator::new(DatabaseProvider::Mysql);
+    let applier = DiffApplier::new(DatabaseProvider::Mysql, &ddl, &ir, &live);
+
+    let stmts = applier
+        .sql_for(&Change::AutoIncrementChanged {
+            table: "User".to_string(),
+            column: "id".to_string(),
+            enabled: true,
+        })
+        .unwrap();
+
+    assert_eq!(
+        stmts,
+        vec!["ALTER TABLE `User` MODIFY COLUMN `id` INT NOT NULL AUTO_INCREMENT".to_string()]
+    );
+}
+
+#[test]
+fn dropping_auto_increment_restates_the_column_without_it() {
+    let ir = common::parse(
+        r#"model User {
+  id    Int    @id
+  email String
+}"#,
+    )
+    .unwrap();
+    let live = LiveSchema::default();
+    let ddl = DdlGenerator::new(DatabaseProvider::Mysql);
+    let applier = DiffApplier::new(DatabaseProvider::Mysql, &ddl, &ir, &live);
+
+    let stmts = applier
+        .sql_for(&Change::AutoIncrementChanged {
+            table: "User".to_string(),
+            column: "id".to_string(),
+            enabled: false,
+        })
+        .unwrap();
+
+    assert_eq!(stmts.len(), 1);
+    assert!(
+        !stmts[0].contains("AUTO_INCREMENT"),
+        "expected the restated column to drop the attribute: {stmts:?}"
+    );
+}
+
+#[test]
+fn mysql_column_rewrites_keep_auto_increment_on_the_key() {
+    let ir = common::parse(
+        r#"model User {
+  id    BigInt @id @default(autoincrement())
+  email String
+}"#,
+    )
+    .unwrap();
+    let live = LiveSchema::default();
+    let ddl = DdlGenerator::new(DatabaseProvider::Mysql);
+    let applier = DiffApplier::new(DatabaseProvider::Mysql, &ddl, &ir, &live);
+
+    // MySQL's MODIFY COLUMN restates the whole definition, so a type rewrite
+    // that forgot AUTO_INCREMENT would silently strip it from the key.
+    let stmts = applier
+        .sql_for(&Change::TypeChanged {
+            table: "User".to_string(),
+            column: "id".to_string(),
+            from: "int".to_string(),
+            to: "bigint".to_string(),
+        })
+        .unwrap();
+
+    assert!(
+        stmts.iter().any(|sql| sql.contains("AUTO_INCREMENT")),
+        "expected the rewritten column to keep AUTO_INCREMENT: {stmts:?}"
     );
 }

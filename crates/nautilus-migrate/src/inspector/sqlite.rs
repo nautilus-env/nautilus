@@ -108,6 +108,7 @@ impl SchemaInspector {
                     generated_expr,
                     computed_kind,
                     check_expr: column_check_map.get(&col_name.to_lowercase()).cloned(),
+                    auto_increment: false,
                 });
             }
 

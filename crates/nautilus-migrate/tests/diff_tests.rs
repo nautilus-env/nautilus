@@ -60,6 +60,7 @@ fn detects_added_column() {
             generated_expr: None,
             computed_kind: None,
             check_expr: None,
+            auto_increment: false,
         }],
         primary_key: vec!["id".to_string()],
         indexes: vec![],
@@ -90,6 +91,7 @@ fn detects_dropped_column() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "legacy_col".to_string(),
@@ -99,6 +101,7 @@ fn detects_dropped_column() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -131,6 +134,7 @@ fn detects_type_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "score".to_string(),
@@ -140,6 +144,7 @@ fn detects_type_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -171,6 +176,7 @@ fn detects_nullability_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "email".to_string(),
@@ -180,6 +186,7 @@ fn detects_nullability_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -214,6 +221,7 @@ fn detects_computed_expr_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "total".to_string(),
@@ -223,6 +231,7 @@ fn detects_computed_expr_change() {
                 generated_expr: Some("price + quantity".to_string()),
                 computed_kind: Some(ComputedKind::Stored),
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -257,6 +266,7 @@ fn no_false_positive_when_computed_expr_unchanged() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "total".to_string(),
@@ -266,6 +276,7 @@ fn no_false_positive_when_computed_expr_unchanged() {
                 generated_expr: Some("(price * quantity)".to_string()),
                 computed_kind: Some(ComputedKind::Stored),
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -307,6 +318,7 @@ fn no_false_positive_when_live_check_uses_bracket_syntax() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "status".to_string(),
@@ -316,6 +328,7 @@ fn no_false_positive_when_live_check_uses_bracket_syntax() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: Some("status IN ['Draft', 'PUBLISHED']".to_string()),
+                auto_increment: false,
             },
             LiveColumn {
                 name: "role".to_string(),
@@ -325,6 +338,7 @@ fn no_false_positive_when_live_check_uses_bracket_syntax() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -360,6 +374,7 @@ fn detects_check_change_when_string_literal_casing_differs() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "status".to_string(),
@@ -369,6 +384,7 @@ fn detects_check_change_when_string_literal_casing_differs() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: Some("status IN ['draft']".to_string()),
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -462,6 +478,7 @@ fn uuidv7_default_does_not_churn_when_live_matches() {
             generated_expr: None,
             computed_kind: None,
             check_expr: None,
+            auto_increment: false,
         }],
         primary_key: vec!["id".to_string()],
         indexes: vec![],
@@ -492,6 +509,7 @@ fn uuidv7_default_diff_detects_change_from_uuid_v4_default() {
             generated_expr: None,
             computed_kind: None,
             check_expr: None,
+            auto_increment: false,
         }],
         primary_key: vec!["id".to_string()],
         indexes: vec![],
@@ -526,6 +544,7 @@ fn base_user_table(indexes: Vec<LiveIndex>) -> LiveTable {
             generated_expr: None,
             computed_kind: None,
             check_expr: None,
+            auto_increment: false,
         }],
         primary_key: vec!["id".to_string()],
         indexes,
@@ -649,6 +668,7 @@ model Embedding {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "embedding".to_string(),
@@ -658,6 +678,7 @@ model Embedding {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -746,6 +767,7 @@ fn unique_constraint_name_mismatch_does_not_trigger_index_churn() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "email".to_string(),
@@ -755,6 +777,7 @@ fn unique_constraint_name_mismatch_does_not_trigger_index_churn() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -808,6 +831,7 @@ model Post {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -825,6 +849,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
                 LiveColumn {
                     name: "authorId".to_string(),
@@ -834,6 +859,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -895,6 +921,7 @@ model Post {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -912,6 +939,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
                 LiveColumn {
                     name: "authorId".to_string(),
@@ -921,6 +949,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -986,6 +1015,7 @@ model Post {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -1003,6 +1033,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
                 LiveColumn {
                     name: "authorId".to_string(),
@@ -1012,6 +1043,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1068,6 +1100,7 @@ model Post {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -1085,6 +1118,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
                 LiveColumn {
                     name: "authorId".to_string(),
@@ -1094,6 +1128,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1148,6 +1183,7 @@ model Post {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -1165,6 +1201,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
                 LiveColumn {
                     name: "authorId".to_string(),
@@ -1174,6 +1211,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1240,6 +1278,7 @@ model Post {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -1257,6 +1296,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
                 LiveColumn {
                     name: "authorId".to_string(),
@@ -1266,6 +1306,7 @@ model Post {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1328,6 +1369,7 @@ fn order_changes_drops_tables_in_reverse_live_dependency_order() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -1345,6 +1387,7 @@ fn order_changes_drops_tables_in_reverse_live_dependency_order() {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
                 LiveColumn {
                     name: "authorId".to_string(),
@@ -1354,6 +1397,7 @@ fn order_changes_drops_tables_in_reverse_live_dependency_order() {
                     generated_expr: None,
                     computed_kind: None,
                     check_expr: None,
+                    auto_increment: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1517,6 +1561,7 @@ model Doc { id Int @id }
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -1559,6 +1604,7 @@ fn cosmetic_type_spellings_do_not_produce_a_type_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "address".to_string(),
@@ -1568,6 +1614,7 @@ fn cosmetic_type_spellings_do_not_produce_a_type_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "rating".to_string(),
@@ -1577,6 +1624,7 @@ fn cosmetic_type_spellings_do_not_produce_a_type_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1618,6 +1666,7 @@ fn a_genuinely_different_composite_type_is_still_a_type_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "address".to_string(),
@@ -1627,6 +1676,7 @@ fn a_genuinely_different_composite_type_is_still_a_type_change() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1668,6 +1718,7 @@ fn mysql_literal_defaults_and_enum_case_are_not_changes() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "status".to_string(),
@@ -1677,6 +1728,7 @@ fn mysql_literal_defaults_and_enum_case_are_not_changes() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
             LiveColumn {
                 name: "kind".to_string(),
@@ -1686,6 +1738,7 @@ fn mysql_literal_defaults_and_enum_case_are_not_changes() {
                 generated_expr: None,
                 computed_kind: None,
                 check_expr: None,
+                auto_increment: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1708,5 +1761,108 @@ fn mysql_literal_defaults_and_enum_case_are_not_changes() {
     assert!(
         noise.is_empty(),
         "an unchanged MySQL schema must not diff, got {noise:?}"
+    );
+}
+
+/// Live `User` table with a single integer primary key, optionally already
+/// carrying MySQL's `AUTO_INCREMENT`.
+fn live_user_with_int_pk(auto_increment: bool) -> LiveSchema {
+    common::make_live_schema(vec![LiveTable {
+        name: "User".to_string(),
+        columns: vec![LiveColumn {
+            name: "id".to_string(),
+            col_type: "int".to_string(),
+            nullable: false,
+            default_value: None,
+            generated_expr: None,
+            computed_kind: None,
+            check_expr: None,
+            auto_increment,
+        }],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }])
+}
+
+#[test]
+fn mysql_detects_a_primary_key_missing_auto_increment() {
+    let target = common::parse("model User { id Int @id @default(autoincrement()) }").unwrap();
+
+    let changes = SchemaDiff::compute(
+        &live_user_with_int_pk(false),
+        &target,
+        DatabaseProvider::Mysql,
+    );
+
+    assert!(
+        changes.iter().any(|change| matches!(
+            change,
+            Change::AutoIncrementChanged { table, column, enabled: true }
+                if table == "User" && column == "id"
+        )),
+        "expected an AUTO_INCREMENT repair for a table pushed before the fix: {changes:?}"
+    );
+}
+
+#[test]
+fn mysql_leaves_a_matching_auto_increment_key_alone() {
+    let target = common::parse("model User { id Int @id @default(autoincrement()) }").unwrap();
+
+    let changes = SchemaDiff::compute(
+        &live_user_with_int_pk(true),
+        &target,
+        DatabaseProvider::Mysql,
+    );
+
+    assert!(
+        changes.is_empty(),
+        "expected an already-correct MySQL table to be idempotent: {changes:?}"
+    );
+}
+
+#[test]
+fn mysql_detects_an_auto_increment_key_the_schema_dropped() {
+    let target = common::parse("model User { id Int @id }").unwrap();
+
+    let changes = SchemaDiff::compute(
+        &live_user_with_int_pk(true),
+        &target,
+        DatabaseProvider::Mysql,
+    );
+
+    assert!(
+        changes
+            .iter()
+            .any(|change| matches!(change, Change::AutoIncrementChanged { enabled: false, .. })),
+        "expected AUTO_INCREMENT to be dropped when the schema drops the default: {changes:?}"
+    );
+}
+
+#[test]
+fn auto_increment_is_not_diffed_outside_mysql() {
+    let target = common::parse("model User { id Int @id @default(autoincrement()) }").unwrap();
+
+    for provider in [DatabaseProvider::Postgres, DatabaseProvider::Sqlite] {
+        let changes = SchemaDiff::compute(&live_user_with_int_pk(false), &target, provider);
+        assert!(
+            !changes
+                .iter()
+                .any(|change| matches!(change, Change::AutoIncrementChanged { .. })),
+            "{provider:?} spells autoincrement in the column type, not as an attribute: {changes:?}"
+        );
+    }
+}
+
+#[test]
+fn auto_increment_repair_is_a_safe_change() {
+    assert_eq!(
+        change_risk(&Change::AutoIncrementChanged {
+            table: "User".to_string(),
+            column: "id".to_string(),
+            enabled: true,
+        }),
+        ChangeRisk::Safe
     );
 }

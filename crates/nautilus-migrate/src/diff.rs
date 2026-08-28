@@ -64,6 +64,20 @@ pub enum Change {
         now_required: bool,
     },
 
+    /// The column's database-generated identity differs from the target.
+    ///
+    /// MySQL only: `AUTO_INCREMENT` is a column attribute there, so a table
+    /// created before the generator emitted it keeps a plain integer key that
+    /// rejects every insert without an explicit id.
+    AutoIncrementChanged {
+        /// DB table name.
+        table: String,
+        /// DB column name.
+        column: String,
+        /// `true` when the target wants the database to generate the values.
+        enabled: bool,
+    },
+
     /// The DEFAULT expression of an existing column differs from the target.
     DefaultChanged {
         /// DB table name.
@@ -290,6 +304,8 @@ impl Change {
                 ..
             } => ChangeRisk::Safe,
 
+            Change::AutoIncrementChanged { .. } => ChangeRisk::Safe,
+
             Change::DroppedTable { .. }
             | Change::DroppedColumn { .. }
             | Change::TypeChanged { .. }
@@ -378,6 +394,24 @@ impl Change {
                 column,
                 now_required: false,
             } => ("~", format!("{}.{}", table, column), "NULL (safe)".into()),
+            Change::AutoIncrementChanged {
+                table,
+                column,
+                enabled: true,
+            } => (
+                "~",
+                format!("{}.{}", table, column),
+                "AUTO_INCREMENT (safe)".into(),
+            ),
+            Change::AutoIncrementChanged {
+                table,
+                column,
+                enabled: false,
+            } => (
+                "~",
+                format!("{}.{}", table, column),
+                "DROP AUTO_INCREMENT (safe)".into(),
+            ),
             Change::DefaultChanged {
                 table,
                 column,
@@ -1011,6 +1045,22 @@ impl DiffAccumulator {
                 &field.default_value,
                 Some(nautilus_schema::ir::DefaultValue::Function(f)) if f.name == "autoincrement"
             );
+
+            // MySQL keeps `AUTO_INCREMENT` on the column rather than in a
+            // default or a sequence, so it is the one provider where the
+            // attribute can drift from the schema and be repaired in place.
+            // A table created before the generator emitted it has a plain
+            // integer key that rejects every insert without an explicit id.
+            if self.provider == DatabaseProvider::Mysql
+                && is_autoincrement != live_col.auto_increment
+            {
+                self.changes.push(Change::AutoIncrementChanged {
+                    table: table_name.to_string(),
+                    column: field.db_name.clone(),
+                    enabled: is_autoincrement,
+                });
+            }
+
             if !is_autoincrement {
                 let target_default_sql = self.ddl.column_default_sql(field).unwrap_or(None);
                 let target_default = target_default_sql.as_deref().map(normalize_default);

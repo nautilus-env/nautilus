@@ -672,3 +672,124 @@ fn mysql_enum_column_type_keeps_variant_case() {
         "enum('DRAFT', 'PUBLISHED')"
     );
 }
+
+#[test]
+fn mysql_autoincrement_primary_key_gets_auto_increment() {
+    let source = r#"
+model User {
+  id    Int    @id @default(autoincrement())
+  email String @unique
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let statements = DdlGenerator::new(DatabaseProvider::Mysql)
+        .generate_create_tables(&ir)
+        .unwrap();
+    let create_table = statements
+        .iter()
+        .find(|sql| sql.contains("CREATE TABLE"))
+        .expect("expected a CREATE TABLE statement");
+
+    assert!(
+        create_table.contains("`id` INT NOT NULL AUTO_INCREMENT"),
+        "expected an AUTO_INCREMENT primary key: {create_table}"
+    );
+    assert!(
+        create_table.contains("PRIMARY KEY (`id`)"),
+        "AUTO_INCREMENT requires the column to stay indexed: {create_table}"
+    );
+}
+
+#[test]
+fn mysql_bigint_autoincrement_primary_key_uses_bigint() {
+    let source = r#"
+model Event {
+  id BigInt @id @default(autoincrement())
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let statements = DdlGenerator::new(DatabaseProvider::Mysql)
+        .generate_create_tables(&ir)
+        .unwrap();
+
+    assert!(
+        statements
+            .iter()
+            .any(|sql| sql.contains("`id` BIGINT NOT NULL AUTO_INCREMENT")),
+        "expected a BIGINT AUTO_INCREMENT key: {statements:?}"
+    );
+}
+
+#[test]
+fn mysql_rejects_autoincrement_outside_the_primary_key() {
+    let source = r#"
+model Ticket {
+  id     Int @id
+  serial Int @default(autoincrement())
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let error = DdlGenerator::new(DatabaseProvider::Mysql)
+        .generate_create_tables(&ir)
+        .unwrap_err()
+        .to_string();
+
+    assert!(
+        error.contains("single-column primary key"),
+        "expected a clear MySQL limitation error, got: {error}"
+    );
+}
+
+#[test]
+fn mysql_rejects_autoincrement_on_a_composite_primary_key() {
+    let source = r#"
+model Reading {
+  id       Int @default(autoincrement())
+  sensorId Int
+
+  @@id([id, sensorId])
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let error = DdlGenerator::new(DatabaseProvider::Mysql)
+        .generate_create_tables(&ir)
+        .unwrap_err()
+        .to_string();
+
+    assert!(
+        error.contains("single-column primary key"),
+        "expected a clear MySQL limitation error, got: {error}"
+    );
+}
+
+#[test]
+fn postgres_and_sqlite_autoincrement_spellings_are_unchanged() {
+    let source = r#"
+model User {
+  id Int @id @default(autoincrement())
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let postgres = DdlGenerator::new(DatabaseProvider::Postgres)
+        .generate_create_tables(&ir)
+        .unwrap();
+    assert!(
+        postgres.iter().any(|sql| sql.contains("\"id\" SERIAL")),
+        "expected PostgreSQL to keep SERIAL: {postgres:?}"
+    );
+
+    let sqlite = DdlGenerator::new(DatabaseProvider::Sqlite)
+        .generate_create_tables(&ir)
+        .unwrap();
+    assert!(
+        sqlite
+            .iter()
+            .any(|sql| sql.contains("\"id\" INTEGER PRIMARY KEY AUTOINCREMENT")),
+        "expected SQLite to keep the inline autoincrement key: {sqlite:?}"
+    );
+}

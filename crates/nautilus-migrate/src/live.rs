@@ -117,6 +117,14 @@ pub struct LiveColumn {
     /// Column-level CHECK constraint expression, lower-cased.
     /// `None` for unconstrained columns.
     pub check_expr: Option<String>,
+    /// `true` when the database generates this column's values itself.
+    ///
+    /// Only MySQL reports it, because it is the only provider where the
+    /// attribute lives on the column and can be added or removed by an
+    /// `ALTER`. PostgreSQL carries the same idea in the column's `nextval(...)`
+    /// default and SQLite in `INTEGER PRIMARY KEY AUTOINCREMENT`, neither of
+    /// which is diffed through this flag.
+    pub auto_increment: bool,
 }
 
 /// A non-PK index on a live table.
