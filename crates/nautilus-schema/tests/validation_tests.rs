@@ -1633,3 +1633,52 @@ model User {
         _ => panic!("Expected validation error"),
     }
 }
+
+/// Every text-backed native type accepts a string literal default. `db pull`
+/// emits one for a `varchar` column with a default, so rejecting it made the
+/// pulled schema fail to validate.
+#[test]
+fn test_string_default_is_accepted_by_text_backed_native_types() {
+    let source = r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgres://localhost/db"
+  extensions = [citext, ltree]
+}
+
+model Doc {
+  id    Int          @id
+  kind  VarChar(255) @default("basic")
+  code  Char(4)      @default("ABCD")
+  slug  Citext       @default("home")
+  path  Ltree        @default("root")
+  notes Xml          @default("<a/>")
+}
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).expect("a string default must be valid for text-backed types");
+    let doc = ir.models.get("Doc").expect("Doc model");
+    assert_eq!(
+        doc.fields
+            .iter()
+            .filter(|f| f.default_value.is_some())
+            .count(),
+        5
+    );
+}
+
+#[test]
+fn test_string_default_is_still_rejected_for_a_numeric_type() {
+    let source = r#"
+model Doc {
+  id    Int @id
+  views Int @default("many")
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => assert!(msg.contains("Type mismatch")),
+        _ => panic!("Expected validation error"),
+    }
+}

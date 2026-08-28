@@ -12,16 +12,24 @@ covered by `@@index` failed with error 1170 (`BLOB/TEXT column used in key
 specification without a key length`).
 
 **On an existing MySQL database the first `db push` after upgrading proposes a
-`TEXT` → `ENUM(...)` change on every enum column.** The conversion is reported
-as destructive because MySQL silently turns a value that is not one of the
-declared variants into the empty string. Before applying it:
+`TEXT` → `ENUM(...)` change on every enum column**, reported as destructive and
+gated behind the usual confirmation.
+
+Applying it is safe by default: under `STRICT_TRANS_TABLES`, MySQL 8's default,
+a stored value that is not one of the declared variants makes the `ALTER` fail
+with error 1265 (`Data truncated for column '<column>' at row N`) and the
+statement is rolled back, leaving the column and its data untouched. Clean the
+offending rows and push again:
 
 ```sql
 SELECT DISTINCT <column> FROM <table>;
 ```
 
-and confirm every stored value appears in the schema's enum. PostgreSQL and
-SQLite are unaffected.
+A value that differs only in case is accepted and normalised to the declared
+spelling (`draft` becomes `DRAFT`). With strict mode disabled MySQL would
+instead coerce an unknown value to the empty string, so check `@@sql_mode`
+before pushing if your server has been reconfigured. PostgreSQL and SQLite are
+unaffected.
 
 ### Added
 
@@ -97,6 +105,10 @@ SQLite are unaffected.
 
 ### Fixed
 
+- A string literal is now accepted as the default of every text-backed native
+  type (`VarChar`, `Char`, `Citext`, `Ltree`, `Xml`), which only `String`
+  allowed. `db pull` emits exactly that for a `varchar` column with a default,
+  so the pulled schema failed to validate with a type mismatch.
 - `citext` and `ltree` columns are no longer compared case sensitively.
   A `citext` value travelled to the database as an untyped string, so
   PostgreSQL resolved `slug = $1` as `text = text` — a query for `slug-near`

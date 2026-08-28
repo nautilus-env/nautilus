@@ -195,7 +195,17 @@ impl SchemaValidator<'_> {
         model_name: &str,
     ) {
         match (field_type, lit) {
-            (FieldType::String, Literal::String(_, _)) => {}
+            // Every text-backed type takes a string literal: the native
+            // spellings differ only in the column type the database gets.
+            (
+                FieldType::String
+                | FieldType::Char { .. }
+                | FieldType::VarChar { .. }
+                | FieldType::Citext
+                | FieldType::Ltree
+                | FieldType::Xml,
+                Literal::String(_, _),
+            ) => {}
             (FieldType::Boolean, Literal::Boolean(_, _)) => {}
             (
                 FieldType::Int | FieldType::BigInt | FieldType::Float | FieldType::Decimal { .. },
