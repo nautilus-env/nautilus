@@ -354,6 +354,12 @@ export class NautilusClient {
     return Array.isArray(result?.['results']) ? result['results'] : [];
   }
 
+  async $metrics(options = undefined) {
+    const params = { protocolVersion: PROTOCOL_VERSION };
+    if (options?.reset != null) params['reset'] = options.reset;
+    return await this._rpc('engine.metrics', params);
+  }
+
   async _runTransactionCallback(fn, options) {
     const txId = await this._startTransaction(
       options?.timeout ?? 5000,

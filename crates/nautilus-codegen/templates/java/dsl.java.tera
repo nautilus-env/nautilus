@@ -584,6 +584,115 @@ public final class {{ name }} {
 {{ m::serializable_tail() }}
     }
 
+    public static final class AggregateArgs implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+
+        public AggregateArgs where(Consumer<Where> spec) {
+            Where builder = new Where();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.node.set("where", builder.node());
+            return this;
+        }
+
+        public AggregateArgs count(Consumer<CountAggregate> spec) {
+            CountAggregate builder = new CountAggregate();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.node.set("count", builder.node());
+            return this;
+        }
+
+        public AggregateArgs avg(Consumer<AvgAggregate> spec) {
+            AvgAggregate builder = new AvgAggregate();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.node.set("avg", builder.node());
+            return this;
+        }
+
+        public AggregateArgs sum(Consumer<SumAggregate> spec) {
+            SumAggregate builder = new SumAggregate();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.node.set("sum", builder.node());
+            return this;
+        }
+
+        public AggregateArgs min(Consumer<MinAggregate> spec) {
+            MinAggregate builder = new MinAggregate();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.node.set("min", builder.node());
+            return this;
+        }
+
+        public AggregateArgs max(Consumer<MaxAggregate> spec) {
+            MaxAggregate builder = new MaxAggregate();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.node.set("max", builder.node());
+            return this;
+        }
+
+{{ m::serializable_tail() }}
+    }
+
+    public static final class ExplainArgs implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+        private boolean analyze;
+
+        public ExplainArgs where(Consumer<Where> spec) {
+            Where builder = new Where();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.node.set("where", builder.node());
+            return this;
+        }
+
+        public ExplainArgs orderBy(Consumer<OrderBy> spec) {
+            OrderBy builder = new OrderBy();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            ArrayNode values = this.node.has("orderBy") && this.node.get("orderBy").isArray()
+                ? (ArrayNode) this.node.get("orderBy")
+                : JsonSupport.array();
+            values.add(builder.node());
+            this.node.set("orderBy", values);
+            return this;
+        }
+
+        public ExplainArgs take(int value) {
+            this.node.put("take", value);
+            return this;
+        }
+
+        public ExplainArgs skip(int value) {
+            this.node.put("skip", value);
+            return this;
+        }
+
+        /** Execute the statement to collect real timings, where the backend supports it. */
+        public ExplainArgs analyze(boolean value) {
+            this.analyze = value;
+            return this;
+        }
+
+        public boolean analyzeFlag() {
+            return this.analyze;
+        }
+
+{{ m::serializable_tail() }}
+    }
+
     public static final class GroupByArgs implements WireSerializable {
         private final ObjectNode node = JsonSupport.object();
 

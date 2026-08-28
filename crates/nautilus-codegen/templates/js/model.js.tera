@@ -44,6 +44,26 @@ function _{{ model_name }}EventContext(client, operation, phase, args, payload, 
   });
 }
 
+/** Builds the engine `args` object shared by findMany and explain. */
+function _{{ model_name }}ReadArgs(args) {
+  const rpcArgs = {};
+  if (args?.where    != null) rpcArgs['where']   = _processWhereFilters(args.where, _{{ table_name }}FieldToDb);
+  if (args?.orderBy  != null) {
+    const ob = args.orderBy;
+    rpcArgs['orderBy'] = Array.isArray(ob) ? ob : [ob];
+  }
+{%- if has_vector_fields %}
+  if (args?.nearest  != null) rpcArgs['nearest'] = _serializeNearestInput(args.nearest);
+{%- endif %}
+  if (args?.take     != null) rpcArgs['take']    = args.take;
+  if (args?.skip     != null) rpcArgs['skip']    = args.skip;
+  if (args?.select   != null) rpcArgs['select']  = args.select;
+  if (args?.include  != null) rpcArgs['include'] = _serializeInclude(args.include);
+  if (args?.cursor   != null) rpcArgs['cursor']  = args.cursor;
+  if (args?.distinct != null) rpcArgs['distinct'] = args.distinct;
+  return rpcArgs;
+}
+
 /** Maps `table__dbColumn` keys returned by the engine to JS field names. */
 const _{{ table_name }}RowMap = {
 {%- for f in scalar_fields %}
@@ -333,25 +353,10 @@ export class {{ delegate_name }} {
    * downstream path that already wants the whole collection before continuing.
    */
   async findMany(args) {
-    const rpcArgs = {};
-    if (args?.where    != null) rpcArgs['where']   = _processWhereFilters(args.where, _{{ table_name }}FieldToDb);
-    if (args?.orderBy  != null) {
-      const ob = args.orderBy;
-      rpcArgs['orderBy'] = Array.isArray(ob) ? ob : [ob];
-    }
-{%- if has_vector_fields %}
-    if (args?.nearest  != null) rpcArgs['nearest'] = _serializeNearestInput(args.nearest);
-{%- endif %}
-    if (args?.take     != null) rpcArgs['take']    = args.take;
-    if (args?.skip     != null) rpcArgs['skip']    = args.skip;
-    if (args?.select   != null) rpcArgs['select']  = args.select;
-    if (args?.include  != null) rpcArgs['include'] = _serializeInclude(args.include);
-    if (args?.cursor   != null) rpcArgs['cursor']  = args.cursor;
-    if (args?.distinct != null) rpcArgs['distinct'] = args.distinct;
     const request = {
       protocolVersion: PROTOCOL_VERSION,
       model: '{{ model_name }}',
-      args: rpcArgs,
+      args: _{{ model_name }}ReadArgs(args),
     };
     if (args?.chunkSize != null) request['chunkSize'] = args.chunkSize;
     const result = await this.client._rpc('query.findMany', request);
@@ -630,7 +635,10 @@ export class {{ delegate_name }} {
       ));
       if (stop) return resolveStopResult(stop, defaultCrudResult('deleteMany', returnData));
 
-      const result = await this.client._rpc('query.delete', payload);
+      const result = await this.client._rpc(
+        returnData ? 'query.delete' : 'query.deleteMany',
+        payload,
+      );
       const decoded = returnData
         ? ((result['data']) ?? []).map(r => _coerce{{ model_name }}(r))
         : (result['count'] ?? 0);
@@ -649,6 +657,44 @@ export class {{ delegate_name }} {
       );
       throw error;
     }
+  }
+
+  async updateMany(args) {
+    const result = await this.client._rpc('query.updateMany', {
+      protocolVersion: PROTOCOL_VERSION,
+      model:  '{{ model_name }}',
+      filter: _processWhereFilters((args?.where ?? {}), _{{ table_name }}FieldToDb),
+      data:   _processCreateData(args.data, _{{ table_name }}FieldToDb),
+    });
+    return result['count'] ?? 0;
+  }
+
+  async aggregate(args) {
+    const rpcArgs = {};
+    if (args?.where != null) rpcArgs['where'] = _processWhereFilters(args.where, _{{ table_name }}FieldToDb);
+    if (args?.count != null) rpcArgs['count'] = args.count;
+{%- if has_numeric_fields %}
+    if (args?.avg   != null) rpcArgs['avg']   = args.avg;
+    if (args?.sum   != null) rpcArgs['sum']   = args.sum;
+{%- endif %}
+    if (args?.min   != null) rpcArgs['min']   = args.min;
+    if (args?.max   != null) rpcArgs['max']   = args.max;
+    const result = await this.client._rpc('query.aggregate', {
+      protocolVersion: PROTOCOL_VERSION,
+      model: '{{ model_name }}',
+      args:  rpcArgs,
+    });
+    return (result['data'] ?? [])[0] ?? {};
+  }
+
+  async explain(args) {
+    const request = {
+      protocolVersion: PROTOCOL_VERSION,
+      model: '{{ model_name }}',
+      args:  _{{ model_name }}ReadArgs(args),
+    };
+    if (args?.analyze != null) request['analyze'] = args.analyze;
+    return await this.client._rpc('query.explain', request);
   }
 
   async count(args) {

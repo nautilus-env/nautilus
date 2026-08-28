@@ -528,7 +528,7 @@ impl {{ model_name }}AvgAggregateOutput {
     ) -> nautilus_core::Result<Self> {
         Ok(Self {
 {%- for field in numeric_fields %}
-            {{ field.name }}: decode_optional_group_by_json_value(obj, "{{ field.logical_name }}")?,
+            {{ field.name }}: decode_optional_numeric_aggregate(obj, "{{ field.logical_name }}")?,
 {%- endfor %}
         })
     }
@@ -548,7 +548,7 @@ impl {{ model_name }}SumAggregateOutput {
     ) -> nautilus_core::Result<Self> {
         Ok(Self {
 {%- for field in numeric_fields %}
-            {{ field.name }}: decode_optional_group_by_json_value(obj, "{{ field.logical_name }}")?,
+            {{ field.name }}: decode_optional_numeric_aggregate(obj, "{{ field.logical_name }}")?,
 {%- endfor %}
         })
     }
@@ -591,6 +591,93 @@ impl {{ model_name }}MaxAggregateOutput {
 {%- for field in orderable_fields %}
             {{ field.name }}: decode_optional_group_by_json_value(obj, "{{ field.logical_name }}")?,
 {%- endfor %}
+        })
+    }
+}
+
+/// Structured arguments for aggregating {{ model_name }} rows without grouping.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}AggregateArgs {
+    /// Optional WHERE filter.
+    pub where_: Option<nautilus_core::Expr>,
+    /// COUNT aggregation selection.
+    pub count: Option<{{ model_name }}CountAggregateInput>,
+{%- if has_numeric_fields %}
+    /// AVG aggregation selection.
+    pub avg: Option<{{ model_name }}AvgAggregateInput>,
+    /// SUM aggregation selection.
+    pub sum: Option<{{ model_name }}SumAggregateInput>,
+{%- endif %}
+    /// MIN aggregation selection.
+    pub min: Option<{{ model_name }}MinAggregateInput>,
+    /// MAX aggregation selection.
+    pub max: Option<{{ model_name }}MaxAggregateInput>,
+}
+
+impl {{ model_name }}AggregateArgs {
+    fn to_engine_args(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut args = serde_json::Map::new();
+
+        if let Some(filter) = self.where_.as_ref() {
+            args.insert(
+                "where".to_string(),
+                nautilus_core::where_expr_to_protocol_json(filter)?,
+            );
+        }
+        if let Some(count) = self.count.as_ref().and_then({{ model_name }}CountAggregateInput::to_json) {
+            args.insert("count".to_string(), count);
+        }
+{%- if has_numeric_fields %}
+        if let Some(avg) = self.avg.as_ref().and_then({{ model_name }}AvgAggregateInput::to_json) {
+            args.insert("avg".to_string(), avg);
+        }
+        if let Some(sum) = self.sum.as_ref().and_then({{ model_name }}SumAggregateInput::to_json) {
+            args.insert("sum".to_string(), sum);
+        }
+{%- endif %}
+        if let Some(min) = self.min.as_ref().and_then({{ model_name }}MinAggregateInput::to_json) {
+            args.insert("min".to_string(), min);
+        }
+        if let Some(max) = self.max.as_ref().and_then({{ model_name }}MaxAggregateInput::to_json) {
+            args.insert("max".to_string(), max);
+        }
+
+        Ok(serde_json::Value::Object(args))
+    }
+}
+
+/// Aggregates over the whole filtered set, returned by `{{ delegate_name }}::aggregate()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct {{ model_name }}AggregateOutput {
+    pub _count: Option<{{ model_name }}CountAggregateOutput>,
+{%- if has_numeric_fields %}
+    pub _avg: Option<{{ model_name }}AvgAggregateOutput>,
+    pub _sum: Option<{{ model_name }}SumAggregateOutput>,
+{%- endif %}
+    pub _min: Option<{{ model_name }}MinAggregateOutput>,
+    pub _max: Option<{{ model_name }}MaxAggregateOutput>,
+}
+
+impl {{ model_name }}AggregateOutput {
+    fn from_row(row: &crate::Row) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            _count: decode_optional_group_by_object(row, "_count")?
+                .map({{ model_name }}CountAggregateOutput::from_json_object)
+                .transpose()?,
+{%- if has_numeric_fields %}
+            _avg: decode_optional_group_by_object(row, "_avg")?
+                .map({{ model_name }}AvgAggregateOutput::from_json_object)
+                .transpose()?,
+            _sum: decode_optional_group_by_object(row, "_sum")?
+                .map({{ model_name }}SumAggregateOutput::from_json_object)
+                .transpose()?,
+{%- endif %}
+            _min: decode_optional_group_by_object(row, "_min")?
+                .map({{ model_name }}MinAggregateOutput::from_json_object)
+                .transpose()?,
+            _max: decode_optional_group_by_object(row, "_max")?
+                .map({{ model_name }}MaxAggregateOutput::from_json_object)
+                .transpose()?,
         })
     }
 }
@@ -672,6 +759,30 @@ fn decode_optional_group_by_object<'a>(
             "expected object-valued aggregate '{}' in groupBy output, got {:?}",
             key, other
         ))),
+    }
+}
+
+/// Decode one `_avg` / `_sum` entry of an aggregate result.
+///
+/// PostgreSQL computes `AVG` (and `SUM` over exact numerics) as `numeric`,
+/// which the engine puts on the wire as a JSON string so no precision is lost
+/// in transit; SQLite and MySQL send a plain JSON number. Both spellings decode
+/// into the same Rust type here.
+fn decode_optional_numeric_aggregate<T>(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue + std::str::FromStr,
+{
+    match obj.get(key) {
+        Some(serde_json::Value::String(text)) => text.parse::<T>().map(Some).map_err(|_| {
+            nautilus_core::Error::TypeError(format!(
+                "aggregate '{}' is not a number: {}",
+                key, text
+            ))
+        }),
+        _ => decode_optional_group_by_json_value(obj, key),
     }
 }
 
@@ -1802,6 +1913,152 @@ where
         Err(nautilus_core::Error::InvalidQuery(
             "count queries require the embedded engine path in the generated Rust client"
                 .to_string(),
+        ))
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Update every {{ model_name }} record matching `args.where_`, returning
+    /// the affected-row count.
+    ///
+    /// Unlike [`Self::update`], no rows are read back: the engine runs one
+    /// statement without a `RETURNING` clause however many rows it touches.
+    pub {% if is_async %}async {% endif %}fn update_many(
+        &self,
+        args: {{ model_name }}UpdateArgs,
+    ) -> nautilus_core::Result<u64> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        let filter = serialize_update_filter_for_engine(args.where_.as_ref())?
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+        if let Some(count) =
+            crate::runtime::try_update_many_via_engine(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                filter,
+                args.data.to_engine_data(),
+            )
+            .await?
+        {
+            return Ok(count);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "updateMany requires the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Delete every {{ model_name }} record matching `args.where_`, returning
+    /// the affected-row count.
+    ///
+    /// The count-only counterpart of [`Self::delete_many`], which reads the
+    /// deleted rows back through `RETURNING`.
+    pub {% if is_async %}async {% endif %}fn delete_many_count(
+        &self,
+        args: {{ model_name }}DeleteArgs,
+    ) -> nautilus_core::Result<u64> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        let filter = match args.where_.as_ref() {
+            Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+            None => serde_json::Value::Object(serde_json::Map::new()),
+        };
+        if let Some(count) =
+            crate::runtime::try_delete_many_via_engine(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                filter,
+            )
+            .await?
+        {
+            return Ok(count);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "deleteMany requires the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Aggregate over every {{ model_name }} record matching `args.where_`,
+    /// without a grouping key.
+    ///
+    /// Always resolves to one row, even when the filter matches nothing: counts
+    /// are then `0` and the other aggregates `None`.
+    pub {% if is_async %}async {% endif %}fn aggregate(
+        &self,
+        args: {{ model_name }}AggregateArgs,
+    ) -> nautilus_core::Result<{{ model_name }}AggregateOutput> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        let engine_args = args.to_engine_args()?;
+        if let Some(row) =
+            crate::runtime::try_aggregate_row_via_engine(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                engine_args,
+            )
+            .await?
+        {
+            return match row {
+                Some(row) => {{ model_name }}AggregateOutput::from_row(&row),
+                None => Ok({{ model_name }}AggregateOutput::default()),
+            };
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "aggregate queries require the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Ask the database to explain the statement [`Self::find_many`] would run
+    /// for `args`.
+    ///
+    /// `args.include` relations are loaded by separate statements and are not
+    /// part of the reported plan. `analyze` executes the statement to collect
+    /// real timings where the backend supports it.
+    pub {% if is_async %}async {% endif %}fn explain(
+        &self,
+        args: nautilus_core::FindManyArgs,
+        analyze: bool,
+    ) -> nautilus_core::Result<nautilus_protocol::ExplainResult> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        if let Some(result) =
+            crate::runtime::try_explain_via_engine(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                &args,
+                analyze,
+            )
+            .await?
+        {
+            return Ok(result);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "explain requires the embedded engine path in the generated Rust client".to_string(),
         ))
 {%- if not is_async %}
         }))

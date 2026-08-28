@@ -11,15 +11,15 @@ use std::collections::HashMap;
 use nautilus_core::ColumnMarker;
 use nautilus_protocol::wire::{err, ok};
 use nautilus_protocol::{
-    CountParams, CreateManyParams, CreateParams, EngineMetricsParams, GroupByParams,
-    HandshakeParams, HandshakeResult, ProtocolError, RpcError, RpcRequest, RpcResponse,
-    SchemaValidateParams, SchemaValidateResult, UpdateParams, UpsertParams, ENGINE_HANDSHAKE,
-    ENGINE_METRICS, PROTOCOL_VERSION, QUERY_AGGREGATE, QUERY_COUNT, QUERY_CREATE,
-    QUERY_CREATE_MANY, QUERY_DELETE, QUERY_DELETE_MANY, QUERY_EXPLAIN, QUERY_FIND_FIRST,
-    QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY, QUERY_FIND_UNIQUE, QUERY_FIND_UNIQUE_OR_THROW,
-    QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT, QUERY_UPDATE, QUERY_UPDATE_MANY, QUERY_UPSERT,
-    SCHEMA_VALIDATE, TRANSACTION_BATCH, TRANSACTION_COMMIT, TRANSACTION_ROLLBACK,
-    TRANSACTION_START,
+    AggregateParams, CountParams, CreateManyParams, CreateParams, DeleteManyParams,
+    EngineMetricsParams, GroupByParams, HandshakeParams, HandshakeResult, ProtocolError, RpcError,
+    RpcRequest, RpcResponse, SchemaValidateParams, SchemaValidateResult, UpdateManyParams,
+    UpdateParams, UpsertParams, ENGINE_HANDSHAKE, ENGINE_METRICS, PROTOCOL_VERSION,
+    QUERY_AGGREGATE, QUERY_COUNT, QUERY_CREATE, QUERY_CREATE_MANY, QUERY_DELETE, QUERY_DELETE_MANY,
+    QUERY_EXPLAIN, QUERY_FIND_FIRST, QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY, QUERY_FIND_UNIQUE,
+    QUERY_FIND_UNIQUE_OR_THROW, QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT, QUERY_UPDATE,
+    QUERY_UPDATE_MANY, QUERY_UPSERT, SCHEMA_VALIDATE, TRANSACTION_BATCH, TRANSACTION_COMMIT,
+    TRANSACTION_ROLLBACK, TRANSACTION_START,
 };
 use nautilus_schema::ir::{FieldIr, ModelIr, ResolvedFieldType};
 use nautilus_schema::{analyze, Severity};
@@ -224,6 +224,21 @@ pub(super) fn build_relation_map(
     Ok(map)
 }
 
+/// Time one in-process call and fold it into the per-method counters.
+///
+/// The typed and embedded entry points bypass [`dispatch`], so without this the
+/// counters would only ever see requests that arrived over the wire and
+/// `engine.metrics` would read as empty for an embedded Rust client.
+async fn recorded<T, F>(state: &EngineState, method: &str, call: F) -> Result<T, ProtocolError>
+where
+    F: std::future::Future<Output = Result<T, ProtocolError>>,
+{
+    let started = std::time::Instant::now();
+    let result = call.await;
+    state.record_request(method, started.elapsed(), result.is_err());
+    result
+}
+
 /// Dispatch RPC request to the appropriate handler.
 ///
 /// `tx` is the response channel — forwarded to `handle_find_many` so that it can
@@ -262,6 +277,17 @@ pub async fn handle_request_embedded(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<EmbeddedResponse, ProtocolError> {
+    let started = std::time::Instant::now();
+    let method = request.method.clone();
+    let result = handle_request_embedded_inner(state, request).await;
+    state.record_request(&method, started.elapsed(), result.is_err());
+    result
+}
+
+async fn handle_request_embedded_inner(
+    state: &EngineState,
+    request: RpcRequest,
+) -> Result<EmbeddedResponse, ProtocolError> {
     match request.method.as_str() {
         QUERY_FIND_MANY => crud::handle_find_many_embedded(state, request)
             .await
@@ -284,7 +310,9 @@ pub async fn handle_request_embedded(
         QUERY_GROUP_BY => crud::handle_group_by_embedded(state, request)
             .await
             .map(EmbeddedResponse::Rows),
-        _ => dispatch(state, request).await.map(EmbeddedResponse::Json),
+        _ => dispatch_inner(state, request)
+            .await
+            .map(EmbeddedResponse::Json),
     }
 }
 
@@ -296,7 +324,12 @@ pub async fn handle_find_many_typed(
     args: &nautilus_core::FindManyArgs,
     transaction_id: Option<&str>,
 ) -> Result<Vec<nautilus_connector::Row>, ProtocolError> {
-    crud::handle_find_many_typed(state, model_name, args, transaction_id).await
+    recorded(
+        state,
+        QUERY_FIND_MANY,
+        crud::handle_find_many_typed(state, model_name, args, transaction_id),
+    )
+    .await
 }
 
 /// Handle a typed Rust `findUnique` request in-process without an RPC envelope.
@@ -306,7 +339,12 @@ pub async fn handle_find_unique_typed(
     args: &nautilus_core::FindUniqueArgs,
     transaction_id: Option<&str>,
 ) -> Result<Vec<nautilus_connector::Row>, ProtocolError> {
-    crud::handle_find_unique_typed(state, model_name, args, transaction_id).await
+    recorded(
+        state,
+        QUERY_FIND_UNIQUE,
+        crud::handle_find_unique_typed(state, model_name, args, transaction_id),
+    )
+    .await
 }
 
 /// Handle a typed Rust `create` request in-process without an RPC envelope.
@@ -314,7 +352,12 @@ pub async fn handle_create_typed(
     state: &EngineState,
     params: CreateParams,
 ) -> Result<Vec<nautilus_connector::Row>, ProtocolError> {
-    crud::handle_create_typed(state, params).await
+    recorded(
+        state,
+        QUERY_CREATE,
+        crud::handle_create_typed(state, params),
+    )
+    .await
 }
 
 /// Handle a typed Rust `createMany` request in-process without an RPC envelope.
@@ -322,7 +365,12 @@ pub async fn handle_create_many_typed(
     state: &EngineState,
     params: CreateManyParams,
 ) -> Result<Vec<nautilus_connector::Row>, ProtocolError> {
-    crud::handle_create_many_typed(state, params).await
+    recorded(
+        state,
+        QUERY_CREATE_MANY,
+        crud::handle_create_many_typed(state, params),
+    )
+    .await
 }
 
 /// Handle a typed Rust `update` request in-process without an RPC envelope.
@@ -330,7 +378,12 @@ pub async fn handle_update_typed(
     state: &EngineState,
     params: UpdateParams,
 ) -> Result<Vec<nautilus_connector::Row>, ProtocolError> {
-    crud::handle_update_typed(state, params).await
+    recorded(
+        state,
+        QUERY_UPDATE,
+        crud::handle_update_typed(state, params),
+    )
+    .await
 }
 
 /// Handle a typed Rust `upsert` request in-process without an RPC envelope.
@@ -338,7 +391,75 @@ pub async fn handle_upsert_typed(
     state: &EngineState,
     params: UpsertParams,
 ) -> Result<Vec<nautilus_connector::Row>, ProtocolError> {
-    crud::handle_upsert_typed(state, params).await
+    recorded(
+        state,
+        QUERY_UPSERT,
+        crud::handle_upsert_typed(state, params),
+    )
+    .await
+}
+
+/// Snapshot the engine's runtime counters in-process without an RPC envelope.
+pub async fn engine_metrics_typed(
+    state: &EngineState,
+    reset: bool,
+) -> nautilus_protocol::EngineMetricsResult {
+    state.metrics_snapshot(reset).await
+}
+
+/// Handle a typed Rust `updateMany` request in-process without an RPC envelope.
+pub async fn handle_update_many_typed(
+    state: &EngineState,
+    params: UpdateManyParams,
+) -> Result<usize, ProtocolError> {
+    recorded(
+        state,
+        QUERY_UPDATE_MANY,
+        crud::handle_update_many_typed(state, params),
+    )
+    .await
+}
+
+/// Handle a typed Rust `deleteMany` request in-process without an RPC envelope.
+pub async fn handle_delete_many_typed(
+    state: &EngineState,
+    params: DeleteManyParams,
+) -> Result<usize, ProtocolError> {
+    recorded(
+        state,
+        QUERY_DELETE_MANY,
+        crud::handle_delete_many_typed(state, params),
+    )
+    .await
+}
+
+/// Handle a typed Rust `aggregate` request in-process without an RPC envelope.
+pub async fn handle_aggregate_typed(
+    state: &EngineState,
+    params: AggregateParams,
+) -> Result<Vec<nautilus_connector::Row>, ProtocolError> {
+    recorded(
+        state,
+        QUERY_AGGREGATE,
+        crud::handle_aggregate_typed(state, params),
+    )
+    .await
+}
+
+/// Handle a typed Rust `explain` request in-process without an RPC envelope.
+pub async fn handle_explain_typed(
+    state: &EngineState,
+    model_name: &str,
+    args: &nautilus_core::FindManyArgs,
+    analyze: bool,
+    transaction_id: Option<&str>,
+) -> Result<nautilus_protocol::ExplainResult, ProtocolError> {
+    recorded(
+        state,
+        QUERY_EXPLAIN,
+        crud::handle_explain_typed(state, model_name, args, analyze, transaction_id),
+    )
+    .await
 }
 
 /// Handle a typed Rust `count` request in-process without an RPC envelope.
@@ -346,7 +467,7 @@ pub async fn handle_count_typed(
     state: &EngineState,
     params: CountParams,
 ) -> Result<i64, ProtocolError> {
-    crud::handle_count_typed(state, params).await
+    recorded(state, QUERY_COUNT, crud::handle_count_typed(state, params)).await
 }
 
 /// Handle a typed Rust `groupBy` request in-process without an RPC envelope.
@@ -354,7 +475,12 @@ pub async fn handle_group_by_typed(
     state: &EngineState,
     params: GroupByParams,
 ) -> Result<Vec<nautilus_connector::Row>, ProtocolError> {
-    crud::handle_group_by_typed(state, params).await
+    recorded(
+        state,
+        QUERY_GROUP_BY,
+        crud::handle_group_by_typed(state, params),
+    )
+    .await
 }
 
 fn response_from_result(

@@ -1501,7 +1501,8 @@ class {{ delegate_name }}:
             if _stop is not None:
                 return resolve_stop_result(_stop, default_cud_result("deleteMany", return_data))
 
-            result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.delete", _payload)
+            _method = "query.delete" if return_data else "query.deleteMany"
+            result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}_method, _payload)
             if return_data:
                 _decoded = [_{{ table_name }}_from_row(row) for row in result.get("data", [])]
             else:
@@ -1532,6 +1533,150 @@ class {{ delegate_name }}:
             )
             {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
             raise
+
+    {% if is_async %}async {% endif %}def update_many(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        data: {{ model_name }}UpdateInput,
+    ) -> int:
+        """Update every {{ model_name }} record matching ``where``.
+
+        Unlike :meth:`update`, no rows are returned: the engine runs one
+        statement without a ``RETURNING`` clause however many rows it touches.
+
+        Args:
+            where: Filter conditions. If ``None``, all records are updated.
+            data: Fields to update.
+
+        Returns:
+            The affected-row count.
+        """
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.updateMany", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "filter": _process_where_filters(where or {}, _{{ table_name }}_py_to_db),
+            "data": _process_create_data(data, _{{ table_name }}_py_to_db),
+        })
+        return result.get("count", 0)
+
+    {% if is_async %}async {% endif %}def aggregate(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        count: Optional[Union[bool, {{ model_name }}CountAggregateInput]] = None,
+{% if has_numeric_fields %}
+        avg: Optional[{{ model_name }}AvgAggregateInput] = None,
+        sum: Optional[{{ model_name }}SumAggregateInput] = None,
+{% endif %}
+        min: Optional[{{ model_name }}MinAggregateInput] = None,
+        max: Optional[{{ model_name }}MaxAggregateInput] = None,
+    ) -> {{ model_name }}AggregateOutput:
+        """Aggregate over every {{ model_name }} record matching ``where``.
+
+        Same aggregates as :meth:`group_by` without a grouping key, so the
+        result is a single row covering the whole filtered set. A filter that
+        matches nothing still yields a row: counts are ``0`` and the other
+        aggregates ``None``.
+
+        Args:
+            where: Filter conditions (optional).
+            count: Compute COUNT. Pass ``True`` for ``COUNT(*)`` or a
+                ``{{ model_name }}CountAggregateInput`` dict to count specific fields.
+{% if has_numeric_fields %}
+            avg: Compute AVG for the specified numeric fields.
+            sum: Compute SUM for the specified numeric fields.
+{% endif %}
+            min: Compute MIN for the specified fields.
+            max: Compute MAX for the specified fields.
+
+        Returns:
+            One ``{{ model_name }}AggregateOutput`` dict.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _{{ table_name }}_py_to_db)
+        if count is not None:
+            args["count"] = count
+{%- if has_numeric_fields %}
+        if avg is not None:
+            args["avg"] = avg
+        if sum is not None:
+            args["sum"] = sum
+{%- endif %}
+        if min is not None:
+            args["min"] = min
+        if max is not None:
+            args["max"] = max
+
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.aggregate", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "args": args,
+        })
+        rows = result.get("data", [])
+        return rows[0] if rows else {}
+
+    {% if is_async %}async {% endif %}def explain(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: Optional[{{ model_name }}SelectInput] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        analyze: bool = False,
+    ) -> {{ model_name }}ExplainOutput:
+        """Ask the database to explain the statement :meth:`find_many` would run.
+
+        Args:
+            where: Filter conditions (optional).
+            order_by: Sorting directions.
+            {% if has_vector_fields %}nearest: pgvector nearest-neighbor search options.
+            {% endif %}take: Row limit (LIMIT).
+            skip: Rows to skip (OFFSET).
+            select: Scalar field projection.
+            cursor: Keyset cursor.
+            distinct: Field names to deduplicate on.
+            analyze: Execute the statement to collect real timings. PostgreSQL
+                and MySQL support this; SQLite's plan is static and ignores it.
+
+        Returns:
+            A ``{{ model_name }}ExplainOutput`` with the rendered SQL, its bound
+            parameters in placeholder order, and the plan rows.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _{{ table_name }}_py_to_db)
+        if order_by is not None:
+            if isinstance(order_by, list):
+                args["orderBy"] = order_by
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
+{%- if has_vector_fields %}
+        if nearest is not None:
+            args["nearest"] = _serialize_nearest_input(nearest)
+{%- endif %}
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if select is not None:
+            args["select"] = _process_select_fields(select, _{{ table_name }}_py_to_logical)
+        if cursor is not None:
+            args["cursor"] = cursor
+        if distinct is not None:
+            args["distinct"] = distinct
+
+        return {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.explain", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "args": args,
+            "analyze": analyze,
+        })
 
     {% if is_async %}async {% endif %}def count(
         self,
@@ -1791,6 +1936,8 @@ __all__ = [
     "{{ model_name }}MinAggregateInput",
     "{{ model_name }}MaxAggregateInput",
     "{{ model_name }}GroupByOutput",
+    "{{ model_name }}AggregateOutput",
+    "{{ model_name }}ExplainOutput",
     "SortOrder",
 {%- if has_includes %}
     "{{ model_name }}IncludeInput",

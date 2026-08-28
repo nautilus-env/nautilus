@@ -320,6 +320,21 @@ pub(in crate::handlers) async fn handle_aggregate(
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: AggregateParams = parse_params(&request, "aggregate")?;
+    let rows = execute_aggregate_rows(state, params).await?;
+    wrap_data_result(&rows, "aggregate result")
+}
+
+pub(in crate::handlers) async fn handle_aggregate_typed(
+    state: &EngineState,
+    params: AggregateParams,
+) -> Result<Vec<Row>, ProtocolError> {
+    execute_aggregate_rows(state, params).await
+}
+
+async fn execute_aggregate_rows(
+    state: &EngineState,
+    params: AggregateParams,
+) -> Result<Vec<Row>, ProtocolError> {
     check_protocol_version(params.protocol_version)?;
     let tx_id = params.transaction_id;
 
@@ -364,14 +379,12 @@ pub(in crate::handlers) async fn handle_aggregate(
         ProtocolError::QueryPlanning(format!("Failed to render aggregate query: {}", e))
     })?;
 
-    let rows: Vec<Row> = state
+    Ok(state
         .execute_query_on(&sql, "Aggregate", tx_id.as_deref())
         .await?
         .into_iter()
         .map(|row| shape_group_row(row, metadata.db_to_logical()))
-        .collect();
-
-    wrap_data_result(&rows, "aggregate result")
+        .collect())
 }
 
 /// Handle `query.groupBy`.

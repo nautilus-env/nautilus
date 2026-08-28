@@ -2797,21 +2797,17 @@ model Document {
         .expect("generate_all_python_models should succeed");
     let code = generated_python_file(&models, "document.py");
 
-    let take_sites = code
+    let blocks = code.matches("if nearest is not None:").count();
+    let indented_blocks = code
         .matches(
-            "\n        if nearest is not None:\n            args[\"nearest\"] = _serialize_nearest_input(nearest)\n        if take is not None:",
-        )
-        .count();
-    let select_sites = code
-        .matches(
-            "\n        if nearest is not None:\n            args[\"nearest\"] = _serialize_nearest_input(nearest)\n        if select is not None:",
+            "\n        if nearest is not None:\n            args[\"nearest\"] = _serialize_nearest_input(nearest)\n",
         )
         .count();
 
+    assert!(blocks > 0, "expected a nearest argument block:\n{code}");
     assert_eq!(
-        (take_sites, select_sites),
-        (2, 1),
-        "the nearest argument block must stay indented inside its method; Tera whitespace \
+        indented_blocks, blocks,
+        "every nearest argument block must stay indented inside its method; Tera whitespace \
          control once stripped the leading indentation and produced invalid Python:\n{code}"
     );
     assert!(

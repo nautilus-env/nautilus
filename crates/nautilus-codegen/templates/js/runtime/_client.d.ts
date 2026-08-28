@@ -8,6 +8,31 @@ export interface TransactionBatchOperation {
   params: Record<string, unknown>;
 }
 
+export interface PlanCacheSectionMetrics {
+  entries:   number;
+  hits:      number;
+  misses:    number;
+  evictions: number;
+}
+
+export interface EngineMetrics {
+  uptimeSeconds: number;
+  planCache: {
+    capacity:   number;
+    findUnique: PlanCacheSectionMetrics;
+    findMany:   PlanCacheSectionMetrics;
+  };
+  pool: { size: number; idle: number };
+  activeTransactions: number;
+  methods: Array<{
+    method:   string;
+    calls:    number;
+    errors:   number;
+    totalMs:  number;
+    maxMs:    number;
+  }>;
+}
+
 export interface NautilusClientOptions {
   migrate?: boolean;
   pool?: EnginePoolOptions;
@@ -25,6 +50,7 @@ export declare class NautilusClient {
     params: Record<string, unknown>,
     timeoutMs?: number,
   ): AsyncIterable<unknown>;
+  $metrics(options?: { reset?: boolean }): Promise<EngineMetrics>;
   protected _startTransaction(timeoutMs?: number, isolationLevel?: IsolationLevel): Promise<string>;
   protected _commitTransaction(txId: string): Promise<void>;
   protected _rollbackTransaction(txId: string): Promise<void>;

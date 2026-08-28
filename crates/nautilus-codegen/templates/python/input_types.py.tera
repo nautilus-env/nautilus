@@ -302,6 +302,22 @@ class {{ model_name }}MaxAggregateInput(TypedDict, total=False):
     {% endfor %}
 
 
+class {{ model_name }}AggregateOutput(TypedDict, total=False):
+    """Result row from an aggregate query on {{ model_name }}."""
+    _count: NotRequired[Dict[str, int]]
+    _avg: NotRequired[Dict[str, Optional[float]]]
+    _sum: NotRequired[Dict[str, Any]]
+    _min: NotRequired[Dict[str, Any]]
+    _max: NotRequired[Dict[str, Any]]
+
+
+class {{ model_name }}ExplainOutput(TypedDict):
+    """Rendered statement and database plan returned by ``explain``."""
+    sql: str
+    params: List[Any]
+    plan: List[Dict[str, Any]]
+
+
 class {{ model_name }}GroupByOutput(TypedDict, total=False):
     """Result row from a group_by query on {{ model_name }}."""
     {% for field in scalar_fields %}

@@ -349,6 +349,20 @@ export interface {{ model_name }}GroupByOutput {
   _max?:   Record<string, unknown>;
 }
 
+export interface {{ model_name }}AggregateOutput {
+  _count?: Record<string, number>;
+  _avg?:   Record<string, number | null>;
+  _sum?:   Record<string, unknown>;
+  _min?:   Record<string, unknown>;
+  _max?:   Record<string, unknown>;
+}
+
+export interface {{ model_name }}ExplainOutput {
+  sql:    string;
+  params: unknown[];
+  plan:   Record<string, unknown>[];
+}
+
 export interface {{ model_name }}FindManyArgs {
   where?:    {{ model_name }}WhereInput;
   orderBy?:  {{ model_name }}OrderByInput | {{ model_name }}OrderByInput[];
@@ -441,6 +455,43 @@ export declare class {{ delegate_name }} {
     where?:      {{ model_name }}WhereInput;
     returnData?: boolean;
   }): Promise<{{ model_name }}Model[] | number>;
+
+  /**
+   * Update every row matching `where` and resolve to the affected-row count.
+   *
+   * Unlike {@link update}, no rows are returned: the engine runs one statement
+   * without a RETURNING clause however many rows it touches.
+   */
+  updateMany(args: {
+    where?: {{ model_name }}WhereInput;
+    data:   {{ model_name }}UpdateInput;
+  }): Promise<number>;
+
+  /**
+   * Aggregate over every row matching `where`, without a grouping key.
+   *
+   * Always resolves to one object, even when the filter matches nothing:
+   * counts are then `0` and the other aggregates `null`.
+   */
+  aggregate(args?: {
+    where?: {{ model_name }}WhereInput;
+    count?: boolean | {{ model_name }}CountAggregateInput;
+{%- if has_numeric_fields %}
+    avg?:   {{ model_name }}AvgAggregateInput;
+    sum?:   {{ model_name }}SumAggregateInput;
+{%- endif %}
+    min?:   {{ model_name }}MinAggregateInput;
+    max?:   {{ model_name }}MaxAggregateInput;
+  }): Promise<{{ model_name }}AggregateOutput>;
+
+  /**
+   * Ask the database to explain the statement a {@link findMany} with these
+   * arguments would run.
+   *
+   * `include` relations are loaded by separate statements and are not part of
+   * the reported plan. `analyze` executes the query to collect real timings.
+   */
+  explain(args?: {{ model_name }}FindManyArgs & { analyze?: boolean }): Promise<{{ model_name }}ExplainOutput>;
 
   count(args?: {
     where?:  {{ model_name }}WhereInput;

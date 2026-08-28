@@ -283,6 +283,20 @@ export interface {{ model_name }}GroupByOutput {
   _max?:   Record<string, unknown>;
 }
 
+export interface {{ model_name }}AggregateOutput {
+  _count?: Record<string, number>;
+  _avg?:   Record<string, number | null>;
+  _sum?:   Record<string, unknown>;
+  _min?:   Record<string, unknown>;
+  _max?:   Record<string, unknown>;
+}
+
+export interface {{ model_name }}ExplainOutput {
+  sql:    string;
+  params: unknown[];
+  plan:   Record<string, unknown>[];
+}
+
 export interface {{ model_name }}FindManyArgs {
   where?:    {{ model_name }}WhereInput;
   orderBy?:  {{ model_name }}OrderByInput | {{ model_name }}OrderByInput[];
@@ -312,6 +326,26 @@ export interface {{ model_name }}FindUniqueArgs {
   where:    {{ model_name }}WhereInput;
   select?:  {{ model_name }}SelectInput;
   include?: {% if has_includes %}{{ model_name }}IncludeInput{% else %}Record<string, unknown>{% endif %};
+}
+
+/** Builds the engine `args` object shared by findMany and explain. */
+function _{{ model_name }}ReadArgs(args?: {{ model_name }}FindManyArgs): Record<string, unknown> {
+  const rpcArgs: Record<string, unknown> = {};
+  if (args?.where    != null) rpcArgs['where']   = _processWhereFilters(args.where as Record<string, unknown>, _{{ table_name }}FieldToDb);
+  if (args?.orderBy  != null) {
+    const ob = args.orderBy;
+    rpcArgs['orderBy'] = Array.isArray(ob) ? ob : [ob];
+  }
+{%- if has_vector_fields %}
+  if (args?.nearest  != null) rpcArgs['nearest'] = _serializeNearestInput(args.nearest);
+{%- endif %}
+  if (args?.take     != null) rpcArgs['take']    = args.take;
+  if (args?.skip     != null) rpcArgs['skip']    = args.skip;
+  if (args?.select   != null) rpcArgs['select']  = args.select;
+  if (args?.include  != null) rpcArgs['include'] = _serializeInclude(args.include);
+  if (args?.cursor   != null) rpcArgs['cursor']  = args.cursor;
+  if (args?.distinct != null) rpcArgs['distinct'] = args.distinct;
+  return rpcArgs;
 }
 
 function _processWhereFilters(
@@ -398,25 +432,10 @@ export class {{ delegate_name }} {
   async findMany(args?: Omit<{{ model_name }}FindManyArgs, 'select'> & { select?: undefined }): Promise<{{ model_name }}Model[]>;
   async findMany<const S extends {{ model_name }}SelectInput>(args: Omit<{{ model_name }}FindManyArgs, 'select'> & { select: S }): Promise<Array<{{ model_name }}Selected<S>>>;
   async findMany(args?: {{ model_name }}FindManyArgs): Promise<Array<{{ model_name }}Model | Partial<{{ model_name }}Model>>> {
-    const rpcArgs: Record<string, unknown> = {};
-    if (args?.where    != null) rpcArgs['where']   = _processWhereFilters(args.where as Record<string, unknown>, _{{ table_name }}FieldToDb);
-    if (args?.orderBy  != null) {
-      const ob = args.orderBy;
-      rpcArgs['orderBy'] = Array.isArray(ob) ? ob : [ob];
-    }
-{%- if has_vector_fields %}
-    if (args?.nearest  != null) rpcArgs['nearest'] = _serializeNearestInput(args.nearest);
-{%- endif %}
-    if (args?.take     != null) rpcArgs['take']    = args.take;
-    if (args?.skip     != null) rpcArgs['skip']    = args.skip;
-    if (args?.select   != null) rpcArgs['select']  = args.select;
-    if (args?.include  != null) rpcArgs['include'] = _serializeInclude(args.include);
-    if (args?.cursor   != null) rpcArgs['cursor']  = args.cursor;
-    if (args?.distinct != null) rpcArgs['distinct'] = args.distinct;
     const request: Record<string, unknown> = {
       protocolVersion: PROTOCOL_VERSION,
       model: '{{ model_name }}',
-      args: rpcArgs,
+      args: _{{ model_name }}ReadArgs(args),
     };
     if (args?.chunkSize != null) request['chunkSize'] = args.chunkSize;
     const result = (await this.client._rpc('query.findMany', request)) as Record<string, unknown>;
@@ -622,14 +641,92 @@ export class {{ delegate_name }} {
     returnData?: boolean;
   }): Promise<{{ model_name }}Model[] | number> {
     const returnData = args?.returnData ?? false;
-    const result = (await this.client._rpc('query.delete', {
-      protocolVersion: PROTOCOL_VERSION,
-      model:      '{{ model_name }}',
-      filter:     _processWhereFilters((args?.where ?? {}) as Record<string, unknown>, _{{ table_name }}FieldToDb),
-      returnData,
-    })) as Record<string, unknown>;
+    const result = (await this.client._rpc(
+      returnData ? 'query.delete' : 'query.deleteMany',
+      {
+        protocolVersion: PROTOCOL_VERSION,
+        model:      '{{ model_name }}',
+        filter:     _processWhereFilters((args?.where ?? {}) as Record<string, unknown>, _{{ table_name }}FieldToDb),
+        returnData,
+      },
+    )) as Record<string, unknown>;
     if (returnData) return ((result['data'] as unknown[]) ?? []).map(r => _coerce{{ model_name }}(r as Record<string, unknown>));
     return (result['count'] as number) ?? 0;
+  }
+
+  /**
+   * Update every row matching `where` and resolve to the affected-row count.
+   *
+   * Unlike {@link update}, no rows are returned: the engine runs one statement
+   * without a RETURNING clause however many rows it touches.
+   */
+  async updateMany(args: {
+    where?: {{ model_name }}WhereInput;
+    data:   {{ model_name }}UpdateInput;
+  }): Promise<number> {
+{%- if updated_at_fields | length > 0 %}
+    const _updateData: Record<string, unknown> = { ...(args.data as Record<string, unknown>) };
+{%- for field in updated_at_fields %}
+    if (!('{{ field }}' in _updateData) || _updateData['{{ field }}'] == null) _updateData['{{ field }}'] = new Date();
+{%- endfor %}
+{%- endif %}
+    const result = (await this.client._rpc('query.updateMany', {
+      protocolVersion: PROTOCOL_VERSION,
+      model:  '{{ model_name }}',
+      filter: _processWhereFilters((args.where ?? {}) as Record<string, unknown>, _{{ table_name }}FieldToDb),
+      data:   _processCreateData({% if updated_at_fields | length > 0 %}_updateData{% else %}args.data as Record<string, unknown>{% endif %}, _{{ table_name }}FieldToDb),
+    })) as Record<string, unknown>;
+    return (result['count'] as number) ?? 0;
+  }
+
+  /**
+   * Aggregate over every row matching `where`, without a grouping key.
+   *
+   * Always resolves to one object, even when the filter matches nothing:
+   * counts are then `0` and the other aggregates `null`.
+   */
+  async aggregate(args?: {
+    where?: {{ model_name }}WhereInput;
+    count?: boolean | {{ model_name }}CountAggregateInput;
+{%- if has_numeric_fields %}
+    avg?:   {{ model_name }}AvgAggregateInput;
+    sum?:   {{ model_name }}SumAggregateInput;
+{%- endif %}
+    min?:   {{ model_name }}MinAggregateInput;
+    max?:   {{ model_name }}MaxAggregateInput;
+  }): Promise<{{ model_name }}AggregateOutput> {
+    const rpcArgs: Record<string, unknown> = {};
+    if (args?.where != null) rpcArgs['where'] = _processWhereFilters(args.where as Record<string, unknown>, _{{ table_name }}FieldToDb);
+    if (args?.count != null) rpcArgs['count'] = args.count;
+{%- if has_numeric_fields %}
+    if (args?.avg   != null) rpcArgs['avg']   = args.avg;
+    if (args?.sum   != null) rpcArgs['sum']   = args.sum;
+{%- endif %}
+    if (args?.min   != null) rpcArgs['min']   = args.min;
+    if (args?.max   != null) rpcArgs['max']   = args.max;
+    const result = (await this.client._rpc('query.aggregate', {
+      protocolVersion: PROTOCOL_VERSION,
+      model: '{{ model_name }}',
+      args:  rpcArgs,
+    })) as Record<string, unknown>;
+    return ((result['data'] as {{ model_name }}AggregateOutput[]) ?? [])[0] ?? {};
+  }
+
+  /**
+   * Ask the database to explain the statement a {@link findMany} with these
+   * arguments would run.
+   *
+   * `include` relations are loaded by separate statements and are not part of
+   * the reported plan. `analyze` executes the query to collect real timings.
+   */
+  async explain(args?: {{ model_name }}FindManyArgs & { analyze?: boolean }): Promise<{{ model_name }}ExplainOutput> {
+    const request: Record<string, unknown> = {
+      protocolVersion: PROTOCOL_VERSION,
+      model: '{{ model_name }}',
+      args:  _{{ model_name }}ReadArgs(args),
+    };
+    if (args?.analyze != null) request['analyze'] = args.analyze;
+    return (await this.client._rpc('query.explain', request)) as {{ model_name }}ExplainOutput;
   }
 
   async count(args?: {

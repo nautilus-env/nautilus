@@ -177,6 +177,26 @@ public abstract class BaseNautilusClient implements RpcCaller, AutoCloseable {
         return this.options;
     }
 
+    /**
+     * Snapshot the engine's runtime counters: plan cache, connection pool, open
+     * transactions and per-method call, error and latency totals.
+     *
+     * @param reset zero the cumulative counters after reading them, so
+     *              successive samples measure the interval between calls
+     *              rather than the whole uptime
+     */
+    public final JsonNode metrics(boolean reset) {
+        ObjectNode params = JsonSupport.object();
+        params.put("protocolVersion", JsonSupport.PROTOCOL_VERSION);
+        params.put("reset", reset);
+        return rpc("engine.metrics", params).deepCopy();
+    }
+
+    /** Snapshot the engine's runtime counters without resetting them. */
+    public final JsonNode metrics() {
+        return metrics(false);
+    }
+
     public final String startTransaction(TransactionOptions options) {
         TransactionOptions actual = options == null ? new TransactionOptions() : options;
         ObjectNode params = JsonSupport.object();

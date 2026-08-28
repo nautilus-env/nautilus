@@ -310,6 +310,56 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         });
     }
 
+    /**
+     * Update every {{ model_name }} row matching {@code where}, resolving to the
+     * affected-row count.
+     *
+     * <p>Unlike {@link #update}, no rows are returned: the engine runs one
+     * statement without a {@code RETURNING} clause however many rows it touches.
+     */
+    public CompletableFuture<Long> updateMany(Consumer<{{ dsl_name }}.UpdateArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.UpdateArgs args = new {{ dsl_name }}.UpdateArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return updateManyInternal(args);
+        });
+    }
+
+    /**
+     * Aggregate over every {{ model_name }} row matching {@code where}, without a
+     * grouping key.
+     *
+     * <p>Always resolves to one object, even when the filter matches nothing:
+     * counts are then {@code 0} and the other aggregates {@code null}.
+     */
+    public CompletableFuture<JsonNode> aggregate(Consumer<{{ dsl_name }}.AggregateArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.AggregateArgs args = new {{ dsl_name }}.AggregateArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return aggregateInternal(args);
+        });
+    }
+
+    /**
+     * Ask the database to explain the statement {@link #findMany} would run.
+     *
+     * <p>Relations loaded through {@code include} are separate statements and are
+     * not part of the reported plan.
+     */
+    public CompletableFuture<JsonNode> explain(Consumer<{{ dsl_name }}.ExplainArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.ExplainArgs args = new {{ dsl_name }}.ExplainArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return explainInternal(args);
+        });
+    }
+
     public CompletableFuture<Long> count() {
         return async(() -> countInternal(new {{ dsl_name }}.CountArgs()));
     }
@@ -590,6 +640,30 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             spec.accept(args);
         }
         return deleteManyInternal(args);
+    }
+
+    public long updateMany(Consumer<{{ dsl_name }}.UpdateArgs> spec) {
+        {{ dsl_name }}.UpdateArgs args = new {{ dsl_name }}.UpdateArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return updateManyInternal(args);
+    }
+
+    public JsonNode aggregate(Consumer<{{ dsl_name }}.AggregateArgs> spec) {
+        {{ dsl_name }}.AggregateArgs args = new {{ dsl_name }}.AggregateArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return aggregateInternal(args);
+    }
+
+    public JsonNode explain(Consumer<{{ dsl_name }}.ExplainArgs> spec) {
+        {{ dsl_name }}.ExplainArgs args = new {{ dsl_name }}.ExplainArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return explainInternal(args);
     }
 
     public long count() {
@@ -1028,7 +1102,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
                 Object stopped = stop.resolve(0L);
                 return stopped instanceof Number number ? number.longValue() : 0L;
             }
-            JsonNode result = rpc("query.delete", request);
+            JsonNode result = rpc("query.deleteMany", request);
             long decoded = JsonSupport.count(result);
             stop = events().run(eventContext("deleteMany", EventPhase.AFTER, eventArgs, request, state, decoded, null));
             if (stop != null) {
@@ -1040,6 +1114,35 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             events().run(eventContext("deleteMany", EventPhase.ERROR, eventArgs, request, state, null, error), false);
             throw error;
         }
+    }
+
+    private long updateManyInternal({{ dsl_name }}.UpdateArgs args) {
+        ObjectNode request = JsonSupport.object();
+        request.put("protocolVersion", JsonSupport.PROTOCOL_VERSION);
+        request.put("model", "{{ model_name }}");
+        request.set("filter", args == null ? JsonSupport.object() : args.whereNode());
+        request.set("data", args == null ? JsonSupport.object() : args.dataNode());
+        JsonNode result = rpc("query.updateMany", request);
+        return JsonSupport.count(result);
+    }
+
+    private JsonNode aggregateInternal({{ dsl_name }}.AggregateArgs args) {
+        ObjectNode request = JsonSupport.object();
+        request.put("protocolVersion", JsonSupport.PROTOCOL_VERSION);
+        request.put("model", "{{ model_name }}");
+        request.set("args", args == null ? JsonSupport.object() : args.node());
+        JsonNode result = rpc("query.aggregate", request);
+        JsonNode row = JsonSupport.firstDataRow(result);
+        return row == null || row.isNull() ? JsonSupport.object() : row.deepCopy();
+    }
+
+    private JsonNode explainInternal({{ dsl_name }}.ExplainArgs args) {
+        ObjectNode request = JsonSupport.object();
+        request.put("protocolVersion", JsonSupport.PROTOCOL_VERSION);
+        request.put("model", "{{ model_name }}");
+        request.set("args", args == null ? JsonSupport.object() : args.node());
+        request.put("analyze", args != null && args.analyzeFlag());
+        return rpc("query.explain", request).deepCopy();
     }
 
     private long countInternal({{ dsl_name }}.CountArgs args) {

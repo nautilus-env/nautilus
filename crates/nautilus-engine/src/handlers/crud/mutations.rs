@@ -746,7 +746,24 @@ pub(in crate::handlers) async fn handle_update_many(
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: UpdateManyParams = parse_params(&request, "updateMany")?;
 
-    let count = mutation_count_or_internal(
+    wrap_count_result(
+        execute_update_many(state, params).await?,
+        "updateMany result",
+    )
+}
+
+pub(in crate::handlers) async fn handle_update_many_typed(
+    state: &EngineState,
+    params: UpdateManyParams,
+) -> Result<usize, ProtocolError> {
+    execute_update_many(state, params).await
+}
+
+async fn execute_update_many(
+    state: &EngineState,
+    params: UpdateManyParams,
+) -> Result<usize, ProtocolError> {
+    mutation_count_or_internal(
         execute_update(
             state,
             UpdateParams {
@@ -760,9 +777,7 @@ pub(in crate::handlers) async fn handle_update_many(
         )
         .await?,
         "updateMany",
-    )?;
-
-    wrap_count_result(count, "updateMany result")
+    )
 }
 
 /// Handle `query.deleteMany`. See [`handle_update_many`].
@@ -772,7 +787,24 @@ pub(in crate::handlers) async fn handle_delete_many(
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: DeleteManyParams = parse_params(&request, "deleteMany")?;
 
-    let count = mutation_count_or_internal(
+    wrap_count_result(
+        execute_delete_many(state, params).await?,
+        "deleteMany result",
+    )
+}
+
+pub(in crate::handlers) async fn handle_delete_many_typed(
+    state: &EngineState,
+    params: DeleteManyParams,
+) -> Result<usize, ProtocolError> {
+    execute_delete_many(state, params).await
+}
+
+async fn execute_delete_many(
+    state: &EngineState,
+    params: DeleteManyParams,
+) -> Result<usize, ProtocolError> {
+    mutation_count_or_internal(
         execute_delete(
             state,
             DeleteParams {
@@ -785,9 +817,7 @@ pub(in crate::handlers) async fn handle_delete_many(
         )
         .await?,
         "deleteMany",
-    )?;
-
-    wrap_count_result(count, "deleteMany result")
+    )
 }
 
 #[cfg(test)]

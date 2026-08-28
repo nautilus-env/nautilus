@@ -56,6 +56,14 @@ unaffected.
   latency counters. Passing `reset` zeroes the cumulative counters after reading
   them. Until now none of this was observable from outside the process — the
   plan cache in particular could degrade with no external signal.
+- The generated Rust, Java, JS/TS and Python clients now expose the engine
+  methods above. Each model delegate gains `updateMany` (affected-row count,
+  never a `RETURNING` projection), `aggregate` (one row over the whole filtered
+  set) and `explain`; the Rust client spells the count-only delete
+  `delete_many_count`, since its `delete_many` already reads the deleted rows
+  back. `deleteMany` now calls `query.deleteMany` on its default, non-returning
+  path instead of `query.delete`. The client object itself gains `$metrics` (JS),
+  `metrics` / `sync_metrics` (Python), `metrics` (Java, Rust).
 - Added `query.upsert`, a native engine method that performs an upsert as a
   single atomic statement: `INSERT ... ON CONFLICT ... DO UPDATE` on PostgreSQL
   and SQLite, `INSERT ... ON DUPLICATE KEY UPDATE` on MySQL. The generated
@@ -115,6 +123,19 @@ unaffected.
   hstore, ltree) to opt them into array encoding and decoding. The orphan rule
   keeps a generated crate from writing those conversions itself, so they live in
   `nautilus-core` keyed on this marker.
+
+### Fixed
+
+- `_avg` and `_sum` results now decode in the generated Rust client on
+  PostgreSQL. PostgreSQL computes `AVG` — and `SUM` over exact numerics — as
+  `numeric`, which the engine puts on the wire as a JSON string so no precision
+  is lost; the client decoded that as a `String` and failed with a type error.
+  This affected `group_by` as well as the new `aggregate`.
+- The generated Rust client's engine-only operations (`count`, `groupBy`,
+  `aggregate`, `updateMany`, `deleteMany`, `explain`) now run under
+  `EngineMode::Auto` as well as `Always`. They have no direct-connector
+  equivalent, so they only need to know that an engine may be built, not that
+  the mode prefers the engine for simple CRUD.
 
 ### Changed
 

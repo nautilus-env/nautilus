@@ -33,16 +33,19 @@ mod raw;
 mod read;
 
 pub(super) use aggregation::{
-    handle_aggregate, handle_group_by, handle_group_by_embedded, handle_group_by_typed,
+    handle_aggregate, handle_aggregate_typed, handle_group_by, handle_group_by_embedded,
+    handle_group_by_typed,
 };
 pub(super) use mutations::{
     handle_create, handle_create_embedded, handle_create_many, handle_create_many_embedded,
     handle_create_many_typed, handle_create_typed, handle_delete, handle_delete_many,
-    handle_update, handle_update_embedded, handle_update_many, handle_update_typed, handle_upsert,
-    handle_upsert_embedded, handle_upsert_typed,
+    handle_delete_many_typed, handle_update, handle_update_embedded, handle_update_many,
+    handle_update_many_typed, handle_update_typed, handle_upsert, handle_upsert_embedded,
+    handle_upsert_typed,
 };
 pub(super) use raw::{handle_raw_query, handle_raw_stmt_query};
 pub(super) use read::{
+    execute_explain_typed as handle_explain_typed,
     execute_find_many_typed as handle_find_many_typed,
     execute_find_unique_typed as handle_find_unique_typed, handle_count, handle_count_embedded,
     handle_count_typed, handle_explain, handle_find_first, handle_find_first_or_throw,

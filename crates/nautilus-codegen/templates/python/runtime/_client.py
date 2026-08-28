@@ -574,6 +574,31 @@ class NautilusClient:
         result = await self._rpc("transaction.batch", params)
         return result.get("results", [])
 
+    async def metrics(self, *, reset: bool = False) -> Dict[str, Any]:
+        """Snapshot the engine's runtime counters.
+
+        Covers the read-plan cache (entries, hits, misses, evictions per
+        section), the connection pool, the number of open interactive
+        transactions, and per-method call, error and latency totals.
+
+        Args:
+            reset: Zero the cumulative counters after reading them, so
+                successive samples measure the interval between calls rather
+                than the whole uptime.
+
+        Returns:
+            The metrics snapshot as a dict.
+        """
+        return await self._rpc(
+            "engine.metrics", {"protocolVersion": PROTOCOL_VERSION, "reset": reset}
+        )
+
+    def sync_metrics(self, *, reset: bool = False) -> Dict[str, Any]:
+        """Synchronous counterpart of :meth:`metrics`."""
+        return self._sync_rpc(
+            "engine.metrics", {"protocolVersion": PROTOCOL_VERSION, "reset": reset}
+        )
+
     # These methods allow calling the async engine from synchronous code without
     # requiring the caller to manage an event loop.  They are used by the
     # generated sync delegates (interface = "sync") and by the sync context

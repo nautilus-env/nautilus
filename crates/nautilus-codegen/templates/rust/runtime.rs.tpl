@@ -11,8 +11,8 @@ use nautilus_core::{Error, FindManyArgs, Value};
 use nautilus_dialect::Dialect;
 use nautilus_engine::{handlers, EngineState};
 use nautilus_protocol::{
-    CountParams, CreateManyParams, CreateParams, GroupByParams, ProtocolError, UpdateParams,
-    UpsertParams, PROTOCOL_VERSION,
+    AggregateParams, CountParams, CreateManyParams, CreateParams, DeleteManyParams, ExplainResult,
+    GroupByParams, ProtocolError, UpdateManyParams, UpdateParams, UpsertParams, PROTOCOL_VERSION,
 };
 use nautilus_schema::validate_schema_source;
 use serde_json::Value as JsonValue;
@@ -235,10 +235,40 @@ where
         }
     }
 
+    /// Snapshot the embedded engine's runtime counters.
+    ///
+    /// Covers the read-plan cache (entries, hits, misses and evictions per
+    /// section), the connection pool, the number of open interactive
+    /// transactions, and per-method call, error and latency totals. `reset`
+    /// zeroes the cumulative counters after reading them, so successive
+    /// samples measure the interval between calls rather than the whole
+    /// uptime.
+    ///
+    /// Returns `None` when this client has no engine to ask — the engine mode
+    /// is `Never`, or the schema needed to build one is not available.
+    pub async fn metrics(
+        &self,
+        reset: bool,
+    ) -> nautilus_core::Result<Option<nautilus_protocol::EngineMetricsResult>> {
+        if !self.engine_mode.allows_engine() {
+            return Ok(None);
+        }
+
+        let Some(state) = self.engine_state().await? else {
+            return Ok(None);
+        };
+
+        Ok(Some(handlers::engine_metrics_typed(state.as_ref(), reset).await))
+    }
+
     fn should_try_engine_for_mutation(&self) -> bool {
         self.engine_mode.uses_engine_for_simple_crud()
     }
 
+    /// Gate for the operations the direct connector path cannot serve at all —
+    /// `count`, `groupBy`, `aggregate`, `updateMany`, `deleteMany`, `explain`.
+    /// They only ask whether an engine may be built, not whether this mode
+    /// prefers the engine for simple CRUD.
     fn should_try_engine_for_aggregate(&self) -> bool {
         self.engine_mode.allows_engine()
     }
@@ -605,6 +635,129 @@ where
         .map_err(map_engine_protocol_error)?;
 
     Ok(Some(rows))
+}
+
+pub(crate) async fn try_aggregate_row_via_engine<E>(
+    client: &Client<E>,
+    model: &str,
+    args: JsonValue,
+) -> nautilus_core::Result<Option<Option<crate::Row>>>
+where
+    E: Executor,
+{
+    if !client.should_try_engine_for_aggregate() {
+        return Ok(None);
+    }
+
+    let Some(state) = client.engine_state().await? else {
+        return Ok(None);
+    };
+
+    let params = AggregateParams {
+        protocol_version: PROTOCOL_VERSION,
+        model: model.to_string(),
+        args: Some(args),
+        transaction_id: client.transaction_id(),
+    };
+
+    let rows = handlers::handle_aggregate_typed(state.as_ref(), params)
+        .await
+        .map_err(map_engine_protocol_error)?;
+
+    Ok(Some(rows.into_iter().next()))
+}
+
+pub(crate) async fn try_explain_via_engine<E>(
+    client: &Client<E>,
+    model: &str,
+    args: &FindManyArgs,
+    analyze: bool,
+) -> nautilus_core::Result<Option<ExplainResult>>
+where
+    E: Executor,
+{
+    if !client.should_try_engine_for_aggregate() {
+        return Ok(None);
+    }
+
+    let Some(state) = client.engine_state().await? else {
+        return Ok(None);
+    };
+
+    let transaction_id = client.transaction_id();
+    let result = handlers::handle_explain_typed(
+        state.as_ref(),
+        model,
+        args,
+        analyze,
+        transaction_id.as_deref(),
+    )
+    .await
+    .map_err(map_engine_protocol_error)?;
+
+    Ok(Some(result))
+}
+
+pub(crate) async fn try_update_many_via_engine<E>(
+    client: &Client<E>,
+    model: &str,
+    filter: JsonValue,
+    data: JsonValue,
+) -> nautilus_core::Result<Option<u64>>
+where
+    E: Executor,
+{
+    if !client.should_try_engine_for_aggregate() {
+        return Ok(None);
+    }
+
+    let Some(state) = client.engine_state().await? else {
+        return Ok(None);
+    };
+
+    let params = UpdateManyParams {
+        protocol_version: PROTOCOL_VERSION,
+        model: model.to_string(),
+        filter,
+        data,
+        transaction_id: client.transaction_id(),
+    };
+
+    let count = handlers::handle_update_many_typed(state.as_ref(), params)
+        .await
+        .map_err(map_engine_protocol_error)?;
+
+    Ok(Some(count as u64))
+}
+
+pub(crate) async fn try_delete_many_via_engine<E>(
+    client: &Client<E>,
+    model: &str,
+    filter: JsonValue,
+) -> nautilus_core::Result<Option<u64>>
+where
+    E: Executor,
+{
+    if !client.should_try_engine_for_aggregate() {
+        return Ok(None);
+    }
+
+    let Some(state) = client.engine_state().await? else {
+        return Ok(None);
+    };
+
+    let params = DeleteManyParams {
+        protocol_version: PROTOCOL_VERSION,
+        model: model.to_string(),
+        filter,
+        transaction_id: client.transaction_id(),
+    };
+
+    let count = handlers::handle_delete_many_typed(state.as_ref(), params)
+        .await
+        .map_err(map_engine_protocol_error)?;
+
+    Ok(Some(count as u64))
 }
 
 pub(crate) async fn try_create_via_engine<E, M>(

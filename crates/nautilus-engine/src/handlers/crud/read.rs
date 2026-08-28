@@ -970,7 +970,6 @@ pub(in crate::handlers) async fn handle_explain(
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: ExplainParams = parse_params(&request, "explain")?;
     check_protocol_version(params.protocol_version)?;
-    let tx_id = params.transaction_id;
 
     let model = get_model_or_error(state, &params.model)?;
     let metadata = state.model_metadata(model);
@@ -982,17 +981,55 @@ pub(in crate::handlers) async fn handle_explain(
         crate::filter::SchemaContext::with_state(state),
     )?;
 
+    let result = execute_explain(
+        state,
+        model,
+        query_args,
+        params.analyze,
+        params.transaction_id.as_deref(),
+    )
+    .await?;
+
+    let body = sonic_rs::to_string(&result).map_err(|e| {
+        ProtocolError::Internal(format!("Failed to serialize explain result: {}", e))
+    })?;
+    wrap_result(body, "explain result")
+}
+
+/// Typed `explain` entry point for embedded callers holding
+/// [`nautilus_core::FindManyArgs`], mirroring [`execute_find_many_typed`].
+pub(in crate::handlers) async fn execute_explain_typed(
+    state: &EngineState,
+    model_name: &str,
+    args: &nautilus_core::FindManyArgs,
+    analyze: bool,
+    transaction_id: Option<&str>,
+) -> Result<nautilus_protocol::ExplainResult, ProtocolError> {
+    let model = get_model_or_error(state, model_name)?;
+    let metadata = state.model_metadata(model);
+    let query_args = QueryArgs::from_find_many_args(args, metadata.field_types())?;
+
+    execute_explain(state, model, query_args, analyze, transaction_id).await
+}
+
+async fn execute_explain(
+    state: &EngineState,
+    model: &ModelIr,
+    query_args: QueryArgs,
+    analyze: bool,
+    tx_id: Option<&str>,
+) -> Result<nautilus_protocol::ExplainResult, ProtocolError> {
     let plan = build_find_many_plan(state, model, query_args)?;
     let explain_sql = Sql {
-        text: explain_statement(state.provider(), &plan.sql.text, params.analyze),
+        text: explain_statement(state.provider(), &plan.sql.text, analyze),
         params: plan.sql.params.clone(),
     };
 
     let rows = state
-        .execute_query_on(&explain_sql, "Explain", tx_id.as_deref())
+        .execute_query_on(&explain_sql, "Explain", tx_id)
         .await?;
 
-    let result = nautilus_protocol::ExplainResult {
+    Ok(nautilus_protocol::ExplainResult {
         sql: plan.sql.text,
         params: plan
             .sql
@@ -1001,12 +1038,7 @@ pub(in crate::handlers) async fn handle_explain(
             .map(nautilus_core::Value::to_json_plain)
             .collect(),
         plan: rows.into_iter().map(row_to_json_object).collect(),
-    };
-
-    let body = sonic_rs::to_string(&result).map_err(|e| {
-        ProtocolError::Internal(format!("Failed to serialize explain result: {}", e))
-    })?;
-    wrap_result(body, "explain result")
+    })
 }
 
 pub(in crate::handlers) async fn handle_count(

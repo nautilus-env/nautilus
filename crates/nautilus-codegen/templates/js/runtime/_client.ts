@@ -15,6 +15,31 @@ export interface TransactionBatchOperation {
   params: Record<string, unknown>;
 }
 
+export interface PlanCacheSectionMetrics {
+  entries:   number;
+  hits:      number;
+  misses:    number;
+  evictions: number;
+}
+
+export interface EngineMetrics {
+  uptimeSeconds: number;
+  planCache: {
+    capacity:   number;
+    findUnique: PlanCacheSectionMetrics;
+    findMany:   PlanCacheSectionMetrics;
+  };
+  pool: { size: number; idle: number };
+  activeTransactions: number;
+  methods: Array<{
+    method:   string;
+    calls:    number;
+    errors:   number;
+    totalMs:  number;
+    maxMs:    number;
+  }>;
+}
+
 export interface NautilusClientOptions {
   migrate?: boolean;
   pool?: EnginePoolOptions;
@@ -441,6 +466,19 @@ export class NautilusClient {
 
     const result = (await this._rpc('transaction.batch', params)) as Record<string, unknown>;
     return Array.isArray(result['results']) ? (result['results'] as unknown[]) : [];
+  }
+
+  /**
+   * Snapshot the engine's runtime counters: plan cache, connection pool, open
+   * transactions and per-method call/error/latency totals.
+   *
+   * `reset` zeroes the cumulative counters after reading them, so successive
+   * samples measure the interval between calls rather than the whole uptime.
+   */
+  async $metrics(options?: { reset?: boolean }): Promise<EngineMetrics> {
+    const params: Record<string, unknown> = { protocolVersion: PROTOCOL_VERSION };
+    if (options?.reset != null) params['reset'] = options.reset;
+    return (await this._rpc('engine.metrics', params)) as EngineMetrics;
   }
 
   /**
