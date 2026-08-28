@@ -1535,3 +1535,113 @@ model Doc { id Int @id }
         "unexpected extension changes: {changes:?}"
     );
 }
+
+/// A composite column is reported by introspection as the bare type name while
+/// the DDL generator quotes it, and a `decimal` is reported by MySQL without
+/// the space the generator emits. Neither is a real change, so a second push
+/// of an unchanged schema must stay empty.
+#[test]
+fn cosmetic_type_spellings_do_not_produce_a_type_change() {
+    let target = common::parse(
+        "type Address { street String  city String }\n\
+         model Author { id Int @id  address Address?  rating Decimal(6, 2)? }",
+    )
+    .unwrap();
+
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "Author".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "address".to_string(),
+                col_type: "address".to_string(),
+                nullable: true,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "rating".to_string(),
+                col_type: "decimal(6,2)".to_string(),
+                nullable: true,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    let type_changes: Vec<&Change> = changes
+        .iter()
+        .filter(|change| matches!(change, Change::TypeChanged { .. }))
+        .collect();
+    assert!(
+        type_changes.is_empty(),
+        "quoting and spacing are not type changes, got {type_changes:?}"
+    );
+}
+
+/// The normalisation above must not swallow a real change: a differently cased
+/// quoted PostgreSQL type name refers to a different type.
+#[test]
+fn a_genuinely_different_composite_type_is_still_a_type_change() {
+    let target = common::parse(
+        "type Address { street String  city String }\n\
+         model Author { id Int @id  address Address? }",
+    )
+    .unwrap();
+
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "Author".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "address".to_string(),
+                col_type: "postal_address".to_string(),
+                nullable: true,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        changes.iter().any(|change| matches!(
+            change,
+            Change::TypeChanged { table, column, .. } if table == "Author" && column == "address"
+        )),
+        "a different composite type must still be reported, got {changes:?}"
+    );
+}

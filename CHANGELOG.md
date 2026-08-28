@@ -76,6 +76,26 @@
 
 ### Fixed
 
+- The MySQL schema inspector works again on MySQL 8, so `db pull` and any
+  `db push` against a database that already has tables no longer fail with
+  `no column found for name: table_name`. MySQL reports `information_schema`
+  column labels in upper case and their values as `VARBINARY`, so the queries
+  now alias and `CAST(... AS CHAR)` every column they read. A first push
+  against an empty database was unaffected, which is why this went unnoticed.
+- `db push` is idempotent again for composite-typed and `decimal` columns.
+  Introspection reports `address` and `decimal(6,2)` where the DDL generator
+  writes `"address"` and `decimal(6, 2)`, and the diff compared the two
+  spellings literally, so every push after the first proposed a destructive
+  `TypeChanged` for a column that had not changed.
+- Generated JavaScript clients decode arrays of extension types (`Citext[]`,
+  `Vector[]`, …) instead of leaving a function on the model. The array coercer
+  was interpolated into the assignment without being applied, so the field held
+  an arrow function that `JSON.stringify` dropped and every read silently lost
+  the column.
+- Generated JavaScript and Python clients can write SQL NULL into a nullable
+  extension column. The extension coercers only know how to build a value and
+  rejected `null` / `None` with `Unsupported Citext input`, even though the
+  declared input type allows it.
 - PostgreSQL `INSERT` and `UPDATE` now cast a bound parameter to its column
   type, the way the `WHERE` and `SELECT` paths already did. Values that bind as
   text — pgvector, PostGIS and JSON — were rejected by the server with

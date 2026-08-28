@@ -174,14 +174,15 @@ function _objectEqualityRequiresExplicitEquals(fieldName) {
 
 function _serializeScalarInput(fieldName, value) {
   const serializer = _{{ table_name }}FieldExtensionToWire[fieldName];
-  return _toWireValue(serializer ? serializer(value) : value);
+  if (value == null || !serializer) return _toWireValue(value);
+  return _toWireValue(serializer(value));
 }
 
 function _serializeFilterInput(fieldName, operator, value) {
   const serializer = _{{ table_name }}FieldExtensionToWire[fieldName];
-  if (!serializer) return _toWireValue(value);
+  if (value == null || !serializer) return _toWireValue(value);
   if ((operator === 'in' || operator === 'notIn') && Array.isArray(value)) {
-    return value.map(item => _toWireValue(serializer(item)));
+    return value.map(item => (item == null ? _toWireValue(item) : _toWireValue(serializer(item))));
   }
   return _toWireValue(serializer(value));
 }
@@ -223,7 +224,7 @@ export function _coerce{{ model_name }}(row) {
 {%- elif f.base_type == "Buffer" %}
         if (typeof value === 'string') coerced = Buffer.from(value, 'base64');
 {%- elif f.extension_coercer %}
-        coerced = {{ f.extension_coercer }}(value);
+        coerced = ({{ f.extension_coercer }})(value);
 {%- endif %}
         out['{{ f.name }}'] = coerced;
       }

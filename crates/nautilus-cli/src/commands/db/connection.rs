@@ -441,7 +441,7 @@ pub(crate) fn load_dotenv_for_schema(schema_path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::{postgres_connect_options, resolve_db_url, resolve_schema_path};
-    use crate::test_support::{lock_working_dir, CurrentDirGuard, EnvVarGuard};
+    use crate::test_support::{lock_process_env, lock_working_dir, CurrentDirGuard, EnvVarGuard};
     use nautilus_schema::validate_schema_source;
     use tempfile::TempDir;
 
@@ -498,6 +498,7 @@ mod tests {
 
     #[test]
     fn resolve_db_url_prefers_direct_url_for_admin_flows() {
+        let _env_lock = lock_process_env();
         let _env_guard = EnvVarGuard::unset("DATABASE_URL");
         let schema_ir = parse_schema_ir(
             r#"
@@ -519,6 +520,7 @@ model User {
 
     #[test]
     fn resolve_db_url_falls_back_to_runtime_url_when_direct_url_missing() {
+        let _env_lock = lock_process_env();
         let _env_guard = EnvVarGuard::unset("DATABASE_URL");
         let schema_ir = parse_schema_ir(
             r#"
@@ -539,6 +541,7 @@ model User {
 
     #[test]
     fn resolve_db_url_falls_back_to_runtime_url_when_direct_url_env_is_unset() {
+        let _env_lock = lock_process_env();
         let _env_guard = EnvVarGuard::unset("DATABASE_URL");
         let schema_ir = parse_schema_ir(
             r#"

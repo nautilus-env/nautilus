@@ -176,7 +176,7 @@ fn next_available_path(base: &std::path::Path) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::resolve_database_url_for_pull;
-    use crate::test_support::{lock_working_dir, CurrentDirGuard, EnvVarGuard};
+    use crate::test_support::{lock_process_env, lock_working_dir, CurrentDirGuard, EnvVarGuard};
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;
 
@@ -199,6 +199,7 @@ model User {{
 
     #[test]
     fn resolve_database_url_for_pull_loads_dotenv_next_to_schema() {
+        let _env_lock = lock_process_env();
         let _db_url_guard = EnvVarGuard::unset("DATABASE_URL");
         let env_key = "NAUTILUS_PULL_SCHEMA_DIR_URL";
         let _env_guard = EnvVarGuard::unset(env_key);
@@ -284,6 +285,7 @@ model Post {
 
     #[test]
     fn resolve_database_url_for_pull_prefers_direct_url_from_schema() {
+        let _env_lock = lock_process_env();
         let env_key = "NAUTILUS_PULL_DIRECT_URL";
         let _db_url_guard = EnvVarGuard::unset("DATABASE_URL");
         let _env_guard = EnvVarGuard::unset(env_key);
@@ -319,6 +321,7 @@ model User {{
 
     #[test]
     fn resolve_database_url_for_pull_recovers_datasource_from_parse_errors() {
+        let _env_lock = lock_process_env();
         let env_key = "NAUTILUS_PULL_RECOVERY_DIRECT_URL";
         let _db_url_guard = EnvVarGuard::unset("DATABASE_URL");
         let _env_guard = EnvVarGuard::unset(env_key);

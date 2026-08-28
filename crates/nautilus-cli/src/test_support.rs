@@ -15,6 +15,16 @@ pub(crate) async fn lock_working_dir_async() -> MutexGuard<'static, ()> {
     working_dir_lock().lock().await
 }
 
+/// Serialise a test that mutates process-global environment variables.
+///
+/// [`EnvVarGuard`] restores the previous value on drop, so two tests running
+/// concurrently can hand each other a variable one of them had just unset.
+/// This shares the working-directory mutex: both guard process-wide state, and
+/// one lock keeps the acquisition order trivially consistent.
+pub(crate) fn lock_process_env() -> MutexGuard<'static, ()> {
+    working_dir_lock().blocking_lock()
+}
+
 pub(crate) struct CurrentDirGuard {
     original: PathBuf,
 }

@@ -500,16 +500,20 @@ def _object_equality_requires_explicit_equals(field_name: str) -> None:
 
 def _serialize_scalar_input(field_name: str, value: Any) -> Any:
     serializer = _{{ table_name }}_extension_input_serializers.get(field_name)
-    coerced = serializer(value) if serializer is not None else value
-    return _serialize_wire_value(coerced)
+    if value is None or serializer is None:
+        return _serialize_wire_value(value)
+    return _serialize_wire_value(serializer(value))
 
 
 def _serialize_filter_input(field_name: str, operator: str, value: Any) -> Any:
     serializer = _{{ table_name }}_extension_input_serializers.get(field_name)
-    if serializer is None:
+    if value is None or serializer is None:
         return _serialize_wire_value(value)
     if operator in ("in", "notIn") and isinstance(value, list):
-        return [_serialize_wire_value(serializer(item)) for item in value]
+        return [
+            _serialize_wire_value(item if item is None else serializer(item))
+            for item in value
+        ]
     return _serialize_wire_value(serializer(value))
 
 

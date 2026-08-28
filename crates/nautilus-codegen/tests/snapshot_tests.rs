@@ -2819,3 +2819,83 @@ model Document {
         "the nearest argument block must never start at column 0:\n{code}"
     );
 }
+
+#[test]
+fn test_js_client_calls_the_array_extension_coercer() {
+    let ir = validate(
+        r#"
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [citext]
+}
+
+model Doc {
+  id   Int      @id @default(autoincrement())
+  tags Citext[]
+}
+"#,
+    );
+
+    let (models, _) = generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
+    let code = generated_named_file(&models, "doc.js");
+
+    assert!(
+        code.contains(
+            "coerced = ((value) => Array.isArray(value) ? value.map(item => Citext.from(item)) : value)(value);"
+        ),
+        "the array coercer must be applied to the value, not assigned as a function:\n{code}"
+    );
+    assert!(
+        !code.contains("coerced = (value) =>"),
+        "assigning the coercer itself leaves a function on the model, which JSON.stringify \
+         silently drops:\n{code}"
+    );
+}
+
+#[test]
+fn test_generated_clients_write_null_into_nullable_extension_columns() {
+    let ir = validate(
+        r#"
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [citext]
+}
+
+model Doc {
+  id      Int     @id @default(autoincrement())
+  altSlug Citext?
+}
+"#,
+    );
+
+    // Both the write path and the filter path need the guard, so pin each one
+    // inside its own function: asserting on the whole file would let either
+    // regress while the other kept the assertion green.
+    let (js_models, _) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
+    let js = generated_named_file(&js_models, "doc.js");
+    for function in [
+        "function _serializeScalarInput",
+        "function _serializeFilterInput",
+    ] {
+        let body = section_until(js, function, "\n}");
+        assert!(
+            body.contains("if (value == null || !serializer) return _toWireValue(value);"),
+            "a null must bypass the extension coercer in {function}, which only knows how to \
+             build a value:\n{body}"
+        );
+    }
+
+    let py_models = generate_all_python_models(&ir, true, 0)
+        .expect("generate_all_python_models should succeed");
+    let py = generated_python_file(&py_models, "doc.py");
+    for function in ["def _serialize_scalar_input", "def _serialize_filter_input"] {
+        let body = section_until(py, function, "\n\ndef ");
+        assert!(
+            body.contains("if value is None or serializer is None:"),
+            "the Python client must bypass the extension coercer for None in {function}:\n{body}"
+        );
+    }
+}

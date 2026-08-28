@@ -272,8 +272,6 @@ where
             builder = builder.filter(f);
         }
 
-        // Distance ordering comes first so it stays the primary sort, exactly
-        // as the engine orders a `nearest` query.
         if let Some(nearest) = nearest {
             let distance = nearest_order_expr(nearest, take, cursor.is_some(), !distinct.is_empty())?;
             builder = builder.order_by_expr(distance, OrderDir::Asc);

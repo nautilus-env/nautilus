@@ -976,8 +976,7 @@ impl DiffAccumulator {
 
             let target_type = self.ddl.column_type_sql(field).unwrap_or_default();
             if !target_type.is_empty()
-                && target_type != live_col.col_type
-                && !types_storage_equivalent(self.provider, &live_col.col_type, &target_type)
+                && !column_types_match(self.provider, &live_col.col_type, &target_type)
             {
                 self.changes.push(Change::TypeChanged {
                     table: table_name.to_string(),
@@ -1402,6 +1401,32 @@ fn collect_target_foreign_keys(model: &ModelIr, target: &SchemaIr) -> Vec<Target
 /// versions use `DATETIME`, `CHAR(36)`, and `JSON` respectively.  All of these
 /// are stored identically on disk by SQLite (TEXT/NUMERIC affinity - text
 /// storage for non-numeric values), so they must not trigger a rebuild.
+/// Whether a live column type and the target type describe the same column.
+///
+/// The two sides spell the same type differently in ways that carry no
+/// meaning, and comparing them literally makes every push after the first
+/// report a destructive `TypeChanged` for a column that never changed:
+///
+/// - The DDL generator quotes user-defined type names (`"address"`) because it
+///   writes them straight into statements; introspection reports `address`.
+/// - The generator emits `decimal(6, 2)`; MySQL reports `decimal(6,2)`.
+///
+/// Case is deliberately preserved: a quoted PostgreSQL type name is
+/// case-sensitive, so `"Address"` and `"address"` are genuinely different.
+fn column_types_match(provider: DatabaseProvider, live: &str, target: &str) -> bool {
+    if live == target || types_storage_equivalent(provider, live, target) {
+        return true;
+    }
+    normalize_column_type(live) == normalize_column_type(target)
+}
+
+fn normalize_column_type(s: &str) -> String {
+    strip_identifier_quotes(s)
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
+}
+
 fn types_storage_equivalent(provider: DatabaseProvider, a: &str, b: &str) -> bool {
     if provider != DatabaseProvider::Sqlite {
         return false;

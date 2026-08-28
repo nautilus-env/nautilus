@@ -16,7 +16,7 @@ impl SchemaInspector {
             .map_err(|e| MigrationError::Database(format!("MySQL connection failed: {e}")))?;
 
         let table_rows = sqlx::query(
-            "SELECT table_name \
+            "SELECT CAST(table_name AS CHAR) AS table_name \
              FROM information_schema.tables \
              WHERE table_schema = DATABASE() \
                AND table_type   = 'BASE TABLE' \
@@ -41,8 +41,13 @@ impl SchemaInspector {
         // `information_schema` for every single table.
         let mut columns_by_table = split_mysql_rows_by_table(
             sqlx::query(
-                "SELECT table_name, column_name, column_type, is_nullable, column_default, \
-                        generation_expression, extra \
+                "SELECT CAST(table_name            AS CHAR) AS table_name, \
+                        CAST(column_name           AS CHAR) AS column_name, \
+                        CAST(column_type           AS CHAR) AS column_type, \
+                        CAST(is_nullable           AS CHAR) AS is_nullable, \
+                        CAST(column_default        AS CHAR) AS column_default, \
+                        CAST(generation_expression AS CHAR) AS generation_expression, \
+                        CAST(extra                 AS CHAR) AS extra \
                  FROM information_schema.columns \
                  WHERE table_schema = DATABASE() \
                  ORDER BY table_name, ordinal_position",
@@ -55,7 +60,12 @@ impl SchemaInspector {
 
         let mut indexes_by_table = split_mysql_rows_by_table(
             sqlx::query(
-                "SELECT table_name, index_name, column_name, non_unique, seq_in_index, index_type \
+                "SELECT CAST(table_name  AS CHAR) AS table_name, \
+                        CAST(index_name  AS CHAR) AS index_name, \
+                        CAST(column_name AS CHAR) AS column_name, \
+                        non_unique                AS non_unique, \
+                        seq_in_index              AS seq_in_index, \
+                        CAST(index_type  AS CHAR) AS index_type \
                  FROM information_schema.statistics \
                  WHERE table_schema = DATABASE() \
                  ORDER BY table_name, index_name, seq_in_index",
@@ -69,13 +79,13 @@ impl SchemaInspector {
         let mut foreign_keys_by_table = split_mysql_rows_by_table(
             sqlx::query(
                 "SELECT \
-                     kcu.table_name, \
-                     kcu.constraint_name, \
-                     kcu.column_name, \
-                     kcu.referenced_table_name, \
-                     kcu.referenced_column_name, \
-                     rc.delete_rule, \
-                     rc.update_rule \
+                     CAST(kcu.table_name             AS CHAR) AS table_name, \
+                     CAST(kcu.constraint_name        AS CHAR) AS constraint_name, \
+                     CAST(kcu.column_name            AS CHAR) AS column_name, \
+                     CAST(kcu.referenced_table_name  AS CHAR) AS referenced_table_name, \
+                     CAST(kcu.referenced_column_name AS CHAR) AS referenced_column_name, \
+                     CAST(rc.delete_rule             AS CHAR) AS delete_rule, \
+                     CAST(rc.update_rule             AS CHAR) AS update_rule \
                  FROM information_schema.key_column_usage kcu \
                  JOIN information_schema.referential_constraints rc \
                    ON kcu.constraint_name   = rc.constraint_name \
@@ -92,7 +102,9 @@ impl SchemaInspector {
 
         let mut checks_by_table = split_mysql_rows_by_table(
             sqlx::query(
-                "SELECT tc.table_name, tc.constraint_name, cc.check_clause \
+                "SELECT CAST(tc.table_name      AS CHAR) AS table_name, \
+                        CAST(tc.constraint_name AS CHAR) AS constraint_name, \
+                        CAST(cc.check_clause    AS CHAR) AS check_clause \
                  FROM information_schema.table_constraints tc \
                  JOIN information_schema.check_constraints cc \
                    ON cc.constraint_schema = tc.constraint_schema \
