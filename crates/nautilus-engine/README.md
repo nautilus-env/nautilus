@@ -10,7 +10,7 @@ It loads a validated schema, connects to a database, and serves requests on stdi
 | --- | --- |
 | Handshake | `engine.handshake` |
 | Reads | `query.findMany`, `query.findFirst`, `query.findUnique`, `query.findFirstOrThrow`, `query.findUniqueOrThrow` |
-| Writes | `query.create`, `query.createMany`, `query.update`, `query.delete` |
+| Writes | `query.create`, `query.createMany`, `query.update`, `query.upsert`, `query.delete` |
 | Aggregation | `query.count`, `query.groupBy` |
 | Raw SQL | `query.rawQuery`, `query.rawStmtQuery` |
 | Transactions | `transaction.start`, `transaction.commit`, `transaction.rollback`, `transaction.batch` |
@@ -37,6 +37,8 @@ in the current directory.
 
 - `transactionId` is supported on request types that can run inside an open transaction.
 - `query.findMany` also supports protocol-level chunking via `chunkSize`; partial responses are emitted before the final response when the client opts in.
+- `query.upsert` runs as one atomic statement. Its `where` must name exactly the columns of one unique constraint (or the primary key), and `create` must supply a value for each of them.
+- `request.cancel` aborts the engine-side task only; the statement keeps running on the database. Use `--statement-timeout-ms` to bound it server-side.
 - The engine owns schema-aware field mapping, relation hydration for includes, mutation-side `@updatedAt`, transaction timeout handling, and aggregate/raw-query execution.
 
 ## Diagnostics

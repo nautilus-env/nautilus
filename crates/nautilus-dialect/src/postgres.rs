@@ -1,7 +1,7 @@
 //! PostgreSQL SQL dialect renderer.
 
 use crate::{Dialect, Sql};
-use nautilus_core::{BinaryOp, Delete, Expr, Insert, Result, Select, Update, Value};
+use nautilus_core::{BinaryOp, Delete, Expr, Insert, OnConflict, Result, Select, Update, Value};
 
 /// PostgreSQL SQL dialect renderer.
 ///
@@ -23,7 +23,14 @@ impl Dialect for PostgresDialect {
 
     fn render_insert_owned(&self, mut insert: Insert) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_insert_render(&insert));
-        render_insert_body_mut!(&mut ctx, &mut insert, '"', true, postgres_assignment_cast);
+        render_insert_body_mut!(
+            &mut ctx,
+            &mut insert,
+            '"',
+            true,
+            postgres_assignment_cast,
+            render_on_conflict
+        );
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,
@@ -203,6 +210,10 @@ impl ParamCast {
 
 /// The rendered `::type` suffix a bound parameter needs in an INSERT or UPDATE,
 /// or `None` when the parameter binds as its own type already.
+fn render_on_conflict(ctx: &mut RenderContext, on_conflict: &mut OnConflict) {
+    render_on_conflict_body_mut!(ctx, on_conflict, '"', postgres_assignment_cast);
+}
+
 fn postgres_assignment_cast(value: &Value) -> Option<String> {
     let cast = postgres_param_cast(value)?;
     let mut sql = String::new();
@@ -257,6 +268,65 @@ mod tests {
         assert_eq!(quote_identifier("email"), "\"email\"");
         assert_eq!(quote_identifier("foo\"bar"), "\"foo\"\"bar\"");
         assert_eq!(quote_identifier("a\"b\"c"), "\"a\"\"b\"\"c\"");
+    }
+
+    #[test]
+    fn upsert_renders_on_conflict_do_update_after_the_values() {
+        let insert = Insert::into_table("users")
+            .columns(vec![
+                nautilus_core::ColumnMarker::new("users", "email"),
+                nautilus_core::ColumnMarker::new("users", "name"),
+            ])
+            .values(vec![
+                Value::String("alice@example.com".to_string()),
+                Value::String("Alice".to_string()),
+            ])
+            .on_conflict(nautilus_core::OnConflict::do_update(
+                vec![nautilus_core::ColumnMarker::new("users", "email")],
+                vec![(
+                    nautilus_core::ColumnMarker::new("users", "name"),
+                    Value::String("Alice II".to_string()),
+                )],
+            ))
+            .returning(vec![nautilus_core::ColumnMarker::new("users", "id")])
+            .build()
+            .unwrap();
+
+        let sql = PostgresDialect.render_insert(&insert).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "INSERT INTO \"users\" (\"email\", \"name\") VALUES ($1, $2) \
+             ON CONFLICT (\"email\") DO UPDATE SET \"name\" = $3 \
+             RETURNING \"users\".\"id\" AS \"users__id\""
+        );
+        assert_eq!(
+            sql.params,
+            vec![
+                Value::String("alice@example.com".to_string()),
+                Value::String("Alice".to_string()),
+                Value::String("Alice II".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn upsert_without_assignments_renders_do_nothing() {
+        let insert = Insert::into_table("users")
+            .columns(vec![nautilus_core::ColumnMarker::new("users", "email")])
+            .values(vec![Value::String("alice@example.com".to_string())])
+            .on_conflict(nautilus_core::OnConflict::do_nothing(vec![
+                nautilus_core::ColumnMarker::new("users", "email"),
+            ]))
+            .build()
+            .unwrap();
+
+        let sql = PostgresDialect.render_insert(&insert).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "INSERT INTO \"users\" (\"email\") VALUES ($1) ON CONFLICT (\"email\") DO NOTHING"
+        );
     }
 
     #[test]

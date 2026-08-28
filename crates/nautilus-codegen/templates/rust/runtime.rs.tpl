@@ -12,7 +12,7 @@ use nautilus_dialect::Dialect;
 use nautilus_engine::{handlers, EngineState};
 use nautilus_protocol::{
     CountParams, CreateManyParams, CreateParams, GroupByParams, ProtocolError, UpdateParams,
-    PROTOCOL_VERSION,
+    UpsertParams, PROTOCOL_VERSION,
 };
 use nautilus_schema::validate_schema_source;
 use serde_json::Value as JsonValue;
@@ -700,6 +700,42 @@ where
     };
 
     let rows = handlers::handle_update_typed(state.as_ref(), params)
+        .await
+        .map_err(map_engine_protocol_error)?;
+
+    decode_engine_rows(rows, decode_row).map(Some)
+}
+
+pub(crate) async fn try_upsert_via_engine<E, M>(
+    client: &Client<E>,
+    model: &str,
+    filter: JsonValue,
+    create: JsonValue,
+    update: JsonValue,
+    decode_row: impl FnMut(crate::Row) -> nautilus_core::Result<M>,
+) -> nautilus_core::Result<Option<Vec<M>>>
+where
+    E: Executor,
+{
+    if !client.should_try_engine_for_mutation() {
+        return Ok(None);
+    }
+
+    let Some(state) = client.engine_state().await? else {
+        return Ok(None);
+    };
+
+    let params = UpsertParams {
+        protocol_version: PROTOCOL_VERSION,
+        model: model.to_string(),
+        filter,
+        create,
+        update,
+        transaction_id: client.transaction_id(),
+        return_data: true,
+    };
+
+    let rows = handlers::handle_upsert_typed(state.as_ref(), params)
         .await
         .map_err(map_engine_protocol_error)?;
 

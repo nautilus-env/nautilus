@@ -687,24 +687,23 @@ export class {{ delegate_name }} {
     include?:    {% if has_includes %}{{ model_name }}IncludeInput{% else %}Record<string, unknown>{% endif %};
     returnData?: boolean;
   }): Promise<{{ model_name }}Model | null> {
-    const existing = await this.findFirst({ where: args.where });
-    if (existing != null) {
-      const updated = await this.update({ where: args.where, data: args.data.update, returnData: args.returnData ?? true });
-      if (!(args.returnData ?? true)) return null;
-      if (args.include) {
-        const rows = await this.findMany({ where: args.where, take: 1, include: args.include });
-        return rows[0] ?? (Array.isArray(updated) ? updated[0] : null) ?? existing;
-      }
-      return Array.isArray(updated) ? (updated[0] ?? existing) : existing;
-    }
-    const created = await this.create({ data: args.data.create, returnData: args.returnData ?? true });
-    if (!(args.returnData ?? true)) return null;
-    if (created == null) throw new Error('upsert: create returned no data');
+    const returnData = args.returnData ?? true;
+    const result = (await this.client._rpc('query.upsert', {
+      protocolVersion: PROTOCOL_VERSION,
+      model:      '{{ model_name }}',
+      filter:     _processWhereFilters((args.where ?? {}) as Record<string, unknown>, _{{ table_name }}FieldToDb),
+      create:     _processCreateData(args.data.create as Record<string, unknown>, _{{ table_name }}FieldToDb),
+      update:     _processCreateData((args.data.update ?? {}) as Record<string, unknown>, _{{ table_name }}FieldToDb),
+      returnData,
+    })) as Record<string, unknown>;
+    if (!returnData) return null;
+    const rows = result['data'] as unknown[] | undefined;
+    if (!rows?.length) throw new Error('upsert: engine returned no data');
     if (args.include) {
-      const rows = await this.findMany({ where: args.where, take: 1, include: args.include });
-      return rows[0] ?? created;
+      const included = await this.findMany({ where: args.where, take: 1, include: args.include });
+      return included[0] ?? _coerce{{ model_name }}(rows[0] as Record<string, unknown>);
     }
-    return created;
+    return _coerce{{ model_name }}(rows[0] as Record<string, unknown>);
   }
 
   async groupBy(args: {

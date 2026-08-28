@@ -324,6 +324,13 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         });
     }
 
+    /**
+     * Create or update a {{ model_name }} in one atomic statement.
+     *
+     * <p>{@code where} must name exactly one unique constraint (or the primary
+     * key): those columns become the conflict target, and {@code create} must
+     * supply a value for each of them.
+     */
     public CompletableFuture<{{ model_name }}> upsert(Consumer<{{ dsl_name }}.UpsertArgs> spec) {
         return async(() -> {
             {{ dsl_name }}.UpsertArgs args = new {{ dsl_name }}.UpsertArgs();
@@ -597,6 +604,13 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         return countInternal(args);
     }
 
+    /**
+     * Create or update a {{ model_name }} in one atomic statement.
+     *
+     * <p>{@code where} must name exactly one unique constraint (or the primary
+     * key): those columns become the conflict target, and {@code create} must
+     * supply a value for each of them.
+     */
     public {{ model_name }} upsert(Consumer<{{ dsl_name }}.UpsertArgs> spec) {
         {{ dsl_name }}.UpsertArgs args = new {{ dsl_name }}.UpsertArgs();
         if (spec != null) {
@@ -1038,12 +1052,19 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
     }
 
     private {{ model_name }} upsertInternal({{ dsl_name }}.UpsertArgs args) {
-        List<{{ model_name }}> existing = findManyInternal(new {{ dsl_name }}.FindManyArgs().where(w -> w.raw(args.whereNode())).take(1));
-        if (!existing.isEmpty()) {
-            List<{{ model_name }}> updated = updateInternal(new {{ dsl_name }}.UpdateArgs().where(w -> w.raw(args.whereNode())).data(args.updateNode()));
-            return updated.isEmpty() ? existing.get(0) : updated.get(0);
+        ObjectNode request = JsonSupport.object();
+        request.put("protocolVersion", JsonSupport.PROTOCOL_VERSION);
+        request.put("model", "{{ model_name }}");
+        request.set("filter", args == null ? JsonSupport.object() : args.whereNode());
+        request.set("create", args == null ? JsonSupport.object() : args.createNode());
+        request.set("update", args == null ? JsonSupport.object() : args.updateNode());
+        request.put("returnData", true);
+        JsonNode result = rpc("query.upsert", request);
+        JsonNode row = JsonSupport.firstDataRow(result);
+        if (row == null || row.isNull()) {
+            throw new NautilusException("upsert: engine returned no data");
         }
-        return createInternal(new {{ dsl_name }}.CreateInput(args.createNode()));
+        return {{ model_name }}.fromJsonNode(row);
     }
 
     private List<JsonNode> groupByInternal({{ dsl_name }}.GroupByArgs args) {

@@ -21,12 +21,21 @@ pub const QUERY_CREATE: &str = "query.create";
 pub const QUERY_CREATE_MANY: &str = "query.createMany";
 pub const QUERY_UPDATE: &str = "query.update";
 pub const QUERY_DELETE: &str = "query.delete";
+/// Insert a row, or update the conflicting one, in a single atomic statement.
+pub const QUERY_UPSERT: &str = "query.upsert";
 pub const QUERY_COUNT: &str = "query.count";
 /// Group records and compute aggregates (COUNT, AVG, SUM, MIN, MAX).
 pub const QUERY_GROUP_BY: &str = "query.groupBy";
 /// Method name for schema validation.
 pub const SCHEMA_VALIDATE: &str = "schema.validate";
 /// Cancel an in-flight request by id.
+///
+/// This aborts the engine-side task and stops the response from being sent; it
+/// does **not** reach the database, so a statement already running there keeps
+/// running and keeps holding its connection until it finishes. Bounding that
+/// requires a server-side limit — `statement_timeout` on PostgreSQL,
+/// `max_execution_time` on MySQL — which the engine's `--statement-timeout-ms`
+/// flag installs on every pooled connection.
 pub const REQUEST_CANCEL: &str = "request.cancel";
 
 /// Start a new interactive transaction.
@@ -83,7 +92,9 @@ pub struct RequestCancelParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestCancelResult {
-    /// True when a live request was found and aborted.
+    /// True when a live request was found and its engine task aborted.
+    ///
+    /// Says nothing about the database: see [`REQUEST_CANCEL`].
     pub cancelled: bool,
 }
 
@@ -200,6 +211,30 @@ pub struct DeleteParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_id: Option<String>,
     /// Whether to return the deleted row(s). Defaults to `true`.
+    #[serde(default = "default_true")]
+    pub return_data: bool,
+}
+
+/// Upsert request parameters.
+///
+/// `filter` must select exactly the columns of one unique constraint (or the
+/// primary key) of the model: those columns become the conflict target of the
+/// underlying `INSERT ... ON CONFLICT` / `ON DUPLICATE KEY UPDATE` statement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertParams {
+    pub protocol_version: u32,
+    pub model: String,
+    /// Unique filter identifying the row to update on conflict.
+    pub filter: Value,
+    /// Fields written when the row does not exist yet.
+    pub create: Value,
+    /// Fields written when the row already exists. Empty means "leave it as is".
+    pub update: Value,
+    /// Optional transaction ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<String>,
+    /// Whether to return the inserted/updated row. Defaults to `true`.
     #[serde(default = "default_true")]
     pub return_data: bool,
 }

@@ -51,7 +51,7 @@ impl MysqlExecutor {
                 .map_err(|e| Error::connection(e, "Invalid MySQL connection options"))?,
         );
         let pool = pool_options
-            .apply_to(MySqlPoolOptions::new().max_connections(5))
+            .apply_to_mysql_pool(MySqlPoolOptions::new().max_connections(5))
             .connect_with(connect_options)
             .await
             .map_err(|e| Error::connection(e, "Failed to connect to MySQL"))?;

@@ -480,7 +480,7 @@ pub(in crate::handlers) async fn execute_find_many_typed(
     execute_find_many_rows(state, model, query_args, transaction_id).await
 }
 
-fn build_find_unique_sql(
+pub(super) fn build_find_unique_sql(
     state: &EngineState,
     model: &ModelIr,
     qualified_filter: Expr,

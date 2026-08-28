@@ -9,6 +9,7 @@ export interface EnginePoolOptions {
   idleTimeoutMs?: number | null;
   testBeforeAcquire?: boolean;
   statementCacheCapacity?: number;
+  statementTimeoutMs?: number;
   maxConcurrentRequests?: number;
 }
 

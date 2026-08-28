@@ -18,7 +18,7 @@ The crate contains typed request/response structs, method-name constants, and st
 | --- | --- |
 | Handshake | `engine.handshake` |
 | Reads | `query.findMany`, `query.findFirst`, `query.findUnique`, `query.findFirstOrThrow`, `query.findUniqueOrThrow` |
-| Writes | `query.create`, `query.createMany`, `query.update`, `query.delete` |
+| Writes | `query.create`, `query.createMany`, `query.update`, `query.upsert`, `query.delete` |
 | Aggregation | `query.count`, `query.groupBy` |
 | Raw SQL | `query.rawQuery`, `query.rawStmtQuery` |
 | Transactions | `transaction.start`, `transaction.commit`, `transaction.rollback`, `transaction.batch` |

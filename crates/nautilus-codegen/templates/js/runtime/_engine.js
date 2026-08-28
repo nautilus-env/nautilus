@@ -72,6 +72,12 @@ export class EngineProcess {
         String(this.poolOptions.statementCacheCapacity),
       );
     }
+    if (this.poolOptions.statementTimeoutMs != null) {
+      args.push(
+        '--statement-timeout-ms',
+        String(this.poolOptions.statementTimeoutMs),
+      );
+    }
     if (this.poolOptions.maxConcurrentRequests != null) {
       args.push(
         '--max-concurrent-requests',

@@ -3,8 +3,11 @@
 use std::time::Duration;
 
 use sqlx::{
-    mysql::MySqlConnectOptions, pool::PoolOptions as SqlxPoolOptions, postgres::PgConnectOptions,
-    sqlite::SqliteConnectOptions, Database,
+    mysql::{MySqlConnectOptions, MySqlPoolOptions},
+    pool::PoolOptions as SqlxPoolOptions,
+    postgres::PgConnectOptions,
+    sqlite::SqliteConnectOptions,
+    Database, Executor,
 };
 
 /// Optional overrides for the sqlx connection pool and statement cache used by
@@ -21,6 +24,7 @@ pub struct ConnectorPoolOptions {
     idle_timeout: Option<Option<Duration>>,
     test_before_acquire: Option<bool>,
     statement_cache_capacity: Option<usize>,
+    statement_timeout: Option<Duration>,
 }
 
 impl ConnectorPoolOptions {
@@ -33,6 +37,7 @@ impl ConnectorPoolOptions {
             idle_timeout: None,
             test_before_acquire: None,
             statement_cache_capacity: None,
+            statement_timeout: None,
         }
     }
 
@@ -76,6 +81,19 @@ impl ConnectorPoolOptions {
         self
     }
 
+    /// Cap how long the *database* runs a single statement before aborting it.
+    ///
+    /// This is the only cancellation that reaches the server: dropping or
+    /// aborting the client-side future leaves the query running to completion.
+    /// Maps to `statement_timeout` on PostgreSQL and to `max_execution_time` on
+    /// MySQL; SQLite has no equivalent and ignores it.
+    ///
+    /// A zero duration means "no limit" on both backends.
+    pub fn statement_timeout(mut self, statement_timeout: Duration) -> Self {
+        self.statement_timeout = Some(statement_timeout);
+        self
+    }
+
     /// Return the configured maximum-connection override, if any.
     pub const fn get_max_connections(&self) -> Option<u32> {
         self.max_connections
@@ -109,6 +127,11 @@ impl ConnectorPoolOptions {
         self.statement_cache_capacity
     }
 
+    /// Return the configured server-side statement-timeout override, if any.
+    pub const fn get_statement_timeout(&self) -> Option<Duration> {
+        self.statement_timeout
+    }
+
     pub(crate) fn apply_to<DB: Database>(
         &self,
         mut options: SqlxPoolOptions<DB>,
@@ -138,7 +161,34 @@ impl ConnectorPoolOptions {
         if let Some(statement_cache_capacity) = self.statement_cache_capacity {
             options = options.statement_cache_capacity(statement_cache_capacity);
         }
+        if let Some(statement_timeout) = self.statement_timeout {
+            options = options.options([("statement_timeout", statement_timeout.as_millis())]);
+        }
         options
+    }
+
+    /// Apply the pool overrides plus MySQL's session-level statement timeout.
+    ///
+    /// PostgreSQL carries `statement_timeout` in the startup packet, but MySQL
+    /// has no connect option for `max_execution_time`, so it has to be set once
+    /// per connection as it enters the pool.
+    pub(crate) fn apply_to_mysql_pool(&self, options: MySqlPoolOptions) -> MySqlPoolOptions {
+        let options = self.apply_to(options);
+        let Some(statement_timeout) = self.statement_timeout else {
+            return options;
+        };
+
+        let set_timeout = format!(
+            "SET SESSION max_execution_time = {}",
+            statement_timeout.as_millis()
+        );
+        options.after_connect(move |connection, _metadata| {
+            let set_timeout = set_timeout.clone();
+            Box::pin(async move {
+                connection.execute(set_timeout.as_str()).await?;
+                Ok(())
+            })
+        })
     }
 
     pub(crate) fn apply_to_mysql_connect_options(
@@ -204,6 +254,31 @@ mod tests {
             .apply_to(base);
 
         assert_eq!(applied.get_idle_timeout(), None);
+    }
+
+    #[test]
+    fn apply_to_postgres_connect_options_sends_statement_timeout_at_startup() {
+        let applied = ConnectorPoolOptions::new()
+            .statement_timeout(Duration::from_millis(2_500))
+            .apply_to_postgres_connect_options(
+                "postgres://localhost/nautilus"
+                    .parse::<PgConnectOptions>()
+                    .expect("postgres url should parse"),
+            );
+
+        assert_eq!(applied.get_options(), Some("-c statement_timeout=2500"));
+    }
+
+    #[test]
+    fn statement_timeout_is_unset_by_default() {
+        assert_eq!(ConnectorPoolOptions::new().get_statement_timeout(), None);
+
+        let applied = ConnectorPoolOptions::new().apply_to_postgres_connect_options(
+            "postgres://localhost/nautilus"
+                .parse::<PgConnectOptions>()
+                .expect("postgres url should parse"),
+        );
+        assert_eq!(applied.get_options(), None);
     }
 
     #[test]

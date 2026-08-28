@@ -157,6 +157,19 @@ pub(crate) fn estimate_insert_render(insert: &Insert) -> RenderEstimate {
         }
     }
 
+    if let Some(on_conflict) = &insert.on_conflict {
+        estimate.add_sql(32);
+        for column in &on_conflict.target {
+            estimate.add_sql(estimate_identifier_len(&column.name) + 2);
+        }
+        for (column, value) in &on_conflict.update {
+            estimate.add_sql(estimate_identifier_len(&column.name) + 11);
+            if !matches!(value, Value::Null) {
+                estimate.add_param(true);
+            }
+        }
+    }
+
     if !insert.returning.is_empty() {
         estimate.add_sql(12);
         for column in &insert.returning {

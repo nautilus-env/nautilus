@@ -1,7 +1,7 @@
 //! SQLite SQL dialect renderer.
 
 use crate::{Dialect, Sql};
-use nautilus_core::{BinaryOp, Delete, Expr, Insert, Result, Select, Update, Value};
+use nautilus_core::{BinaryOp, Delete, Expr, Insert, OnConflict, Result, Select, Update, Value};
 
 /// SQLite SQL dialect renderer.
 #[derive(Debug, Clone, Copy)]
@@ -21,7 +21,14 @@ impl Dialect for SqliteDialect {
 
     fn render_insert_owned(&self, mut insert: Insert) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_insert_render(&insert));
-        render_insert_body_mut!(&mut ctx, &mut insert, '"', true, crate::no_param_cast);
+        render_insert_body_mut!(
+            &mut ctx,
+            &mut insert,
+            '"',
+            true,
+            crate::no_param_cast,
+            render_on_conflict
+        );
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,
@@ -75,6 +82,10 @@ impl RenderContext {
     fn take_param(&mut self, value: &mut Value) {
         self.push_param(std::mem::replace(value, Value::Null));
     }
+}
+
+fn render_on_conflict(ctx: &mut RenderContext, on_conflict: &mut OnConflict) {
+    render_on_conflict_body_mut!(ctx, on_conflict, '"', crate::no_param_cast);
 }
 
 fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select) {
@@ -201,6 +212,37 @@ mod tests {
         assert_eq!(quote_identifier("email"), "\"email\"");
         assert_eq!(quote_identifier("foo\"bar"), "\"foo\"\"bar\"");
         assert_eq!(quote_identifier("a\"b\"c"), "\"a\"\"b\"\"c\"");
+    }
+
+    #[test]
+    fn upsert_renders_on_conflict_do_update() {
+        let insert = Insert::into_table("users")
+            .columns(vec![
+                nautilus_core::ColumnMarker::new("users", "email"),
+                nautilus_core::ColumnMarker::new("users", "name"),
+            ])
+            .values(vec![
+                Value::String("alice@example.com".to_string()),
+                Value::String("Alice".to_string()),
+            ])
+            .on_conflict(nautilus_core::OnConflict::do_update(
+                vec![nautilus_core::ColumnMarker::new("users", "email")],
+                vec![(
+                    nautilus_core::ColumnMarker::new("users", "name"),
+                    Value::String("Alice II".to_string()),
+                )],
+            ))
+            .build()
+            .unwrap();
+
+        let sql = SqliteDialect.render_insert(&insert).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "INSERT INTO \"users\" (\"email\", \"name\") VALUES (?, ?) \
+             ON CONFLICT (\"email\") DO UPDATE SET \"name\" = ?"
+        );
+        assert_eq!(sql.params.len(), 3);
     }
 
     #[test]

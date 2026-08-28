@@ -34,7 +34,7 @@ macro_rules! render_returning_mut {
 
 /// Mutable/owned variant of [`render_insert_body!`] used by `render_*_owned`.
 macro_rules! render_insert_body_mut {
-    ($ctx:expr, $insert:expr, $quote:expr, $supports_returning:expr, $param_cast:expr) => {{
+    ($ctx:expr, $insert:expr, $quote:expr, $supports_returning:expr, $param_cast:expr, $conflict_clause:ident) => {{
         $ctx.sql.push_str("INSERT INTO ");
         crate::push_quoted_identifier(&mut $ctx.sql, &$insert.table, $quote);
 
@@ -70,8 +70,52 @@ macro_rules! render_insert_body_mut {
             $ctx.sql.push(')');
         }
 
+        if let Some(on_conflict) = $insert.on_conflict.as_mut() {
+            $conflict_clause($ctx, on_conflict);
+        }
+
         if $supports_returning {
             render_returning_mut!($ctx, $insert.returning, $quote);
+        }
+    }};
+}
+
+/// Append the SQL-standard `ON CONFLICT (...) DO UPDATE SET ... ` / `DO NOTHING`
+/// clause shared by PostgreSQL and SQLite.
+///
+/// MySQL spells the same idea `ON DUPLICATE KEY UPDATE` and has no conflict
+/// target, so it renders its own clause instead of calling this.
+macro_rules! render_on_conflict_body_mut {
+    ($ctx:expr, $on_conflict:expr, $quote:expr, $param_cast:expr) => {{
+        $ctx.sql.push_str(" ON CONFLICT (");
+        for (i, col) in $on_conflict.target.iter().enumerate() {
+            if i > 0 {
+                $ctx.sql.push_str(", ");
+            }
+            crate::push_quoted_identifier(&mut $ctx.sql, &col.name, $quote);
+        }
+        $ctx.sql.push(')');
+
+        if $on_conflict.update.is_empty() {
+            $ctx.sql.push_str(" DO NOTHING");
+        } else {
+            $ctx.sql.push_str(" DO UPDATE SET ");
+            for (i, (col, value)) in $on_conflict.update.iter_mut().enumerate() {
+                if i > 0 {
+                    $ctx.sql.push_str(", ");
+                }
+                crate::push_quoted_identifier(&mut $ctx.sql, &col.name, $quote);
+                $ctx.sql.push_str(" = ");
+                if matches!(value, nautilus_core::Value::Null) {
+                    $ctx.sql.push_str("NULL");
+                } else {
+                    let cast = $param_cast(&*value);
+                    $ctx.take_param(value);
+                    if let Some(cast) = cast.as_deref() {
+                        $ctx.sql.push_str(cast);
+                    }
+                }
+            }
         }
     }};
 }

@@ -1,7 +1,9 @@
 use super::common::{
-    execute_mutation_result, finish_mutation, parse_optional_model_filter, wrap_count_result,
-    wrap_mutation_result, MutationResultData,
+    execute_mutation_result, finish_mutation, parse_and_qualify_model_filter,
+    parse_optional_model_filter, protocol_filter_body, wrap_count_result, wrap_mutation_result,
+    MutationResultData,
 };
+use super::read::build_find_unique_sql;
 use super::*;
 
 fn row_field_json<'a>(
@@ -339,6 +341,245 @@ async fn execute_update(
     .await
 }
 
+/// Resolve the conflict target of an upsert from its unique `where` filter.
+///
+/// `INSERT ... ON CONFLICT` needs the exact column list of one unique index, so
+/// the filter has to name a whole constraint and nothing else — a partial or
+/// mixed key would either fail in the database or silently match a different
+/// index than the caller meant.
+fn unique_conflict_target<'a>(
+    model: &'a ModelIr,
+    filter: &JsonValue,
+) -> Result<Vec<&'a FieldIr>, ProtocolError> {
+    let JsonValue::Object(filter_obj) = protocol_filter_body(filter) else {
+        return Err(ProtocolError::InvalidFilter(
+            "upsert where must be an object".to_string(),
+        ));
+    };
+
+    if filter_obj.is_empty() {
+        return Err(ProtocolError::InvalidFilter(
+            "upsert where cannot be empty".to_string(),
+        ));
+    }
+
+    let mut filter_fields = Vec::with_capacity(filter_obj.len());
+    for key in filter_obj.keys() {
+        let field = model
+            .scalar_fields()
+            .find(|field| field.logical_name == *key || field.db_name == *key)
+            .ok_or_else(|| {
+                ProtocolError::InvalidFilter(format!(
+                    "Unknown field '{}' in upsert where on model '{}'",
+                    key, model.logical_name
+                ))
+            })?;
+        filter_fields.push(field);
+    }
+
+    let candidates = std::iter::once(model.primary_key.fields())
+        .chain(
+            model
+                .unique_constraints
+                .iter()
+                .map(|constraint| constraint.fields.iter().map(String::as_str).collect()),
+        )
+        .find(|candidate: &Vec<&str>| {
+            candidate.len() == filter_fields.len()
+                && candidate.iter().all(|name| {
+                    filter_fields
+                        .iter()
+                        .any(|field| field.logical_name == *name || field.db_name == *name)
+                })
+        });
+
+    let Some(candidate) = candidates else {
+        let mut names: Vec<&str> = filter_obj.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        return Err(ProtocolError::InvalidFilter(format!(
+            "upsert where [{}] does not match the primary key or any unique constraint of model '{}'",
+            names.join(", "),
+            model.logical_name
+        )));
+    };
+
+    Ok(candidate
+        .iter()
+        .filter_map(|name| {
+            filter_fields
+                .iter()
+                .copied()
+                .find(|field| field.logical_name == *name || field.db_name == *name)
+        })
+        .collect())
+}
+
+async fn execute_upsert(
+    state: &EngineState,
+    params: UpsertParams,
+) -> Result<MutationResultData, ProtocolError> {
+    check_protocol_version(params.protocol_version)?;
+    let tx_id = params.transaction_id;
+    let model = get_model_or_error(state, &params.model)?;
+    let metadata = state.model_metadata(model);
+
+    let create_obj = params
+        .create
+        .as_object()
+        .ok_or_else(|| ProtocolError::InvalidParams("create must be an object".to_string()))?;
+    let update_obj = params
+        .update
+        .as_object()
+        .ok_or_else(|| ProtocolError::InvalidParams("update must be an object".to_string()))?;
+
+    let target_fields = unique_conflict_target(model, &params.filter)?;
+
+    let scalar_field_capacity = metadata.scalar_fields().len();
+    let mut columns = Vec::with_capacity(scalar_field_capacity);
+    let mut values = Vec::with_capacity(scalar_field_capacity);
+
+    for field in &model.fields {
+        if matches!(field.field_type, ResolvedFieldType::Relation(_)) {
+            continue;
+        }
+        if let Some(value) = field_input_value(state, create_obj, field, FieldInputMode::Create)? {
+            columns.push(field_marker(model, field));
+            values.push(value);
+        }
+    }
+
+    for target in &target_fields {
+        if !columns.iter().any(|column| column.name == target.db_name) {
+            return Err(ProtocolError::InvalidParams(format!(
+                "upsert create data must set '{}' because it is part of the conflict target",
+                target.logical_name
+            )));
+        }
+    }
+
+    let mut assignments = Vec::with_capacity(update_obj.len());
+    if !update_obj.is_empty() {
+        for field in &model.fields {
+            if matches!(field.field_type, ResolvedFieldType::Relation(_)) {
+                continue;
+            }
+            if let Some(value) =
+                field_input_value(state, update_obj, field, FieldInputMode::Update)?
+            {
+                assignments.push((field_marker(model, field), value));
+            }
+        }
+    }
+
+    let returns_inline = params.return_data && state.dialect.supports_returning();
+
+    let mut builder = Insert::into_table(&model.db_name)
+        .with_capacity(InsertCapacity {
+            columns: columns.len(),
+            rows: 1,
+            returning: usize::from(returns_inline) * metadata.scalar_markers().len(),
+        })
+        .columns(columns)
+        .values(values)
+        .on_conflict(nautilus_core::OnConflict::do_update(
+            target_fields
+                .iter()
+                .map(|field| field_marker(model, field))
+                .collect(),
+            assignments,
+        ));
+    if returns_inline {
+        builder = builder.returning(metadata.scalar_markers().to_vec());
+    }
+
+    let insert = builder
+        .build()
+        .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build upsert: {}", e)))?;
+
+    let sql = state
+        .dialect
+        .render_insert_owned(insert)
+        .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
+
+    if params.return_data && !returns_inline {
+        state
+            .execute_affected_on(&sql, "Insert", tx_id.as_deref())
+            .await?;
+        return read_back_upserted_row(state, model, &params.filter, tx_id.as_deref()).await;
+    }
+
+    execute_mutation_result(
+        state,
+        &sql,
+        "Insert",
+        tx_id.as_deref(),
+        metadata.scalar_hints(),
+        returns_inline,
+    )
+    .await
+}
+
+/// Fetch the upserted row on dialects without `RETURNING` (MySQL).
+///
+/// The write itself stays atomic; only the read is a second round-trip, so a
+/// concurrent writer can still change the row between the two statements unless
+/// the caller wraps the upsert in a transaction.
+async fn read_back_upserted_row(
+    state: &EngineState,
+    model: &ModelIr,
+    filter: &JsonValue,
+    tx_id: Option<&str>,
+) -> Result<MutationResultData, ProtocolError> {
+    let metadata = state.model_metadata(model);
+    let qualified_filter = parse_and_qualify_model_filter(
+        model,
+        filter,
+        metadata.field_types(),
+        metadata.logical_to_db(),
+    )?;
+
+    let (sql, row_hints) = build_find_unique_sql(
+        state,
+        model,
+        qualified_filter,
+        &std::collections::HashSet::new(),
+    )?;
+
+    let rows = normalize_rows_with_hints(
+        state.execute_query_on(&sql, "Query", tx_id).await?,
+        &row_hints,
+    )?;
+    Ok(MutationResultData::Rows(rows))
+}
+
+/// Handle `query.upsert`.
+pub(in crate::handlers) async fn handle_upsert(
+    state: &EngineState,
+    request: RpcRequest,
+) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
+    let params: UpsertParams = parse_params(&request, "upsert")?;
+
+    match execute_upsert(state, params).await? {
+        MutationResultData::Rows(rows) => wrap_mutation_result(&rows, "upsert result"),
+        MutationResultData::Count(count) => wrap_count_result(count, "upsert result"),
+    }
+}
+
+pub(in crate::handlers) async fn handle_upsert_embedded(
+    state: &EngineState,
+    request: RpcRequest,
+) -> Result<Vec<Row>, ProtocolError> {
+    let params: UpsertParams = parse_params(&request, "upsert")?;
+    mutation_rows_or_internal(execute_upsert(state, params).await?, "upsert")
+}
+
+pub(in crate::handlers) async fn handle_upsert_typed(
+    state: &EngineState,
+    params: UpsertParams,
+) -> Result<Vec<Row>, ProtocolError> {
+    mutation_rows_or_internal(execute_upsert(state, params).await?, "upsert")
+}
+
 /// Handle `query.create`.
 pub(in crate::handlers) async fn handle_create(
     state: &EngineState,
@@ -471,4 +712,127 @@ pub(in crate::handlers) async fn handle_delete(
         "delete result",
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nautilus_schema::validate_schema_source;
+
+    fn model_of(source: &str, name: &str) -> ModelIr {
+        validate_schema_source(source)
+            .expect("schema should validate")
+            .ir
+            .models
+            .into_values()
+            .find(|model| model.logical_name == name)
+            .expect("model missing")
+    }
+
+    fn user_model() -> ModelIr {
+        model_of(
+            r#"
+model User {
+  id    Int    @id @default(autoincrement())
+  email String @unique
+  team  String
+  slot  Int
+  name  String
+
+  @@unique([team, slot])
+}
+"#,
+            "User",
+        )
+    }
+
+    #[test]
+    fn conflict_target_accepts_a_single_column_unique_constraint() {
+        let model = user_model();
+        let filter = serde_json::json!({ "where": { "email": "alice@example.com" } });
+
+        let target = unique_conflict_target(&model, &filter).expect("email is unique");
+
+        assert_eq!(
+            target
+                .iter()
+                .map(|field| field.logical_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["email"]
+        );
+    }
+
+    #[test]
+    fn conflict_target_accepts_the_primary_key() {
+        let model = user_model();
+        let filter = serde_json::json!({ "id": 7 });
+
+        let target = unique_conflict_target(&model, &filter).expect("id is the primary key");
+
+        assert_eq!(target.len(), 1);
+        assert_eq!(target[0].logical_name, "id");
+    }
+
+    #[test]
+    fn conflict_target_orders_columns_as_the_constraint_declares_them() {
+        let model = user_model();
+        let filter = serde_json::json!({ "slot": 3, "team": "blue" });
+
+        let target = unique_conflict_target(&model, &filter).expect("(team, slot) is unique");
+
+        assert_eq!(
+            target
+                .iter()
+                .map(|field| field.logical_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["team", "slot"]
+        );
+    }
+
+    #[test]
+    fn conflict_target_rejects_a_partial_composite_key() {
+        let model = user_model();
+        let filter = serde_json::json!({ "team": "blue" });
+
+        let error = unique_conflict_target(&model, &filter)
+            .expect_err("half of a composite unique key is not a conflict target");
+
+        assert!(
+            matches!(&error, ProtocolError::InvalidFilter(message) if message.contains("unique constraint")),
+            "unexpected error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn conflict_target_rejects_a_non_unique_column() {
+        let model = user_model();
+        let filter = serde_json::json!({ "name": "Alice" });
+
+        let error =
+            unique_conflict_target(&model, &filter).expect_err("name carries no unique constraint");
+
+        assert!(matches!(error, ProtocolError::InvalidFilter(_)));
+    }
+
+    #[test]
+    fn conflict_target_rejects_an_unknown_field() {
+        let model = user_model();
+        let filter = serde_json::json!({ "nickname": "Ali" });
+
+        let error =
+            unique_conflict_target(&model, &filter).expect_err("nickname is not a model field");
+
+        assert!(
+            matches!(&error, ProtocolError::InvalidFilter(message) if message.contains("Unknown field")),
+            "unexpected error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn conflict_target_rejects_an_empty_filter() {
+        let model = user_model();
+        let filter = serde_json::json!({});
+
+        assert!(unique_conflict_target(&model, &filter).is_err());
+    }
 }

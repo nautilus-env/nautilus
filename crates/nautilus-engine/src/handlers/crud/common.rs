@@ -13,7 +13,11 @@ pub(super) fn qualify_model_filter(
     filter.map(|expr| qualify_filter_columns(expr, &model.db_name, logical_to_db))
 }
 
-fn protocol_filter_body(filter: &JsonValue) -> &JsonValue {
+/// Unwrap a `{ "where": { ... } }` envelope down to the filter body.
+///
+/// Clients send the unique filter either bare or wrapped; both reach the
+/// handlers through this.
+pub(super) fn protocol_filter_body(filter: &JsonValue) -> &JsonValue {
     filter
         .as_object()
         .and_then(|obj| (obj.len() == 1).then_some(obj))

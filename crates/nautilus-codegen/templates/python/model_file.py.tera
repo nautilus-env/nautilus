@@ -1704,13 +1704,17 @@ class {{ delegate_name }}:
         include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
         return_data: bool = True,
     ) -> Optional[{{ model_name }}]:
-        """Create or update a {{ model_name }} record.
+        """Create or update a {{ model_name }} record in one atomic statement.
 
-        Looks up an existing record using ``where``. If found, applies
-        ``data["update"]``; otherwise creates a new record with ``data["create"]``.
+        Runs as a single ``INSERT ... ON CONFLICT`` (``ON DUPLICATE KEY UPDATE``
+        on MySQL), so no other writer can slip between the lookup and the write:
+        ``data["create"]`` is inserted, and ``data["update"]`` is applied instead
+        when the row already exists.
 
         Args:
-            where: Filter to locate the existing record (should target a unique field).
+            where: Filter naming exactly one unique constraint (or the primary
+                   key); those columns become the conflict target, and
+                   ``data["create"]`` must supply a value for each of them.
             data: Dict with ``create`` and ``update`` keys, each holding the
                   respective field values.
             include: Relations to eager-load on the returned record.
@@ -1724,28 +1728,25 @@ class {{ delegate_name }}:
         """
         create_data: {{ model_name }}CreateInput = data.get("create", {})  # type: ignore[assignment]
         update_data: {{ model_name }}UpdateInput = data.get("update", {})  # type: ignore[assignment]
-        existing = {% if is_async %}await {% endif %}self.find_first(where=where)
-        if existing is not None:
-            result = {% if is_async %}await {% endif %}self.update(where=where, data=update_data, return_data=return_data)
-            if not return_data:
-                return None
-            if isinstance(result, list):
-                record = result[0] if result else existing
-            else:
-                record = existing
-            if include:
-                rows = {% if is_async %}await {% endif %}self.find_many(where=where, take=1, include=include)
-                return rows[0] if rows else record
-            return record
-        created = {% if is_async %}await {% endif %}self.create(create_data, return_data=return_data)
+        _payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "filter": _process_where_filters(where or {}, _{{ table_name }}_py_to_db),
+            "create": _process_create_data(create_data, _{{ table_name }}_py_to_db),
+            "update": _process_create_data(update_data, _{{ table_name }}_py_to_db),
+            "returnData": return_data,
+        }
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.upsert", _payload)
         if not return_data:
             return None
-        if created is None:
-            raise RuntimeError("upsert: create operation returned no data")
+        data_rows = result.get("data", [])
+        if not data_rows:
+            raise RuntimeError("upsert: engine returned no data")
+        record = _{{ table_name }}_from_row(data_rows[0])
         if include:
             rows = {% if is_async %}await {% endif %}self.find_many(where=where, take=1, include=include)
-            return rows[0] if rows else created
-        return created
+            return rows[0] if rows else record
+        return record
 
 
 

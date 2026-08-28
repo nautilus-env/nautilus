@@ -34,7 +34,7 @@ pub use cursor::build_cursor_predicate;
 pub use delete::{Delete, DeleteBuilder, DeleteCapacity};
 pub use error::{Error, Result};
 pub use expr::{BinaryOp, Expr, JsonPathCast, LiteralSql};
-pub use insert::{Insert, InsertBuilder, InsertCapacity};
+pub use insert::{Insert, InsertBuilder, InsertCapacity, OnConflict};
 pub use protocol_json::{
     find_many_args_to_protocol_json, find_many_args_to_protocol_object, where_expr_to_protocol_json,
 };

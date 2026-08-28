@@ -11,6 +11,7 @@ use nautilus_protocol::wire::ok_partial;
 use nautilus_protocol::{
     CountParams, CreateManyParams, CreateParams, DeleteParams, FindFirstParams, FindManyParams,
     FindUniqueParams, GroupByParams, ProtocolError, RpcRequest, RpcResponse, UpdateParams,
+    UpsertParams,
 };
 use nautilus_schema::ir::{DefaultValue, FieldIr, ModelIr, ResolvedFieldType};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -35,7 +36,8 @@ pub(super) use aggregation::{handle_group_by, handle_group_by_embedded, handle_g
 pub(super) use mutations::{
     handle_create, handle_create_embedded, handle_create_many, handle_create_many_embedded,
     handle_create_many_typed, handle_create_typed, handle_delete, handle_update,
-    handle_update_embedded, handle_update_typed,
+    handle_update_embedded, handle_update_typed, handle_upsert, handle_upsert_embedded,
+    handle_upsert_typed,
 };
 pub(super) use raw::{handle_raw_query, handle_raw_stmt_query};
 pub(super) use read::{

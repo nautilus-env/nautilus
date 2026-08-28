@@ -4,6 +4,35 @@ use crate::column::ColumnMarker;
 use crate::error::{Error, Result};
 use crate::value::Value;
 
+/// What an INSERT does when a row collides with a unique constraint.
+///
+/// Renders as `ON CONFLICT (...) DO UPDATE` / `DO NOTHING` on PostgreSQL and
+/// SQLite, and as `ON DUPLICATE KEY UPDATE` on MySQL. MySQL has no conflict
+/// target in its syntax and picks the violated key itself, so `target` is only
+/// used by the dialects that require it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OnConflict {
+    /// Columns forming the unique constraint the insert may violate.
+    pub target: Vec<ColumnMarker>,
+    /// Assignments applied to the conflicting row. Empty means "do nothing".
+    pub update: Vec<(ColumnMarker, Value)>,
+}
+
+impl OnConflict {
+    /// Conflict clause that leaves the existing row untouched.
+    pub fn do_nothing(target: Vec<ColumnMarker>) -> Self {
+        Self {
+            target,
+            update: Vec::new(),
+        }
+    }
+
+    /// Conflict clause that overwrites the listed columns on the existing row.
+    pub fn do_update(target: Vec<ColumnMarker>, update: Vec<(ColumnMarker, Value)>) -> Self {
+        Self { target, update }
+    }
+}
+
 /// INSERT query AST node.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Insert {
@@ -13,6 +42,8 @@ pub struct Insert {
     pub columns: Vec<ColumnMarker>,
     /// Rows of values to insert (each inner Vec is one row).
     pub values: Vec<Vec<Value>>,
+    /// Conflict-resolution clause. `None` = plain insert, errors on collision.
+    pub on_conflict: Option<OnConflict>,
     /// Columns to return (RETURNING clause). Empty = no RETURNING.
     pub returning: Vec<ColumnMarker>,
 }
@@ -24,6 +55,7 @@ impl Insert {
             table: table.into(),
             columns: Vec::new(),
             values: Vec::new(),
+            on_conflict: None,
             returning: Vec::new(),
         }
     }
@@ -46,6 +78,7 @@ pub struct InsertBuilder {
     table: String,
     columns: Vec<ColumnMarker>,
     values: Vec<Vec<Value>>,
+    on_conflict: Option<OnConflict>,
     returning: Vec<ColumnMarker>,
 }
 
@@ -90,6 +123,13 @@ impl InsertBuilder {
         self
     }
 
+    /// Sets the conflict-resolution clause.
+    #[must_use]
+    pub fn on_conflict(mut self, on_conflict: OnConflict) -> Self {
+        self.on_conflict = Some(on_conflict);
+        self
+    }
+
     /// Sets the RETURNING clause columns.
     #[must_use]
     pub fn returning(mut self, columns: Vec<ColumnMarker>) -> Self {
@@ -106,6 +146,7 @@ impl InsertBuilder {
     /// - No columns are specified
     /// - No rows of values are specified
     /// - Any row has a different number of values than columns
+    /// - A conflict clause is present with an empty target
     pub fn build(self) -> Result<Insert> {
         if self.table.is_empty() {
             return Err(Error::MissingField("table".to_string()));
@@ -131,10 +172,17 @@ impl InsertBuilder {
             }
         }
 
+        if let Some(on_conflict) = &self.on_conflict {
+            if on_conflict.target.is_empty() {
+                return Err(Error::MissingField("on_conflict.target".to_string()));
+            }
+        }
+
         Ok(Insert {
             table: self.table,
             columns: self.columns,
             values: self.values,
+            on_conflict: self.on_conflict,
             returning: self.returning,
         })
     }
@@ -206,6 +254,37 @@ mod tests {
         assert_eq!(insert.returning.len(), 2);
         assert_eq!(insert.returning[0].name, "id");
         assert_eq!(insert.returning[1].name, "email");
+    }
+
+    #[test]
+    fn test_on_conflict_requires_a_target() {
+        let result = Insert::into_table("users")
+            .column(ColumnMarker::new("users", "email"))
+            .values(vec![Value::String("alice@example.com".to_string())])
+            .on_conflict(OnConflict::do_nothing(Vec::new()))
+            .build();
+
+        assert!(matches!(result, Err(Error::MissingField(field)) if field == "on_conflict.target"));
+    }
+
+    #[test]
+    fn test_on_conflict_is_carried_into_the_ast() {
+        let insert = Insert::into_table("users")
+            .column(ColumnMarker::new("users", "email"))
+            .values(vec![Value::String("alice@example.com".to_string())])
+            .on_conflict(OnConflict::do_update(
+                vec![ColumnMarker::new("users", "email")],
+                vec![(
+                    ColumnMarker::new("users", "name"),
+                    Value::String("Alice".to_string()),
+                )],
+            ))
+            .build()
+            .unwrap();
+
+        let on_conflict = insert.on_conflict.expect("conflict clause should be kept");
+        assert_eq!(on_conflict.target.len(), 1);
+        assert_eq!(on_conflict.update.len(), 1);
     }
 
     #[test]

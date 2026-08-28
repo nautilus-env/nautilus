@@ -685,24 +685,23 @@ export class {{ delegate_name }} {
   }
 
   async upsert(args) {
-    const existing = await this.findFirst({ where: args.where });
-    if (existing != null) {
-      const updated = await this.update({ where: args.where, data: args.data.update, returnData: args.returnData ?? true });
-      if (!(args.returnData ?? true)) return null;
-      if (args.include) {
-        const rows = await this.findMany({ where: args.where, take: 1, include: args.include });
-        return rows[0] ?? (Array.isArray(updated) ? updated[0] : null) ?? existing;
-      }
-      return Array.isArray(updated) ? (updated[0] ?? existing) : existing;
-    }
-    const created = await this.create({ data: args.data.create, returnData: args.returnData ?? true });
-    if (!(args.returnData ?? true)) return null;
-    if (created == null) throw new Error('upsert: create returned no data');
+    const returnData = args.returnData ?? true;
+    const result = await this.client._rpc('query.upsert', {
+      protocolVersion: PROTOCOL_VERSION,
+      model:      '{{ model_name }}',
+      filter:     _processWhereFilters((args.where ?? {}), _{{ table_name }}FieldToDb),
+      create:     _processCreateData(args.data.create, _{{ table_name }}FieldToDb),
+      update:     _processCreateData(args.data.update ?? {}, _{{ table_name }}FieldToDb),
+      returnData,
+    });
+    if (!returnData) return null;
+    const rows = result['data'];
+    if (!rows?.length) throw new Error('upsert: engine returned no data');
     if (args.include) {
-      const rows = await this.findMany({ where: args.where, take: 1, include: args.include });
-      return rows[0] ?? created;
+      const included = await this.findMany({ where: args.where, take: 1, include: args.include });
+      return included[0] ?? _coerce{{ model_name }}(rows[0]);
     }
-    return created;
+    return _coerce{{ model_name }}(rows[0]);
   }
 
   async groupBy(args) {

@@ -2,7 +2,7 @@
 
 use crate::{Dialect, Sql};
 use nautilus_core::{
-    BinaryOp, Delete, Error, Expr, Insert, JsonPathCast, Result, Select, Update, Value,
+    BinaryOp, Delete, Error, Expr, Insert, JsonPathCast, OnConflict, Result, Select, Update, Value,
 };
 
 /// MySQL SQL dialect renderer.
@@ -24,7 +24,14 @@ impl Dialect for MysqlDialect {
 
     fn render_insert_owned(&self, mut insert: Insert) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_insert_render(&insert));
-        render_insert_body_mut!(&mut ctx, &mut insert, '`', false, crate::no_param_cast);
+        render_insert_body_mut!(
+            &mut ctx,
+            &mut insert,
+            '`',
+            false,
+            crate::no_param_cast,
+            render_on_duplicate_key
+        );
         ctx.finish()
     }
 
@@ -87,6 +94,40 @@ impl RenderContext {
             text: self.sql,
             params: self.params,
         })
+    }
+}
+
+/// MySQL's counterpart to `ON CONFLICT ... DO UPDATE`.
+///
+/// The conflict target is not part of the syntax — MySQL matches against every
+/// unique key on the table — so `on_conflict.target` only serves the
+/// "do nothing" case, which MySQL expresses as a self-assignment because it has
+/// no `DO NOTHING`.
+fn render_on_duplicate_key(ctx: &mut RenderContext, on_conflict: &mut OnConflict) {
+    ctx.sql.push_str(" ON DUPLICATE KEY UPDATE ");
+
+    if on_conflict.update.is_empty() {
+        let Some(anchor) = on_conflict.target.first() else {
+            ctx.fail("ON DUPLICATE KEY UPDATE requires at least one conflict target column");
+            return;
+        };
+        crate::push_quoted_identifier(&mut ctx.sql, &anchor.name, '`');
+        ctx.sql.push_str(" = ");
+        crate::push_quoted_identifier(&mut ctx.sql, &anchor.name, '`');
+        return;
+    }
+
+    for (i, (col, value)) in on_conflict.update.iter_mut().enumerate() {
+        if i > 0 {
+            ctx.sql.push_str(", ");
+        }
+        crate::push_quoted_identifier(&mut ctx.sql, &col.name, '`');
+        ctx.sql.push_str(" = ");
+        if matches!(value, Value::Null) {
+            ctx.sql.push_str("NULL");
+        } else {
+            ctx.take_param(value);
+        }
     }
 }
 
@@ -300,6 +341,56 @@ mod tests {
         assert_eq!(quote_identifier("email"), "`email`");
         assert_eq!(quote_identifier("foo`bar"), "`foo``bar`");
         assert_eq!(quote_identifier("a`b`c"), "`a``b``c`");
+    }
+
+    #[test]
+    fn upsert_renders_on_duplicate_key_update() {
+        let insert = Insert::into_table("users")
+            .columns(vec![
+                nautilus_core::ColumnMarker::new("users", "email"),
+                nautilus_core::ColumnMarker::new("users", "name"),
+            ])
+            .values(vec![
+                Value::String("alice@example.com".to_string()),
+                Value::String("Alice".to_string()),
+            ])
+            .on_conflict(nautilus_core::OnConflict::do_update(
+                vec![nautilus_core::ColumnMarker::new("users", "email")],
+                vec![(
+                    nautilus_core::ColumnMarker::new("users", "name"),
+                    Value::String("Alice II".to_string()),
+                )],
+            ))
+            .build()
+            .unwrap();
+
+        let sql = MysqlDialect.render_insert(&insert).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "INSERT INTO `users` (`email`, `name`) VALUES (?, ?) \
+             ON DUPLICATE KEY UPDATE `name` = ?"
+        );
+        assert_eq!(sql.params.len(), 3);
+    }
+
+    #[test]
+    fn upsert_without_assignments_self_assigns_the_conflict_column() {
+        let insert = Insert::into_table("users")
+            .columns(vec![nautilus_core::ColumnMarker::new("users", "email")])
+            .values(vec![Value::String("alice@example.com".to_string())])
+            .on_conflict(nautilus_core::OnConflict::do_nothing(vec![
+                nautilus_core::ColumnMarker::new("users", "email"),
+            ]))
+            .build()
+            .unwrap();
+
+        let sql = MysqlDialect.render_insert(&insert).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "INSERT INTO `users` (`email`) VALUES (?) ON DUPLICATE KEY UPDATE `email` = `email`"
+        );
     }
 
     #[test]

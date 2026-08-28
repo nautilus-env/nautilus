@@ -455,6 +455,13 @@ export declare class {{ delegate_name }} {
   /** Execute a raw prepared-statement query with bound parameters. */
   rawStmtQuery(sql: string, params?: unknown[]): Promise<Record<string, unknown>[]>;
 
+  /**
+   * Create or update a {{ model_name }} in one atomic statement.
+   *
+   * `where` must name exactly one unique constraint (or the primary key):
+   * those columns become the conflict target, and `data.create` must supply a
+   * value for each of them.
+   */
   upsert(args: {
     where:       {{ model_name }}WhereInput;
     data:        {{ model_name }}UpsertInput;

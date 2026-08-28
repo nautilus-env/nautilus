@@ -13,11 +13,11 @@ use nautilus_protocol::wire::{err, ok};
 use nautilus_protocol::{
     CountParams, CreateManyParams, CreateParams, GroupByParams, HandshakeParams, HandshakeResult,
     ProtocolError, RpcError, RpcRequest, RpcResponse, SchemaValidateParams, SchemaValidateResult,
-    UpdateParams, ENGINE_HANDSHAKE, PROTOCOL_VERSION, QUERY_COUNT, QUERY_CREATE, QUERY_CREATE_MANY,
-    QUERY_DELETE, QUERY_FIND_FIRST, QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY, QUERY_FIND_UNIQUE,
-    QUERY_FIND_UNIQUE_OR_THROW, QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT, QUERY_UPDATE,
-    SCHEMA_VALIDATE, TRANSACTION_BATCH, TRANSACTION_COMMIT, TRANSACTION_ROLLBACK,
-    TRANSACTION_START,
+    UpdateParams, UpsertParams, ENGINE_HANDSHAKE, PROTOCOL_VERSION, QUERY_COUNT, QUERY_CREATE,
+    QUERY_CREATE_MANY, QUERY_DELETE, QUERY_FIND_FIRST, QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY,
+    QUERY_FIND_UNIQUE, QUERY_FIND_UNIQUE_OR_THROW, QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT,
+    QUERY_UPDATE, QUERY_UPSERT, SCHEMA_VALIDATE, TRANSACTION_BATCH, TRANSACTION_COMMIT,
+    TRANSACTION_ROLLBACK, TRANSACTION_START,
 };
 use nautilus_schema::ir::{FieldIr, ModelIr, ResolvedFieldType};
 use nautilus_schema::{analyze, Severity};
@@ -269,6 +269,9 @@ pub async fn handle_request_embedded(
         QUERY_CREATE_MANY => crud::handle_create_many_embedded(state, request)
             .await
             .map(EmbeddedResponse::Rows),
+        QUERY_UPSERT => crud::handle_upsert_embedded(state, request)
+            .await
+            .map(EmbeddedResponse::Rows),
         QUERY_UPDATE => crud::handle_update_embedded(state, request)
             .await
             .map(EmbeddedResponse::Rows),
@@ -327,6 +330,14 @@ pub async fn handle_update_typed(
     crud::handle_update_typed(state, params).await
 }
 
+/// Handle a typed Rust `upsert` request in-process without an RPC envelope.
+pub async fn handle_upsert_typed(
+    state: &EngineState,
+    params: UpsertParams,
+) -> Result<Vec<nautilus_connector::Row>, ProtocolError> {
+    crud::handle_upsert_typed(state, params).await
+}
+
 /// Handle a typed Rust `count` request in-process without an RPC envelope.
 pub async fn handle_count_typed(
     state: &EngineState,
@@ -375,6 +386,7 @@ pub(super) async fn dispatch(
         QUERY_CREATE => crud::handle_create(state, request).await,
         QUERY_CREATE_MANY => crud::handle_create_many(state, request).await,
         QUERY_UPDATE => crud::handle_update(state, request).await,
+        QUERY_UPSERT => crud::handle_upsert(state, request).await,
         QUERY_DELETE => crud::handle_delete(state, request).await,
         QUERY_COUNT => crud::handle_count(state, request).await,
         QUERY_GROUP_BY => crud::handle_group_by(state, request).await,

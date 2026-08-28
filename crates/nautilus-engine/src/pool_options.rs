@@ -24,6 +24,7 @@ pub struct EnginePoolOptions {
     idle_timeout: Option<Option<Duration>>,
     test_before_acquire: Option<bool>,
     statement_cache_capacity: Option<usize>,
+    statement_timeout: Option<Duration>,
     max_concurrent_requests: Option<usize>,
 }
 
@@ -37,6 +38,7 @@ impl EnginePoolOptions {
             idle_timeout: None,
             test_before_acquire: None,
             statement_cache_capacity: None,
+            statement_timeout: None,
             max_concurrent_requests: None,
         }
     }
@@ -96,6 +98,21 @@ impl EnginePoolOptions {
         self
     }
 
+    /// Cap how long the database runs a single statement before aborting it.
+    ///
+    /// Unlike `request.cancel`, which only stops the engine from waiting, this
+    /// limit is enforced by the server. See
+    /// [`ConnectorPoolOptions::statement_timeout`].
+    pub fn statement_timeout(mut self, statement_timeout: Duration) -> Self {
+        self.statement_timeout = Some(statement_timeout);
+        self
+    }
+
+    /// Cap the server-side statement duration in milliseconds.
+    pub fn statement_timeout_ms(self, statement_timeout_ms: u64) -> Self {
+        self.statement_timeout(Duration::from_millis(statement_timeout_ms))
+    }
+
     /// Override how many requests the transport handles concurrently.
     ///
     /// Values below `1` are clamped to `1`. When left unset the limit is
@@ -134,6 +151,11 @@ impl EnginePoolOptions {
     /// Return the configured statement-cache-capacity override, if any.
     pub const fn get_statement_cache_capacity(&self) -> Option<usize> {
         self.statement_cache_capacity
+    }
+
+    /// Return the configured server-side statement-timeout override, if any.
+    pub const fn get_statement_timeout(&self) -> Option<Duration> {
+        self.statement_timeout
     }
 
     /// Return the configured concurrent-request override, if any.
@@ -179,6 +201,9 @@ impl EnginePoolOptions {
         if let Some(statement_cache_capacity) = self.statement_cache_capacity {
             options = options.statement_cache_capacity(statement_cache_capacity);
         }
+        if let Some(statement_timeout) = self.statement_timeout {
+            options = options.statement_timeout(statement_timeout);
+        }
         options
     }
 
@@ -191,6 +216,7 @@ impl EnginePoolOptions {
             idle_timeout: options.get_idle_timeout(),
             test_before_acquire: options.get_test_before_acquire(),
             statement_cache_capacity: options.get_statement_cache_capacity(),
+            statement_timeout: options.get_statement_timeout(),
             max_concurrent_requests: None,
         }
     }
@@ -209,7 +235,8 @@ mod tests {
             .acquire_timeout(Duration::from_secs(3))
             .disable_idle_timeout()
             .test_before_acquire(false)
-            .statement_cache_capacity(12);
+            .statement_cache_capacity(12)
+            .statement_timeout_ms(2_500);
 
         let connector = engine.to_connector_pool_options();
 
@@ -222,6 +249,10 @@ mod tests {
         assert_eq!(connector.get_idle_timeout(), Some(None));
         assert_eq!(connector.get_test_before_acquire(), Some(false));
         assert_eq!(connector.get_statement_cache_capacity(), Some(12));
+        assert_eq!(
+            connector.get_statement_timeout(),
+            Some(Duration::from_millis(2_500))
+        );
     }
 
     #[test]

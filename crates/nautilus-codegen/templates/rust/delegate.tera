@@ -1916,14 +1916,75 @@ where
 
     /// Create or update a {{ model_name }} record.
     ///
-    /// Looks up an existing record using `args.where_`. If found, updates it
-    /// with `args.data`; otherwise creates a new record with `args.data`.
+    /// When the embedded engine is available this runs as a single atomic
+    /// `INSERT ... ON CONFLICT` statement, so no other writer can slip between
+    /// the lookup and the write. `args.where_` must name exactly one unique
+    /// constraint (or the primary key). Against a standalone executor the
+    /// operation falls back to a lookup followed by an update or a create.
+    ///
     /// Executes immediately and returns the created or updated `{{ model_name }}`
     /// (or `None` when `args.return_data` is `false`).
     pub {% if is_async %}async {% endif %}fn upsert(
         &self,
         args: {{ model_name }}UpsertArgs,
     ) -> nautilus_core::Result<Option<{{ model_name }}>> {
+        let _engine_filter = serialize_update_filter_for_engine(args.where_.as_ref())?;
+{%- if not is_async %}
+        let _upsert_client = self.client.clone();
+        let _engine_create = args.create.to_engine_data();
+        let _engine_update = args.update.to_engine_data();
+        let _engine_rows: Option<Vec<{{ model_name }}>> = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let Some(filter_json) = _engine_filter else {
+                    return Ok(None);
+                };
+                crate::runtime::try_upsert_via_engine::<_, {{ model_name }}>(
+                    &_upsert_client,
+                    "{{ model_name }}",
+                    filter_json,
+                    _engine_create,
+                    _engine_update,
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await
+            })
+        })?;
+{%- else %}
+        let _engine_rows: Option<Vec<{{ model_name }}>> = match _engine_filter {
+            Some(filter_json) => {
+                crate::runtime::try_upsert_via_engine::<_, {{ model_name }}>(
+                    &self.client,
+                    "{{ model_name }}",
+                    filter_json,
+                    args.create.to_engine_data(),
+                    args.update.to_engine_data(),
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await?
+            }
+            None => None,
+        };
+{%- endif %}
+
+        if let Some(rows) = _engine_rows {
+            if !args.return_data {
+                return Ok(None);
+            }
+            return Ok(rows.into_iter().next());
+        }
+
         let has_update_assignments = args.update.has_assignments();
 
         if self.client.dialect().supports_returning() && has_update_assignments {

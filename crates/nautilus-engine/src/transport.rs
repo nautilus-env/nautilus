@@ -133,6 +133,12 @@ async fn take_active_request(
     active_requests.lock().await.remove(request_id)
 }
 
+/// Abort the engine task serving an in-flight request.
+///
+/// Aborting the task drops the future waiting on the database; the statement
+/// itself keeps running server-side until it completes or hits the datasource's
+/// `statement_timeout` / `max_execution_time`. Only that server-side limit ends
+/// a runaway query.
 async fn handle_cancel_request(
     request: RpcRequest,
     active_requests: &ActiveRequests,

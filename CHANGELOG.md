@@ -33,6 +33,29 @@ unaffected.
 
 ### Added
 
+- Added `query.upsert`, a native engine method that performs an upsert as a
+  single atomic statement: `INSERT ... ON CONFLICT ... DO UPDATE` on PostgreSQL
+  and SQLite, `INSERT ... ON DUPLICATE KEY UPDATE` on MySQL. The generated
+  Python, JS/TS and Java clients now call it directly, and the Rust client uses
+  it whenever the embedded engine is available. Previously every client composed
+  `upsert` from a lookup followed by an update or a create, which left a race
+  window between the two round-trips. The request's `where` must name exactly
+  the columns of one unique constraint (or the primary key) — that column list
+  becomes the conflict target — and `create` must supply a value for each of
+  them; anything else is rejected with a filter error instead of silently
+  matching another index. MySQL has no `RETURNING`, so the engine reads the row
+  back with a follow-up select when `returnData` is set: only the read is a
+  second round-trip, the write stays atomic.
+- Added a server-side statement timeout, configurable per datasource through
+  `ConnectorPoolOptions::statement_timeout`, `EnginePoolOptions::statement_timeout_ms`,
+  the engine's `--statement-timeout-ms` flag, and the `statementTimeoutMs` /
+  `statement_timeout_ms` pool option on the generated JS and Python clients. It
+  maps to `statement_timeout` on PostgreSQL (sent in the startup packet) and to
+  `max_execution_time` on MySQL (set once per pooled connection); SQLite has no
+  equivalent and ignores it. This is the only cancellation that reaches the
+  database: `request.cancel` aborts the engine-side task but leaves a running
+  query holding its connection, which is now stated in the documentation of both
+  the protocol method and the transport handler.
 - Added `Change::risk()` and `Change::describe()` on the migration `Change`
   enum, so a change's risk classification and its user-facing description live
   next to the variant they describe. `describe()` returns the new
