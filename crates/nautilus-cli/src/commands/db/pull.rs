@@ -20,6 +20,7 @@ pub async fn run(
     tui::print_header("db pull");
 
     let database_url = resolve_database_url_for_pull(schema_arg.as_deref(), db_url_arg)?;
+    let datasource_url_expr = datasource_url_expression(schema_arg.as_deref());
 
     let provider = detect_provider(&database_url)?;
     let sp = tui::spinner(&format!(
@@ -63,7 +64,7 @@ pub async fn run(
     };
 
     let schema_text =
-        serialize_live_schema_with_options(&live, provider, &database_url, naming_options);
+        serialize_live_schema_with_options(&live, provider, &datasource_url_expr, naming_options);
 
     std::fs::write(&write_path, &schema_text)
         .with_context(|| format!("Cannot write {}", write_path.display()))?;
@@ -86,6 +87,40 @@ pub async fn run(
 /// Prefer the shared validated admin resolver so `db pull` matches the rest of
 /// the CLI. If the schema is otherwise invalid, fall back to a datasource-only
 /// parse with recovery so unrelated parse errors do not stop introspection.
+/// What to write as the pulled schema's datasource `url`.
+///
+/// The resolved connection string is never written: it carries the password,
+/// and a pulled schema is a file people commit. The source schema's own
+/// `env("NAME")` reference is reused when there is one so the pulled file keeps
+/// pointing at the same variable, otherwise `DATABASE_URL` is assumed.
+fn datasource_url_expression(schema_arg: Option<&str>) -> String {
+    const DEFAULT: &str = "env(\"DATABASE_URL\")";
+
+    let Ok(Some(path)) = maybe_resolve_schema_path(schema_arg) else {
+        return DEFAULT.to_string();
+    };
+    let Ok(schema_ir) = parse_and_validate_schema(&path) else {
+        return DEFAULT.to_string();
+    };
+    let Some(datasource) = schema_ir.datasource.as_ref() else {
+        return DEFAULT.to_string();
+    };
+
+    // The IR keeps the reference without its quotes, so re-render it rather
+    // than echoing the stored text.
+    match env_reference_name(&datasource.url) {
+        Some(name) => format!("env(\"{name}\")"),
+        None => DEFAULT.to_string(),
+    }
+}
+
+/// The variable an `env(...)` datasource url refers to, however the IR spells it.
+fn env_reference_name(url: &str) -> Option<&str> {
+    let inner = url.trim().strip_prefix("env(")?.strip_suffix(')')?.trim();
+    let name = inner.trim_matches('"').trim();
+    (!name.is_empty()).then_some(name)
+}
+
 fn resolve_database_url_for_pull(
     schema_arg: Option<&str>,
     db_url_arg: Option<String>,

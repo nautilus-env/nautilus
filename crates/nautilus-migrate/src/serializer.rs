@@ -64,7 +64,8 @@ struct TableNamingContext {
 ///
 /// * `live` - the introspected live database schema
 /// * `provider` - which SQL dialect was used during introspection
-/// * `url` - the raw database URL written into the datasource block verbatim
+/// * `url` - what to write as the datasource `url`: an `env("NAME")` reference
+///   is emitted as-is, anything else is quoted as a literal connection string
 pub fn serialize_live_schema(live: &LiveSchema, provider: DatabaseProvider, url: &str) -> String {
     serialize_live_schema_with_options(live, provider, url, PullNamingOptions::default())
 }
@@ -77,6 +78,12 @@ pub fn serialize_live_schema_with_options(
     url: &str,
     options: PullNamingOptions,
 ) -> String {
+    // MySQL has no CREATE TYPE: an enum lives inline in the column type. Lift
+    // those into real enum declarations so a pulled schema round-trips instead
+    // of degrading every enum column to a plain string.
+    let lifted = lift_inline_enums(live);
+    let live = lifted.as_ref().unwrap_or(live);
+
     let mut parts: Vec<String> = vec![render_datasource_block(live, provider, url)];
 
     let mut composite_names: Vec<&String> = live.composite_types.keys().collect();
@@ -182,6 +189,75 @@ fn render_composite_type_block(
     lines.push(format!("  @@map(\"{}\")", escape_schema_string(db_name)));
     lines.push("}".to_string());
     lines.join("\n")
+}
+
+/// Parse the variants out of a MySQL inline column enum, `enum('A','B')`.
+///
+/// Returns `None` for any other column type. A quote inside a variant is
+/// doubled by MySQL, matching the escaping the DDL generator emits.
+fn parse_inline_enum_variants(col_type: &str) -> Option<Vec<String>> {
+    let inner = col_type
+        .trim()
+        .strip_prefix("enum(")
+        .or_else(|| col_type.trim().strip_prefix("ENUM("))?
+        .strip_suffix(')')?;
+
+    let mut variants = Vec::new();
+    let mut current = String::new();
+    let mut chars = inner.chars().peekable();
+    let mut in_quotes = false;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\'' if in_quotes && chars.peek() == Some(&'\'') => {
+                current.push('\'');
+                chars.next();
+            }
+            '\'' => {
+                if in_quotes {
+                    variants.push(std::mem::take(&mut current));
+                }
+                in_quotes = !in_quotes;
+            }
+            _ if in_quotes => current.push(ch),
+            _ => {}
+        }
+    }
+
+    (!variants.is_empty() && !in_quotes).then_some(variants)
+}
+
+/// Promote every inline column enum to a named entry in [`LiveSchema::enums`].
+///
+/// Columns sharing a variant list share one declaration, named after the first
+/// table and column that introduce it, so the pulled schema does not repeat the
+/// same enum once per column. Returns `None` when there is nothing to lift, so
+/// the common case does not pay for a clone.
+fn lift_inline_enums(live: &LiveSchema) -> Option<LiveSchema> {
+    let mut lifted: Vec<(String, Vec<String>)> = Vec::new();
+
+    let mut table_names: Vec<&String> = live.tables.keys().collect();
+    table_names.sort();
+    for table_name in table_names {
+        let table = &live.tables[table_name];
+        for column in &table.columns {
+            let Some(variants) = parse_inline_enum_variants(&column.col_type) else {
+                continue;
+            };
+            if lifted.iter().any(|(_, known)| *known == variants) {
+                continue;
+            }
+            lifted.push((format!("{}_{}", table_name, column.name), variants));
+        }
+    }
+
+    if lifted.is_empty() {
+        return None;
+    }
+
+    let mut augmented = live.clone();
+    augmented.enums.extend(lifted);
+    Some(augmented)
 }
 
 fn render_enum_block(db_name: &str, variants: &[String]) -> String {
@@ -444,16 +520,26 @@ fn join_logical_fields(naming: &TableNamingContext, columns: &[String]) -> Strin
         .join(", ")
 }
 
+/// Render the `url` field of a datasource block.
+///
+/// An `env("NAME")` reference is emitted verbatim so a pulled schema points at
+/// the variable instead of embedding a connection string — which carries the
+/// password — in a file that usually ends up committed.
+fn render_datasource_url(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.starts_with("env(") && trimmed.ends_with(')') {
+        return trimmed.to_string();
+    }
+    format!("\"{}\"", escape_schema_string(url))
+}
+
 fn render_datasource_block(live: &LiveSchema, provider: DatabaseProvider, url: &str) -> String {
     let mut fields = vec![
         (
             "provider".to_string(),
             format!("\"{}\"", provider.schema_provider_name()),
         ),
-        (
-            "url".to_string(),
-            format!("\"{}\"", escape_schema_string(url)),
-        ),
+        ("url".to_string(), render_datasource_url(url)),
     ];
 
     if provider == DatabaseProvider::Postgres && !live.extensions.is_empty() {
@@ -498,6 +584,18 @@ fn infer_nautilus_type(
     enums: &HashMap<String, Vec<String>>,
     composite_types: &HashMap<String, LiveCompositeType>,
 ) -> String {
+    // A MySQL column enum names no type, so it is resolved by its variants
+    // against the declarations `lift_inline_enums` produced for them.
+    if let Some(variants) = parse_inline_enum_variants(sql_type) {
+        if let Some(name) = enums
+            .iter()
+            .find(|(_, known)| **known == variants)
+            .map(|(name, _)| name)
+        {
+            return to_pascal_case(name);
+        }
+    }
+
     let t = sql_type.trim().to_lowercase();
 
     if let Some(inner) = t.strip_suffix("[]") {
@@ -614,7 +712,12 @@ fn infer_default_attr(
         let inner = &raw.trim()[1..raw.trim().len() - 1];
         let base_type = col_type.trim().to_lowercase();
         let base_type = base_type.strip_suffix("[]").unwrap_or(&base_type);
-        if matching_named_type(base_type, enums).is_some() {
+        // An enum default is a bare variant, not a string literal — including
+        // for a MySQL column enum, which names no type to match on.
+        let is_enum = matching_named_type(base_type, enums).is_some()
+            || parse_inline_enum_variants(col_type)
+                .is_some_and(|variants| variants.iter().any(|variant| variant == inner));
+        if is_enum {
             return Some(format!("@default({})", inner));
         }
         return Some(format!("@default(\"{}\")", inner));

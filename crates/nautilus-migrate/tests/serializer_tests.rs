@@ -1491,3 +1491,78 @@ fn serialises_reserved_field_name_with_safe_logical_identifier() {
     assert!(app_agent.find_field("model_").is_some());
     assert!(app_agent.find_field("model").is_none());
 }
+
+/// MySQL keeps an enum inline in the column type, so a pulled schema used to
+/// degrade the column to a plain string — and pushing that back proposed a
+/// destructive downgrade to `varchar`.
+#[test]
+fn mysql_inline_enums_are_lifted_into_declarations() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "posts".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "int".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "status".to_string(),
+                col_type: "enum('DRAFT','PUBLISHED')".to_string(),
+                nullable: false,
+                default_value: Some("'DRAFT'".to_string()),
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Mysql, "env(\"DATABASE_URL\")");
+
+    assert!(
+        out.contains("enum PostsStatus {")
+            && out.contains("  DRAFT")
+            && out.contains("  PUBLISHED"),
+        "the inline enum must become a declaration:\n{out}"
+    );
+    assert!(
+        out.contains("PostsStatus"),
+        "the column must reference the lifted enum:\n{out}"
+    );
+    assert!(
+        out.contains("@default(DRAFT)"),
+        "an enum default is a bare variant, not a string:\n{out}"
+    );
+}
+
+/// A pulled schema is a file people commit, so the datasource must point at the
+/// variable rather than embed a connection string carrying the password.
+#[test]
+fn an_env_reference_is_written_verbatim_into_the_datasource() {
+    let live = common::make_live_schema(vec![]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "env(\"DATABASE_URL\")");
+    assert!(
+        out.contains("url      = env(\"DATABASE_URL\")"),
+        "expected an unquoted env() reference:\n{out}"
+    );
+    assert!(
+        !out.contains("\"env("),
+        "the reference must not be quoted as a literal:\n{out}"
+    );
+
+    let literal =
+        serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+    assert!(
+        literal.contains("url      = \"postgres://localhost/db\""),
+        "a literal URL is still quoted:\n{literal}"
+    );
+}

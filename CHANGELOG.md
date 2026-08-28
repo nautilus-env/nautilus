@@ -105,6 +105,15 @@ unaffected.
 
 ### Fixed
 
+- `db pull` no longer writes the database password into the schema it
+  generates. The resolved connection string was embedded in the datasource
+  block, in a file that normally gets committed; the pulled schema now points
+  at `env("NAME")`, reusing the source schema's own variable when it has one.
+- `db pull` reconstructs MySQL enums. A column enum lives inline in the type
+  (`enum('DRAFT','PUBLISHED')`) and came back as a plain `String`, so pushing a
+  pulled schema back proposed a destructive downgrade of every enum column to
+  `varchar`. Columns sharing a variant list share one declaration, named after
+  the first table and column that introduce it.
 - A string literal is now accepted as the default of every text-backed native
   type (`VarChar`, `Char`, `Citext`, `Ltree`, `Xml`), which only `String`
   allowed. `db pull` emits exactly that for a `varchar` column with a default,
