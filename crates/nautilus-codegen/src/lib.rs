@@ -102,7 +102,7 @@ fn validate_ir_references(ir: &SchemaIr) -> Result<()> {
     for (model_name, model) in &ir.models {
         for field in &model.fields {
             match &field.field_type {
-                ResolvedFieldType::Enum { enum_name } => {
+                ResolvedFieldType::Enum { enum_name, .. } => {
                     if !ir.enums.contains_key(enum_name) {
                         return Err(anyhow::anyhow!(
                             "Model '{}' field '{}' references unknown enum '{}'",

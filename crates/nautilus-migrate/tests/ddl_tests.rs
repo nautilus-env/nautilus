@@ -620,3 +620,55 @@ fn test_placeholders_list_per_provider() {
     assert_eq!(DatabaseProvider::Sqlite.placeholders(1), "?");
     assert_eq!(DatabaseProvider::Postgres.placeholders(0), "");
 }
+
+/// MySQL has no `CREATE TYPE`, so an enum becomes a native column `ENUM(...)`.
+/// Storing it as TEXT instead makes the column reject a DEFAULT (error 1101)
+/// and refuse to be indexed without a key length (error 1170).
+#[test]
+fn mysql_renders_an_enum_column_as_a_native_enum() {
+    let ir = common::parse(
+        "enum Status { DRAFT PUBLISHED }\n\
+         model Post { id Int @id  status Status @default(DRAFT) }",
+    )
+    .unwrap();
+
+    let generator = DdlGenerator::new(DatabaseProvider::Mysql);
+    let statements = generator.generate_create_tables(&ir).unwrap();
+    let create_table = statements
+        .iter()
+        .find(|sql| sql.contains("CREATE TABLE"))
+        .expect("a CREATE TABLE statement");
+
+    assert!(
+        create_table.contains("ENUM('DRAFT', 'PUBLISHED')"),
+        "expected a native MySQL enum column:\n{create_table}"
+    );
+    assert!(
+        create_table.contains("DEFAULT 'DRAFT'"),
+        "a native enum column accepts a DEFAULT, unlike TEXT:\n{create_table}"
+    );
+}
+
+/// The canonical type string is compared against what the server reports, and
+/// MySQL echoes enum variants with the case they were declared with.
+#[test]
+fn mysql_enum_column_type_keeps_variant_case() {
+    let ir = common::parse(
+        "enum Status { DRAFT PUBLISHED }\n\
+         model Post { id Int @id  status Status }",
+    )
+    .unwrap();
+
+    let generator = DdlGenerator::new(DatabaseProvider::Mysql);
+    let model = ir.models.get("Post").expect("Post model");
+    let field = model
+        .fields
+        .iter()
+        .find(|f| f.logical_name == "status")
+        .expect("status field");
+
+    assert_eq!(
+        generator.column_type_sql(field).unwrap(),
+        "enum('DRAFT', 'PUBLISHED')"
+    );
+}

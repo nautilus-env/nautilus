@@ -378,16 +378,30 @@ fn rust_types_for_extension(extension: &str) -> Result<String> {
 }
 
 fn render_rust_string_wrapper(ty: ExtensionType, value_variant: &str) -> Result<String> {
-    let match_pattern = if value_variant == "String" {
-        "nautilus_core::Value::String(value)".to_string()
+    // `citext` and `ltree` have no dedicated `Value` variant, so they travel as
+    // `Value::Extension` carrying their type name. Without it the PostgreSQL
+    // dialect cannot emit `$1::citext`, and the server compares a citext column
+    // case sensitively.
+    let (value_expr, match_pattern) = if value_variant == "String" {
+        (
+            format!(
+                "nautilus_core::Value::Extension {{ value: value.into_inner(), type_name: \"{}\".to_string() }}",
+                ty.type_name.to_lowercase()
+            ),
+            "nautilus_core::Value::Extension { value, .. } | nautilus_core::Value::String(value)"
+                .to_string(),
+        )
     } else {
-        format!(
-            "nautilus_core::Value::{value_variant}(value) | nautilus_core::Value::String(value)"
+        (
+            format!("nautilus_core::Value::{value_variant}(value.into_inner())"),
+            format!(
+                "nautilus_core::Value::{value_variant}(value) | nautilus_core::Value::String(value)"
+            ),
         )
     };
     let mut ctx = Context::new();
     ctx.insert("type_name", ty.type_name);
-    ctx.insert("value_variant", value_variant);
+    ctx.insert("value_expr", &value_expr);
     ctx.insert("match_pattern", &match_pattern);
     ctx.insert("error_name", ty.type_name);
     ctx.insert("is_geometry", &ty.is_geometry());

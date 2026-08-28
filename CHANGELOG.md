@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### ⚠️ Breaking — MySQL enum columns change type
+
+Enum fields on MySQL are now created as a native column `ENUM('A', 'B')`
+instead of `TEXT`. Storing them as text made MySQL reject the column outright
+in two common cases: an enum with `@default(...)` failed with error 1101
+(`BLOB, TEXT, GEOMETRY or JSON column can't have a default value`) and an enum
+covered by `@@index` failed with error 1170 (`BLOB/TEXT column used in key
+specification without a key length`).
+
+**On an existing MySQL database the first `db push` after upgrading proposes a
+`TEXT` → `ENUM(...)` change on every enum column.** The conversion is reported
+as destructive because MySQL silently turns a value that is not one of the
+declared variants into the empty string. Before applying it:
+
+```sql
+SELECT DISTINCT <column> FROM <table>;
+```
+
+and confirm every stored value appears in the schema's enum. PostgreSQL and
+SQLite are unaffected.
+
 ### Added
 
 - Added `Change::risk()` and `Change::describe()` on the migration `Change`
@@ -76,6 +97,18 @@
 
 ### Fixed
 
+- `citext` and `ltree` columns are no longer compared case sensitively.
+  A `citext` value travelled to the database as an untyped string, so
+  PostgreSQL resolved `slug = $1` as `text = text` — a query for `slug-near`
+  did not match a stored `Slug-Near`, silently defeating the point of the type.
+  Both now travel as `Value::Extension` carrying their type name, so the
+  dialect emits `$1::citext` exactly as it already did for enums. This applies
+  to every client: the Rust one and, through the engine, JavaScript, Python and
+  Java.
+- MySQL string and enum defaults no longer produce a phantom change on every
+  `db push`. `information_schema` reports the *value* of a literal default, so
+  `@default("basic")` came back as `basic` and compared unequal to the
+  generated `'basic'` forever.
 - The MySQL schema inspector works again on MySQL 8, so `db pull` and any
   `db push` against a database that already has tables no longer fail with
   `no column found for name: table_name`. MySQL reports `information_schema`

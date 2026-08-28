@@ -298,6 +298,7 @@ fn test_rust_enum_type() {
         db_name: "role".to_string(),
         field_type: ResolvedFieldType::Enum {
             enum_name: "Role".to_string(),
+            variants: vec![],
         },
         is_required: true,
         is_array: false,
@@ -698,6 +699,7 @@ fn test_filter_operators_for_enum_field() {
         db_name: "role".to_string(),
         field_type: ResolvedFieldType::Enum {
             enum_name: "Role".to_string(),
+            variants: vec![],
         },
         is_required: true,
         is_array: false,
@@ -778,6 +780,7 @@ fn test_get_base_python_type_enum() {
         db_name: "status".to_string(),
         field_type: ResolvedFieldType::Enum {
             enum_name: "Status".to_string(),
+            variants: vec![],
         },
         is_required: true,
         is_array: false,

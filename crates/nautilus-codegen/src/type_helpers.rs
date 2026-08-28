@@ -19,7 +19,7 @@ pub(crate) fn scalar_to_rust_type(scalar: &ScalarType, extensions: &ExtensionReg
 pub(crate) fn field_to_rust_base_type(field: &FieldIr, extensions: &ExtensionRegistry) -> String {
     let base_type = match &field.field_type {
         ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, extensions),
-        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+        ResolvedFieldType::Enum { enum_name, .. } => enum_name.clone(),
         ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         ResolvedFieldType::Relation(rel) => rel.target_model.clone(),
     };

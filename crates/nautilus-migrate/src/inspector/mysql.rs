@@ -158,7 +158,7 @@ impl SchemaInspector {
                     name: col_name,
                     col_type: normalize_mysql_type(&column_type),
                     nullable: is_nullable.eq_ignore_ascii_case("YES"),
-                    default_value: column_default,
+                    default_value: mysql_default_literal(&column_type, &extra, column_default),
                     generated_expr,
                     computed_kind,
                     check_expr: None,
@@ -290,4 +290,38 @@ fn split_mysql_rows_by_table(
         grouped.entry(table_name).or_default().push(row);
     }
     Ok(grouped)
+}
+
+/// Present a MySQL column default the way the DDL generator writes it.
+///
+/// `information_schema` reports the *value* of a literal default, so a string
+/// or enum default arrives unquoted (`basic`, not `'basic'`) and would compare
+/// unequal to the generated DDL forever. An expression default is flagged in
+/// `extra` as `DEFAULT_GENERATED` and is passed through untouched.
+fn mysql_default_literal(
+    column_type: &str,
+    extra: &str,
+    default_value: Option<String>,
+) -> Option<String> {
+    let default_value = default_value?;
+
+    if extra.to_ascii_uppercase().contains("DEFAULT_GENERATED") {
+        return Some(default_value);
+    }
+
+    let base_type = column_type
+        .split(['(', ' '])
+        .next()
+        .unwrap_or(column_type)
+        .to_ascii_lowercase();
+    let quoted = matches!(
+        base_type.as_str(),
+        "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" | "enum" | "set"
+    );
+
+    if quoted {
+        Some(format!("'{}'", default_value.replace('\'', "''")))
+    } else {
+        Some(default_value)
+    }
 }

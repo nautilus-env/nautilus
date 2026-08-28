@@ -34,7 +34,7 @@ fn resolved_base_type(
             imports.extend(imports_for_scalar(scalar));
             (ty, imports)
         }
-        ResolvedFieldType::Enum { enum_name } => {
+        ResolvedFieldType::Enum { enum_name, .. } => {
             if enum_name != current_model_or_type {
                 imports.insert(format!("{root_package}.enums.{enum_name}"));
             }

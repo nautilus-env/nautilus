@@ -197,7 +197,7 @@ fn composite_field_rust_type(
 ) -> Option<String> {
     match &field.field_type {
         ResolvedFieldType::Scalar(scalar) => Some(scalar_to_rust_type(scalar, extensions)),
-        ResolvedFieldType::Enum { enum_name } => Some(enum_name.clone()),
+        ResolvedFieldType::Enum { enum_name, .. } => Some(enum_name.clone()),
         _ => None,
     }
 }
@@ -485,7 +485,7 @@ fn scalar_field_context(scalar: &FieldView<'_>, extensions: &ExtensionRegistry) 
     let field = scalar.field;
     let column_type = match &field.field_type {
         ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, extensions),
-        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+        ResolvedFieldType::Enum { enum_name, .. } => enum_name.clone(),
         ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         _ => String::new(),
     };

@@ -24,7 +24,7 @@ fn composite_field_rust_type(
 ) -> String {
     let base = match field_type {
         ResolvedFieldType::Scalar(scalar) => scalar_to_rust_type(scalar, extensions),
-        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+        ResolvedFieldType::Enum { enum_name, .. } => enum_name.clone(),
         ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         ResolvedFieldType::Relation(_) => "serde_json::Value".to_string(),
     };

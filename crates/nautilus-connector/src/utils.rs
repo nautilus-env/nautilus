@@ -53,7 +53,9 @@ pub(crate) fn value_to_json(v: &Value) -> serde_json::Value {
                 .map(|row| serde_json::Value::Array(row.iter().map(value_to_json).collect()))
                 .collect(),
         ),
-        Value::Enum { value, .. } => serde_json::Value::String(value.clone()),
+        Value::Extension { value, .. } | Value::Enum { value, .. } => {
+            serde_json::Value::String(value.clone())
+        }
         Value::Composite { fields, .. } => {
             serde_json::Value::Array(fields.iter().map(value_to_json).collect())
         }

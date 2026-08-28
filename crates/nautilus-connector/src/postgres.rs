@@ -353,6 +353,9 @@ fn bindable_pg_array(items: &[Value]) -> Result<Option<PgArrayBinding>> {
         Value::String(_) => {
             PgArrayBinding::Strings(collect_pg_array!(items, String, v => v.clone(), "String"))
         }
+        // citext / ltree elements bind as text; the column's element type gives
+        // the server the real type.
+        Value::Extension { .. } => PgArrayBinding::Strings(collect_pg_extension_array(items)?),
         Value::Hstore(_) => PgArrayBinding::Hstores(
             collect_pg_array!(items, Hstore, v => PgHstore(v.clone()), "Hstore"),
         ),
@@ -370,6 +373,28 @@ fn bindable_pg_array(items: &[Value]) -> Result<Option<PgArrayBinding>> {
     };
 
     Ok(Some(binding))
+}
+
+fn collect_pg_extension_array(items: &[Value]) -> Result<Vec<String>> {
+    let mut values = Vec::with_capacity(items.len());
+    for (idx, item) in items.iter().enumerate() {
+        match item {
+            Value::Extension { value, .. } | Value::String(value) => values.push(value.clone()),
+            Value::Null => {
+                return Err(Error::database_msg(format!(
+                    "PostgreSQL typed array binding does not support NULL element at index {}",
+                    idx
+                )));
+            }
+            other => {
+                return Err(Error::database_msg(format!(
+                    "PostgreSQL array element at index {} has type {:?}; expected an extension scalar",
+                    idx, other
+                )));
+            }
+        }
+    }
+    Ok(values)
 }
 
 /// Binds a [`Value`] to a PostgreSQL sqlx query as a typed parameter.
@@ -421,7 +446,9 @@ pub(crate) fn bind_value<'q>(
         }
         // The PG dialect already appends `::type_name` to the placeholder, so
         // we only need to bind the underlying string value here.
-        Value::Enum { value, .. } => Ok(query.bind(value.as_str())),
+        Value::Extension { value, .. } | Value::Enum { value, .. } => {
+            Ok(query.bind(value.as_str()))
+        }
         // The PG dialect appends `::type_name`; we bind the composite as its
         // record-literal text form and let PostgreSQL parse and cast it.
         Value::Composite { fields, .. } => Ok(query.bind(encode_pg_composite_literal(fields)?)),
@@ -462,7 +489,7 @@ fn composite_field_text(value: &Value) -> Result<Option<String>> {
         Value::DateTime(dt) => dt.format("%Y-%m-%d %H:%M:%S%.f").to_string(),
         Value::Uuid(u) => u.to_string(),
         Value::String(s) => s.clone(),
-        Value::Enum { value, .. } => value.clone(),
+        Value::Extension { value, .. } | Value::Enum { value, .. } => value.clone(),
         Value::Geometry(raw) | Value::Geography(raw) => raw.clone(),
         Value::Vector(values) => format_pg_vector(values)?,
         Value::Json(j) => j.to_string(),

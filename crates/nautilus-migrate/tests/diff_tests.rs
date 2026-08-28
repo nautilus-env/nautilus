@@ -1645,3 +1645,68 @@ fn a_genuinely_different_composite_type_is_still_a_type_change() {
         "a different composite type must still be reported, got {changes:?}"
     );
 }
+
+/// MySQL reports a literal string default without quotes and echoes enum
+/// variants with their declared case, while the DDL generator writes
+/// `'basic'` and `enum('DRAFT','PUBLISHED')`. Neither difference is a change.
+#[test]
+fn mysql_literal_defaults_and_enum_case_are_not_changes() {
+    let target = common::parse(
+        "enum Status { DRAFT PUBLISHED }\n\
+         model Post { id Int @id  status Status @default(DRAFT)  kind String @default(\"basic\") }",
+    )
+    .unwrap();
+
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "Post".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "int".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "status".to_string(),
+                col_type: "enum('DRAFT','PUBLISHED')".to_string(),
+                nullable: false,
+                default_value: Some("'DRAFT'".to_string()),
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+            LiveColumn {
+                name: "kind".to_string(),
+                col_type: "varchar(255)".to_string(),
+                nullable: false,
+                default_value: Some("'basic'".to_string()),
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Mysql);
+
+    let noise: Vec<&Change> = changes
+        .iter()
+        .filter(|change| {
+            matches!(
+                change,
+                Change::TypeChanged { .. } | Change::DefaultChanged { .. }
+            )
+        })
+        .collect();
+    assert!(
+        noise.is_empty(),
+        "an unchanged MySQL schema must not diff, got {noise:?}"
+    );
+}

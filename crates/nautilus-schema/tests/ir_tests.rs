@@ -47,7 +47,7 @@ model User {
         .unwrap();
 
     match &role_field.field_type {
-        ResolvedFieldType::Enum { enum_name } => {
+        ResolvedFieldType::Enum { enum_name, .. } => {
             assert_eq!(enum_name, "Role");
         }
         _ => panic!("Expected enum type"),

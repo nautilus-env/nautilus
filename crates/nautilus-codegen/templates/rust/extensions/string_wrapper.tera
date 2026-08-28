@@ -100,7 +100,7 @@ impl std::fmt::Display for {{ type_name }} {
 
 impl From<{{ type_name }}> for nautilus_core::Value {
     fn from(value: {{ type_name }}) -> Self {
-        nautilus_core::Value::{{ value_variant }}(value.into_inner())
+        {{ value_expr }}
     }
 }
 

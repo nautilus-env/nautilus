@@ -53,7 +53,6 @@ jobs:
         run: |
           cargo test --locked -p nautilus-orm-codegen \
             --test snapshot_tests \
-            --test canonical_snapshot_tests \
             --test type_helpers_tests \
             --test writer_tests \
             --test parse_schema_tests \

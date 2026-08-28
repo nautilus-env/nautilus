@@ -105,7 +105,7 @@ pub fn json_to_value_field(
     json: &serde_json::Value,
     field_type: &ResolvedFieldType,
 ) -> Result<Value, ProtocolError> {
-    if let ResolvedFieldType::Enum { enum_name } = field_type {
+    if let ResolvedFieldType::Enum { enum_name, .. } = field_type {
         match json {
             serde_json::Value::Null => return Ok(Value::Null),
             serde_json::Value::String(s) => {
@@ -138,6 +138,23 @@ pub fn json_to_value_field(
     }
     if let ResolvedFieldType::Scalar(ScalarType::Geography) = field_type {
         return json_to_geography_value(json);
+    }
+    // citext and ltree arrive as plain JSON strings. Tagging them with their
+    // type name lets the PostgreSQL dialect emit `$1::citext`, without which
+    // the server resolves the comparison as `text = text` and a citext column
+    // stops being case insensitive.
+    if let ResolvedFieldType::Scalar(scalar @ (ScalarType::Citext | ScalarType::Ltree)) = field_type
+    {
+        if let serde_json::Value::String(s) = json {
+            let type_name = match scalar {
+                ScalarType::Citext => "citext",
+                _ => "ltree",
+            };
+            return Ok(Value::Extension {
+                value: s.clone(),
+                type_name: type_name.to_string(),
+            });
+        }
     }
     json_to_value(json)
 }

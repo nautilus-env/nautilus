@@ -893,7 +893,7 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
     assert_eq!(address.fields.len(), 3);
     assert!(matches!(
         &address.fields[2].field_type,
-        ResolvedFieldType::Enum { enum_name } if enum_name == "Status"
+        ResolvedFieldType::Enum { enum_name, .. } if enum_name == "Status"
     ));
 
     let profiles = ir.models.get("Profiles").unwrap();
@@ -915,7 +915,7 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
     let status_history = profiles.find_field("status_history").unwrap();
     assert!(matches!(
         &status_history.field_type,
-        ResolvedFieldType::Enum { enum_name } if enum_name == "Status"
+        ResolvedFieldType::Enum { enum_name, .. } if enum_name == "Status"
     ));
     assert!(status_history.is_array);
 
@@ -1138,7 +1138,7 @@ fn serialises_mixed_case_postgres_enum_columns_and_defaults() {
 
     assert!(matches!(
         &tone.field_type,
-        ResolvedFieldType::Enum { enum_name } if enum_name == "ToneType"
+        ResolvedFieldType::Enum { enum_name, .. } if enum_name == "ToneType"
     ));
     assert!(matches!(
         &tone.default_value,

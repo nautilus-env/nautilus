@@ -25,7 +25,7 @@ pub fn field_to_python_type(
 ) -> String {
     let base_type = match &field.field_type {
         ResolvedFieldType::Scalar(scalar) => scalar_to_python_type(scalar).to_string(),
-        ResolvedFieldType::Enum { enum_name } => {
+        ResolvedFieldType::Enum { enum_name, .. } => {
             if enums.contains_key(enum_name) {
                 enum_name.clone()
             } else {

@@ -290,6 +290,12 @@ pub enum ResolvedFieldType {
     Enum {
         /// The logical name of the enum.
         enum_name: String,
+        /// The enum's variants, in declaration order.
+        ///
+        /// Carried on the type because MySQL renders an enum column as a
+        /// native `ENUM(...)`, and the DDL for a single column has to be
+        /// derivable from the field alone.
+        variants: Vec<String>,
     },
     /// A relation to another model.
     Relation(RelationIr),

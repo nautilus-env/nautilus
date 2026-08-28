@@ -113,6 +113,20 @@ pub enum Value {
     Array(Vec<Value>),
     /// 2D array of values (PostgreSQL multi-dimensional arrays).
     Array2D(Vec<Vec<Value>>),
+    /// A text-backed PostgreSQL extension scalar with its type name.
+    ///
+    /// Carries the textual value together with the lowercase type name
+    /// (e.g. `"citext"`, `"ltree"`) for the same reason as [`Value::Enum`]:
+    /// without an explicit `$1::citext`, PostgreSQL resolves a comparison
+    /// against a `citext` column as `text = text` and compares case
+    /// sensitively, silently defeating the point of the type.
+    /// All other backends treat this identically to `Value::String`.
+    Extension {
+        /// The textual value sent to / received from the DB.
+        value: String,
+        /// Lowercase PostgreSQL type name (e.g. `"citext"`).
+        type_name: String,
+    },
     /// A database enum value with its PostgreSQL type name.
     ///
     /// Carries the variant string (e.g. `"ADMIN"`) together with the
@@ -160,6 +174,10 @@ enum SerdeValue {
     Bytes(String),
     Array(Vec<Value>),
     Array2D(Vec<Vec<Value>>),
+    Extension {
+        value: String,
+        type_name: String,
+    },
     Enum {
         value: String,
         type_name: String,
@@ -208,6 +226,10 @@ impl From<&Value> for SerdeValue {
             }
             Value::Array(v) => SerdeValue::Array(v.clone()),
             Value::Array2D(v) => SerdeValue::Array2D(v.clone()),
+            Value::Extension { value, type_name } => SerdeValue::Extension {
+                value: value.clone(),
+                type_name: type_name.clone(),
+            },
             Value::Enum { value, type_name } => SerdeValue::Enum {
                 value: value.clone(),
                 type_name: type_name.clone(),
@@ -252,6 +274,7 @@ impl TryFrom<SerdeValue> for Value {
             }
             SerdeValue::Array(v) => Ok(Value::Array(v)),
             SerdeValue::Array2D(v) => Ok(Value::Array2D(v)),
+            SerdeValue::Extension { value, type_name } => Ok(Value::Extension { value, type_name }),
             SerdeValue::Enum { value, type_name } => Ok(Value::Enum { value, type_name }),
             SerdeValue::Composite { type_name, fields } => {
                 Ok(Value::Composite { type_name, fields })
@@ -478,7 +501,9 @@ impl Value {
                     })
                     .collect(),
             ),
-            Value::Enum { value, .. } => serde_json::Value::String(value.clone()),
+            Value::Extension { value, .. } | Value::Enum { value, .. } => {
+                serde_json::Value::String(value.clone())
+            }
             Value::Composite { fields, .. } => {
                 serde_json::Value::Array(fields.iter().map(Value::to_json_plain).collect())
             }
@@ -552,6 +577,10 @@ enum SerdeValueRef<'a> {
     Bytes(Base64String<'a>),
     Array(&'a [Value]),
     Array2D(&'a [Vec<Value>]),
+    Extension {
+        value: &'a str,
+        type_name: &'a str,
+    },
     Enum {
         value: &'a str,
         type_name: &'a str,
@@ -582,6 +611,7 @@ impl<'a> From<&'a Value> for SerdeValueRef<'a> {
             Value::Bytes(v) => SerdeValueRef::Bytes(Base64String(v)),
             Value::Array(v) => SerdeValueRef::Array(v),
             Value::Array2D(v) => SerdeValueRef::Array2D(v),
+            Value::Extension { value, type_name } => SerdeValueRef::Extension { value, type_name },
             Value::Enum { value, type_name } => SerdeValueRef::Enum { value, type_name },
             Value::Composite { type_name, fields } => {
                 SerdeValueRef::Composite { type_name, fields }
@@ -650,7 +680,9 @@ impl Serialize for PlainValueRef<'_> {
             Value::Bytes(v) => Base64String(v).serialize(serializer),
             Value::Array(v) => serializer.collect_seq(v.iter().map(PlainValueRef)),
             Value::Array2D(v) => serializer.collect_seq(v.iter().map(|row| PlainSliceRef(row))),
-            Value::Enum { value, .. } => serializer.serialize_str(value),
+            Value::Extension { value, .. } | Value::Enum { value, .. } => {
+                serializer.serialize_str(value)
+            }
             Value::Composite { fields, .. } => {
                 serializer.collect_seq(fields.iter().map(PlainValueRef))
             }

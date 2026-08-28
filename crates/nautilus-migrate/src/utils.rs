@@ -26,6 +26,27 @@ pub(crate) fn strip_outer_parens(s: &str) -> String {
     s.to_string()
 }
 
+/// Lower-case a SQL fragment, leaving single-quoted literals untouched.
+///
+/// A MySQL `enum('DRAFT','PUBLISHED')` is reported by the server with the
+/// variants spelled as declared, so folding their case would make the type
+/// compare unequal to the one the DDL generator emits.
+pub(crate) fn lowercase_outside_quotes(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut in_quotes = false;
+    for ch in sql.chars() {
+        if ch == '\'' {
+            in_quotes = !in_quotes;
+            out.push(ch);
+        } else if in_quotes {
+            out.push(ch);
+        } else {
+            out.extend(ch.to_lowercase());
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

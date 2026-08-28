@@ -162,7 +162,7 @@ fn output_base_ts_type(
 
     match &field.field_type {
         ResolvedFieldType::Scalar(scalar) => scalar_to_ts_type(scalar).to_string(),
-        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+        ResolvedFieldType::Enum { enum_name, .. } => enum_name.clone(),
         ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         ResolvedFieldType::Relation(rel) => {
             if enums.contains_key(&rel.target_model) {
@@ -184,7 +184,7 @@ fn input_base_ts_type(
 
     match &field.field_type {
         ResolvedFieldType::Scalar(scalar) => scalar_to_ts_type(scalar).to_string(),
-        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+        ResolvedFieldType::Enum { enum_name, .. } => enum_name.clone(),
         ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
         ResolvedFieldType::Relation(rel) => format!("{}Model", rel.target_model),
     }
@@ -593,7 +593,7 @@ pub fn generate_js_composite_types(
                 .map(|f| {
                     let base = match &f.field_type {
                         ResolvedFieldType::Scalar(s) => scalar_to_ts_type(s).to_string(),
-                        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+                        ResolvedFieldType::Enum { enum_name, .. } => enum_name.clone(),
                         ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
                         ResolvedFieldType::Relation(_) => "unknown".to_string(),
                     };

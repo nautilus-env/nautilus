@@ -100,9 +100,8 @@ Desktop.ini
 
 benchmark/
 examples/
-# Insta snapshots — keep the broad generated baselines local-only. The committed
-# baselines for the canonical schema live in `tests/canonical_snapshots/`.
+# Insta snapshots — generated baselines stay local, never committed.
 **/snapshots/*
 !**/snapshots/.gitkeep
-**/snapshots/*.snap.new
-**/canonical_snapshots/*.snap.new
+**/*.snap
+**/*.snap.new

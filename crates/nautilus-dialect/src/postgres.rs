@@ -219,7 +219,9 @@ fn postgres_param_cast(value: &Value) -> Option<ParamCast> {
         Value::Geography(_) => Some(ParamCast::Static("geography")),
         value if is_homogeneous_geometry_array(value) => Some(ParamCast::Static("geometry[]")),
         value if is_homogeneous_geography_array(value) => Some(ParamCast::Static("geography[]")),
-        Value::Enum { type_name, .. } => Some(ParamCast::Enum(type_name.clone())),
+        Value::Extension { type_name, .. } | Value::Enum { type_name, .. } => {
+            Some(ParamCast::Enum(type_name.clone()))
+        }
         Value::Composite { type_name, .. } => Some(ParamCast::Composite(type_name.clone())),
         _ => None,
     }
@@ -510,6 +512,26 @@ mod tests {
         assert_eq!(
             dialect.render_update(&update).unwrap().text,
             "UPDATE \"docs\" SET \"embedding\" = $1::vector"
+        );
+    }
+
+    #[test]
+    fn extension_scalar_params_are_cast_to_their_type() {
+        let dialect = PostgresDialect;
+        let citext = Value::Extension {
+            value: "slug-near".to_string(),
+            type_name: "citext".to_string(),
+        };
+
+        let select = Select::from_table("docs")
+            .filter(Expr::column("docs__slug").eq(Expr::param(citext.clone())))
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            dialect.render_select(&select).unwrap().text,
+            "SELECT * FROM \"docs\" WHERE (\"docs\".\"slug\" = $1::\"citext\")",
+            "without the cast PostgreSQL resolves citext = text and compares case sensitively"
         );
     }
 

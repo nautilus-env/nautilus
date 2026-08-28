@@ -2899,3 +2899,31 @@ model Doc {
         );
     }
 }
+
+#[test]
+fn test_rust_citext_wrapper_tags_values_with_their_type() {
+    let ir = validate(
+        r#"
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [citext]
+}
+
+model Doc {
+  id   Int    @id @default(autoincrement())
+  slug Citext
+}
+"#,
+    );
+
+    let files = generate_rust_extension_files(&ExtensionRegistry::from_schema(&ir))
+        .expect("generate_rust_extension_files should succeed");
+    let citext = generated_named_file(&files, "extensions/citext/types.rs");
+
+    assert!(
+        citext.contains("nautilus_core::Value::Extension { value: value.into_inner(), type_name: \"citext\".to_string() }"),
+        "a citext must carry its type name so the dialect can emit `$1::citext`; without the \
+         cast PostgreSQL compares a citext column case sensitively:\n{citext}"
+    );
+}

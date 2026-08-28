@@ -462,8 +462,20 @@ impl SchemaValidator<'_> {
             })),
             FieldType::UserType(type_name) => {
                 if self.enums.contains_key(type_name) {
+                    let variants = self
+                        .schema
+                        .enums()
+                        .find(|decl| decl.name.value == *type_name)
+                        .map(|decl| {
+                            decl.variants
+                                .iter()
+                                .map(|variant| variant.name.value.clone())
+                                .collect()
+                        })
+                        .unwrap_or_default();
                     return Ok(ResolvedFieldType::Enum {
                         enum_name: type_name.clone(),
+                        variants,
                     });
                 }
 

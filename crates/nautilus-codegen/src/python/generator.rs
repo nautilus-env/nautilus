@@ -197,7 +197,7 @@ fn output_base_python_type(
         ResolvedFieldType::Scalar(scalar) => {
             crate::python::type_mapper::scalar_to_python_type(scalar).to_string()
         }
-        ResolvedFieldType::Enum { enum_name } => {
+        ResolvedFieldType::Enum { enum_name, .. } => {
             if enums.contains_key(enum_name) {
                 enum_name.clone()
             } else {
@@ -254,7 +254,7 @@ fn input_base_python_type(
         ResolvedFieldType::Scalar(scalar) => {
             crate::python::type_mapper::scalar_to_python_type(scalar).to_string()
         }
-        ResolvedFieldType::Enum { enum_name } => {
+        ResolvedFieldType::Enum { enum_name, .. } => {
             if enums.contains_key(enum_name) {
                 enum_name.clone()
             } else {
@@ -489,14 +489,14 @@ fn scalar_field_context(
         ResolvedFieldType::Scalar(s) => {
             crate::python::type_mapper::scalar_to_python_type(s).to_string()
         }
-        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+        ResolvedFieldType::Enum { enum_name, .. } => enum_name.clone(),
         _ => "Any".to_string(),
     };
 
     // Render enum defaults as `EnumName.VARIANT`.
     let mut default_val = get_default_value(field);
     if let Some(ref def) = default_val {
-        if let ResolvedFieldType::Enum { enum_name } = &field.field_type {
+        if let ResolvedFieldType::Enum { enum_name, .. } = &field.field_type {
             if !def.contains('.') && !def.contains('(') && def != "None" {
                 default_val = Some(format!("{}.{}", enum_name, def));
             }
@@ -743,7 +743,7 @@ pub fn generate_python_composite_types(
                         ResolvedFieldType::Scalar(s) => {
                             crate::python::type_mapper::scalar_to_python_type(s).to_string()
                         }
-                        ResolvedFieldType::Enum { enum_name } => enum_name.clone(),
+                        ResolvedFieldType::Enum { enum_name, .. } => enum_name.clone(),
                         ResolvedFieldType::CompositeType { type_name, .. } => type_name.clone(),
                         ResolvedFieldType::Relation(_) => "Any".to_string(),
                     };

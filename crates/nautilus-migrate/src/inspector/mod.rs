@@ -405,7 +405,7 @@ fn normalize_sqlite_default(raw: &str) -> String {
 /// Normalise a MySQL `column_type` value to the canonical form used by
 /// `DdlGenerator::column_type_sql` (lower-cased).
 fn normalize_mysql_type(column_type: &str) -> String {
-    let s = column_type.to_lowercase();
+    let s = crate::utils::lowercase_outside_quotes(column_type);
     if s == "tinyint(1)" {
         return "boolean".to_string();
     }

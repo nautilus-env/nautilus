@@ -211,7 +211,7 @@ pub trait LanguageBackend {
             ResolvedFieldType::Scalar(scalar) => {
                 ops = self.get_filter_operators_for_scalar(scalar);
             }
-            ResolvedFieldType::Enum { enum_name } => {
+            ResolvedFieldType::Enum { enum_name, .. } => {
                 let enum_type = if enums.contains_key(enum_name) {
                     enum_name.clone()
                 } else {
@@ -307,7 +307,7 @@ pub trait LanguageBackend {
     fn get_base_type(&self, field: &FieldIr, enums: &HashMap<String, EnumIr>) -> String {
         match &field.field_type {
             ResolvedFieldType::Scalar(scalar) => self.scalar_to_type(scalar).to_string(),
-            ResolvedFieldType::Enum { enum_name } => {
+            ResolvedFieldType::Enum { enum_name, .. } => {
                 if enums.contains_key(enum_name) {
                     enum_name.clone()
                 } else {

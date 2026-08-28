@@ -166,7 +166,7 @@ impl<'a> ModelView<'a> {
 
         for (index, field) in model.scalar_fields().enumerate() {
             match &field.field_type {
-                ResolvedFieldType::Enum { enum_name } if ir.enums.contains_key(enum_name) => {
+                ResolvedFieldType::Enum { enum_name, .. } if ir.enums.contains_key(enum_name) => {
                     enum_imports.insert(enum_name.clone());
                 }
                 ResolvedFieldType::CompositeType { type_name, .. }

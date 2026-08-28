@@ -1214,7 +1214,7 @@ fn projection_field_read_expr(config: &JavaConfig, model: &ModelIr, field: &Fiel
                     reader = reader
                 )
             }
-            ResolvedFieldType::Enum { enum_name } => {
+            ResolvedFieldType::Enum { enum_name, .. } => {
                 format!("JsonSupport.asList({source}, value -> JsonSupport.asEnum(value, {enum_name}.class))")
             }
             ResolvedFieldType::CompositeType { type_name, .. } => {
@@ -1239,7 +1239,7 @@ fn projection_field_read_expr(config: &JavaConfig, model: &ModelIr, field: &Fiel
                     source = source
                 )
             }
-            ResolvedFieldType::Enum { enum_name } => {
+            ResolvedFieldType::Enum { enum_name, .. } => {
                 format!("JsonSupport.asEnum({source}, {enum_name}.class)")
             }
             ResolvedFieldType::CompositeType { type_name, .. } => {
@@ -1286,7 +1286,7 @@ fn generate_regular_field_read(
                     name = logical_name,
                 )
             }
-            ResolvedFieldType::Enum { enum_name } => format!(
+            ResolvedFieldType::Enum { enum_name, .. } => format!(
                 "        List<{enum_name}> {name} = JsonSupport.asList({source}, value -> JsonSupport.asEnum(value, {enum_name}.class));\n",
                 name = logical_name,
             ),
@@ -1313,7 +1313,7 @@ fn generate_regular_field_read(
                     name = logical_name,
                 )
             }
-            ResolvedFieldType::Enum { enum_name } => format!(
+            ResolvedFieldType::Enum { enum_name, .. } => format!(
                 "        {enum_name} {name} = JsonSupport.asEnum({source}, {enum_name}.class);\n",
                 name = logical_name,
             ),

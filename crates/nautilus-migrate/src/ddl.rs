@@ -738,7 +738,7 @@ impl DdlGenerator {
                 return Err(MigrationError::ValidationError(
                     strategy.native_array_support_error(),
                 ));
-            } else if let ResolvedFieldType::Enum { enum_name } = field_type {
+            } else if let ResolvedFieldType::Enum { enum_name, .. } = field_type {
                 if self.provider == DatabaseProvider::Postgres {
                     return Ok(format!("{}[]", enum_name.to_lowercase()));
                 }
@@ -836,13 +836,21 @@ impl DdlGenerator {
                     DatabaseProvider::Mysql => "CHAR(36)",
                 },
             },
-            ResolvedFieldType::Enum { enum_name } => match self.provider {
+            ResolvedFieldType::Enum {
+                enum_name,
+                variants,
+            } => match self.provider {
                 // Use lowercase unquoted name so that `column_type_sql`
                 // (which lowercases the result) produces a plain `role`
                 // rather than `"role"` — matching what the inspector
                 // returns from `normalize_pg_type`.
                 DatabaseProvider::Postgres => return Ok(enum_name.to_lowercase()),
-                DatabaseProvider::Sqlite | DatabaseProvider::Mysql => "TEXT",
+                // MySQL has no CREATE TYPE, but it does have a native column
+                // ENUM. Storing the variants as TEXT instead makes the column
+                // reject a DEFAULT (error 1101) and refuse to be indexed
+                // without a key length (error 1170).
+                DatabaseProvider::Mysql => return Ok(mysql_enum_type(enum_name, variants)),
+                DatabaseProvider::Sqlite => "TEXT",
             },
             ResolvedFieldType::Relation(_) => return Ok("".to_string()),
             ResolvedFieldType::CompositeType { type_name, db_name } => {
@@ -945,7 +953,7 @@ impl DdlGenerator {
     fn postgres_array_cast_type(&self, field_type: &ResolvedFieldType) -> Result<String> {
         match field_type {
             ResolvedFieldType::Scalar(scalar) => self.scalar_to_pg_type(scalar),
-            ResolvedFieldType::Enum { enum_name } => {
+            ResolvedFieldType::Enum { enum_name, .. } => {
                 Ok(self.quote_type_identifier(&enum_name.to_lowercase()))
             }
             ResolvedFieldType::CompositeType { db_name, .. } => {
@@ -995,7 +1003,9 @@ impl DdlGenerator {
     /// Return the canonical SQL type string for a field (used by the diff engine).
     ///
     /// The result is lower-cased so it can be compared directly with the
-    /// normalised live-DB type returned by `SchemaInspector`.
+    /// normalised live-DB type returned by `SchemaInspector`. Text inside
+    /// single quotes keeps its case, because a MySQL `enum('DRAFT','PUBLISHED')`
+    /// is reported by the server with the variants spelled as declared.
     pub fn column_type_sql(&self, field: &FieldIr) -> Result<String> {
         self.generate_column_type(
             &field.field_type,
@@ -1003,7 +1013,7 @@ impl DdlGenerator {
             field.is_array,
             field.storage_strategy,
         )
-        .map(|s| s.to_lowercase())
+        .map(|s| crate::utils::lowercase_outside_quotes(&s))
     }
 
     /// Return the canonical SQL type string for a composite-type field (used by the diff engine).
@@ -1017,7 +1027,7 @@ impl DdlGenerator {
             field.is_array,
             field.storage_strategy,
         )
-        .map(|s| s.to_lowercase())
+        .map(|s| crate::utils::lowercase_outside_quotes(&s))
     }
 
     /// Return the canonical SQL default string for a field (used by the diff engine).
@@ -1153,5 +1163,28 @@ fn json_string_literal(value: &str) -> String {
         }
     }
     out.push('"');
+    out
+}
+
+/// Render a MySQL native column enum: `ENUM('DRAFT', 'PUBLISHED')`.
+///
+/// A variant containing a quote is escaped by doubling it, the only escape
+/// MySQL accepts inside a string literal in ANSI_QUOTES mode as well.
+fn mysql_enum_type(enum_name: &str, variants: &[String]) -> String {
+    if variants.is_empty() {
+        return "TEXT".to_string();
+    }
+
+    let mut out = String::with_capacity(enum_name.len() + variants.len() * 12);
+    out.push_str("ENUM(");
+    for (index, variant) in variants.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push('\'');
+        out.push_str(&variant.replace('\'', "''"));
+        out.push('\'');
+    }
+    out.push(')');
     out
 }
