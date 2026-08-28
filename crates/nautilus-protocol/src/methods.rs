@@ -20,14 +20,24 @@ pub const QUERY_FIND_FIRST_OR_THROW: &str = "query.findFirstOrThrow";
 pub const QUERY_CREATE: &str = "query.create";
 pub const QUERY_CREATE_MANY: &str = "query.createMany";
 pub const QUERY_UPDATE: &str = "query.update";
+/// Update every row matching a filter and return only the affected-row count.
+pub const QUERY_UPDATE_MANY: &str = "query.updateMany";
 pub const QUERY_DELETE: &str = "query.delete";
+/// Delete every row matching a filter and return only the affected-row count.
+pub const QUERY_DELETE_MANY: &str = "query.deleteMany";
 /// Insert a row, or update the conflicting one, in a single atomic statement.
 pub const QUERY_UPSERT: &str = "query.upsert";
 pub const QUERY_COUNT: &str = "query.count";
 /// Group records and compute aggregates (COUNT, AVG, SUM, MIN, MAX).
 pub const QUERY_GROUP_BY: &str = "query.groupBy";
+/// Compute aggregates over the whole filtered set, without grouping.
+pub const QUERY_AGGREGATE: &str = "query.aggregate";
+/// Render the SQL for a read operation and ask the database to explain it.
+pub const QUERY_EXPLAIN: &str = "query.explain";
 /// Method name for schema validation.
 pub const SCHEMA_VALIDATE: &str = "schema.validate";
+/// Snapshot of the engine's runtime counters.
+pub const ENGINE_METRICS: &str = "engine.metrics";
 /// Cancel an in-flight request by id.
 ///
 /// This aborts the engine-side task and stops the response from being sent; it
@@ -265,6 +275,170 @@ pub struct GroupByParams {
     /// Optional transaction ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_id: Option<String>,
+}
+
+/// Update-many request parameters.
+///
+/// Unlike [`UpdateParams`], no `RETURNING` clause is ever emitted: the result
+/// carries the affected-row count only, so the statement stays a single
+/// round-trip regardless of how many rows it touches.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateManyParams {
+    pub protocol_version: u32,
+    pub model: String,
+    /// Rows to update. An empty filter updates every row of the model.
+    pub filter: Value,
+    pub data: Value,
+    /// Optional transaction ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<String>,
+}
+
+/// Delete-many request parameters.
+///
+/// Like [`UpdateManyParams`], the result carries the affected-row count only.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteManyParams {
+    pub protocol_version: u32,
+    pub model: String,
+    /// Rows to delete. An empty filter deletes every row of the model.
+    pub filter: Value,
+    /// Optional transaction ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<String>,
+}
+
+/// Aggregate request parameters.
+///
+/// Same aggregate arguments as [`GroupByParams`] minus `by` and `having`:
+/// without a grouping key there is one result row covering the whole filtered
+/// set, so there is nothing to group or filter groups by.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateParams {
+    pub protocol_version: u32,
+    pub model: String,
+    /// Query arguments: where, count, avg, sum, min, max.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Value>,
+    /// Optional transaction ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<String>,
+}
+
+/// Explain request parameters.
+///
+/// Renders the SQL the engine would run for a `findMany` with these arguments
+/// and hands it to the database's `EXPLAIN`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplainParams {
+    pub protocol_version: u32,
+    pub model: String,
+    /// Same argument shape as [`FindManyParams::args`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Value>,
+    /// Run the statement to collect real timings (`EXPLAIN ANALYZE`).
+    ///
+    /// This *executes* the query. On a mutation that would be a side effect;
+    /// explain only covers reads, so the cost is the read itself.
+    #[serde(default)]
+    pub analyze: bool,
+    /// Optional transaction ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<String>,
+}
+
+/// Explain result: the rendered statement plus the database's own plan output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplainResult {
+    /// SQL text with placeholders, exactly as the engine would execute it.
+    pub sql: String,
+    /// Bound parameter values, in placeholder order.
+    pub params: Vec<Value>,
+    /// Rows returned by `EXPLAIN`, one JSON object per plan line.
+    pub plan: Vec<Value>,
+}
+
+/// Engine metrics request parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineMetricsParams {
+    pub protocol_version: u32,
+    /// Reset the cumulative counters after reading them.
+    #[serde(default)]
+    pub reset: bool,
+}
+
+/// Plan-cache counters for one cache section.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanCacheSectionMetrics {
+    /// Entries currently held.
+    pub entries: usize,
+    /// Lookups that found a cached plan.
+    pub hits: u64,
+    /// Lookups that had to render a plan.
+    pub misses: u64,
+    /// Entries dropped to keep the section under its cap.
+    pub evictions: u64,
+}
+
+/// Plan-cache counters, per section.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanCacheMetrics {
+    /// Maximum entries a section holds before evicting.
+    pub capacity: usize,
+    /// `findUnique` section.
+    pub find_unique: PlanCacheSectionMetrics,
+    /// `findMany` / `findFirst` section.
+    pub find_many: PlanCacheSectionMetrics,
+}
+
+/// Connection-pool counters, as reported by the driver.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolMetrics {
+    /// Connections currently held by the pool (idle plus in use).
+    pub size: u32,
+    /// Connections currently idle.
+    pub idle: usize,
+}
+
+/// Per-method request counters and cumulative latency.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MethodMetrics {
+    /// JSON-RPC method name.
+    pub method: String,
+    /// Requests dispatched.
+    pub calls: u64,
+    /// Requests that returned an error.
+    pub errors: u64,
+    /// Total time spent in the handler.
+    pub total_ms: u64,
+    /// Slowest single call observed.
+    pub max_ms: u64,
+}
+
+/// Engine metrics snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineMetricsResult {
+    /// Seconds since the engine state was built.
+    pub uptime_seconds: u64,
+    /// Read-plan cache counters.
+    pub plan_cache: PlanCacheMetrics,
+    /// Connection-pool counters.
+    pub pool: PoolMetrics,
+    /// Interactive transactions currently open.
+    pub active_transactions: usize,
+    /// Per-method counters, sorted by method name.
+    pub methods: Vec<MethodMetrics>,
 }
 
 /// Query result containing data rows.

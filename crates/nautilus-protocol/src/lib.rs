@@ -39,17 +39,20 @@ pub mod wire;
 
 pub use error::{BatchOperationErrorData, ProtocolError, ProtocolErrorCause, Result};
 pub use methods::{
-    BatchOperation, CountParams, CreateManyParams, CreateParams, DeleteParams,
+    AggregateParams, BatchOperation, CountParams, CreateManyParams, CreateParams, DeleteManyParams,
+    DeleteParams, EngineMetricsParams, EngineMetricsResult, ExplainParams, ExplainResult,
     FindFirstOrThrowParams, FindFirstParams, FindManyParams, FindUniqueOrThrowParams,
     FindUniqueParams, GroupByParams, HandshakeParams, HandshakeResult, IsolationLevel,
-    MutationResult, QueryResult, RawQueryParams, RawStmtQueryParams, RequestCancelParams,
-    RequestCancelResult, SchemaValidateParams, SchemaValidateResult, TransactionBatchParams,
-    TransactionBatchResult, TransactionCommitParams, TransactionCommitResult,
-    TransactionRollbackParams, TransactionRollbackResult, TransactionStartParams,
-    TransactionStartResult, UpdateParams, UpsertParams, ENGINE_HANDSHAKE, QUERY_COUNT,
-    QUERY_CREATE, QUERY_CREATE_MANY, QUERY_DELETE, QUERY_FIND_FIRST, QUERY_FIND_FIRST_OR_THROW,
-    QUERY_FIND_MANY, QUERY_FIND_UNIQUE, QUERY_FIND_UNIQUE_OR_THROW, QUERY_GROUP_BY, QUERY_RAW,
-    QUERY_RAW_STMT, QUERY_UPDATE, QUERY_UPSERT, REQUEST_CANCEL, SCHEMA_VALIDATE, TRANSACTION_BATCH,
+    MethodMetrics, MutationResult, PlanCacheMetrics, PlanCacheSectionMetrics, PoolMetrics,
+    QueryResult, RawQueryParams, RawStmtQueryParams, RequestCancelParams, RequestCancelResult,
+    SchemaValidateParams, SchemaValidateResult, TransactionBatchParams, TransactionBatchResult,
+    TransactionCommitParams, TransactionCommitResult, TransactionRollbackParams,
+    TransactionRollbackResult, TransactionStartParams, TransactionStartResult, UpdateManyParams,
+    UpdateParams, UpsertParams, ENGINE_HANDSHAKE, ENGINE_METRICS, QUERY_AGGREGATE, QUERY_COUNT,
+    QUERY_CREATE, QUERY_CREATE_MANY, QUERY_DELETE, QUERY_DELETE_MANY, QUERY_EXPLAIN,
+    QUERY_FIND_FIRST, QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY, QUERY_FIND_UNIQUE,
+    QUERY_FIND_UNIQUE_OR_THROW, QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT, QUERY_UPDATE,
+    QUERY_UPDATE_MANY, QUERY_UPSERT, REQUEST_CANCEL, SCHEMA_VALIDATE, TRANSACTION_BATCH,
     TRANSACTION_COMMIT, TRANSACTION_ROLLBACK, TRANSACTION_START,
 };
 pub use version::{ProtocolVersion, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};

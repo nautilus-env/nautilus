@@ -1,7 +1,6 @@
 use super::common::{
-    execute_mutation_result, finish_mutation, parse_and_qualify_model_filter,
-    parse_optional_model_filter, protocol_filter_body, wrap_count_result, wrap_mutation_result,
-    MutationResultData,
+    execute_mutation_result, parse_and_qualify_model_filter, parse_optional_model_filter,
+    protocol_filter_body, wrap_count_result, wrap_mutation_result, MutationResultData,
 };
 use super::read::build_find_unique_sql;
 use super::*;
@@ -93,6 +92,18 @@ fn create_many_effective_fields<'a>(
                 .is_some_and(|json_val| !should_omit_server_default(json_val, field))
         })
         .collect()
+}
+
+fn mutation_count_or_internal(
+    result: MutationResultData,
+    context: &str,
+) -> Result<usize, ProtocolError> {
+    match result {
+        MutationResultData::Count(count) => Ok(count),
+        MutationResultData::Rows(_) => Err(ProtocolError::Internal(format!(
+            "{context} path expected an affected-row count"
+        ))),
+    }
 }
 
 fn mutation_rows_or_internal(
@@ -664,12 +675,10 @@ pub(in crate::handlers) async fn handle_update_typed(
     mutation_rows_or_internal(execute_update(state, params).await?, "update")
 }
 
-/// Handle `query.delete`.
-pub(in crate::handlers) async fn handle_delete(
+async fn execute_delete(
     state: &EngineState,
-    request: RpcRequest,
-) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let params: DeleteParams = parse_params(&request, "delete")?;
+    params: DeleteParams,
+) -> Result<MutationResultData, ProtocolError> {
     check_protocol_version(params.protocol_version)?;
     let model = get_model_or_error(state, &params.model)?;
     let tx_id = params.transaction_id;
@@ -702,16 +711,83 @@ pub(in crate::handlers) async fn handle_delete(
         .render_delete_owned(delete)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 
-    finish_mutation(
+    execute_mutation_result(
         state,
         &sql,
         "Delete",
         tx_id.as_deref(),
         metadata.scalar_hints(),
         params.return_data,
-        "delete result",
     )
     .await
+}
+
+/// Handle `query.delete`.
+pub(in crate::handlers) async fn handle_delete(
+    state: &EngineState,
+    request: RpcRequest,
+) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
+    let params: DeleteParams = parse_params(&request, "delete")?;
+
+    match execute_delete(state, params).await? {
+        MutationResultData::Rows(rows) => wrap_mutation_result(&rows, "delete result"),
+        MutationResultData::Count(count) => wrap_count_result(count, "delete result"),
+    }
+}
+
+/// Handle `query.updateMany`.
+///
+/// Reuses the `query.update` statement builder with `return_data` pinned off,
+/// so the model's `RETURNING` projection is never emitted and the result is the
+/// affected-row count alone.
+pub(in crate::handlers) async fn handle_update_many(
+    state: &EngineState,
+    request: RpcRequest,
+) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
+    let params: UpdateManyParams = parse_params(&request, "updateMany")?;
+
+    let count = mutation_count_or_internal(
+        execute_update(
+            state,
+            UpdateParams {
+                protocol_version: params.protocol_version,
+                model: params.model,
+                filter: params.filter,
+                data: params.data,
+                transaction_id: params.transaction_id,
+                return_data: false,
+            },
+        )
+        .await?,
+        "updateMany",
+    )?;
+
+    wrap_count_result(count, "updateMany result")
+}
+
+/// Handle `query.deleteMany`. See [`handle_update_many`].
+pub(in crate::handlers) async fn handle_delete_many(
+    state: &EngineState,
+    request: RpcRequest,
+) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
+    let params: DeleteManyParams = parse_params(&request, "deleteMany")?;
+
+    let count = mutation_count_or_internal(
+        execute_delete(
+            state,
+            DeleteParams {
+                protocol_version: params.protocol_version,
+                model: params.model,
+                filter: params.filter,
+                transaction_id: params.transaction_id,
+                return_data: false,
+            },
+        )
+        .await?,
+        "deleteMany",
+    )?;
+
+    wrap_count_result(count, "deleteMany result")
 }
 
 #[cfg(test)]

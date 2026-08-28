@@ -9,9 +9,9 @@ use nautilus_core::{
 use nautilus_dialect::Sql;
 use nautilus_protocol::wire::ok_partial;
 use nautilus_protocol::{
-    CountParams, CreateManyParams, CreateParams, DeleteParams, FindFirstParams, FindManyParams,
-    FindUniqueParams, GroupByParams, ProtocolError, RpcRequest, RpcResponse, UpdateParams,
-    UpsertParams,
+    AggregateParams, CountParams, CreateManyParams, CreateParams, DeleteManyParams, DeleteParams,
+    ExplainParams, FindFirstParams, FindManyParams, FindUniqueParams, GroupByParams, ProtocolError,
+    RpcRequest, RpcResponse, UpdateManyParams, UpdateParams, UpsertParams,
 };
 use nautilus_schema::ir::{DefaultValue, FieldIr, ModelIr, ResolvedFieldType};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -32,17 +32,19 @@ mod mutations;
 mod raw;
 mod read;
 
-pub(super) use aggregation::{handle_group_by, handle_group_by_embedded, handle_group_by_typed};
+pub(super) use aggregation::{
+    handle_aggregate, handle_group_by, handle_group_by_embedded, handle_group_by_typed,
+};
 pub(super) use mutations::{
     handle_create, handle_create_embedded, handle_create_many, handle_create_many_embedded,
-    handle_create_many_typed, handle_create_typed, handle_delete, handle_update,
-    handle_update_embedded, handle_update_typed, handle_upsert, handle_upsert_embedded,
-    handle_upsert_typed,
+    handle_create_many_typed, handle_create_typed, handle_delete, handle_delete_many,
+    handle_update, handle_update_embedded, handle_update_many, handle_update_typed, handle_upsert,
+    handle_upsert_embedded, handle_upsert_typed,
 };
 pub(super) use raw::{handle_raw_query, handle_raw_stmt_query};
 pub(super) use read::{
     execute_find_many_typed as handle_find_many_typed,
     execute_find_unique_typed as handle_find_unique_typed, handle_count, handle_count_embedded,
-    handle_count_typed, handle_find_first, handle_find_first_or_throw, handle_find_many,
-    handle_find_many_embedded, handle_find_unique, handle_find_unique_or_throw,
+    handle_count_typed, handle_explain, handle_find_first, handle_find_first_or_throw,
+    handle_find_many, handle_find_many_embedded, handle_find_unique, handle_find_unique_or_throw,
 };

@@ -309,6 +309,71 @@ fn shape_group_row(row: Row, db_to_logical: &HashMap<String, String>) -> Row {
     shaped_row
 }
 
+/// Handle `query.aggregate`.
+///
+/// One aggregate row over the whole filtered set. The select carries no
+/// grouping key, so the database returns exactly one row even when the filter
+/// matches nothing — the aggregates are then `0` for counts and `NULL` for the
+/// rest.
+pub(in crate::handlers) async fn handle_aggregate(
+    state: &EngineState,
+    request: RpcRequest,
+) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
+    let params: AggregateParams = parse_params(&request, "aggregate")?;
+    check_protocol_version(params.protocol_version)?;
+    let tx_id = params.transaction_id;
+
+    let model = get_model_or_error(state, &params.model)?;
+    let metadata = state.model_metadata(model);
+    let logical_to_db = metadata.logical_to_db();
+    let args = params.args.as_ref();
+
+    let aggregate_items = build_aggregate_items(model, args, logical_to_db);
+    if aggregate_items.is_empty() {
+        return Err(ProtocolError::InvalidParams(
+            "aggregate requires at least one of count, avg, sum, min, max".to_string(),
+        ));
+    }
+
+    let qualified_filter = args
+        .and_then(|value| value.get("where"))
+        .map(|where_val| {
+            crate::filter::parse_where_filter(
+                where_val,
+                &crate::filter::RelationMap::new(),
+                metadata.field_types(),
+                crate::filter::SchemaContext::none(),
+            )
+            .map(|expr| qualify_filter_columns(expr, &model.db_name, logical_to_db))
+        })
+        .transpose()?;
+
+    let select = build_group_by_select(GroupBySelect {
+        model,
+        logical_to_db,
+        by_fields: &[],
+        aggregate_items,
+        filter: qualified_filter,
+        having: None,
+        orders: Vec::new(),
+        take: None,
+        skip: None,
+    })?;
+
+    let sql = state.dialect.render_select_owned(select).map_err(|e| {
+        ProtocolError::QueryPlanning(format!("Failed to render aggregate query: {}", e))
+    })?;
+
+    let rows: Vec<Row> = state
+        .execute_query_on(&sql, "Aggregate", tx_id.as_deref())
+        .await?
+        .into_iter()
+        .map(|row| shape_group_row(row, metadata.db_to_logical()))
+        .collect();
+
+    wrap_data_result(&rows, "aggregate result")
+}
+
 /// Handle `query.groupBy`.
 pub(in crate::handlers) async fn handle_group_by(
     state: &EngineState,

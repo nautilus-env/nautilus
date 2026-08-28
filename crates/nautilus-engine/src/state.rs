@@ -10,11 +10,12 @@ use nautilus_connector::{
 };
 use nautilus_dialect::{Dialect, MysqlDialect, PostgresDialect, Sql, SqliteDialect};
 use nautilus_migrate::DatabaseProvider;
-use nautilus_protocol::ProtocolError;
+use nautilus_protocol::{EngineMetricsResult, PoolMetrics, ProtocolError};
 use nautilus_schema::ir::{ModelIr, SchemaIr};
 
 use crate::filter::RelationMap;
 use crate::metadata::ModelMetadata;
+use crate::metrics::EngineMetrics;
 use crate::observability::StatementTimer;
 use crate::plan_cache::PlanCache;
 use crate::pool_options::EnginePoolOptions;
@@ -66,6 +67,10 @@ pub struct EngineState {
     max_concurrent_requests: usize,
     /// Duration past which an executed statement is logged, when configured.
     slow_query_threshold: Option<Duration>,
+    /// Backend this state is connected to.
+    provider: DatabaseProvider,
+    /// Runtime counters served by `engine.metrics`.
+    metrics: EngineMetrics,
 }
 
 /// An active interactive transaction managed by the engine.
@@ -104,6 +109,14 @@ macro_rules! with_client {
 }
 
 impl DatabaseClient {
+    /// Connection-pool counters as reported by the driver.
+    pub fn pool_metrics(&self) -> PoolMetrics {
+        with_client!(self, client => PoolMetrics {
+            size: client.executor().pool().size(),
+            idle: client.executor().pool().num_idle(),
+        })
+    }
+
     /// Execute a rendered SQL query and return all result rows.
     pub async fn execute_query(&self, sql: &Sql, context: &str) -> Result<Vec<Row>, ProtocolError> {
         with_client!(self, client => {
@@ -282,6 +295,8 @@ impl EngineState {
             plan_cache: PlanCache::default(),
             max_concurrent_requests: pool_options.resolved_max_concurrent_requests(),
             slow_query_threshold: crate::observability::slow_query_threshold(),
+            provider,
+            metrics: EngineMetrics::default(),
         })
     }
 
@@ -293,6 +308,32 @@ impl EngineState {
     /// Read-plan cache shared by hot read paths.
     pub(crate) fn plan_cache(&self) -> &PlanCache {
         &self.plan_cache
+    }
+
+    /// Backend this state is connected to.
+    pub fn provider(&self) -> DatabaseProvider {
+        self.provider
+    }
+
+    /// Record one dispatched request against the per-method counters.
+    pub(crate) fn record_request(&self, method: &str, elapsed: Duration, failed: bool) {
+        self.metrics.record(method, elapsed, failed);
+    }
+
+    /// Snapshot every runtime counter, optionally zeroing the cumulative ones.
+    pub(crate) async fn metrics_snapshot(&self, reset: bool) -> EngineMetricsResult {
+        let snapshot = EngineMetricsResult {
+            uptime_seconds: self.metrics.uptime(),
+            plan_cache: self.plan_cache.metrics(),
+            pool: self.client.pool_metrics(),
+            active_transactions: self.transactions.lock().await.len(),
+            methods: self.metrics.method_snapshot(),
+        };
+        if reset {
+            self.metrics.reset();
+            self.plan_cache.reset_metrics();
+        }
+        snapshot
     }
 
     /// Upper bound on requests the transport handles concurrently.

@@ -33,6 +33,29 @@ unaffected.
 
 ### Added
 
+- Added `query.updateMany` and `query.deleteMany`, engine methods that apply a
+  filter to every matching row and answer with the affected-row count alone. No
+  `RETURNING` projection is ever emitted, so the statement stays one round-trip
+  regardless of how many rows it touches. `query.update` and `query.delete` keep
+  their existing behaviour, including `returnData`.
+- Added `query.aggregate`, which computes `_count` / `_avg` / `_sum` / `_min` /
+  `_max` over the whole filtered set without a grouping key. It takes the same
+  aggregate arguments as `query.groupBy` minus `by` and `having`, and always
+  returns exactly one row — previously the same result needed a `groupBy` with a
+  synthetic key. A request naming no aggregate at all is rejected.
+- Added `query.explain`, which renders the statement a `findMany` with the given
+  arguments would run and hands it to the database's own `EXPLAIN`
+  (`EXPLAIN (FORMAT JSON)` on PostgreSQL, `EXPLAIN FORMAT=JSON` on MySQL,
+  `EXPLAIN QUERY PLAN` on SQLite). The response carries the rendered SQL, the
+  bound parameters in placeholder order, and the plan rows, so the generated SQL
+  is inspectable without falling back to `rawQuery`. `analyze` runs the
+  statement for real timings where the backend supports it.
+- Added `engine.metrics`, a snapshot of the engine's runtime counters: plan
+  cache entries, hits, misses and evictions per section; pool size and idle
+  connections; open interactive transactions; and per-method call, error and
+  latency counters. Passing `reset` zeroes the cumulative counters after reading
+  them. Until now none of this was observable from outside the process — the
+  plan cache in particular could degrade with no external signal.
 - Added `query.upsert`, a native engine method that performs an upsert as a
   single atomic statement: `INSERT ... ON CONFLICT ... DO UPDATE` on PostgreSQL
   and SQLite, `INSERT ... ON DUPLICATE KEY UPDATE` on MySQL. The generated

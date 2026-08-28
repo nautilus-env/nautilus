@@ -11,13 +11,15 @@ use std::collections::HashMap;
 use nautilus_core::ColumnMarker;
 use nautilus_protocol::wire::{err, ok};
 use nautilus_protocol::{
-    CountParams, CreateManyParams, CreateParams, GroupByParams, HandshakeParams, HandshakeResult,
-    ProtocolError, RpcError, RpcRequest, RpcResponse, SchemaValidateParams, SchemaValidateResult,
-    UpdateParams, UpsertParams, ENGINE_HANDSHAKE, PROTOCOL_VERSION, QUERY_COUNT, QUERY_CREATE,
-    QUERY_CREATE_MANY, QUERY_DELETE, QUERY_FIND_FIRST, QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY,
-    QUERY_FIND_UNIQUE, QUERY_FIND_UNIQUE_OR_THROW, QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT,
-    QUERY_UPDATE, QUERY_UPSERT, SCHEMA_VALIDATE, TRANSACTION_BATCH, TRANSACTION_COMMIT,
-    TRANSACTION_ROLLBACK, TRANSACTION_START,
+    CountParams, CreateManyParams, CreateParams, EngineMetricsParams, GroupByParams,
+    HandshakeParams, HandshakeResult, ProtocolError, RpcError, RpcRequest, RpcResponse,
+    SchemaValidateParams, SchemaValidateResult, UpdateParams, UpsertParams, ENGINE_HANDSHAKE,
+    ENGINE_METRICS, PROTOCOL_VERSION, QUERY_AGGREGATE, QUERY_COUNT, QUERY_CREATE,
+    QUERY_CREATE_MANY, QUERY_DELETE, QUERY_DELETE_MANY, QUERY_EXPLAIN, QUERY_FIND_FIRST,
+    QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY, QUERY_FIND_UNIQUE, QUERY_FIND_UNIQUE_OR_THROW,
+    QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT, QUERY_UPDATE, QUERY_UPDATE_MANY, QUERY_UPSERT,
+    SCHEMA_VALIDATE, TRANSACTION_BATCH, TRANSACTION_COMMIT, TRANSACTION_ROLLBACK,
+    TRANSACTION_START,
 };
 use nautilus_schema::ir::{FieldIr, ModelIr, ResolvedFieldType};
 use nautilus_schema::{analyze, Severity};
@@ -233,9 +235,10 @@ pub async fn handle_request(
 ) -> RpcResponse {
     let id = request.id.clone();
 
-    // Route findMany separately so we can pass the sender for chunked streaming.
     if request.method == QUERY_FIND_MANY {
+        let started = std::time::Instant::now();
         let result = crud::handle_find_many(state, request, Some(tx)).await;
+        state.record_request(QUERY_FIND_MANY, started.elapsed(), result.is_err());
         return response_from_result(id, result);
     }
 
@@ -375,9 +378,21 @@ pub(super) async fn dispatch(
     state: &EngineState,
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
+    let started = std::time::Instant::now();
+    let method = request.method.clone();
+    let result = dispatch_inner(state, request).await;
+    state.record_request(&method, started.elapsed(), result.is_err());
+    result
+}
+
+async fn dispatch_inner(
+    state: &EngineState,
+    request: RpcRequest,
+) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     match request.method.as_str() {
         ENGINE_HANDSHAKE => handle_handshake(state, request).await,
         SCHEMA_VALIDATE => handle_schema_validate(state, request).await,
+        ENGINE_METRICS => handle_engine_metrics(state, request).await,
         QUERY_FIND_MANY => crud::handle_find_many(state, request, None).await,
         QUERY_FIND_FIRST => crud::handle_find_first(state, request).await,
         QUERY_FIND_UNIQUE => crud::handle_find_unique(state, request).await,
@@ -386,10 +401,14 @@ pub(super) async fn dispatch(
         QUERY_CREATE => crud::handle_create(state, request).await,
         QUERY_CREATE_MANY => crud::handle_create_many(state, request).await,
         QUERY_UPDATE => crud::handle_update(state, request).await,
+        QUERY_UPDATE_MANY => crud::handle_update_many(state, request).await,
         QUERY_UPSERT => crud::handle_upsert(state, request).await,
         QUERY_DELETE => crud::handle_delete(state, request).await,
+        QUERY_DELETE_MANY => crud::handle_delete_many(state, request).await,
         QUERY_COUNT => crud::handle_count(state, request).await,
         QUERY_GROUP_BY => crud::handle_group_by(state, request).await,
+        QUERY_AGGREGATE => crud::handle_aggregate(state, request).await,
+        QUERY_EXPLAIN => crud::handle_explain(state, request).await,
         QUERY_RAW => crud::handle_raw_query(state, request).await,
         QUERY_RAW_STMT => crud::handle_raw_stmt_query(state, request).await,
         TRANSACTION_START => transactions::handle_transaction_start(state, request).await,
@@ -415,6 +434,21 @@ async fn handle_handshake(
     };
 
     serialize_result(&result, "handshake result")
+}
+
+/// Handle `engine.metrics`.
+async fn handle_engine_metrics(
+    state: &EngineState,
+    request: RpcRequest,
+) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
+    let params: EngineMetricsParams = parse_params(&request, "engine.metrics")?;
+
+    check_protocol_version(params.protocol_version)?;
+
+    serialize_result(
+        &state.metrics_snapshot(params.reset).await,
+        "engine.metrics result",
+    )
 }
 
 async fn handle_schema_validate(

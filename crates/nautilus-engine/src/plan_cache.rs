@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use nautilus_core::{BinaryOp, Expr, OrderDir, Value};
+use nautilus_protocol::{PlanCacheMetrics, PlanCacheSectionMetrics};
 
 use crate::conversion::ValueHint;
 
@@ -92,6 +93,9 @@ struct CacheSlot {
 struct BoundedPlanMap<K> {
     entries: RwLock<HashMap<K, CacheSlot>>,
     section: &'static str,
+    hits: AtomicU64,
+    misses: AtomicU64,
+    evictions: AtomicU64,
 }
 
 impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
@@ -99,6 +103,9 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
         Self {
             entries: RwLock::new(HashMap::new()),
             section,
+            hits: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            evictions: AtomicU64::new(0),
         }
     }
 
@@ -121,7 +128,11 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
 
     fn get(&self, key: &K, clock: &AtomicU64) -> Option<Arc<CachedReadPlan>> {
         let guard = self.read_entries();
-        let slot = guard.get(key)?;
+        let Some(slot) = guard.get(key) else {
+            self.misses.fetch_add(1, Ordering::Relaxed);
+            return None;
+        };
+        self.hits.fetch_add(1, Ordering::Relaxed);
         slot.last_used
             .store(clock.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
         Some(Arc::clone(&slot.plan))
@@ -130,7 +141,8 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
     fn insert(&self, key: K, plan: Arc<CachedReadPlan>, clock: &AtomicU64) {
         let mut guard = self.write_entries();
         if !guard.contains_key(&key) && guard.len() >= PLAN_CACHE_CAP {
-            evict_oldest_batch(&mut guard, self.section);
+            let evicted = evict_oldest_batch(&mut guard, self.section);
+            self.evictions.fetch_add(evicted as u64, Ordering::Relaxed);
         }
         let stamp = clock.fetch_add(1, Ordering::Relaxed);
         guard.entry(key).or_insert_with(|| CacheSlot {
@@ -139,21 +151,40 @@ impl<K: Eq + Hash + Clone> BoundedPlanMap<K> {
         });
     }
 
+    fn metrics(&self) -> PlanCacheSectionMetrics {
+        PlanCacheSectionMetrics {
+            entries: self.read_entries().len(),
+            hits: self.hits.load(Ordering::Relaxed),
+            misses: self.misses.load(Ordering::Relaxed),
+            evictions: self.evictions.load(Ordering::Relaxed),
+        }
+    }
+
+    fn reset_counters(&self) {
+        self.hits.store(0, Ordering::Relaxed);
+        self.misses.store(0, Ordering::Relaxed);
+        self.evictions.store(0, Ordering::Relaxed);
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.read_entries().len()
     }
 }
 
-/// Drop the [`EVICTION_BATCH`] least-recently-used entries of a section.
+/// Drop the [`EVICTION_BATCH`] least-recently-used entries of a section,
+/// returning how many were actually reclaimed.
 ///
 /// Ranking is done over the recency stamps alone — one `u64` per entry — so
 /// the pass never clones a key, and the map is walked twice instead of once
 /// per evicted entry.
-fn evict_oldest_batch<K: Eq + Hash>(entries: &mut HashMap<K, CacheSlot>, section: &'static str) {
+fn evict_oldest_batch<K: Eq + Hash>(
+    entries: &mut HashMap<K, CacheSlot>,
+    section: &'static str,
+) -> usize {
     let batch = EVICTION_BATCH.min(entries.len());
     if batch == 0 {
-        return;
+        return 0;
     }
 
     let mut stamps: Vec<u64> = entries
@@ -173,12 +204,14 @@ fn evict_oldest_batch<K: Eq + Hash>(entries: &mut HashMap<K, CacheSlot>, section
         }
     });
 
+    let evicted = batch - remaining;
     tracing::debug!(
         section,
-        evicted = batch - remaining,
+        evicted,
         retained = entries.len(),
         "plan cache evicted least-recently-used entries"
     );
+    evicted
 }
 
 /// Process-wide read-plan cache held by `EngineState`.
@@ -214,6 +247,21 @@ impl PlanCache {
 
     pub(crate) fn insert_find_many(&self, key: FindManyPlanKey, plan: Arc<CachedReadPlan>) {
         self.find_many.insert(key, plan, &self.clock);
+    }
+
+    /// Snapshot both sections' counters for `engine.metrics`.
+    pub(crate) fn metrics(&self) -> PlanCacheMetrics {
+        PlanCacheMetrics {
+            capacity: PLAN_CACHE_CAP,
+            find_unique: self.find_unique.metrics(),
+            find_many: self.find_many.metrics(),
+        }
+    }
+
+    /// Zero the cumulative counters, leaving the cached plans in place.
+    pub(crate) fn reset_metrics(&self) {
+        self.find_unique.reset_counters();
+        self.find_many.reset_counters();
     }
 
     #[cfg(test)]
