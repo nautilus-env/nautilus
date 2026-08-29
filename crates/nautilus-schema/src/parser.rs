@@ -229,6 +229,7 @@ impl<'a> Parser<'a> {
                 FieldAttribute::Relation { span, .. } => base_span.merge(*span),
                 FieldAttribute::Computed { span, .. } => base_span.merge(*span),
                 FieldAttribute::Check { span, .. } => base_span.merge(*span),
+                FieldAttribute::Ignore { span } => base_span.merge(*span),
             }
         } else {
             base_span
@@ -345,6 +346,9 @@ impl<'a> Parser<'a> {
         match name.value.as_str() {
             "id" => Ok(FieldAttribute::Id),
             "unique" => Ok(FieldAttribute::Unique),
+            "ignore" => Ok(FieldAttribute::Ignore {
+                span: at_span.merge(name.span),
+            }),
             "updatedAt" => Ok(FieldAttribute::UpdatedAt {
                 span: at_span.merge(name.span),
             }),
@@ -690,6 +694,7 @@ impl<'a> Parser<'a> {
                     span: name.span.merge(end),
                 })
             }
+            "ignore" => Ok(ModelAttribute::Ignore { span: name.span }),
             _ => Err(SchemaError::Parse(
                 format!("Unknown model attribute: @@{}", name.value),
                 name.span,

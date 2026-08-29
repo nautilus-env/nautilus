@@ -298,9 +298,16 @@ fn render_model_block(
 
     // Keep @@map explicit so the model/table mapping survives round-trips.
     lines.push(format!("  @@map(\"{}\")", table_name));
-    lines.extend(render_index_lines(table_name, table, naming));
+    if table_is_unmodellable(live, table) {
+        lines.push("  @@ignore".to_string());
+    }
+    let unmodellable = unmodellable_columns(live, table);
+    lines.extend(render_index_lines(table_name, table, naming, &unmodellable));
 
     for check in &table.check_constraints {
+        if mentions_unmodellable_column(check, &unmodellable) {
+            continue;
+        }
         lines.push(format!(
             "  @@check({})",
             remap_bool_expr_identifiers(check, &naming.db_to_logical_field)
@@ -309,6 +316,50 @@ fn render_model_block(
 
     lines.push("}".to_string());
     lines.join("\n")
+}
+
+/// The DB names of the columns of `table` that Nautilus cannot model, and so
+/// marks `@ignore`.
+fn unmodellable_columns<'a>(live: &LiveSchema, table: &'a LiveTable) -> HashSet<&'a str> {
+    table
+        .columns
+        .iter()
+        .filter(|column| {
+            !is_representable_type(&column.col_type, &live.enums, &live.composite_types)
+        })
+        .map(|column| column.name.as_str())
+        .collect()
+}
+
+/// Whether a pulled table is unusable rather than merely incomplete, and so has
+/// to carry `@@ignore`.
+///
+/// Two cases qualify. A `NOT NULL` column with no default that Nautilus cannot
+/// model makes every generated `create` fail at the database, and a primary key
+/// it cannot model leaves the model with no way to address a row. Both are also
+/// what the validator demands: an `@ignore`d required field without a default,
+/// or an `@ignore`d key field, is an error unless the model itself is ignored.
+fn table_is_unmodellable(live: &LiveSchema, table: &LiveTable) -> bool {
+    let unmodellable = unmodellable_columns(live, table);
+    if unmodellable.is_empty() {
+        return false;
+    }
+
+    if table
+        .primary_key
+        .iter()
+        .any(|column| unmodellable.contains(column.as_str()))
+    {
+        return true;
+    }
+
+    table.columns.iter().any(|column| {
+        unmodellable.contains(column.name.as_str())
+            && !column.nullable
+            && column.default_value.is_none()
+            && column.generated_expr.is_none()
+            && !column.auto_increment
+    })
 }
 
 fn render_column_lines(
@@ -362,14 +413,24 @@ fn render_column_lines(
                 attrs.push(attr);
             }
         }
+        let is_unmodellable =
+            !is_representable_type(&col.col_type, &live.enums, &live.composite_types);
         if let Some(check) = &col.check_expr {
-            attrs.push(format!(
-                "@check({})",
-                remap_bool_expr_identifiers(check, &naming.db_to_logical_field)
-            ));
+            // A constraint on an `@ignore`d column is not Nautilus's to model:
+            // the schema would name a column the client does not have, and the
+            // diff already leaves such live constraints alone.
+            if !is_unmodellable {
+                attrs.push(format!(
+                    "@check({})",
+                    remap_bool_expr_identifiers(check, &naming.db_to_logical_field)
+                ));
+            }
         }
         if logical_field_name != &col.name {
             attrs.push(format!("@map(\"{}\")", escape_schema_string(&col.name)));
+        }
+        if is_unmodellable {
+            attrs.push("@ignore".to_string());
         }
 
         let line = if attrs.is_empty() {
@@ -474,14 +535,31 @@ fn render_back_relation_lines(
         .collect()
 }
 
+/// Whether a raw SQL expression names any of `columns` as a whole identifier.
+fn mentions_unmodellable_column(expr: &str, columns: &HashSet<&str>) -> bool {
+    if columns.is_empty() {
+        return false;
+    }
+    expr.split(|c: char| !c.is_alphanumeric() && c != '_')
+        .any(|word| columns.contains(word))
+}
+
 fn render_index_lines(
     table_name: &str,
     table: &LiveTable,
     naming: &TableNamingContext,
+    unmodellable_columns: &HashSet<&str>,
 ) -> Vec<String> {
     table
         .indexes
         .iter()
+        .filter(|idx| {
+            // An index over a column the schema marks `@ignore` cannot be
+            // declared: `@@index` would name a field the model does not have.
+            !idx.columns
+                .iter()
+                .any(|column| unmodellable_columns.contains(column.as_str()))
+        })
         .map(|idx| {
             let columns = join_logical_fields(naming, &idx.columns);
             if idx.unique {
@@ -590,6 +668,37 @@ fn render_datasource_block(live: &LiveSchema, provider: DatabaseProvider, url: &
 /// When `sql_type` matches a known enum or composite type the corresponding PascalCase name
 /// is returned.  Array types (ending with `[]`) are handled recursively.
 /// Unrecognised types fall back to `String`.
+/// Whether `db pull` has a faithful Nautilus spelling for a live column type.
+///
+/// `infer_nautilus_type` falls back to `String` for anything it does not know,
+/// which is fine for display but disastrous for a round-trip: the very next
+/// `db push` would see `interval` on one side and `text` on the other and
+/// propose rewriting the column. Columns that hit the fallback are marked
+/// `@ignore` instead, so Nautilus leaves them alone.
+fn is_representable_type(
+    sql_type: &str,
+    enums: &HashMap<String, Vec<String>>,
+    composite_types: &HashMap<String, LiveCompositeType>,
+) -> bool {
+    let t = sql_type.trim().to_lowercase();
+    if let Some(inner) = t.strip_suffix("[]") {
+        return is_representable_type(inner, enums, composite_types);
+    }
+    if t.is_empty() {
+        return false;
+    }
+    infer_nautilus_type(sql_type, enums, composite_types) != "String" || is_known_string_type(&t)
+}
+
+/// The live types that legitimately map onto `String`, as opposed to reaching
+/// the `infer_nautilus_type` fallback.
+fn is_known_string_type(lowercased: &str) -> bool {
+    matches!(lowercased, "text" | "clob")
+        || lowercased.starts_with("varchar")
+        || lowercased.starts_with("character varying")
+        || (lowercased.starts_with("char(") && !lowercased.starts_with("char(36"))
+}
+
 fn infer_nautilus_type(
     sql_type: &str,
     enums: &HashMap<String, Vec<String>>,

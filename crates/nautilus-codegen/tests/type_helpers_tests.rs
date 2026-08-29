@@ -36,6 +36,7 @@ fn scalar_field(scalar: ScalarType, required: bool, array: bool) -> FieldIr {
         computed: None,
         check: None,
         span: no_span(),
+        is_ignored: false,
     }
 }
 
@@ -56,6 +57,7 @@ fn autoincrement_field() -> FieldIr {
         computed: None,
         check: None,
         span: no_span(),
+        is_ignored: false,
     }
 }
 
@@ -76,6 +78,7 @@ fn uuid_field() -> FieldIr {
         computed: None,
         check: None,
         span: no_span(),
+        is_ignored: false,
     }
 }
 
@@ -105,6 +108,7 @@ fn now_field() -> FieldIr {
         computed: None,
         check: None,
         span: no_span(),
+        is_ignored: false,
     }
 }
 
@@ -134,6 +138,7 @@ fn relation_field(
         computed: None,
         check: None,
         span: no_span(),
+        is_ignored: false,
     }
 }
 
@@ -309,6 +314,7 @@ fn test_rust_enum_type() {
         computed: None,
         check: None,
         span: no_span(),
+        is_ignored: false,
     };
     assert_eq!(
         field_to_rust_type(&field, &ExtensionRegistry::default()),
@@ -710,6 +716,7 @@ fn test_filter_operators_for_enum_field() {
         computed: None,
         check: None,
         span: no_span(),
+        is_ignored: false,
     };
     let ops = get_filter_operators_for_field(&field, &enums);
     let suffixes: Vec<&str> = ops.iter().map(|o| o.suffix.as_str()).collect();
@@ -791,6 +798,7 @@ fn test_get_base_python_type_enum() {
         computed: None,
         check: None,
         span: no_span(),
+        is_ignored: false,
     };
     assert_eq!(get_base_python_type(&field, &enums), "Status");
 }

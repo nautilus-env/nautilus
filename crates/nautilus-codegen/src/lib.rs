@@ -203,6 +203,11 @@ fn load_generation_ir(schema_path: &Path, source: &str, verbose: bool) -> Result
 
     validate_ir_references(&ir)?;
 
+    // Generation runs on the pruned schema: an `@@ignore`d model or `@ignore`d
+    // field names something the client has no faithful type for and no way to
+    // write.
+    let ir = ir.without_ignored();
+
     if verbose {
         println!("{:#?}", ir);
     }

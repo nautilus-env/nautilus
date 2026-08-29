@@ -1758,3 +1758,99 @@ fn serialises_partial_index_predicate_with_logical_field_names() {
         Some("is_done = FALSE")
     );
 }
+
+fn unmodellable_column(name: &str, col_type: &str, nullable: bool) -> LiveColumn {
+    LiveColumn {
+        name: name.to_string(),
+        col_type: col_type.to_string(),
+        nullable,
+        default_value: None,
+        generated_expr: None,
+        computed_kind: None,
+        check_expr: None,
+        auto_increment: false,
+    }
+}
+
+#[test]
+fn pull_marks_an_unmodellable_nullable_column_ignored() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "device".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+            },
+            unmodellable_column("name", "text", false),
+            unmodellable_column("uptime", "interval", true),
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![LiveIndex {
+            name: "idx_device_uptime".to_string(),
+            columns: vec!["uptime".to_string()],
+            unique: false,
+            kind: LiveIndexKind::Basic(BasicIndexType::BTree),
+            predicate: None,
+        }],
+        check_constraints: vec!["uptime > 0".to_string()],
+        foreign_keys: vec![],
+    }]);
+
+    let schema = serialize_live_schema(&live, DatabaseProvider::Postgres, "env(\"DATABASE_URL\")");
+
+    assert!(schema.contains("@ignore"), "got:\n{}", schema);
+    assert!(
+        !schema.contains("@@ignore"),
+        "a nullable unmodellable column must not force @@ignore:\n{}",
+        schema
+    );
+    assert!(
+        !schema.contains("@@index([uptime])"),
+        "an index over an ignored column must not be declared:\n{}",
+        schema
+    );
+    assert!(
+        !schema.contains("@@check"),
+        "a check over an ignored column must not be declared:\n{}",
+        schema
+    );
+
+    nautilus_schema::validate_schema_source(&schema)
+        .unwrap_or_else(|e| panic!("pulled schema does not validate: {:?}\n{}", e, schema));
+}
+
+#[test]
+fn pull_marks_a_table_with_a_required_unmodellable_column_ignored() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "legacy_audit".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+            },
+            unmodellable_column("span", "interval", false),
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let schema = serialize_live_schema(&live, DatabaseProvider::Postgres, "env(\"DATABASE_URL\")");
+
+    assert!(schema.contains("@@ignore"), "got:\n{}", schema);
+    nautilus_schema::validate_schema_source(&schema)
+        .unwrap_or_else(|e| panic!("pulled schema does not validate: {:?}\n{}", e, schema));
+}

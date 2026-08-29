@@ -114,6 +114,7 @@ impl<'a> SchemaValidator<'a> {
         self.validate_updated_at_fields();
         self.validate_computed_fields();
         self.validate_check_constraints();
+        self.validate_ignored_declarations();
         self.check_physical_name_collisions();
 
         if !self.errors.is_empty() {
@@ -140,6 +141,7 @@ impl<'a> SchemaValidator<'a> {
         self.validate_updated_at_fields();
         self.validate_computed_fields();
         self.validate_check_constraints();
+        self.validate_ignored_declarations();
         self.check_physical_name_collisions();
 
         if !self.errors.is_empty() {

@@ -375,6 +375,33 @@ status Status @check(status IN [ACTIVE, PENDING])
 - Field-level `@check` may only reference the decorated field itself
 - It cannot be applied to relation, array, or computed fields
 
+#### @ignore
+Declares that the column exists in the database but Nautilus does not manage it.
+The field is left out of the generated client and out of every migration: it is
+never created, altered, or dropped, and neither are the indexes, foreign keys
+and `CHECK` constraints that reference it.
+
+```prisma
+model Device {
+  id     Int     @id
+  name   String
+  uptime String? @ignore
+}
+```
+
+`db pull` emits `@ignore` on any column whose database type has no Nautilus
+spelling, which is what keeps a pulled schema safe to push back: without it the
+column would round-trip as `String` and the next `db push` would propose
+rewriting it.
+
+**Constraints:**
+- Cannot be combined with `@id`, `@unique` or `@relation`, and cannot appear in
+  `@@id`, `@@unique` or `@@index` — an unmanaged column is not part of the
+  table's shape as Nautilus knows it.
+- A required field with no `@default` cannot be ignored on its own: no `create`
+  could ever supply it. Give it a default, make it optional, or mark the whole
+  model `@@ignore`.
+
 #### @relation(...)
 Defines relationship with named arguments. The relation name can also be supplied as the first positional string argument. The `name` parameter is optional but required when multiple relations exist between the same models.
 
@@ -516,6 +543,28 @@ model Booking {
 ```
 
 Unlike field-level `@check`, the model-level form may reference multiple scalar fields.
+
+#### @@ignore
+Declares that the table exists in the database but Nautilus does not manage it.
+The model is left out of the generated client, and migrations neither create nor
+drop the table — it is simply not Nautilus's.
+
+```prisma
+model LegacyAudit {
+  id   Int    @id
+  span String @ignore
+
+  @@map("legacy_audit")
+  @@ignore
+}
+```
+
+`db pull` emits `@@ignore` on a table it cannot model well enough to use: one
+whose primary key, or whose required column with no default, has a database type
+Nautilus has no spelling for.
+
+A model that is *not* ignored may not declare a relation to one that is; mark the
+relation field `@ignore` or drop `@@ignore` from the target.
 
 ## Expressions
 

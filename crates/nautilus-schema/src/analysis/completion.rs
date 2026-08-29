@@ -944,6 +944,11 @@ fn field_attribute_completions() -> Vec<CompletionItem> {
             CompletionKind::FieldAttribute,
             Some("Add a CHECK constraint on this field".to_string()),
         ),
+        CompletionItem::new(
+            "ignore",
+            CompletionKind::FieldAttribute,
+            Some("Leave this column out of the client and of every migration".to_string()),
+        ),
     ]
 }
 
@@ -986,6 +991,11 @@ fn model_attribute_completions() -> Vec<CompletionItem> {
             "check(${1:expr})",
             CompletionKind::ModelAttribute,
             Some("Add a table-level CHECK constraint".to_string()),
+        ),
+        CompletionItem::new(
+            "ignore",
+            CompletionKind::ModelAttribute,
+            Some("Leave this table out of the client and of every migration".to_string()),
         ),
     ]
 }

@@ -645,3 +645,33 @@ model Task {
         .predicate
         .is_none());
 }
+
+#[test]
+fn test_without_ignored_prunes_models_and_fields() {
+    let source = r#"
+model Device {
+  id     Int     @id
+  name   String
+  uptime String? @ignore
+}
+
+model Legacy {
+  id     Int    @id
+  opaque String @ignore
+
+  @@ignore
+}
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).unwrap();
+
+    assert_eq!(ir.models.len(), 2);
+    assert_eq!(ir.models.get("Device").unwrap().fields.len(), 3);
+
+    let pruned = ir.without_ignored();
+    assert!(!pruned.models.contains_key("Legacy"));
+
+    let device = pruned.models.get("Device").unwrap();
+    assert_eq!(device.fields.len(), 2);
+    assert!(device.find_field("uptime").is_none());
+}

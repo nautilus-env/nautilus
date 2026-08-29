@@ -631,3 +631,135 @@ impl SchemaValidator<'_> {
         }
     }
 }
+
+impl SchemaValidator<'_> {
+    /// Validate `@ignore` / `@@ignore`.
+    ///
+    /// An ignored declaration is one Nautilus does not manage at all: it never
+    /// reaches a generated client, and migrations neither create nor drop it.
+    /// That only stays coherent as long as nothing Nautilus *does* manage
+    /// depends on it, which is what this pass enforces.
+    pub(super) fn validate_ignored_declarations(&mut self) {
+        let models: Vec<_> = self.schema.models().cloned().collect();
+        let ignored_models: HashSet<&str> = models
+            .iter()
+            .filter(|model| model.is_ignored())
+            .map(|model| model.name.value.as_str())
+            .collect();
+
+        for model in &models {
+            if model.is_ignored() {
+                continue;
+            }
+            self.reject_ignored_key_fields(model);
+            self.require_ignored_model_for_unwritable_fields(model);
+            self.reject_relations_into_ignored_models(model, &ignored_models);
+        }
+    }
+
+    /// An ignored column is not created by migrations, so nothing that becomes
+    /// part of the table's shape may reference it.
+    fn reject_ignored_key_fields(&mut self, model: &ModelDecl) {
+        for field in model.fields.iter().filter(|f| f.is_ignored()) {
+            if field.attributes.iter().any(|attr| {
+                matches!(
+                    attr,
+                    FieldAttribute::Id | FieldAttribute::Unique | FieldAttribute::Relation { .. }
+                )
+            }) {
+                self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "Field '{}' in model '{}' cannot combine @ignore with @id, @unique or @relation",
+                        field.name.value, model.name.value
+                    ),
+                    field.span,
+                ));
+            }
+        }
+
+        let ignored: HashSet<&str> = model
+            .fields
+            .iter()
+            .filter(|f| f.is_ignored())
+            .map(|f| f.name.value.as_str())
+            .collect();
+        if ignored.is_empty() {
+            return;
+        }
+
+        for attr in &model.attributes {
+            let (label, fields) = match attr {
+                ModelAttribute::Id(fields) => ("@@id", fields),
+                ModelAttribute::Unique(fields) => ("@@unique", fields),
+                ModelAttribute::Index { fields, .. } => ("@@index", fields),
+                _ => continue,
+            };
+            for field_ident in fields {
+                if ignored.contains(field_ident.value.as_str()) {
+                    self.errors.push_back(SchemaError::Validation(
+                        format!(
+                            "{} references '{}' in model '{}', which is @ignore'd",
+                            label, field_ident.value, model.name.value
+                        ),
+                        field_ident.span,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// A required column with no default that Nautilus does not manage makes
+    /// the whole model unwritable: every generated `create` would omit it and
+    /// the database would reject the insert. The model has to be `@@ignore`d
+    /// too, which is exactly what `db pull` emits for such a table.
+    fn require_ignored_model_for_unwritable_fields(&mut self, model: &ModelDecl) {
+        for field in model.fields.iter().filter(|f| f.is_ignored()) {
+            let has_default = field
+                .attributes
+                .iter()
+                .any(|attr| matches!(attr, FieldAttribute::Default(_, _)));
+            if field.is_optional() || field.is_array() || has_default {
+                continue;
+            }
+
+            self.errors.push_back(SchemaError::Validation(
+                format!(
+                    "Field '{}' in model '{}' is @ignore'd but required and has no @default, so no \
+                     row could ever be created. Give it a @default, make it optional, or add \
+                     @@ignore to the model.",
+                    field.name.value, model.name.value
+                ),
+                field.span,
+            ));
+        }
+    }
+
+    /// A relation into an ignored model would generate an `include` for a model
+    /// the client does not have.
+    fn reject_relations_into_ignored_models(
+        &mut self,
+        model: &ModelDecl,
+        ignored_models: &HashSet<&str>,
+    ) {
+        for field in &model.fields {
+            if field.is_ignored() {
+                continue;
+            }
+            let FieldType::UserType(type_name) = &field.field_type else {
+                continue;
+            };
+            if !ignored_models.contains(type_name.as_str()) {
+                continue;
+            }
+
+            self.errors.push_back(SchemaError::Validation(
+                format!(
+                    "Field '{}' in model '{}' relates to '{}', which is @@ignore'd. Mark the field \
+                     @ignore or drop @@ignore from '{}'.",
+                    field.name.value, model.name.value, type_name, type_name
+                ),
+                field.span,
+            ));
+        }
+    }
+}

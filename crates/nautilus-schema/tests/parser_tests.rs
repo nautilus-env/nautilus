@@ -520,3 +520,22 @@ model Task {
         _ => panic!("Expected @@index attribute"),
     }
 }
+
+#[test]
+fn test_parse_ignore_attributes() {
+    let source = r#"
+model Legacy {
+  id     Int    @id
+  opaque String @ignore
+
+  @@ignore
+}
+"#;
+
+    let schema = parse(source).unwrap();
+    let model = schema.models().next().unwrap();
+
+    assert!(model.is_ignored());
+    assert!(!model.find_field("id").unwrap().is_ignored());
+    assert!(model.find_field("opaque").unwrap().is_ignored());
+}

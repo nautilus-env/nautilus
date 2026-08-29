@@ -519,6 +519,7 @@ fn format_field_attrs_short(attrs: &[FieldAttribute]) -> String {
         .filter_map(|attr| match attr {
             FieldAttribute::Id => Some("@id".to_string()),
             FieldAttribute::Unique => Some("@unique".to_string()),
+            FieldAttribute::Ignore { .. } => Some("@ignore".to_string()),
             FieldAttribute::Default(expr, _) => {
                 Some(format!("@default({})", crate::formatter::format_expr(expr)))
             }
@@ -645,6 +646,7 @@ fn model_hover_content(
                 Some(format!("_@@index({})_", parts.join(", ")))
             }
             ModelAttribute::Check { expr, .. } => Some(format!("_@@check({})_", expr)),
+            ModelAttribute::Ignore { .. } => Some("_@@ignore_".to_string()),
         })
         .collect();
 

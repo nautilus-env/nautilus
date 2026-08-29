@@ -2059,3 +2059,82 @@ fn widening_a_partial_index_to_a_full_index_is_a_drop_and_add() {
         changes
     );
 }
+
+fn device_table_with_unmanaged_column(indexes: Vec<LiveIndex>) -> LiveTable {
+    let column = |name: &str, col_type: &str| LiveColumn {
+        name: name.to_string(),
+        col_type: col_type.to_string(),
+        nullable: name == "uptime",
+        default_value: None,
+        generated_expr: None,
+        computed_kind: None,
+        check_expr: None,
+        auto_increment: false,
+    };
+
+    LiveTable {
+        name: "Device".to_string(),
+        columns: vec![
+            column("id", "integer"),
+            column("name", "text"),
+            column("uptime", "interval"),
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes,
+        check_constraints: vec!["uptime > 0".to_string()],
+        foreign_keys: vec![],
+    }
+}
+
+const IGNORE_SCHEMA: &str = r#"model Device { id Int @id  name String  uptime String? @ignore }"#;
+
+#[test]
+fn ignored_column_is_neither_added_nor_dropped() {
+    let target = common::parse(IGNORE_SCHEMA).unwrap();
+    let live = common::make_live_schema(vec![device_table_with_unmanaged_column(vec![])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        changes.is_empty(),
+        "an @ignore'd column must produce no changes, got: {:?}",
+        changes
+    );
+}
+
+#[test]
+fn index_over_an_ignored_column_is_left_alone() {
+    let target = common::parse(IGNORE_SCHEMA).unwrap();
+    let live =
+        common::make_live_schema(vec![device_table_with_unmanaged_column(vec![LiveIndex {
+            name: "idx_Device_uptime".to_string(),
+            columns: vec!["uptime".to_string()],
+            unique: false,
+            kind: LiveIndexKind::Basic(nautilus_schema::ir::BasicIndexType::BTree),
+            predicate: None,
+        }])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        !changes
+            .iter()
+            .any(|c| matches!(c, Change::IndexDropped { .. })),
+        "an index over an @ignore'd column must not be dropped, got: {:?}",
+        changes
+    );
+}
+
+#[test]
+fn ignored_model_keeps_its_table() {
+    let target = common::parse(r#"model Device { id Int @id  name String  @@ignore }"#).unwrap();
+    let live = common::make_live_schema(vec![device_table_with_unmanaged_column(vec![])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        changes.is_empty(),
+        "an @@ignore'd model must produce no changes at all, got: {:?}",
+        changes
+    );
+}

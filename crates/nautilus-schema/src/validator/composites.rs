@@ -104,6 +104,13 @@ impl SchemaValidator<'_> {
                         *span,
                     ))
                 }
+                ModelAttribute::Ignore { span } => self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "@@ignore is not allowed on a composite type (type '{}')",
+                        type_decl.name.value
+                    ),
+                    *span,
+                )),
             }
         }
     }
@@ -172,6 +179,15 @@ impl SchemaValidator<'_> {
                         self.errors.push_back(SchemaError::Validation(
                             format!(
                                 "@updatedAt is not allowed on fields inside a composite type (field '{}' in type '{}')",
+                                name, type_decl.name.value
+                            ),
+                            field.span,
+                        ));
+                    }
+                    FieldAttribute::Ignore { .. } => {
+                        self.errors.push_back(SchemaError::Validation(
+                            format!(
+                                "@ignore is not allowed on fields inside a composite type (field '{}' in type '{}')",
                                 name, type_decl.name.value
                             ),
                             field.span,

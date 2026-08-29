@@ -74,7 +74,10 @@ pub async fn run_engine(
     observability::init();
 
     let schema_source = std::fs::read_to_string(&schema_path)?;
-    let schema_ir = validate_schema_source(&schema_source)?.ir;
+    let validated_ir = validate_schema_source(&schema_source)?.ir;
+    // Migrations read the full schema so `@@ignore`d tables are left alone
+    // rather than dropped; the runtime never sees them at all.
+    let schema_ir = validated_ir.without_ignored();
 
     if migrate {
         tracing::info!("running schema migrations (--migrate)");
@@ -94,7 +97,7 @@ pub async fn run_engine(
 
         let migration_url = resolve_engine_migration_url(database_url.as_deref(), &schema_ir)?;
         let generator = DdlGenerator::new(db_provider);
-        let statements = generator.generate_create_tables(&schema_ir)?;
+        let statements = generator.generate_create_tables(&validated_ir)?;
         let migration_state = EngineState::new_with_engine_pool_options(
             schema_ir.clone(),
             migration_url,

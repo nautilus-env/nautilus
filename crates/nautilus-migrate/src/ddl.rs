@@ -6,6 +6,28 @@ use nautilus_schema::ir::{
     PostgresExtensionIr, ResolvedFieldType, ScalarType, SchemaIr,
 };
 
+/// Every model Nautilus manages, i.e. everything except `@@ignore`d ones.
+///
+/// An ignored model names a table that exists but that Nautilus neither creates
+/// nor drops, so it must not appear in any generated DDL.
+pub(crate) fn managed_models(schema: &SchemaIr) -> Vec<&ModelIr> {
+    schema
+        .models
+        .values()
+        .filter(|model| !model.is_ignored)
+        .collect()
+}
+
+/// Every field of `model` that maps to a column Nautilus manages.
+///
+/// Relation fields carry no column of their own, and `@ignore`d fields name a
+/// column Nautilus neither creates nor alters.
+pub(crate) fn managed_scalar_fields(model: &ModelIr) -> impl Iterator<Item = &FieldIr> {
+    model.fields.iter().filter(|field| {
+        !field.is_ignored && !matches!(field.field_type, ResolvedFieldType::Relation(_))
+    })
+}
+
 /// Generates DDL (Data Definition Language) SQL from schema IR
 pub struct DdlGenerator {
     provider: DatabaseProvider,
@@ -104,7 +126,7 @@ impl DdlGenerator {
 
         // Generate tables in FK-dependency order so FK constraints
         // reference already-created tables.
-        let all_models: Vec<&ModelIr> = schema.models.values().collect();
+        let all_models = managed_models(schema);
         for model in crate::diff::topo_sort_models(&all_models) {
             statements.push(self.generate_create_table(model, schema)?);
             statements.extend(self.generate_create_indexes_for_model(model));
@@ -120,7 +142,7 @@ impl DdlGenerator {
 
         // Drop tables in reverse topological order so FK constraints are
         // satisfied.  PostgreSQL also accepts CASCADE to be safe.
-        let all_models: Vec<&ModelIr> = schema.models.values().collect();
+        let all_models = managed_models(schema);
         let sorted = crate::diff::topo_sort_models(&all_models);
         for model in sorted.into_iter().rev() {
             statements.push(strategy.drop_table_sql(&model.db_name, true));
@@ -226,7 +248,7 @@ impl DdlGenerator {
     ///   `DELETE FROM sqlite_sequence WHERE name = 't'` to reset auto-increment
     ///   counters when applicable.
     pub fn generate_truncate_tables(&self, schema: &SchemaIr) -> Result<Vec<String>> {
-        let all_models: Vec<&ModelIr> = schema.models.values().collect();
+        let all_models = managed_models(schema);
         // Reverse topo order: delete child tables before parents.
         let sorted: Vec<&ModelIr> = crate::diff::topo_sort_models(&all_models)
             .into_iter()
@@ -531,7 +553,7 @@ impl DdlGenerator {
         // SQLite does not support ALTER TABLE ADD CONSTRAINT, so inline anonymous
         // CHECKs are used there instead (handled in generate_column_definition).
         if self.provider != DatabaseProvider::Sqlite {
-            for field in &model.fields {
+            for field in managed_scalar_fields(model) {
                 if let Some(ref check_expr) = field.check {
                     let cname = format!("chk_{}_{}", model.db_name, field.db_name);
                     lines.push(format!(
@@ -619,7 +641,7 @@ impl DdlGenerator {
         _schema: &SchemaIr,
         is_autoincrement_pk: bool,
     ) -> Result<Option<String>> {
-        if matches!(field.field_type, ResolvedFieldType::Relation(_)) {
+        if field.is_ignored || matches!(field.field_type, ResolvedFieldType::Relation(_)) {
             return Ok(None);
         }
 

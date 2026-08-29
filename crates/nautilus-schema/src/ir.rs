@@ -46,6 +46,36 @@ impl SchemaIr {
         }
     }
 
+    /// A copy of this schema with every `@@ignore`d model and `@ignore`d field
+    /// removed.
+    ///
+    /// An ignored declaration names something that exists in the database but
+    /// that Nautilus does not manage, so it must not reach a generated client:
+    /// there is no faithful type for it and no way to write it. Code generation
+    /// and the engine therefore run on the pruned schema, while everything that
+    /// describes the schema *as written* — the formatter, the language server,
+    /// `db pull` — keeps using the full IR. Migrations are the third case: they
+    /// need to know an ignored table exists so they leave it alone instead of
+    /// dropping it, so they read `is_ignored` directly rather than pruning.
+    pub fn without_ignored(&self) -> SchemaIr {
+        SchemaIr {
+            datasource: self.datasource.clone(),
+            generator: self.generator.clone(),
+            models: self
+                .models
+                .iter()
+                .filter(|(_, model)| !model.is_ignored)
+                .map(|(name, model)| {
+                    let mut kept = model.clone();
+                    kept.fields.retain(|field| !field.is_ignored);
+                    (name.clone(), kept)
+                })
+                .collect(),
+            enums: self.enums.clone(),
+            composite_types: self.composite_types.clone(),
+        }
+    }
+
     /// Gets a model by logical name.
     pub fn get_model(&self, name: &str) -> Option<&ModelIr> {
         self.models.get(name)
@@ -202,6 +232,9 @@ pub struct ModelIr {
     pub indexes: Vec<IndexIr>,
     /// Table-level CHECK constraint expressions (SQL strings).
     pub check_constraints: Vec<String>,
+    /// Whether the model carries `@@ignore` — the table exists but Nautilus
+    /// does not manage it. See [`SchemaIr::without_ignored`].
+    pub is_ignored: bool,
     /// Span of the model declaration.
     pub span: Span,
 }
@@ -266,6 +299,9 @@ pub struct FieldIr {
     pub computed: Option<(String, ComputedKind)>,
     /// Column-level CHECK constraint expression (SQL string). `None` for unconstrained fields.
     pub check: Option<String>,
+    /// Whether the field carries `@ignore` — the column exists but Nautilus
+    /// does not manage it. See [`SchemaIr::without_ignored`].
+    pub is_ignored: bool,
     /// Span of the field declaration.
     pub span: Span,
 }

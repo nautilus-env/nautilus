@@ -259,6 +259,13 @@ impl ModelDecl {
             .unwrap_or(&self.name.value)
     }
 
+    /// Checks if this model carries `@@ignore`.
+    pub fn is_ignored(&self) -> bool {
+        self.attributes
+            .iter()
+            .any(|attr| matches!(attr, ModelAttribute::Ignore { .. }))
+    }
+
     /// Checks if this model has a composite primary key (@@id).
     pub fn has_composite_key(&self) -> bool {
         self.attributes
@@ -319,6 +326,13 @@ impl FieldDecl {
                     | ("check", FieldAttribute::Check { .. })
             )
         })
+    }
+
+    /// Checks if this field carries `@ignore`.
+    pub fn is_ignored(&self) -> bool {
+        self.attributes
+            .iter()
+            .any(|attr| matches!(attr, FieldAttribute::Ignore { .. }))
     }
 
     /// Checks if this field has a @relation attribute.
@@ -517,6 +531,13 @@ pub enum FieldAttribute {
         /// Span of the entire `@check(...)` attribute.
         span: Span,
     },
+    /// @ignore — the column exists in the database but Nautilus does not
+    /// manage it: it is left out of the generated client and of every
+    /// migration.
+    Ignore {
+        /// Span covering `@ignore`.
+        span: Span,
+    },
 }
 
 /// Referential actions for foreign key constraints.
@@ -584,6 +605,13 @@ pub enum ModelAttribute {
         /// Parsed boolean expression (e.g. `start_date < end_date`).
         expr: crate::bool_expr::BoolExpr,
         /// Span of the entire `@@check(...)` attribute.
+        span: Span,
+    },
+    /// @@ignore — the table exists in the database but Nautilus does not
+    /// manage it: it is left out of the generated client and of every
+    /// migration.
+    Ignore {
+        /// Span covering `@@ignore`.
         span: Span,
     },
 }

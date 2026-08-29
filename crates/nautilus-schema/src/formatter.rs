@@ -423,6 +423,7 @@ fn format_field_attr(attr: &FieldAttribute) -> String {
     match attr {
         FieldAttribute::Id => "@id".to_string(),
         FieldAttribute::Unique => "@unique".to_string(),
+        FieldAttribute::Ignore { .. } => "@ignore".to_string(),
 
         FieldAttribute::Default(expr, _) => format!("@default({})", format_expr(expr)),
 
@@ -544,6 +545,7 @@ fn format_model_attr(attr: &ModelAttribute) -> String {
         }
 
         ModelAttribute::Check { expr, .. } => format!("@@check({})", expr),
+        ModelAttribute::Ignore { .. } => "@@ignore".to_string(),
     }
 }
 

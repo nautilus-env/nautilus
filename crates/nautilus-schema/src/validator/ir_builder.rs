@@ -202,6 +202,7 @@ impl SchemaValidator<'_> {
             unique_constraints,
             indexes,
             check_constraints,
+            is_ignored: model.is_ignored(),
             span: model.span,
         })
     }
@@ -303,6 +304,7 @@ impl SchemaValidator<'_> {
             is_updated_at,
             computed,
             check,
+            is_ignored: field.is_ignored(),
             span: field.span,
         })
     }

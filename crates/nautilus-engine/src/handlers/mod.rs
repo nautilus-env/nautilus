@@ -638,6 +638,7 @@ mod tests {
             computed: None,
             check: None,
             span: Span::new(0, 0),
+            is_ignored: false,
         }
     }
 
@@ -669,6 +670,7 @@ mod tests {
             computed: None,
             check: None,
             span: Span::new(0, 0),
+            is_ignored: false,
         }
     }
 
@@ -683,6 +685,7 @@ mod tests {
             indexes: vec![],
             check_constraints: vec![],
             span: Span::new(0, 0),
+            is_ignored: false,
         };
         let field = FieldIr {
             logical_name: "id".to_string(),
@@ -697,6 +700,7 @@ mod tests {
             computed: None,
             check: None,
             span: Span::new(0, 0),
+            is_ignored: false,
         };
         let marker = field_marker(&model, &field);
         assert_eq!(marker.table, "users");
@@ -761,6 +765,7 @@ model Post {
             indexes: vec![],
             check_constraints: vec![],
             span: Span::new(0, 0),
+            is_ignored: false,
         };
         let mut models = HashMap::new();
         models.insert(node_model.logical_name.clone(), node_model.clone());
@@ -788,6 +793,7 @@ model Post {
             indexes: vec![],
             check_constraints: vec![],
             span: Span::new(0, 0),
+            is_ignored: false,
         };
         let post_model = ModelIr {
             logical_name: "Post".to_string(),
@@ -804,6 +810,7 @@ model Post {
             indexes: vec![],
             check_constraints: vec![],
             span: Span::new(0, 0),
+            is_ignored: false,
         };
 
         let mut models = HashMap::new();

@@ -128,6 +128,16 @@ unaffected.
   `StopPropagation` carrying no result defaults to a count of `0`. `aggregate`
   and `explain` stay deliberately event-free, consistent with `count`, `groupBy`
   and `findMany`.
+- Added `@ignore` and `@@ignore`, which declare that a column or a table exists
+  in the database but that Nautilus does not manage it. An ignored declaration
+  is left out of the generated client and out of every migration: it is never
+  created, altered or dropped, and neither are the indexes, foreign keys and
+  `CHECK` constraints that reference it. This is what makes `db pull` safe to
+  push back on a database Nautilus did not create — a column whose type has no
+  Nautilus spelling used to round-trip as `String`, so the next `db push`
+  proposed rewriting `interval`, `money` or `int4range` to `text`. `db pull` now
+  emits `@ignore` on such columns, and `@@ignore` on a table whose primary key
+  or whose required column with no default is one of them.
 - Added partial indexes: `@@index([...], where: <predicate>)` renders a
   `CREATE INDEX ... WHERE <predicate>` so the index only covers the matching
   rows. The predicate uses the same boolean expression language as `@check` /

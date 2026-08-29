@@ -881,3 +881,37 @@ model Task {
 
     assert!(!create_index.contains("WHERE"), "got: {}", create_index);
 }
+
+#[test]
+fn test_ignored_declarations_are_left_out_of_create_tables() {
+    let source = r#"
+model Device {
+  id     Int     @id
+  name   String
+  uptime String? @ignore
+}
+
+model Legacy {
+  id     Int    @id
+  opaque String @ignore
+
+  @@ignore
+}
+"#;
+    let ir = common::parse(source).unwrap();
+    let generator = DdlGenerator::new(DatabaseProvider::Postgres);
+    let statements = generator.generate_create_tables(&ir).unwrap();
+    let sql = statements.join("\n");
+
+    assert!(sql.contains("\"Device\""), "got: {}", sql);
+    assert!(
+        !sql.contains("uptime"),
+        "ignored column was created: {}",
+        sql
+    );
+    assert!(
+        !sql.contains("Legacy"),
+        "ignored model was created: {}",
+        sql
+    );
+}

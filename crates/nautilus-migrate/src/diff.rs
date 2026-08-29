@@ -923,9 +923,8 @@ impl DiffAccumulator {
     /// Emit a [`Change::NewTable`] for every target model without a live table,
     /// ordered so that referenced tables are created before their dependents.
     fn diff_new_tables(&mut self, live: &LiveSchema, target: &SchemaIr) {
-        let new_models: Vec<&ModelIr> = target
-            .models
-            .values()
+        let new_models: Vec<&ModelIr> = crate::ddl::managed_models(target)
+            .into_iter()
             .filter(|m| !live.tables.contains_key(&m.db_name))
             .collect();
 
@@ -955,17 +954,37 @@ impl DiffAccumulator {
                 continue; // already emitted DroppedTable
             };
 
-            let target_scalar_fields: Vec<&FieldIr> = model
+            // An `@@ignore`d model exists only so the diff knows the table is
+            // not orphaned. Nothing about it is Nautilus's to change.
+            if model.is_ignored {
+                continue;
+            }
+
+            let target_scalar_fields: Vec<&FieldIr> =
+                crate::ddl::managed_scalar_fields(model).collect();
+            let unmanaged_columns: std::collections::HashSet<&str> = model
                 .fields
                 .iter()
-                .filter(|f| !matches!(f.field_type, ResolvedFieldType::Relation(_)))
+                .filter(|f| f.is_ignored)
+                .map(|f| f.db_name.as_str())
                 .collect();
 
-            self.diff_columns(table_name, live_table, &target_scalar_fields);
-            self.diff_table_checks(table_name, live_table, model, &target_scalar_fields);
+            self.diff_columns(
+                table_name,
+                live_table,
+                &target_scalar_fields,
+                &unmanaged_columns,
+            );
+            self.diff_table_checks(
+                table_name,
+                live_table,
+                model,
+                &target_scalar_fields,
+                &unmanaged_columns,
+            );
             self.diff_primary_key(table_name, live_table, model);
-            self.diff_indexes(table_name, live_table, model);
-            self.diff_foreign_keys(table_name, live_table, model, target);
+            self.diff_indexes(table_name, live_table, model, &unmanaged_columns);
+            self.diff_foreign_keys(table_name, live_table, model, target, &unmanaged_columns);
         }
     }
 
@@ -976,6 +995,7 @@ impl DiffAccumulator {
         table_name: &str,
         live_table: &crate::live::LiveTable,
         target_scalar_fields: &[&FieldIr],
+        unmanaged_columns: &std::collections::HashSet<&str>,
     ) {
         let live_cols: std::collections::HashMap<&str, _> = live_table
             .columns
@@ -998,7 +1018,9 @@ impl DiffAccumulator {
         }
 
         for live_col_name in live_cols.keys() {
-            if !target_cols_by_db.contains_key(*live_col_name) {
+            if !target_cols_by_db.contains_key(*live_col_name)
+                && !unmanaged_columns.contains(*live_col_name)
+            {
                 self.changes.push(Change::DroppedColumn {
                     table: table_name.to_string(),
                     column: (*live_col_name).to_string(),
@@ -1130,6 +1152,7 @@ impl DiffAccumulator {
         live_table: &crate::live::LiveTable,
         model: &ModelIr,
         target_scalar_fields: &[&FieldIr],
+        unmanaged_columns: &std::collections::HashSet<&str>,
     ) {
         // Expressions covered by column-level @check fields — we must
         // not emit a "drop" for auto-named column constraints that were
@@ -1166,6 +1189,9 @@ impl DiffAccumulator {
         // Do not drop auto-named column constraints that belong to a
         // column-level @check target.
         for lc in &live_checks {
+            if mentions_any_column(lc, unmanaged_columns) {
+                continue;
+            }
             if !target_checks.contains(lc) && !column_check_exprs.contains(lc.as_str()) {
                 self.changes.push(Change::CheckChanged {
                     table: table_name.to_string(),
@@ -1216,12 +1242,18 @@ impl DiffAccumulator {
         table_name: &str,
         live_table: &crate::live::LiveTable,
         model: &ModelIr,
+        unmanaged_columns: &std::collections::HashSet<&str>,
     ) {
         let target_indexes = collect_target_indexes(table_name, model);
 
         let live_indexes: Vec<NormalizedLiveIndex<'_>> = live_table
             .indexes
             .iter()
+            .filter(|i| {
+                !i.columns
+                    .iter()
+                    .any(|column| unmanaged_columns.contains(column.as_str()))
+            })
             .map(|i| {
                 let mut cols = i.columns.clone();
                 cols.sort();
@@ -1270,6 +1302,7 @@ impl DiffAccumulator {
         live_table: &crate::live::LiveTable,
         model: &ModelIr,
         target: &SchemaIr,
+        unmanaged_columns: &std::collections::HashSet<&str>,
     ) {
         let target_fks = collect_target_foreign_keys(model, target);
 
@@ -1306,6 +1339,13 @@ impl DiffAccumulator {
         }
 
         for live_fk in &live_table.foreign_keys {
+            if live_fk
+                .columns
+                .iter()
+                .any(|column| unmanaged_columns.contains(column.as_str()))
+            {
+                continue;
+            }
             let still_in_target = target_fks.iter().any(|tf| {
                 tf.columns == live_fk.columns
                     && tf.referenced_table == live_fk.referenced_table
@@ -1319,6 +1359,20 @@ impl DiffAccumulator {
             }
         }
     }
+}
+
+/// Whether a normalised SQL expression mentions any of `columns` as a whole
+/// identifier.
+///
+/// Used to leave a live CHECK constraint alone when it constrains a column the
+/// schema marks `@ignore`: Nautilus does not model that column, so it cannot
+/// tell whether the constraint still belongs and must not propose dropping it.
+fn mentions_any_column(expr: &str, columns: &std::collections::HashSet<&str>) -> bool {
+    if columns.is_empty() {
+        return false;
+    }
+    expr.split(|c: char| !c.is_alphanumeric() && c != '_')
+        .any(|word| columns.contains(word))
 }
 
 /// Index the target models by their DB table name.

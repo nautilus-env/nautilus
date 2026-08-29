@@ -1782,3 +1782,122 @@ model Flag {
     assert_eq!(model.check_constraints, vec!["ok = TRUE".to_string()]);
     assert_eq!(model.indexes[0].predicate.as_deref(), Some("ok = FALSE"));
 }
+
+#[test]
+fn test_ignored_field_cannot_be_a_key() {
+    let source = r#"
+model Legacy {
+  id     Int    @id
+  opaque String @unique @ignore
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => assert!(
+            msg.contains("cannot combine @ignore"),
+            "unexpected message: {}",
+            msg
+        ),
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn test_index_cannot_reference_an_ignored_field() {
+    let source = r#"
+model Legacy {
+  id     Int     @id
+  opaque String? @ignore
+
+  @@index([opaque])
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => assert!(
+            msg.contains("@@index references 'opaque'") && msg.contains("@ignore"),
+            "unexpected message: {}",
+            msg
+        ),
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn test_required_ignored_field_requires_model_ignore() {
+    let source = r#"
+model Legacy {
+  id     Int    @id
+  opaque String @ignore
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => assert!(
+            msg.contains("no row could ever be created"),
+            "unexpected message: {}",
+            msg
+        ),
+        _ => panic!("Expected validation error"),
+    }
+
+    let ignored_model = r#"
+model Legacy {
+  id     Int    @id
+  opaque String @ignore
+
+  @@ignore
+}
+"#;
+    let ast = parse(ignored_model).unwrap();
+    validate_schema(ast).expect("@@ignore should make the required ignored field acceptable");
+}
+
+#[test]
+fn test_relation_into_ignored_model_is_rejected() {
+    let source = r#"
+model Legacy {
+  id    Int    @id
+  posts Post[]
+
+  @@ignore
+}
+
+model Post {
+  id       Int    @id
+  legacyId Int
+  legacy   Legacy @relation(fields: [legacyId], references: [id])
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => assert!(
+            msg.contains("relates to 'Legacy', which is @@ignore'd"),
+            "unexpected message: {}",
+            msg
+        ),
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn test_optional_ignored_field_is_allowed() {
+    let source = r#"
+model Device {
+  id     Int     @id
+  name   String
+  uptime String? @ignore
+}
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).unwrap();
+    let model = ir.models.get("Device").unwrap();
+
+    assert!(!model.is_ignored);
+    assert!(model.find_field("uptime").unwrap().is_ignored);
+    assert!(!model.find_field("name").unwrap().is_ignored);
+}
