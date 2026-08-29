@@ -660,13 +660,37 @@ export class {{ delegate_name }} {
   }
 
   async updateMany(args) {
-    const result = await this.client._rpc('query.updateMany', {
+    const eventArgs = { where: args?.where, data: args.data };
+    const payload = {
       protocolVersion: PROTOCOL_VERSION,
       model:  '{{ model_name }}',
       filter: _processWhereFilters((args?.where ?? {}), _{{ table_name }}FieldToDb),
       data:   _processCreateData(args.data, _{{ table_name }}FieldToDb),
-    });
-    return result['count'] ?? 0;
+    };
+    const state = {};
+    try {
+      let stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'updateMany', EventPhase.Before, eventArgs, payload, state,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('updateMany'));
+
+      const result = await this.client._rpc('query.updateMany', payload);
+      const decoded = result['count'] ?? 0;
+
+      stop = await runCrudEvent(_{{ model_name }}EventContext(
+        this.client, 'updateMany', EventPhase.After, eventArgs, payload, state, decoded,
+      ));
+      if (stop) return resolveStopResult(stop, defaultCrudResult('updateMany'));
+      return decoded;
+    } catch (error) {
+      await runCrudEvent(
+        _{{ model_name }}EventContext(
+          this.client, 'updateMany', EventPhase.Error, eventArgs, payload, state, undefined, error,
+        ),
+        { handleStopPropagation: false },
+      );
+      throw error;
+    }
   }
 
   async aggregate(args) {

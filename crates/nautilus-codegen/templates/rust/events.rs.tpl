@@ -23,6 +23,7 @@ pub enum CrudOperation {
     Create,
     CreateMany,
     Update,
+    UpdateMany,
     Delete,
     DeleteMany,
 }
@@ -215,6 +216,35 @@ impl EventRegistry {
         F: for<'a> Fn(&'a mut C) -> EventFuture<'a, T> + Send + Sync + 'static,
     {
         self.register::<C, T, F>(model_name, CrudOperation::Update, phase, priority, handler);
+    }
+
+    pub fn on_update_many<C, T, F>(&self, model_name: &'static str, phase: EventPhase, handler: F)
+    where
+        C: Any + Send + 'static,
+        T: Any + Send + 'static,
+        F: for<'a> Fn(&'a mut C) -> EventFuture<'a, T> + Send + Sync + 'static,
+    {
+        self.register::<C, T, F>(model_name, CrudOperation::UpdateMany, phase, 0, handler);
+    }
+
+    pub fn on_update_many_with_priority<C, T, F>(
+        &self,
+        model_name: &'static str,
+        phase: EventPhase,
+        priority: u8,
+        handler: F,
+    ) where
+        C: Any + Send + 'static,
+        T: Any + Send + 'static,
+        F: for<'a> Fn(&'a mut C) -> EventFuture<'a, T> + Send + Sync + 'static,
+    {
+        self.register::<C, T, F>(
+            model_name,
+            CrudOperation::UpdateMany,
+            phase,
+            priority,
+            handler,
+        );
     }
 
     pub fn on_delete<C, T, F>(&self, model_name: &'static str, phase: EventPhase, handler: F)

@@ -118,6 +118,16 @@ unaffected.
   field so the searched field is checked at compile time. The restrictions match
   the engine — a positive `take` is required, and `nearest` rejects `cursor`,
   `distinct` and backward pagination.
+- Added the `onUpdateMany` CRUD hook to all four generated clients, closing the
+  asymmetry with `deleteMany`, which has exposed `onDeleteMany` since events
+  were introduced. `updateMany` now runs the same before/after/error chain as
+  every other write: `Model.onUpdateMany` in JS/TS and Python, the
+  `@OnUpdateMany` annotation in Java, and `#[on_update_many(Model)]` — backed by
+  `EventRegistry::on_update_many` and `CrudOperation::UpdateMany` — in Rust. The
+  handler context carries the affected-row count as its result, and a
+  `StopPropagation` carrying no result defaults to a count of `0`. `aggregate`
+  and `explain` stay deliberately event-free, consistent with `count`, `groupBy`
+  and `findMany`.
 - Added `nautilus_core::ExtensionScalar`, the marker a generated client
   implements on its PostgreSQL extension wrappers (pgvector, PostGIS, citext,
   hstore, ltree) to opt them into array encoding and decoding. The orphan rule

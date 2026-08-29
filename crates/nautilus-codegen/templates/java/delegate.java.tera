@@ -1117,13 +1117,33 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
     }
 
     private long updateManyInternal({{ dsl_name }}.UpdateArgs args) {
+        Map<String, Object> eventArgs = new HashMap<>();
+        eventArgs.put("where", args == null ? null : args.whereNode());
+        eventArgs.put("data", args == null ? null : args.dataNode());
         ObjectNode request = JsonSupport.object();
         request.put("protocolVersion", JsonSupport.PROTOCOL_VERSION);
         request.put("model", "{{ model_name }}");
         request.set("filter", args == null ? JsonSupport.object() : args.whereNode());
         request.set("data", args == null ? JsonSupport.object() : args.dataNode());
-        JsonNode result = rpc("query.updateMany", request);
-        return JsonSupport.count(result);
+        Map<String, Object> state = new HashMap<>();
+        try {
+            StopPropagation stop = events().run(eventContext("updateMany", EventPhase.BEFORE, eventArgs, request, state, null, null));
+            if (stop != null) {
+                Object stopped = stop.resolve(0L);
+                return stopped instanceof Number number ? number.longValue() : 0L;
+            }
+            JsonNode result = rpc("query.updateMany", request);
+            long decoded = JsonSupport.count(result);
+            stop = events().run(eventContext("updateMany", EventPhase.AFTER, eventArgs, request, state, decoded, null));
+            if (stop != null) {
+                Object stopped = stop.resolve(0L);
+                return stopped instanceof Number number ? number.longValue() : 0L;
+            }
+            return decoded;
+        } catch (RuntimeException error) {
+            events().run(eventContext("updateMany", EventPhase.ERROR, eventArgs, request, state, null, error), false);
+            throw error;
+        }
     }
 
     private JsonNode aggregateInternal({{ dsl_name }}.AggregateArgs args) {

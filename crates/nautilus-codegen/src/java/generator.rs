@@ -119,6 +119,10 @@ static JAVA_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
             include_str!("../../templates/java/events/OnUpdate.java.tera"),
         ),
         (
+            "java_on_update_many.tera",
+            include_str!("../../templates/java/events/OnUpdateMany.java.tera"),
+        ),
+        (
             "java_on_delete.tera",
             include_str!("../../templates/java/events/OnDelete.java.tera"),
         ),
@@ -635,6 +639,10 @@ fn java_event_files(package_name: &str) -> Result<Vec<(String, String)>> {
         (
             java_source_path(pkg, "events", "OnUpdate.java"),
             render_pkg("java_on_update.tera", pkg)?,
+        ),
+        (
+            java_source_path(pkg, "events", "OnUpdateMany.java"),
+            render_pkg("java_on_update_many.tera", pkg)?,
         ),
         (
             java_source_path(pkg, "events", "OnDelete.java"),

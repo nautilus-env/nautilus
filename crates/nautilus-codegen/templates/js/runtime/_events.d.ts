@@ -6,7 +6,13 @@ export declare enum EventPhase {
   Error  = 'error',
 }
 
-export type CrudOperation = 'create' | 'createMany' | 'update' | 'delete' | 'deleteMany';
+export type CrudOperation =
+  | 'create'
+  | 'createMany'
+  | 'update'
+  | 'updateMany'
+  | 'delete'
+  | 'deleteMany';
 export type EventPhaseValue = EventPhase | `${EventPhase}`;
 
 export interface EventPriorityOptions {
@@ -68,6 +74,7 @@ export interface ModelEventContexts {
   create: CrudEventContext<ModelEventToken, 'create', any, any, any, any, any>;
   createMany: CrudEventContext<ModelEventToken, 'createMany', any, any, any, any, any>;
   update: CrudEventContext<ModelEventToken, 'update', any, any, any, any, any>;
+  updateMany: CrudEventContext<ModelEventToken, 'updateMany', any, any, any, any, any>;
   delete: CrudEventContext<ModelEventToken, 'delete', any, any, any, any, any>;
   deleteMany: CrudEventContext<ModelEventToken, 'deleteMany', any, any, any, any, any>;
 }
@@ -77,6 +84,7 @@ export interface ModelEventToken<TContexts extends ModelEventContexts = ModelEve
   readonly onCreate: ModelEventRegistrar<TContexts['create']>;
   readonly onCreateMany: ModelEventRegistrar<TContexts['createMany']>;
   readonly onUpdate: ModelEventRegistrar<TContexts['update']>;
+  readonly onUpdateMany: ModelEventRegistrar<TContexts['updateMany']>;
   readonly onDelete: ModelEventRegistrar<TContexts['delete']>;
   readonly onDeleteMany: ModelEventRegistrar<TContexts['deleteMany']>;
 }

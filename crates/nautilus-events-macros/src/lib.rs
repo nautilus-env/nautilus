@@ -73,6 +73,11 @@ pub fn on_update(_args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
+pub fn on_update_many(_args: TokenStream, input: TokenStream) -> TokenStream {
+    input
+}
+
+#[proc_macro_attribute]
 pub fn on_delete(_args: TokenStream, input: TokenStream) -> TokenStream {
     input
 }
@@ -132,6 +137,7 @@ fn hook_operation(attr: &Attribute) -> Option<(&'static str, Ident)> {
         "on_create" => Some(("Create", format_ident!("on_create"))),
         "on_create_many" => Some(("CreateMany", format_ident!("on_create_many"))),
         "on_update" => Some(("Update", format_ident!("on_update"))),
+        "on_update_many" => Some(("UpdateMany", format_ident!("on_update_many"))),
         "on_delete" => Some(("Delete", format_ident!("on_delete"))),
         "on_delete_many" => Some(("DeleteMany", format_ident!("on_delete_many"))),
         _ => None,
@@ -256,6 +262,7 @@ fn result_type_for_operation(
         "Create" => quote!(#model),
         "CreateMany" | "Update" | "DeleteMany" => quote!(std::vec::Vec<#model>),
         "Delete" => quote!(std::option::Option<#model>),
+        "UpdateMany" => quote!(u64),
         _ => quote!(#client_crate::Never),
     }
 }

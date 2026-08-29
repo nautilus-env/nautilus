@@ -26,6 +26,7 @@ export function createModelEvents(modelName) {
     onCreate:     modelEventRegistrar(modelName, 'create'),
     onCreateMany: modelEventRegistrar(modelName, 'createMany'),
     onUpdate:     modelEventRegistrar(modelName, 'update'),
+    onUpdateMany: modelEventRegistrar(modelName, 'updateMany'),
     onDelete:     modelEventRegistrar(modelName, 'delete'),
     onDeleteMany: modelEventRegistrar(modelName, 'deleteMany'),
   };
@@ -71,6 +72,7 @@ export function defaultCrudResult(operation, returnData = true) {
   if (operation === 'create' || operation === 'delete') return null;
   if (operation === 'createMany') return [];
   if (operation === 'update' || operation === 'deleteMany') return returnData ? [] : 0;
+  if (operation === 'updateMany') return 0;
   return null;
 }
 

@@ -209,6 +209,8 @@ def default_cud_result(operation: str, return_data: bool = True) -> Any:
         return []
     if operation in ("update", "deleteMany"):
         return [] if return_data else 0
+    if operation == "updateMany":
+        return 0
     return None
 
 

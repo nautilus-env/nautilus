@@ -196,6 +196,31 @@ class {{ model_name }}(BaseModel):
 
     @classmethod
     @overload
+    def onUpdateMany(
+        cls,
+        handler: Callable[["{{ model_name }}UpdateManyEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["{{ model_name }}UpdateManyEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onUpdateMany(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["{{ model_name }}UpdateManyEventContext"], Any]],
+        Callable[["{{ model_name }}UpdateManyEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onUpdateMany(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "updateMany", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
     def onDelete(
         cls,
         handler: Callable[["{{ model_name }}DeleteEventContext"], Any],
@@ -377,6 +402,11 @@ class {{ model_name }}UpdateEventArgs(TypedDict):
     return_data: bool
 
 
+class {{ model_name }}UpdateManyEventArgs(TypedDict):
+    where: Optional[{{ model_name }}WhereInput]
+    data: {{ model_name }}UpdateInput
+
+
 class {{ model_name }}DeleteEventArgs(TypedDict):
     where: {{ model_name }}WhereInput
     return_data: bool
@@ -407,6 +437,13 @@ class {{ model_name }}UpdateEventPayload(TypedDict):
     filter: Dict[str, Any]
     data: Dict[str, Any]
     returnData: bool
+
+
+class {{ model_name }}UpdateManyEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    filter: Dict[str, Any]
+    data: Dict[str, Any]
 
 
 class {{ model_name }}DeleteEventPayload(TypedDict):
@@ -444,6 +481,15 @@ class {{ model_name }}DeleteEventPayload(TypedDict):
     BaseException,
     Dict[str, Any],
 ]
+{{ model_name }}UpdateManyEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["updateMany"],
+    {{ model_name }}UpdateManyEventArgs,
+    {{ model_name }}UpdateManyEventPayload,
+    Optional[int],
+    BaseException,
+    Dict[str, Any],
+]
 {{ model_name }}DeleteEventContext = CrudEventContext[
     type[{{ model_name }}],
     Literal["delete"],
@@ -466,6 +512,7 @@ class {{ model_name }}DeleteEventPayload(TypedDict):
     {{ model_name }}CreateEventContext,
     {{ model_name }}CreateManyEventContext,
     {{ model_name }}UpdateEventContext,
+    {{ model_name }}UpdateManyEventContext,
     {{ model_name }}DeleteEventContext,
     {{ model_name }}DeleteManyEventContext,
 ]
@@ -1552,13 +1599,50 @@ class {{ delegate_name }}:
         Returns:
             The affected-row count.
         """
-        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.updateMany", {
+        _args: Dict[str, Any] = {"where": where, "data": data}
+        _payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",
             "filter": _process_where_filters(where or {}, _{{ table_name }}_py_to_db),
             "data": _process_create_data(data, _{{ table_name }}_py_to_db),
-        })
-        return result.get("count", 0)
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _{{ snake_name }}_event_context(
+                self._client, "updateMany", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = {% if is_async %}await run_crud_event(_before_ctx){% else %}run_crud_event_sync(_before_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("updateMany"))
+
+            result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.updateMany", _payload)
+            _decoded = result.get("count", 0)
+
+            _after_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "updateMany",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = {% if is_async %}await run_crud_event(_after_ctx){% else %}run_crud_event_sync(_after_ctx){% endif %}
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("updateMany"))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _{{ snake_name }}_event_context(
+                self._client,
+                "updateMany",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
+            raise
 
     {% if is_async %}async {% endif %}def aggregate(
         self,
@@ -1912,16 +1996,19 @@ __all__ = [
     "{{ model_name }}CreateEventArgs",
     "{{ model_name }}CreateManyEventArgs",
     "{{ model_name }}UpdateEventArgs",
+    "{{ model_name }}UpdateManyEventArgs",
     "{{ model_name }}DeleteEventArgs",
     "{{ model_name }}DeleteManyEventArgs",
     "{{ model_name }}CreateEventPayload",
     "{{ model_name }}CreateManyEventPayload",
     "{{ model_name }}UpdateEventPayload",
+    "{{ model_name }}UpdateManyEventPayload",
     "{{ model_name }}DeleteEventPayload",
     "{{ model_name }}DeleteManyEventPayload",
     "{{ model_name }}CreateEventContext",
     "{{ model_name }}CreateManyEventContext",
     "{{ model_name }}UpdateEventContext",
+    "{{ model_name }}UpdateManyEventContext",
     "{{ model_name }}DeleteEventContext",
     "{{ model_name }}DeleteManyEventContext",
     "{{ model_name }}EventContext",

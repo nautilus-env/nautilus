@@ -212,6 +212,11 @@ export interface {{ model_name }}UpdateEventArgs {
   returnData: boolean;
 }
 
+export interface {{ model_name }}UpdateManyEventArgs {
+  where?: {{ model_name }}WhereInput;
+  data: {{ model_name }}UpdateInput;
+}
+
 export interface {{ model_name }}DeleteEventArgs {
   where: {{ model_name }}WhereInput;
   returnData: boolean;
@@ -244,6 +249,13 @@ export interface {{ model_name }}UpdateEventPayload {
   returnData: boolean;
 }
 
+export interface {{ model_name }}UpdateManyEventPayload {
+  protocolVersion: string;
+  model: '{{ model_name }}';
+  filter: Record<string, unknown>;
+  data: Record<string, unknown>;
+}
+
 export interface {{ model_name }}DeleteEventPayload {
   protocolVersion: string;
   model: '{{ model_name }}';
@@ -274,6 +286,13 @@ export type {{ model_name }}UpdateEventContext = CrudEventContext<
   {{ model_name }}UpdateEventPayload,
   {{ model_name }}Model[] | number
 >;
+export type {{ model_name }}UpdateManyEventContext = CrudEventContext<
+  ModelEventToken,
+  'updateMany',
+  {{ model_name }}UpdateManyEventArgs,
+  {{ model_name }}UpdateManyEventPayload,
+  number
+>;
 export type {{ model_name }}DeleteEventContext = CrudEventContext<
   ModelEventToken,
   'delete',
@@ -293,6 +312,7 @@ export type {{ model_name }}EventContext =
   | {{ model_name }}CreateEventContext
   | {{ model_name }}CreateManyEventContext
   | {{ model_name }}UpdateEventContext
+  | {{ model_name }}UpdateManyEventContext
   | {{ model_name }}DeleteEventContext
   | {{ model_name }}DeleteManyEventContext;
 
@@ -300,6 +320,7 @@ export interface {{ model_name }}EventContexts extends ModelEventContexts {
   create: {{ model_name }}CreateEventContext;
   createMany: {{ model_name }}CreateManyEventContext;
   update: {{ model_name }}UpdateEventContext;
+  updateMany: {{ model_name }}UpdateManyEventContext;
   delete: {{ model_name }}DeleteEventContext;
   deleteMany: {{ model_name }}DeleteManyEventContext;
 }

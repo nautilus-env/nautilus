@@ -285,6 +285,7 @@ fn test_write_rust_code_writes_event_runtime_and_client_hooks() {
             && events_content.contains("pub struct CrudEventContext<TArgs, TResult>")
             && events_content.contains("pub struct EventRegistry")
             && events_content.contains("pub fn on_update_with_priority")
+            && events_content.contains("pub fn on_update_many_with_priority")
             && events_content
                 .contains("handlers.sort_by(|left, right| right.priority.cmp(&left.priority))")
             && events_content.contains("pub async fn run<C, T>"),
@@ -301,7 +302,9 @@ fn test_write_rust_code_writes_event_runtime_and_client_hooks() {
             && user_content.contains("pub type UserUpdateEventContext")
             && user_content.contains("crate::EventPhase::Before")
             && user_content.contains("_events.run::<UserCreateEventContext, User>")
-            && user_content.contains("_events.run::<UserUpdateEventContext, Vec<User>>"),
+            && user_content.contains("_events.run::<UserUpdateEventContext, Vec<User>>")
+            && user_content.contains("pub type UserUpdateManyEventContext")
+            && user_content.contains("_events.run::<UserUpdateManyEventContext, u64>"),
         "generated Rust delegates should type and run CRUD event hooks:\n{user_content}"
     );
 }
@@ -604,7 +607,10 @@ nautilus-events-macros = {{ path = "{}/crates/nautilus-events-macros" }}
     std::fs::write(
         consumer_dir.join("src").join("main.rs"),
         r#"
-use db::{Client, EventControl, User, UserCreateEventContext, UserUpdateEventContext};
+use db::{
+    Client, EventControl, User, UserCreateEventContext, UserUpdateEventContext,
+    UserUpdateManyEventContext,
+};
 use nautilus_events_macros::events;
 
 #[events(client_crate = db)]
@@ -622,6 +628,16 @@ mod app_events {
     #[nautilus_events_macros::on_update(User, priority = 2)]
     async fn stop_update(_ctx: &mut UserUpdateEventContext) -> EventControl<Vec<User>> {
         EventControl::StopPropagation(vec![])
+    }
+
+    #[nautilus_events_macros::on_update_many(User, phase = db::EventPhase::After)]
+    async fn after_update_many(ctx: &mut UserUpdateManyEventContext) {
+        let _ = ctx.result;
+    }
+
+    #[nautilus_events_macros::on_update_many(User)]
+    async fn stop_update_many(_ctx: &mut UserUpdateManyEventContext) -> EventControl<u64> {
+        EventControl::StopPropagation(0)
     }
 }
 
