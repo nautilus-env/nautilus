@@ -156,7 +156,7 @@ jobs:
       # The tests fall back to an `--offline` build of this binary, which cannot
       # fetch the CLI-only dependencies; build it online first.
       - name: Build the nautilus binary
-        run: cargo build --locked -p nautilus-cli --bin nautilus
+        run: cargo build --locked -p nautilus-orm --bin nautilus
 
       # The Java client tests skip themselves when the Jackson jars are missing,
       # so fetch them from the version the test itself declares.
