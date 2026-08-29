@@ -1854,3 +1854,96 @@ fn pull_marks_a_table_with_a_required_unmodellable_column_ignored() {
     nautilus_schema::validate_schema_source(&schema)
         .unwrap_or_else(|e| panic!("pulled schema does not validate: {:?}\n{}", e, schema));
 }
+
+#[test]
+fn unparseable_checks_are_pulled_as_raw_predicates_that_reparse() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "device".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: true,
+            },
+            LiveColumn {
+                name: "notes".to_string(),
+                col_type: "text".to_string(),
+                nullable: true,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: Some("notes IS NULL OR length(notes) > 3".to_string()),
+                auto_increment: false,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec!["upper(name) LIKE 'DEV%'".to_string()],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+
+    assert!(
+        out.contains("@check(\"notes IS NULL OR length(notes) > 3\")"),
+        "{out}"
+    );
+    assert!(
+        out.contains("@@check(\"upper(name) LIKE 'DEV%'\")"),
+        "{out}"
+    );
+
+    let ir = common::parse(&out).expect("pulled schema must reparse");
+    let (_, model) = ir
+        .models
+        .iter()
+        .find(|(_, m)| m.db_name == "device")
+        .expect("device model");
+    assert_eq!(
+        model.check_constraints,
+        vec!["upper(name) LIKE 'DEV%'".to_string()]
+    );
+    let notes = model
+        .fields
+        .iter()
+        .find(|f| f.db_name == "notes")
+        .expect("notes field");
+    assert_eq!(
+        notes.check.as_deref(),
+        Some("notes IS NULL OR length(notes) > 3")
+    );
+}
+
+#[test]
+fn raw_predicates_are_written_back_as_sql_in_lists() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "tasks".to_string(),
+        columns: vec![LiveColumn {
+            name: "id".to_string(),
+            col_type: "integer".to_string(),
+            nullable: false,
+            default_value: None,
+            generated_expr: None,
+            computed_kind: None,
+            check_expr: None,
+            auto_increment: true,
+        }],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec!["status IN ['A', 'B'] AND notes IS NOT NULL".to_string()],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(&live, DatabaseProvider::Postgres, "postgres://localhost/db");
+
+    assert!(
+        out.contains("@@check(\"status IN ('A', 'B') AND notes IS NOT NULL\")"),
+        "{out}"
+    );
+    common::parse(&out).expect("pulled schema must reparse");
+}

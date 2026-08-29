@@ -1198,7 +1198,12 @@ fn choose_unique_field_name(candidates: Vec<String>, used_fields: &mut HashSet<S
 }
 
 fn escape_schema_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 fn render_extension_schema_name(name: &str) -> String {
@@ -1320,10 +1325,66 @@ fn remap_sql_expr_identifiers(expr: &str, field_map: &HashMap<String, String>) -
         .unwrap_or_else(|| expr.to_string())
 }
 
+/// Render a live CHECK expression (or index predicate) as schema text.
+///
+/// Predicates the expression language covers are re-rendered with logical field
+/// names. Anything else — `IS NULL`, `LIKE`, function calls, typed literals —
+/// is emitted as a raw quoted predicate rather than as bare database text: bare
+/// text does not reparse, so the pulled schema would be unusable, while the raw
+/// form round-trips and still pushes back verbatim.
 fn remap_bool_expr_identifiers(expr: &str, field_map: &HashMap<String, String>) -> String {
     parse_schema_bool_expr(expr)
         .map(|parsed| render_bool_expr_with_field_map(&parsed, field_map))
-        .unwrap_or_else(|| expr.to_string())
+        .unwrap_or_else(|| format!("\"{}\"", escape_schema_string(&restore_sql_in_lists(expr))))
+}
+
+/// Undo the inspector's `IN (...)` -> `IN [...]` rewrite.
+///
+/// A raw predicate is pushed back to the database verbatim, so it has to be
+/// SQL. The inspector normalises live expressions into the schema dialect
+/// before the serializer sees them, and the bracket form is the one piece of
+/// that dialect no database accepts.
+fn restore_sql_in_lists(expr: &str) -> String {
+    let lower = expr.to_lowercase();
+    let marker = " in [";
+    if !lower.contains(marker) {
+        return expr.to_string();
+    }
+
+    let mut result = String::with_capacity(expr.len());
+    let mut pos = 0usize;
+
+    while let Some(rel) = lower[pos..].find(marker) {
+        let abs = pos + rel;
+        result.push_str(&expr[pos..abs]);
+        result.push_str(" IN (");
+
+        let after_open = abs + marker.len();
+        let rest = &expr[after_open..];
+
+        let mut depth = 1i32;
+        let mut close = rest.len();
+        for (i, c) in rest.char_indices() {
+            match c {
+                '[' => depth += 1,
+                ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        result.push_str(&rest[..close]);
+        result.push(')');
+        pos = (after_open + close + 1).min(expr.len());
+    }
+
+    result.push_str(&expr[pos..]);
+    result
 }
 
 fn parse_schema_sql_expr(expr: &str) -> Option<SqlExpr> {
@@ -1416,6 +1477,7 @@ fn render_bool_expr_with_field_map(expr: &BoolExpr, field_map: &HashMap<String, 
         BoolExpr::Paren(inner) => {
             format!("({})", render_bool_expr_with_field_map(inner, field_map))
         }
+        BoolExpr::Raw(_) => expr.to_string(),
     }
 }
 
@@ -1426,17 +1488,8 @@ fn render_bool_operand_with_field_map(
 ) -> String {
     match operand {
         Operand::Field(name) => field_map.get(name).cloned().unwrap_or_else(|| name.clone()),
-        Operand::Number(n) => n.clone(),
-        Operand::StringLit(s) => format!("'{}'", s),
-        Operand::Bool(b) => {
-            if *b {
-                "TRUE".to_string()
-            } else {
-                "FALSE".to_string()
-            }
-        }
         Operand::EnumVariant(variant) if enum_variant_in_list => variant.clone(),
-        Operand::EnumVariant(variant) => format!("'{}'", variant),
+        other => other.to_string(),
     }
 }
 

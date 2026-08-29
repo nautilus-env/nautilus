@@ -61,9 +61,31 @@ impl fmt::Display for Operand {
         match self {
             Operand::Field(name) => write!(f, "{}", name),
             Operand::Number(n) => write!(f, "{}", n),
-            Operand::StringLit(s) => write!(f, "'{}'", s),
+            Operand::StringLit(s) => write!(f, "'{}'", escape_schema_literal(s)),
             Operand::Bool(b) => write!(f, "{}", if *b { "TRUE" } else { "FALSE" }),
-            Operand::EnumVariant(v) => write!(f, "'{}'", v),
+            Operand::EnumVariant(v) => write!(f, "'{}'", escape_schema_literal(v)),
+        }
+    }
+}
+
+/// Escape a string literal for schema text, where a backslash starts an escape
+/// sequence and a quote has to be doubled to survive.
+fn escape_schema_literal(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "''")
+}
+
+/// Escape a string literal for SQL, where doubling the quote is the portable
+/// spelling on all three providers and a backslash means itself.
+fn escape_sql_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+impl Operand {
+    fn to_sql(&self) -> String {
+        match self {
+            Operand::StringLit(s) => format!("'{}'", escape_sql_literal(s)),
+            Operand::EnumVariant(v) => format!("'{}'", escape_sql_literal(v)),
+            other => other.to_string(),
         }
     }
 }
@@ -95,6 +117,16 @@ pub enum BoolExpr {
     },
     /// Parenthesised sub-expression.
     Paren(Box<BoolExpr>),
+    /// An opaque SQL predicate, written in the schema as a single quoted
+    /// string (`@check("uptime IS NULL OR uptime > interval '0'")`).
+    ///
+    /// The text is never interpreted: it is handed to the database verbatim,
+    /// which makes it the escape hatch for predicates the expression language
+    /// does not cover — `IS NULL`, `LIKE`, function calls, typed literals,
+    /// provider-specific operators. Because nothing in it is resolved,
+    /// identifiers inside a raw predicate are **database column names**, not
+    /// logical field names.
+    Raw(String),
 }
 
 impl fmt::Display for BoolExpr {
@@ -119,8 +151,26 @@ impl fmt::Display for BoolExpr {
                 write!(f, "]")
             }
             BoolExpr::Paren(inner) => write!(f, "({})", inner),
+            BoolExpr::Raw(sql) => write!(f, "\"{}\"", escape_raw_predicate(sql)),
         }
     }
+}
+
+/// Escape a raw predicate so it survives a round-trip through the schema lexer,
+/// which rejects a literal newline inside a string.
+fn escape_raw_predicate(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    for ch in sql.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 impl BoolExpr {
@@ -151,6 +201,7 @@ impl BoolExpr {
             BoolExpr::In { field, .. } => {
                 refs.push(field);
             }
+            BoolExpr::Raw(_) => {}
         }
     }
 
@@ -183,7 +234,7 @@ impl BoolExpr {
             BoolExpr::Not(inner) | BoolExpr::Paren(inner) => {
                 inner.collect_enum_in_lists(result);
             }
-            BoolExpr::Comparison { .. } => {}
+            BoolExpr::Comparison { .. } | BoolExpr::Raw(_) => {}
         }
     }
 
@@ -205,11 +256,11 @@ impl BoolExpr {
             BoolExpr::Comparison { left, op, right } => {
                 let left_s = match left {
                     Operand::Field(name) => map_field(name),
-                    other => other.to_string(),
+                    other => other.to_sql(),
                 };
                 let right_s = match right {
                     Operand::Field(name) => map_field(name),
-                    other => other.to_string(),
+                    other => other.to_sql(),
                 };
                 format!("{} {} {}", left_s, op, right_s)
             }
@@ -225,10 +276,11 @@ impl BoolExpr {
             ),
             BoolExpr::Not(inner) => format!("NOT {}", inner.to_sql_mapped(map_field)),
             BoolExpr::In { field, values } => {
-                let vals: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+                let vals: Vec<String> = values.iter().map(|v| v.to_sql()).collect();
                 format!("{} IN ({})", map_field(field), vals.join(", "))
             }
             BoolExpr::Paren(inner) => format!("({})", inner.to_sql_mapped(map_field)),
+            BoolExpr::Raw(sql) => sql.clone(),
         }
     }
 }
@@ -537,6 +589,10 @@ impl<'a> BoolExprParser<'a> {
 /// The token slice should contain **only** the expression tokens (i.e. without
 /// the surrounding `@check(` ... `)` scaffolding).
 ///
+/// A slice that is exactly one string literal yields [`BoolExpr::Raw`]: the
+/// predicate is opaque SQL. The whole slice has to be that literal, so a string
+/// used as an operand (`status = 'ACTIVE'`) keeps parsing as a comparison.
+///
 /// `fallback_span` is used for error reporting when the slice is empty.
 pub fn parse_bool_expr(tokens: &[Token], fallback_span: Span) -> Result<BoolExpr> {
     if tokens.is_empty() {
@@ -544,6 +600,20 @@ pub fn parse_bool_expr(tokens: &[Token], fallback_span: Span) -> Result<BoolExpr
             "@check expression is empty".to_string(),
             fallback_span,
         ));
+    }
+
+    if let [Token {
+        kind: TokenKind::String(sql),
+        span,
+    }] = tokens
+    {
+        if sql.trim().is_empty() {
+            return Err(SchemaError::Parse(
+                "Raw check expression is empty".to_string(),
+                *span,
+            ));
+        }
+        return Ok(BoolExpr::Raw(sql.clone()));
     }
 
     let mut parser = BoolExprParser::new(tokens, fallback_span);
@@ -592,6 +662,81 @@ mod tests {
             Err(e) => format!("{}", e),
             Ok(expr) => panic!("Expected error, got: {:?}", expr),
         }
+    }
+
+    #[test]
+    fn lone_string_literal_is_a_raw_predicate() {
+        let expr = parse("\"uptime IS NULL OR uptime > interval '0'\"");
+        assert_eq!(
+            expr,
+            BoolExpr::Raw("uptime IS NULL OR uptime > interval '0'".to_string())
+        );
+        assert_eq!(
+            expr.to_sql(),
+            "uptime IS NULL OR uptime > interval '0'".to_string()
+        );
+        assert!(expr.field_references().is_empty());
+        assert!(expr.enum_in_lists().is_empty());
+    }
+
+    #[test]
+    fn raw_predicate_round_trips_through_schema_text() {
+        let source = "\"notes IS NULL OR length(notes) > 3\"";
+        let expr = parse(source);
+        assert_eq!(expr.to_string(), source);
+        assert_eq!(parse(&expr.to_string()), expr);
+    }
+
+    #[test]
+    fn raw_predicate_escapes_quotes_and_newlines() {
+        let expr = BoolExpr::Raw("\"tag\" IS NULL\nOR 1 = 1".to_string());
+        assert_eq!(expr.to_string(), "\"\\\"tag\\\" IS NULL\\nOR 1 = 1\"");
+        assert_eq!(parse(&expr.to_string()), expr);
+    }
+
+    #[test]
+    fn a_string_operand_still_parses_as_a_comparison() {
+        assert_eq!(
+            parse("status = 'ACTIVE'"),
+            BoolExpr::Comparison {
+                left: Operand::Field("status".to_string()),
+                op: CmpOp::Eq,
+                right: Operand::StringLit("ACTIVE".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn a_quote_inside_a_literal_round_trips_doubled() {
+        let expr = parse("label <> 'O''Reilly'");
+        assert_eq!(
+            expr,
+            BoolExpr::Comparison {
+                left: Operand::Field("label".to_string()),
+                op: CmpOp::Ne,
+                right: Operand::StringLit("O'Reilly".to_string()),
+            }
+        );
+        assert_eq!(expr.to_string(), "label <> 'O''Reilly'");
+        assert_eq!(expr.to_sql(), "label <> 'O''Reilly'");
+        assert_eq!(parse(&expr.to_string()), expr);
+    }
+
+    #[test]
+    fn a_backslash_in_a_literal_is_escaped_for_schema_text_only() {
+        let expr = BoolExpr::Comparison {
+            left: Operand::Field("path".to_string()),
+            op: CmpOp::Ne,
+            right: Operand::StringLit(r"back\slash".to_string()),
+        };
+        assert_eq!(expr.to_string(), r"path <> 'back\\slash'");
+        assert_eq!(expr.to_sql(), r"path <> 'back\slash'");
+        assert_eq!(parse(&expr.to_string()), expr);
+    }
+
+    #[test]
+    fn empty_raw_predicate_is_rejected() {
+        assert!(parse_err("\"   \"").contains("Raw check expression is empty"));
     }
 
     #[test]

@@ -2138,3 +2138,47 @@ fn ignored_model_keeps_its_table() {
         changes
     );
 }
+
+#[test]
+fn pulling_and_pushing_back_a_raw_check_is_a_no_op() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "device".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: true,
+            },
+            LiveColumn {
+                name: "notes".to_string(),
+                col_type: "text".to_string(),
+                nullable: true,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: Some("notes IS NULL OR length(notes) > 3".to_string()),
+                auto_increment: false,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec!["upper(name) LIKE 'DEV%'".to_string()],
+        foreign_keys: vec![],
+    }]);
+
+    let pulled = nautilus_migrate::serialize_live_schema(
+        &live,
+        DatabaseProvider::Postgres,
+        "postgres://localhost/db",
+    );
+    let target = common::parse(&pulled).expect("pulled schema must reparse");
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(changes.is_empty(), "{changes:?}\n{pulled}");
+}

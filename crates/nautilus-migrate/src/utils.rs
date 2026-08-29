@@ -9,19 +9,37 @@
 /// false-positive [`crate::diff::Change::DefaultChanged`] detections.
 ///
 /// Only strips if `s` begins with `(`, ends with `)`, and the opening paren
-/// is correctly balanced by that closing paren (e.g. `((a)(b))` — 2 layers —
-/// would not be stripped to `(a)(b)` but `(a)` would be stripped to `a`).
+/// is closed by that final paren rather than by an earlier one: `(a)` becomes
+/// `a`, while `(a) OR (b)` and `((a)(b))` are left alone. Parentheses inside
+/// single-quoted literals are not counted.
 pub(crate) fn strip_outer_parens(s: &str) -> String {
-    if s.starts_with('(') && s.ends_with(')') {
-        let inner = &s[1..s.len() - 1];
-        let depth: i32 = inner.chars().fold(0i32, |d, c| match c {
-            '(' => d + 1,
-            ')' => d - 1,
-            _ => d,
-        });
-        if depth == 0 {
-            return inner.to_string();
+    if !(s.starts_with('(') && s.ends_with(')')) {
+        return s.to_string();
+    }
+
+    let inner = &s[1..s.len() - 1];
+    let mut depth: i32 = 0;
+    let mut in_quotes = false;
+    let mut chars = inner.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' if in_quotes => {
+                chars.next();
+            }
+            '\'' => in_quotes = !in_quotes,
+            '(' if !in_quotes => depth += 1,
+            ')' if !in_quotes => {
+                depth -= 1;
+                if depth < 0 {
+                    return s.to_string();
+                }
+            }
+            _ => {}
         }
+    }
+
+    if depth == 0 && !in_quotes {
+        return inner.to_string();
     }
     s.to_string()
 }
@@ -64,6 +82,19 @@ mod tests {
     #[test]
     fn no_strip_unbalanced() {
         assert_eq!(strip_outer_parens("(a(b)"), "(a(b)");
+    }
+
+    #[test]
+    fn no_strip_when_the_first_paren_closes_early() {
+        assert_eq!(
+            strip_outer_parens("(notes IS NULL) OR (char_length(notes) > 3)"),
+            "(notes IS NULL) OR (char_length(notes) > 3)"
+        );
+    }
+
+    #[test]
+    fn parens_inside_string_literals_do_not_count() {
+        assert_eq!(strip_outer_parens("(code LIKE 'a)b')"), "code LIKE 'a)b'");
     }
 
     #[test]

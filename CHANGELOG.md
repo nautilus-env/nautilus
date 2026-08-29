@@ -164,6 +164,35 @@ unaffected.
 
 ### Fixed
 
+- `db pull` no longer writes `@check(...)` expressions that the schema parser
+  rejects. A live `CHECK` the expression language cannot represent — `IS NULL`,
+  `LIKE`, a function call, a typed literal such as `interval '0'` — used to be
+  copied out as raw database text, and the pulled schema then failed to parse at
+  all. Such a constraint is now emitted as a quoted raw predicate
+  (`@check("uptime IS NULL OR uptime > interval '0'")`), which parses, formats
+  and pushes back verbatim, so pulling and pushing an existing database stays a
+  no-op. The same form is accepted in hand-written schemas as the escape hatch
+  for provider-specific predicates in `@check`, `@@check` and
+  `@@index(..., where:)`; nothing inside it is resolved, so its identifiers are
+  database column names and `@map` does not apply to them.
+- A string literal inside a `@check`, `@@check` or `@@index(where:)`
+  expression now keeps an embedded quote when it is written out. The quote was
+  rendered unescaped, so `label <> 'O''Reilly'` came back from `db pull` as
+  `label <> 'O'Reilly'` — a schema that no longer parsed and SQL that no longer
+  ran. Schema text and SQL both double the quote, and schema text additionally
+  escapes backslashes, which start an escape sequence there but not in SQL.
+- A parenthesised expression whose first parenthesis closes before the end is no
+  longer mangled when a `CHECK` or `DEFAULT` is normalised. PostgreSQL reports
+  `((notes IS NULL) OR (char_length(notes) > 3))`, and stripping "balanced"
+  outer parentheses turned it into `notes IS NULL) OR (char_length(notes) > 3`,
+  because the check only required the parentheses to balance overall. Quotes are
+  honoured too, so a parenthesis inside a string literal no longer counts.
+- `db pull` now rewrites a MySQL `CHECK` clause into executable SQL.
+  `information_schema` reports it with every quote and backslash escaped one
+  extra time and with a charset introducer on each literal
+  (``upper(`code`) like _utf8mb4\'DEV-%\'``); pushing that text back failed
+  with error 1064, and the introducer also stopped an `IN` list of literals from
+  round-tripping as an expression.
 - Boolean literals spelled `TRUE` / `FALSE` are now accepted in `@check`,
   `@@check` and `@@index(where:)` expressions. Both the formatter and `db pull`
   render booleans in that SQL-style upper case, but only the lower-case

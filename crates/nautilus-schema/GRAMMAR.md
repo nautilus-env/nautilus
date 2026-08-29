@@ -400,6 +400,19 @@ age    Int    @check(age >= 0 AND age <= 150)
 status Status @check(status IN [ACTIVE, PENDING])
 ```
 
+A predicate the expression language does not cover — `IS NULL`, `LIKE`, a
+function call, a typed literal, a provider-specific operator — is written as a
+single quoted string and handed to the database verbatim:
+
+```prisma
+notes  String?  @check("notes IS NULL OR length(notes) > 3")
+```
+
+`db pull` uses this form for every live `CHECK` it cannot express structurally,
+so a pulled schema always parses again. Nothing inside a raw predicate is
+resolved, so its identifiers are **database column names**, not logical field
+names, and neither validation nor `@map` applies to them.
+
 **Constraints:**
 - Field-level `@check` may only reference the decorated field itself
 - It cannot be applied to relation, array, or computed fields
@@ -572,6 +585,11 @@ model Booking {
 ```
 
 Unlike field-level `@check`, the model-level form may reference multiple scalar fields.
+It accepts the same raw quoted predicate as `@check`:
+
+```prisma
+@@check("upper(code) LIKE 'DEV%'")
+```
 
 #### @@ignore
 Declares that the table exists in the database but Nautilus does not manage it.

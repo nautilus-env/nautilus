@@ -224,7 +224,9 @@ fn extract_sqlite_check_expr(seg: &str) -> Option<String> {
 /// quoting, removes outer parentheses, collapses whitespace, and converts SQL
 /// `IN (...)` syntax to the Nautilus bracket form `IN [...]`.
 fn normalize_mysql_check_expr(expr: &str) -> String {
-    let s = strip_mysql_backtick_quotes(expr.trim());
+    let s = unescape_mysql_check_clause(expr.trim());
+    let s = strip_mysql_charset_introducers(&s);
+    let s = strip_mysql_backtick_quotes(&s);
     let mut s = s;
     loop {
         let stripped = crate::utils::strip_outer_parens(&s);
@@ -235,6 +237,79 @@ fn normalize_mysql_check_expr(expr: &str) -> String {
     }
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     convert_in_parens_to_brackets(&s)
+}
+
+/// Undo the extra layer of backslash escaping MySQL applies to a stored
+/// `CHECK_CLAUSE`.
+///
+/// `information_schema` reports `upper(`code`) like _utf8mb4\'DEV-%\'` — the
+/// quotes delimiting the literal are escaped, and so is every backslash inside
+/// it. That text is not valid SQL, so a constraint pulled from MySQL could not
+/// be pushed back until the escaping is removed.
+fn unescape_mysql_check_clause(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some('\'' | '\\') = chars.peek() {
+                out.push(chars.next().expect("peeked character"));
+                continue;
+            }
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Drop the charset introducer MySQL prefixes to every string literal in a
+/// stored `CHECK_CLAUSE` (`_utf8mb4'DEV-%'` -> `'DEV-%'`).
+///
+/// The introducer names the charset the server resolved the literal to, not
+/// anything the schema declared, and it stops the expression parser from seeing
+/// a string at all — an `IN` list of literals would otherwise never round-trip
+/// as an expression.
+fn strip_mysql_charset_introducers(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let mut in_literal = false;
+
+    while i < chars.len() {
+        let ch = chars[i];
+
+        if in_literal {
+            out.push(ch);
+            if ch == '\\' && i + 1 < chars.len() {
+                out.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
+            if ch == '\'' {
+                in_literal = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if ch == '_' {
+            let mut end = i + 1;
+            while end < chars.len() && (chars[end].is_ascii_alphanumeric() || chars[end] == '_') {
+                end += 1;
+            }
+            if end > i + 1 && chars.get(end) == Some(&'\'') {
+                i = end;
+                continue;
+            }
+        }
+
+        if ch == '\'' {
+            in_literal = true;
+        }
+        out.push(ch);
+        i += 1;
+    }
+
+    out
 }
 
 /// Strip MySQL backtick-quoted identifiers, keeping the bare identifier name.
@@ -999,6 +1074,30 @@ mod tests {
         assert_eq!(
             normalize_mysql_check_expr("(`quantity` > 0)"),
             "quantity > 0"
+        );
+    }
+
+    #[test]
+    fn mysql_check_unescapes_literals_and_drops_charset_introducers() {
+        assert_eq!(
+            normalize_mysql_check_expr(r"(`status` in (_utf8mb4\'Draft\',_utf8mb4\'PUBLISHED\'))"),
+            "status IN ['Draft','PUBLISHED']"
+        );
+    }
+
+    #[test]
+    fn mysql_check_keeps_an_escaped_quote_inside_a_literal() {
+        assert_eq!(
+            normalize_mysql_check_expr(r"(`code` <> _latin1\'O\\\'Reilly\')"),
+            r"code <> 'O\'Reilly'"
+        );
+    }
+
+    #[test]
+    fn mysql_check_keeps_an_unparseable_predicate_executable() {
+        assert_eq!(
+            normalize_mysql_check_expr(r"(upper(`code`) like _utf8mb4\'DEV-%\')"),
+            "upper(code) like 'DEV-%'"
         );
     }
 
