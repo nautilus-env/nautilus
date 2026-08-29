@@ -42,6 +42,12 @@ unaffected.
   schema follows imports, so `--schema user.nautilus` now loads what that file
   imports as well; pointing `--schema` at a directory keeps working unchanged.
 
+- A schema with more than one `datasource` block, or more than one `generator`
+  block, is now rejected instead of silently using the first one. The error is
+  reported on the second block and names the one that already claimed the slot.
+  With `import` this is the guard that catches a path reaching another schema's
+  root file rather than the shared models it was meant to pull in.
+
 - `nautilus-lsp` understands multi-file schemas. An open document is assembled
   with everything it imports before being analysed, so a reference to a model or
   enum declared in another file resolves instead of being reported as unknown,

@@ -12,8 +12,39 @@ impl SchemaValidator<'_> {
             })
             .collect();
 
+        self.reject_extra_blocks(
+            "datasource",
+            &datasources
+                .iter()
+                .map(|datasource| (datasource.name.value.clone(), datasource.name.span))
+                .collect::<Vec<_>>(),
+        );
+
         for datasource in &datasources {
             self.validate_datasource(datasource);
+        }
+    }
+
+    /// Report every block after the first: a schema has exactly one
+    /// `datasource` and one `generator`.
+    ///
+    /// This is what catches an `import` that reached another schema's root
+    /// file, where the second block arrives from a file the developer was not
+    /// looking at; the first block is named rather than located because its
+    /// offset belongs to the assembled source, not to any one file.
+    fn reject_extra_blocks(&mut self, kind: &str, blocks: &[(String, Span)]) {
+        let Some((first, _)) = blocks.first() else {
+            return;
+        };
+
+        for (name, span) in &blocks[1..] {
+            self.errors.push_back(SchemaError::Validation(
+                format!(
+                    "Duplicate {} '{}': a schema has exactly one {} block, already declared as '{}'",
+                    kind, name, kind, first
+                ),
+                *span,
+            ));
         }
     }
 
@@ -250,6 +281,14 @@ impl SchemaValidator<'_> {
                 _ => None,
             })
             .collect();
+
+        self.reject_extra_blocks(
+            "generator",
+            &generators
+                .iter()
+                .map(|generator| (generator.name.value.clone(), generator.name.span))
+                .collect::<Vec<_>>(),
+        );
 
         for generator in &generators {
             self.validate_generator(generator);

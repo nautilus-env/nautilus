@@ -320,3 +320,50 @@ fn a_file_reached_through_two_spellings_is_joined_once() {
     assert_eq!(set.paths().count(), 3);
     assert!(set.validate().is_ok());
 }
+
+#[test]
+fn importing_a_second_schema_root_is_rejected_at_the_duplicate_block() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        "other.nautilus",
+        "datasource other {\n  provider = \"sqlite\"\n  url = \"sqlite:other.db\"\n}\n\nmodel Other {\n  id Int @id\n}\n",
+    );
+    let root = write(
+        dir.path(),
+        "schema.nautilus",
+        "import \"./other.nautilus\"\n\ndatasource db {\n  provider = \"sqlite\"\n  url = \"sqlite:main.db\"\n}\n\nmodel User {\n  id Int @id\n}\n",
+    );
+
+    let set = SchemaSet::load_path(&root).unwrap();
+    let error = set.validate().unwrap_err();
+    let rendered = set.format_error(&error);
+
+    assert!(rendered.contains("Duplicate datasource"), "{}", rendered);
+    assert!(
+        rendered.contains("other.nautilus:1:12"),
+        "the block that came in through the import is the one flagged: {}",
+        rendered
+    );
+}
+
+#[test]
+fn a_second_generator_reached_through_an_import_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        "client.nautilus",
+        "generator extra {\n  provider = \"nautilus-client-js\"\n  output = \"./extra\"\n}\n",
+    );
+    let root = write(
+        dir.path(),
+        "schema.nautilus",
+        "import \"./client.nautilus\"\n\ngenerator client {\n  provider = \"nautilus-client-js\"\n  output = \"./db\"\n}\n\nmodel User {\n  id Int @id\n}\n",
+    );
+
+    let set = SchemaSet::load_path(&root).unwrap();
+    let rendered = set.format_error(&set.validate().unwrap_err());
+
+    assert!(rendered.contains("Duplicate generator"), "{}", rendered);
+    assert!(rendered.contains("client.nautilus:1:11"), "{}", rendered);
+}

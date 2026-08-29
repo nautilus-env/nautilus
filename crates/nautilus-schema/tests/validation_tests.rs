@@ -1901,3 +1901,58 @@ model Device {
     assert!(model.find_field("uptime").unwrap().is_ignored);
     assert!(!model.find_field("name").unwrap().is_ignored);
 }
+
+#[test]
+fn a_second_datasource_block_is_rejected() {
+    let source = r#"
+datasource db {
+  provider = "sqlite"
+  url      = "sqlite:a.db"
+}
+
+datasource other {
+  provider = "sqlite"
+  url      = "sqlite:b.db"
+}
+
+model User {
+  id Int @id
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(msg.contains("Duplicate datasource 'other'"), "{}", msg);
+            assert!(msg.contains("already declared as 'db'"), "{}", msg);
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn a_second_generator_block_is_rejected() {
+    let source = r#"
+generator client {
+  provider = "nautilus-client-js"
+  output   = "./db"
+}
+
+generator extra {
+  provider = "nautilus-client-js"
+  output   = "./extra"
+}
+
+model User {
+  id Int @id
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(msg.contains("Duplicate generator 'extra'"), "{}", msg);
+        }
+        _ => panic!("Expected validation error"),
+    }
+}

@@ -83,7 +83,14 @@ model User {
 Imports are followed transitively, a file reached twice is joined once, and
 cycles are allowed (`a` importing `b` importing `a` loads both files once).
 Importing is not scoping: the assembled set is one flat schema, so `import` says
-*which files belong together*, not which names a file may use.
+*which files belong together*, not which names a file may use. A cycle is
+therefore not an error but the honest shape of a mutual dependency — two models
+with a relation between them each need the other's file.
+
+What a schema may not have twice is a root: **more than one `datasource`, or
+more than one `generator`, in the assembled set is an error**, reported on the
+second block. That is what catches an import which reached another schema's
+root file instead of the shared models it was meant to pull in.
 
 An import naming a file that does not exist is an error reported on the `import`
 line; the files that were reached are still validated, so one broken path does
