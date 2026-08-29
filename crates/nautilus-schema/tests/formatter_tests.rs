@@ -228,3 +228,20 @@ fn test_format_partial_index_with_map_round_trips() {
         formatted
     );
 }
+
+#[test]
+fn test_format_imports_stay_on_adjacent_lines() {
+    let source = r#"import   "./enums.nautilus"
+import "./post.nautilus"
+model User {
+  id Int @id
+}"#;
+    let formatted = round_trip(source);
+
+    assert!(
+        formatted
+            .starts_with("import \"./enums.nautilus\"\nimport \"./post.nautilus\"\n\nmodel User"),
+        "{}",
+        formatted
+    );
+}

@@ -38,6 +38,8 @@ pub enum TokenKind {
     Enum,
     /// `type` keyword.
     Type,
+    /// `import` keyword.
+    Import,
     /// `true` keyword.
     True,
     /// `false` keyword.
@@ -121,6 +123,7 @@ impl TokenKind {
                 | TokenKind::Model
                 | TokenKind::Enum
                 | TokenKind::Type
+                | TokenKind::Import
                 | TokenKind::True
                 | TokenKind::False
         )
@@ -134,6 +137,7 @@ impl TokenKind {
             "model" => TokenKind::Model,
             "enum" => TokenKind::Enum,
             "type" => TokenKind::Type,
+            "import" => TokenKind::Import,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             _ => TokenKind::Ident(ident.to_string()),
@@ -149,6 +153,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Model => write!(f, "model"),
             TokenKind::Enum => write!(f, "enum"),
             TokenKind::Type => write!(f, "type"),
+            TokenKind::Import => write!(f, "import"),
             TokenKind::True => write!(f, "true"),
             TokenKind::False => write!(f, "false"),
             TokenKind::Ident(s) => write!(f, "identifier '{}'", s),

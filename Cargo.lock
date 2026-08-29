@@ -1762,6 +1762,7 @@ version = "1.3.5"
 dependencies = [
  "dashmap 6.1.0",
  "nautilus-orm-schema",
+ "serde_json",
  "tokio",
  "tower-lsp",
 ]

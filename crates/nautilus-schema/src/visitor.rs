@@ -38,6 +38,12 @@ pub trait Visitor: Sized {
         walk_declaration(self, decl)
     }
 
+    /// Visit an import statement.
+    fn visit_import(&mut self, import: &ImportDecl) -> Result<()> {
+        let _ = import;
+        Ok(())
+    }
+
     /// Visit a datasource declaration.
     fn visit_datasource(&mut self, datasource: &DatasourceDecl) -> Result<()> {
         walk_datasource(self, datasource)
@@ -105,6 +111,7 @@ pub fn walk_schema<V: Visitor>(visitor: &mut V, schema: &Schema) -> Result<()> {
 /// Walk through a declaration.
 pub fn walk_declaration<V: Visitor>(visitor: &mut V, decl: &Declaration) -> Result<()> {
     match decl {
+        Declaration::Import(import) => visitor.visit_import(import),
         Declaration::Datasource(ds) => visitor.visit_datasource(ds),
         Declaration::Generator(gen) => visitor.visit_generator(gen),
         Declaration::Model(model) => visitor.visit_model(model),

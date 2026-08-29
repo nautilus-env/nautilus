@@ -29,6 +29,8 @@ pub fn format_schema(schema: &Schema, source: &str) -> String {
 
     for decl in &schema.declarations {
         let block = match decl {
+            Declaration::Import(import) => format!("import \"{}\"", import.path),
+
             Declaration::Datasource(ds) => {
                 let max_key = ds
                     .fields
@@ -211,7 +213,11 @@ pub fn format_schema(schema: &Schema, source: &str) -> String {
             let curr_start = schema.declarations[i].span().start;
             let gap_comments = top_level_comments(source, prev_end, curr_start);
             if gap_comments.is_empty() {
-                out.push_str("\n\n");
+                out.push_str(if consecutive_imports(schema, i) {
+                    "\n"
+                } else {
+                    "\n\n"
+                });
             } else {
                 out.push_str("\n\n");
                 for comment in &gap_comments {
@@ -305,6 +311,16 @@ fn push_gap_content(
             lines.push(String::new());
         }
     }
+}
+
+/// Whether the declaration at `index` and the one before it are both imports,
+/// which are written as a block of adjacent lines rather than separated by a
+/// blank line like the other declarations.
+fn consecutive_imports(schema: &Schema, index: usize) -> bool {
+    matches!(
+        (&schema.declarations[index - 1], &schema.declarations[index]),
+        (Declaration::Import(_), Declaration::Import(_))
+    )
 }
 
 /// Extract top-level comment lines (and blank-line structure around them) from

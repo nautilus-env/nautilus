@@ -66,6 +66,14 @@ impl Schema {
         })
     }
 
+    /// Finds all import statements in the schema.
+    pub fn imports(&self) -> impl Iterator<Item = &ImportDecl> {
+        self.declarations.iter().filter_map(|d| match d {
+            Declaration::Import(i) => Some(i),
+            _ => None,
+        })
+    }
+
     /// Finds the first datasource declaration.
     pub fn datasource(&self) -> Option<&DatasourceDecl> {
         self.declarations.iter().find_map(|d| match d {
@@ -86,6 +94,8 @@ impl Schema {
 /// A top-level declaration in the schema.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Declaration {
+    /// An `import` statement.
+    Import(ImportDecl),
     /// A datasource block.
     Datasource(DatasourceDecl),
     /// A generator block.
@@ -102,6 +112,7 @@ impl Declaration {
     /// Returns the span of this declaration.
     pub fn span(&self) -> Span {
         match self {
+            Declaration::Import(i) => i.span,
             Declaration::Datasource(d) => d.span,
             Declaration::Generator(g) => g.span,
             Declaration::Model(m) => m.span,
@@ -113,6 +124,7 @@ impl Declaration {
     /// Returns the name of this declaration.
     pub fn name(&self) -> &str {
         match self {
+            Declaration::Import(i) => &i.path,
             Declaration::Datasource(d) => &d.name.value,
             Declaration::Generator(g) => &g.name.value,
             Declaration::Model(m) => &m.name.value,
@@ -120,6 +132,29 @@ impl Declaration {
             Declaration::Type(t) => &t.name.value,
         }
     }
+}
+
+/// An `import` statement pulling another schema file into this one.
+///
+/// The path is relative to the directory of the file that declares it and names
+/// either a `.nautilus` file or a directory of them.  Importing is how a schema
+/// spread across files declares its own extent: nothing is joined to a file
+/// unless that file, or one it imports, asks for it.
+///
+/// # Example
+///
+/// ```text
+/// import "./enums.nautilus"
+/// import "../shared"
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportDecl {
+    /// The path exactly as written, without the surrounding quotes.
+    pub path: String,
+    /// Span of the quoted path literal.
+    pub path_span: Span,
+    /// Span covering the whole statement.
+    pub span: Span,
 }
 
 /// A datasource block declaration.

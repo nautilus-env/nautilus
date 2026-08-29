@@ -48,6 +48,7 @@ pub fn hover_with_analysis(
         }
 
         match decl {
+            Declaration::Import(_) => {}
             Declaration::Model(model) => {
                 for field in &model.fields {
                     if span_contains(field.span, offset) {

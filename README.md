@@ -219,6 +219,19 @@ nautilus generate --schema schema.nautilus
 If `--schema` is omitted, schema-based commands auto-detect the first
 `.nautilus` file in the current directory.
 
+A schema may be split across files: point `--schema` at a directory to assemble
+every `.nautilus` file in it, or have one file pull in the others with `import`.
+
+```prisma
+import "./enums.nautilus"
+import "../shared"
+```
+
+The path is relative to the file that declares it and may name a file or a
+directory; imports are followed transitively and each file is joined once. This
+is also what tells the language server which files belong together — see
+[crates/nautilus-schema/GRAMMAR.md](crates/nautilus-schema/GRAMMAR.md#imports).
+
 ### PostgreSQL extensions
 
 PostgreSQL extensions can be declared directly in the datasource block. Nautilus
@@ -991,6 +1004,7 @@ See [crates/nautilus-cli/README.md](crates/nautilus-cli/README.md) for the comma
 ## Editor support
 
 - `nautilus-lsp` provides diagnostics, completions, hover, go-to-definition, formatting, and semantic tokens.
+- A file that declares `import "…"` is analysed together with everything it imports, so cross-file references resolve in the editor and each diagnostic lands on the file that holds it.
 - The VS Code extension in [tools/vscode-nautilus-schema](tools/vscode-nautilus-schema/README.md) (you can also download from vscode marketplace) bundles syntax support and can auto-download the `nautilus-lsp` binary on first activation.
 - If you already manage the binary yourself, set:
 

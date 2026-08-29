@@ -33,6 +33,27 @@ unaffected.
 
 ### Added
 
+- Added `import "<path>"` to the schema language. A schema file joins other
+  files to itself by naming them, relative to its own directory; the path may
+  be a `.nautilus` file or a directory of them. Imports are followed
+  transitively, a file reached twice is joined once, and cycles terminate. A
+  path that does not resolve is an error reported on the `import` line, and the
+  files that were reached are still validated. Every command that loads a
+  schema follows imports, so `--schema user.nautilus` now loads what that file
+  imports as well; pointing `--schema` at a directory keeps working unchanged.
+
+- `nautilus-lsp` understands multi-file schemas. An open document is assembled
+  with everything it imports before being analysed, so a reference to a model or
+  enum declared in another file resolves instead of being reported as unknown,
+  completion offers imported declarations, and go-to-definition jumps into the
+  file that holds the declaration. Diagnostics are published to the file each
+  one belongs to rather than all landing on the open document. Unsaved buffers
+  of imported files are used in place of what is on disk, editing an imported
+  file re-analyses the documents that import it, and the server registers a
+  `**/*.nautilus` watcher so a change made outside the editor is picked up. A
+  file that imports nothing is still analysed on its own: sibling files are
+  never joined implicitly.
+
 - Added `query.updateMany` and `query.deleteMany`, engine methods that apply a
   filter to every matching row and answer with the affected-row count alone. No
   `RETURNING` projection is ever emitted, so the statement stays one round-trip

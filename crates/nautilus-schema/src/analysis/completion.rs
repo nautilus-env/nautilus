@@ -153,6 +153,7 @@ pub fn completion_with_analysis(
         // are user-defined identifiers.
         Some(Declaration::Enum(_)) => Vec::new(),
 
+        Some(Declaration::Import(_)) => Vec::new(),
         Some(Declaration::Model(_)) => model_body_completions(provider, &user_types),
         Some(Declaration::Type(_)) => type_body_completions(provider, &user_types),
     }
@@ -660,6 +661,12 @@ fn top_level_completions() -> Vec<CompletionItem> {
             "generator",
             CompletionKind::Keyword,
             Some("Configure code generation".to_string()),
+        ),
+        CompletionItem::with_snippet(
+            "import",
+            "import \"$1\"",
+            CompletionKind::Keyword,
+            Some("Join another schema file to this one".to_string()),
         ),
     ]
 }

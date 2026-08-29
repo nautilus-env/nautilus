@@ -33,6 +33,7 @@
 mod backend;
 mod convert;
 mod document;
+mod workspace;
 
 use backend::Backend;
 use dashmap::DashMap;
@@ -46,6 +47,7 @@ async fn main() {
     let (service, socket) = LspService::new(|client| Backend {
         client,
         docs: DashMap::new(),
+        published: DashMap::new(),
     });
 
     Server::new(stdin, stdout, socket).serve(service).await;

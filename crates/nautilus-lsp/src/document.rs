@@ -6,10 +6,16 @@
 //! Subsequent `textDocument/completion`, `hover`, `definition`,
 //! `semanticTokens/full`, and formatting requests read from this cache rather
 //! than re-analysing.
+//!
+//! A document that imports other files carries a [`Workspace`] as well: names
+//! are resolved against the whole assembled schema, while semantic tokens and
+//! formatting stay strictly about the text of this one file.
 
+use std::sync::Arc;
 use std::sync::OnceLock;
 
 use crate::convert::{position_to_offset_with_index, semantic_tokens_to_lsp_with_index};
+use crate::workspace::Workspace;
 use nautilus_schema::{
     analysis::{
         analyze, completion_with_analysis, goto_definition_with_analysis, hover_with_analysis,
@@ -17,7 +23,9 @@ use nautilus_schema::{
     },
     format_schema, LineIndex, Span,
 };
-use tower_lsp::lsp_types::{SemanticToken as LspSemanticToken, TextDocumentContentChangeEvent};
+use tower_lsp::lsp_types::{
+    SemanticToken as LspSemanticToken, TextDocumentContentChangeEvent, Url,
+};
 
 /// Snapshot of a single `.nautilus` document.
 pub struct DocumentState {
@@ -25,14 +33,18 @@ pub struct DocumentState {
     pub source: String,
     /// Cached line offsets for fast span/position conversion.
     pub line_index: LineIndex,
-    /// Analysis result produced from `source`.
+    /// Analysis result produced from `source` alone.
     pub analysis: AnalysisResult,
+    /// The assembled schema this document belongs to, when it has a path.
+    pub workspace: Option<Arc<Workspace>>,
+    /// Offset of this document's text inside the workspace source.
+    base: usize,
     semantic_tokens: OnceLock<Option<Vec<LspSemanticToken>>>,
     formatted: OnceLock<Option<String>>,
 }
 
 impl DocumentState {
-    /// Analyze `source` and build a new [`DocumentState`].
+    /// Analyze `source` on its own and build a new [`DocumentState`].
     pub fn new(source: String) -> Self {
         let line_index = LineIndex::new(&source);
         let analysis = analyze(&source);
@@ -40,8 +52,41 @@ impl DocumentState {
             source,
             line_index,
             analysis,
+            workspace: None,
+            base: 0,
             semantic_tokens: OnceLock::new(),
             formatted: OnceLock::new(),
+        }
+    }
+
+    /// Analyze `source` and attach the assembled schema it belongs to, so that
+    /// names declared in imported files resolve.
+    ///
+    /// `uri` names this document inside `workspace`; a document the workspace
+    /// does not contain falls back to seeing only itself.
+    pub fn with_workspace(source: String, uri: &Url, workspace: Arc<Workspace>) -> Self {
+        let Some(base) = workspace.base_of(uri) else {
+            return Self::new(source);
+        };
+        let mut state = Self::new(source);
+        state.base = base;
+        state.workspace = Some(workspace);
+        state
+    }
+
+    /// The source every offset handed to the analysis functions refers to: the
+    /// assembled schema when there is one, this document's text otherwise.
+    fn analyzed_source(&self) -> &str {
+        match &self.workspace {
+            Some(workspace) => workspace.source(),
+            None => &self.source,
+        }
+    }
+
+    fn analyzed(&self) -> &AnalysisResult {
+        match &self.workspace {
+            Some(workspace) => workspace.analysis(),
+            None => &self.analysis,
         }
     }
 
@@ -70,17 +115,35 @@ impl DocumentState {
 
     /// Completion items derived from the cached analysis.
     pub fn completion(&self, offset: usize) -> Vec<CompletionItem> {
-        completion_with_analysis(&self.source, &self.analysis, offset)
+        completion_with_analysis(self.analyzed_source(), self.analyzed(), self.base + offset)
     }
 
-    /// Hover info derived from the cached analysis.
+    /// Hover info derived from the cached analysis, with its span rebased onto
+    /// this document.
     pub fn hover(&self, offset: usize) -> Option<HoverInfo> {
-        hover_with_analysis(&self.source, &self.analysis, offset)
+        let mut info =
+            hover_with_analysis(self.analyzed_source(), self.analyzed(), self.base + offset)?;
+        info.span = info.span.and_then(|span| self.local_span(span));
+        Some(info)
+    }
+
+    /// Rebase a span of the analysed source onto this document, dropping one
+    /// that points outside it.
+    fn local_span(&self, span: Span) -> Option<Span> {
+        let end = self.base + self.source.len();
+        if span.start < self.base || span.end > end {
+            return None;
+        }
+        Some(Span::new(span.start - self.base, span.end - self.base))
     }
 
     /// Definition span derived from the cached analysis.
+    ///
+    /// The span is an offset into [`Workspace::source`] when the document has a
+    /// workspace, because the definition may live in an imported file; the
+    /// caller resolves it with [`Workspace::locate`].
     pub fn goto_definition(&self, offset: usize) -> Option<Span> {
-        goto_definition_with_analysis(&self.analysis, offset)
+        goto_definition_with_analysis(self.analyzed(), self.base + offset)
     }
 
     /// Semantic tokens derived from the cached analysis and memoized per

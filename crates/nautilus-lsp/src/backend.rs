@@ -2,19 +2,30 @@
 //!
 //! All schema intelligence (parse, validate, complete, hover, goto-definition)
 //! lives in `nautilus-schema`; this module is pure glue.
+//!
+//! A document is never analysed alone when it has a path: it is assembled with
+//! the files it imports (see [`crate::workspace`]) so that cross-file
+//! references resolve, and the diagnostics of that assembled schema are
+//! published to the file each one came from.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentFormattingParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
-    InitializeResult, InitializedParams, Location, MessageType, OneOf, SaveOptions,
-    SemanticTokenType, SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend,
-    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncSaveOptions, TextEdit, Url,
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentFormattingParams,
+    FileSystemWatcher, GlobPattern, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams,
+    Location, MessageType, OneOf, Registration, SaveOptions, SemanticTokenType, SemanticTokens,
+    SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    TextDocumentSyncSaveOptions, TextEdit, Url,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -24,15 +35,20 @@ use crate::convert::{
     position_to_offset_with_index, span_to_range_with_index,
 };
 use crate::document::DocumentState;
+use crate::workspace::{canonical, Workspace};
 
 /// The LSP backend.  Holds the client handle and the per-document cache.
 pub struct Backend {
     pub client: Client,
     pub docs: DashMap<Url, DocumentState>,
+    /// Files each open document last published diagnostics for, so that a file
+    /// dropping out of a schema has its squiggles cleared.
+    pub published: DashMap<Url, Vec<Url>>,
 }
 
 impl Backend {
-    /// Re-run analysis on `source`, store the result, and publish diagnostics.
+    /// Re-run analysis on `source`, store the result, publish diagnostics, and
+    /// refresh the documents that import this one.
     async fn reanalyze(&self, uri: Url, source: String) {
         if self
             .docs
@@ -42,15 +58,159 @@ impl Backend {
             return;
         }
 
-        let state = DocumentState::new(source.clone());
-        let lsp_diags: Vec<Diagnostic> = state
-            .analysis
-            .diagnostics
+        self.reanalyze_only(uri.clone(), source).await;
+        self.refresh_related(&uri).await;
+    }
+
+    /// Analyze one document and publish its diagnostics, without touching the
+    /// documents that import it.
+    async fn reanalyze_only(&self, uri: Url, source: String) {
+        let state = self.analyze_document(&uri, source);
+        self.publish(&uri, &state).await;
+        self.docs.insert(uri, state);
+    }
+
+    /// Build the state for `uri`, assembling the schema it belongs to when it
+    /// names a file on disk.
+    fn analyze_document(&self, uri: &Url, source: String) -> DocumentState {
+        let Ok(path) = uri.to_file_path() else {
+            return DocumentState::new(source);
+        };
+
+        let mut open = self.open_buffers();
+        open.insert(canonical(&path), source.clone());
+
+        // A file another open document imports is a piece of that schema, and
+        // reading it on its own would report the very references the import
+        // exists to resolve.
+        let workspace = self
+            .importing_root(uri)
+            .and_then(|root| Workspace::load(&root, &open))
+            .filter(|workspace| workspace.contains(uri))
+            .or_else(|| Workspace::load(&path, &open));
+
+        match workspace {
+            Some(workspace) => DocumentState::with_workspace(source, uri, Arc::new(workspace)),
+            None => DocumentState::new(source),
+        }
+    }
+
+    /// The path of an open document whose schema already includes `uri`.
+    fn importing_root(&self, uri: &Url) -> Option<PathBuf> {
+        self.docs.iter().find_map(|entry| {
+            if entry.key() == uri {
+                return None;
+            }
+            let workspace = entry.value().workspace.as_ref()?;
+            workspace.contains(uri).then_some(())?;
+            entry.key().to_file_path().ok()
+        })
+    }
+
+    /// The text of every open document, keyed by path, so that an imported file
+    /// being edited is assembled as the developer sees it rather than as it was
+    /// last saved.
+    fn open_buffers(&self) -> HashMap<PathBuf, String> {
+        self.docs
             .iter()
-            .map(|d| nautilus_diagnostic_to_lsp_with_index(&source, &state.line_index, d))
+            .filter_map(|entry| {
+                let path = entry.key().to_file_path().ok()?;
+                Some((canonical(&path), entry.value().source.clone()))
+            })
+            .collect()
+    }
+
+    /// Publish the diagnostics of `state`, one batch per file of its schema.
+    async fn publish(&self, uri: &Url, state: &DocumentState) {
+        let batches = match &state.workspace {
+            Some(workspace) => workspace.diagnostics(),
+            None => {
+                let diagnostics = state
+                    .analysis
+                    .diagnostics
+                    .iter()
+                    .map(|d| {
+                        nautilus_diagnostic_to_lsp_with_index(&state.source, &state.line_index, d)
+                    })
+                    .collect();
+                vec![(uri.clone(), diagnostics)]
+            }
+        };
+
+        let covered: Vec<Url> = batches.iter().map(|(uri, _)| uri.clone()).collect();
+        for (target, diagnostics) in batches {
+            self.client
+                .publish_diagnostics(target, diagnostics, None)
+                .await;
+        }
+
+        let previous = self.published.insert(uri.clone(), covered.clone());
+        for stale in previous.into_iter().flatten() {
+            if !covered.contains(&stale) && !self.is_covered(&stale, uri) {
+                self.client
+                    .publish_diagnostics(stale, Vec::new(), None)
+                    .await;
+            }
+        }
+    }
+
+    /// Whether a document other than `except` still reports diagnostics for
+    /// `uri`.
+    fn is_covered(&self, uri: &Url, except: &Url) -> bool {
+        self.published
+            .iter()
+            .any(|entry| entry.key() != except && entry.value().contains(uri))
+    }
+
+    /// Re-analyze every open document that shares a schema with `uri`.
+    ///
+    /// Editing a file changes the meaning of the files that import it, and of
+    /// the files it imports — those documents are now looking at a different
+    /// schema, and their squiggles have to move with it.
+    async fn refresh_related(&self, uri: &Url) {
+        let covered: Vec<Url> = self
+            .docs
+            .get(uri)
+            .and_then(|state| {
+                state
+                    .workspace
+                    .as_ref()
+                    .map(|workspace| workspace.uris().cloned().collect())
+            })
+            .unwrap_or_default();
+
+        let affected: Vec<(Url, String)> = self
+            .docs
+            .iter()
+            .filter(|entry| entry.key() != uri)
+            .filter(|entry| {
+                covered.contains(entry.key())
+                    || entry
+                        .value()
+                        .workspace
+                        .as_ref()
+                        .is_some_and(|workspace| workspace.contains(uri))
+            })
+            .map(|entry| (entry.key().clone(), entry.value().source.clone()))
             .collect();
-        self.docs.insert(uri.clone(), state);
-        self.client.publish_diagnostics(uri, lsp_diags, None).await;
+
+        for (uri, source) in affected {
+            self.reanalyze_only(uri, source).await;
+        }
+    }
+
+    /// Re-analyze every open document, used when a file changed on disk outside
+    /// the editor.
+    async fn refresh_all(&self) {
+        let open: Vec<(Url, String)> = self
+            .docs
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().source.clone()))
+            .collect();
+
+        for (uri, source) in open {
+            self.reanalyze_only(uri, source).await;
+        }
     }
 
     fn server_capabilities() -> ServerCapabilities {
@@ -104,6 +264,21 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _params: InitializedParams) {
+        // Imported files are often not open in the editor, so the only notice
+        // of them changing comes from the client watching the filesystem.
+        let watcher = Registration {
+            id: "nautilus-watch-schemas".to_string(),
+            method: "workspace/didChangeWatchedFiles".to_string(),
+            register_options: serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
+                watchers: vec![FileSystemWatcher {
+                    glob_pattern: GlobPattern::String("**/*.nautilus".to_string()),
+                    kind: None,
+                }],
+            })
+            .ok(),
+        };
+        let _ = self.client.register_capability(vec![watcher]).await;
+
         self.client
             .log_message(MessageType::INFO, "nautilus-lsp initialized")
             .await;
@@ -143,7 +318,29 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.docs.remove(&uri);
-        self.client.publish_diagnostics(uri, Vec::new(), None).await;
+        let covered = self
+            .published
+            .remove(&uri)
+            .map(|(_, covered)| covered)
+            .unwrap_or_default();
+        self.client
+            .publish_diagnostics(uri.clone(), Vec::new(), None)
+            .await;
+
+        for stale in covered {
+            if stale != uri && !self.is_covered(&stale, &uri) {
+                self.client
+                    .publish_diagnostics(stale, Vec::new(), None)
+                    .await;
+            }
+        }
+    }
+
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        if params.changes.is_empty() {
+            return;
+        }
+        self.refresh_all().await;
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
@@ -215,13 +412,19 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let range = span_to_range_with_index(&state.source, &state.line_index, &span);
-        let location = Location {
-            uri: uri.clone(),
-            range,
+        // With a workspace the span is an offset into the assembled schema, so
+        // the definition may well live in an imported file.
+        let location = match &state.workspace {
+            Some(workspace) => workspace
+                .locate(span)
+                .map(|(uri, range)| Location { uri, range }),
+            None => Some(Location {
+                uri: uri.clone(),
+                range: span_to_range_with_index(&state.source, &state.line_index, &span),
+            }),
         };
 
-        Ok(Some(GotoDefinitionResponse::Scalar(location)))
+        Ok(location.map(GotoDefinitionResponse::Scalar))
     }
 
     async fn semantic_tokens_full(
@@ -279,9 +482,9 @@ mod tests {
     use dashmap::DashMap;
     use tower_lsp::lsp_types::{
         CompletionParams, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
-        DidSaveTextDocumentParams, Position, Range, TextDocumentContentChangeEvent,
-        TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams,
-        VersionedTextDocumentIdentifier,
+        DidSaveTextDocumentParams, GotoDefinitionParams, Position, Range,
+        TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+        TextDocumentPositionParams, VersionedTextDocumentIdentifier,
     };
     use tower_lsp::{LanguageServer, LspService};
 
@@ -305,11 +508,235 @@ mod tests {
         );
     }
 
+    fn schema_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "nautilus-lsp-backend-{}-{}",
+            name,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    fn file_uri(path: &std::path::Path) -> tower_lsp::lsp_types::Url {
+        tower_lsp::lsp_types::Url::from_file_path(
+            std::fs::canonicalize(path).expect("canonical path"),
+        )
+        .expect("file uri")
+    }
+
+    #[tokio::test]
+    async fn an_imported_file_answers_completion_and_definition_across_files() {
+        let dir = schema_dir("imports");
+        let enums = dir.join("enums.nautilus");
+        std::fs::write(&enums, "enum Role {\n  USER\n}\n").expect("write enums");
+        let user = dir.join("user.nautilus");
+        let user_source =
+            "import \"./enums.nautilus\"\n\nmodel User {\n  id   Int  @id\n  role Role\n}\n";
+        std::fs::write(&user, user_source).expect("write user");
+
+        let (service, _socket) = LspService::new(|client| Backend {
+            client,
+            docs: DashMap::new(),
+            published: DashMap::new(),
+        });
+        let backend = service.inner();
+        let uri = file_uri(&user);
+
+        backend
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "nautilus".to_string(),
+                    version: 1,
+                    text: user_source.to_string(),
+                },
+            })
+            .await;
+
+        let state = backend.docs.get(&uri).expect("cached document");
+        let workspace = state.workspace.as_ref().expect("assembled workspace");
+        assert!(
+            workspace.diagnostics().iter().all(|(_, d)| d.is_empty()),
+            "a resolved cross-file reference is not an error: {:?}",
+            workspace.diagnostics()
+        );
+        drop(state);
+
+        let role_line = user_source
+            .lines()
+            .position(|line| line.contains("role Role"))
+            .expect("role field") as u32;
+        let definition = backend
+            .goto_definition(GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(role_line, 8),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+            .await
+            .expect("definition result")
+            .expect("definition payload");
+        let tower_lsp::lsp_types::GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected a single definition location");
+        };
+        assert_eq!(
+            location.uri,
+            file_uri(&enums),
+            "the definition of Role lives in the imported file"
+        );
+        assert_eq!(location.range.start.line, 0);
+
+        let completion = backend
+            .completion(CompletionParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: uri.clone() },
+                    position: Position::new(role_line, 7),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+                context: None,
+            })
+            .await
+            .expect("completion result")
+            .expect("completion payload");
+        let tower_lsp::lsp_types::CompletionResponse::Array(items) = completion else {
+            panic!("expected completion array");
+        };
+        assert!(
+            items.iter().any(|item| item.label == "Role"),
+            "an imported enum is offered as a field type"
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_an_imported_buffer_refreshes_the_file_that_imports_it() {
+        let dir = schema_dir("refresh");
+        let enums = dir.join("enums.nautilus");
+        std::fs::write(&enums, "enum Role {\n  USER\n}\n").expect("write enums");
+        let user = dir.join("user.nautilus");
+        let user_source = "import \"./enums.nautilus\"\n\nmodel User {\n  id     Int    @id\n  status Status\n}\n";
+        std::fs::write(&user, user_source).expect("write user");
+
+        let (service, _socket) = LspService::new(|client| Backend {
+            client,
+            docs: DashMap::new(),
+            published: DashMap::new(),
+        });
+        let backend = service.inner();
+        let user_uri = file_uri(&user);
+        let enums_uri = file_uri(&enums);
+
+        backend
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: user_uri.clone(),
+                    language_id: "nautilus".to_string(),
+                    version: 1,
+                    text: user_source.to_string(),
+                },
+            })
+            .await;
+
+        let unknown_status = |backend: &Backend| {
+            let state = backend.docs.get(&user_uri).expect("cached document");
+            let workspace = state.workspace.as_ref().expect("assembled workspace");
+            workspace
+                .diagnostics()
+                .into_iter()
+                .any(|(_, diags)| diags.iter().any(|d| d.message.contains("Status")))
+        };
+        assert!(
+            unknown_status(backend),
+            "Status is not declared anywhere yet"
+        );
+
+        backend
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: enums_uri.clone(),
+                    language_id: "nautilus".to_string(),
+                    version: 1,
+                    text: "enum Role {\n  USER\n}\n\nenum Status {\n  ACTIVE\n}\n".to_string(),
+                },
+            })
+            .await;
+
+        assert!(
+            !unknown_status(backend),
+            "the unsaved buffer of the imported file resolves the reference"
+        );
+    }
+
+    #[tokio::test]
+    async fn opening_an_imported_file_analyses_it_inside_the_schema_that_imports_it() {
+        let dir = schema_dir("imported-open");
+        let post = dir.join("post.nautilus");
+        let post_source = "model Post {\n  id       Int  @id\n  authorId Int\n  author   User @relation(fields: [authorId], references: [id])\n}\n";
+        std::fs::write(&post, post_source).expect("write post");
+        let user = dir.join("user.nautilus");
+        let user_source =
+            "import \"./post.nautilus\"\n\nmodel User {\n  id    Int    @id\n  posts Post[]\n}\n";
+        std::fs::write(&user, user_source).expect("write user");
+
+        let (service, _socket) = LspService::new(|client| Backend {
+            client,
+            docs: DashMap::new(),
+            published: DashMap::new(),
+        });
+        let backend = service.inner();
+
+        let post_uri = file_uri(&post);
+        backend
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: post_uri.clone(),
+                    language_id: "nautilus".to_string(),
+                    version: 1,
+                    text: post_source.to_string(),
+                },
+            })
+            .await;
+
+        let has_unknown_user = |backend: &Backend| {
+            let state = backend.docs.get(&post_uri).expect("cached document");
+            let workspace = state.workspace.as_ref().expect("workspace");
+            workspace
+                .diagnostics()
+                .into_iter()
+                .any(|(_, diags)| diags.iter().any(|d| d.message.contains("User")))
+        };
+        assert!(
+            has_unknown_user(backend),
+            "on its own, post.nautilus cannot see User"
+        );
+
+        backend
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: file_uri(&user),
+                    language_id: "nautilus".to_string(),
+                    version: 1,
+                    text: user_source.to_string(),
+                },
+            })
+            .await;
+
+        assert!(
+            !has_unknown_user(backend),
+            "once the importing file is open, post.nautilus is read as part of that schema"
+        );
+    }
+
     #[tokio::test]
     async fn untitled_documents_are_cached_and_serve_requests() {
         let (service, _socket) = LspService::new(|client| Backend {
             client,
             docs: DashMap::new(),
+            published: DashMap::new(),
         });
         let backend = service.inner();
         let uri = tower_lsp::lsp_types::Url::parse("untitled:Untitled-1").expect("valid uri");

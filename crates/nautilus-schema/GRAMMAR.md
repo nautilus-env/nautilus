@@ -20,7 +20,8 @@ This document defines the complete grammar for the schema language used in Nauti
 ```ebnf
 Schema ::= Declaration* EOF
 
-Declaration ::= DatasourceDecl
+Declaration ::= ImportDecl
+              | DatasourceDecl
               | GeneratorDecl  
               | ModelDecl
               | TypeDecl
@@ -56,7 +57,49 @@ whole — one `datasource`, one `generator`, no duplicate declaration names.
 Diagnostics report the file, line and column the developer wrote. `nautilus
 format` given a directory formats each file separately rather than merging them.
 
-Pointing `--schema` at a single file loads only that file, exactly as before.
+Pointing `--schema` at a single file loads that file and everything it imports.
+
+### Imports
+
+```ebnf
+ImportDecl ::= 'import' String Newline*
+```
+
+An `import` joins another schema file to this one. The path is relative to the
+directory of the file that declares it and names either a `.nautilus` file or a
+directory of them:
+
+```prisma
+import "./enums.nautilus"
+import "../shared"
+
+model User {
+  id    Int    @id @default(autoincrement())
+  role  Role
+  posts Post[]
+}
+```
+
+Imports are followed transitively, a file reached twice is joined once, and
+cycles are allowed (`a` importing `b` importing `a` loads both files once).
+Importing is not scoping: the assembled set is one flat schema, so `import` says
+*which files belong together*, not which names a file may use.
+
+An import naming a file that does not exist is an error reported on the `import`
+line; the files that were reached are still validated, so one broken path does
+not hide the rest of the schema.
+
+This is also how an editor knows a file is part of a larger schema. The language
+server assembles the open file with everything it imports before analysing it,
+so a reference across files resolves and a diagnostic lands on the file that
+holds it. A file that imports nothing is analysed on its own — sibling files in
+the same directory are *not* joined implicitly, which is what keeps a directory
+of alternative schemas (one per provider, say) from being merged into a pile of
+duplicate declarations.
+
+Every declaration except `import` may appear in any file of the set; the
+whole-schema rules (one `datasource`, one `generator`, no duplicate names) apply
+to the assembled set.
 
 ## Declarations
 

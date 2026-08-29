@@ -66,6 +66,13 @@
     "block-keywords": {
       "patterns": [
         {
+          "comment": "Import statement: 'import \"./enums.nautilus\"'",
+          "match": "^\\s*(import)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.import.nautilus" }
+          }
+        },
+        {
           "comment": "Block keyword followed by name: 'model User', 'enum Role', 'type Address', etc.",
           "match": "\\b(datasource|generator|model|enum|type)\\b(\\s+([A-Za-z_][A-Za-z0-9_]*))?",
           "captures": {

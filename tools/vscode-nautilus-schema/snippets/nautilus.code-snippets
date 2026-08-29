@@ -1,4 +1,12 @@
 {
+  "Import statement": {
+    "prefix": "import",
+    "scope": "nautilus",
+    "body": [
+      "import \"${1:./enums.nautilus}\""
+    ],
+    "description": "Join another schema file, or a directory of them, to this one"
+  },
   "Datasource block": {
     "prefix": "datasource",
     "scope": "nautilus",

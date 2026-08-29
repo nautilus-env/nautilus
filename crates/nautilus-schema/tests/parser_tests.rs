@@ -539,3 +539,50 @@ model Legacy {
     assert!(!model.find_field("id").unwrap().is_ignored());
     assert!(model.find_field("opaque").unwrap().is_ignored());
 }
+
+#[test]
+fn test_parse_imports() {
+    let source = r#"
+import "./enums.nautilus"
+import "../shared"
+
+model User {
+  id Int @id
+}
+"#;
+    let schema = parse(source).unwrap();
+
+    let paths: Vec<&str> = schema.imports().map(|i| i.path.as_str()).collect();
+    assert_eq!(paths, vec!["./enums.nautilus", "../shared"]);
+    assert_eq!(schema.models().count(), 1);
+}
+
+#[test]
+fn test_import_is_only_a_keyword_at_the_top_level() {
+    let source = r#"
+model Job {
+  id     Int    @id
+  import String
+}
+"#;
+    let schema = parse(source).unwrap();
+    let model = schema.models().next().unwrap();
+
+    assert_eq!(model.fields[1].name.value, "import");
+}
+
+#[test]
+fn test_parse_recovers_from_a_bad_declaration_before_an_import() {
+    let source = r#"
+nonsense
+import "./enums.nautilus"
+
+model User {
+  id Int @id
+}
+"#;
+    let parsed = nautilus_schema::parse_schema_source_with_recovery(source).unwrap();
+
+    assert!(!parsed.recovered_errors.is_empty());
+    assert_eq!(parsed.ast.imports().count(), 1);
+}

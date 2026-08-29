@@ -81,6 +81,7 @@ impl<'a> Parser<'a> {
         self.skip_newlines();
 
         match self.peek_kind() {
+            Some(TokenKind::Import) => Ok(Declaration::Import(self.parse_import()?)),
             Some(TokenKind::Datasource) => Ok(Declaration::Datasource(self.parse_datasource()?)),
             Some(TokenKind::Generator) => Ok(Declaration::Generator(self.parse_generator()?)),
             Some(TokenKind::Model) => Ok(Declaration::Model(self.parse_model()?)),
@@ -95,6 +96,18 @@ impl<'a> Parser<'a> {
                 self.current_span(),
             )),
         }
+    }
+
+    /// Parses an `import` statement.
+    fn parse_import(&mut self) -> Result<ImportDecl> {
+        let start = self.expect(TokenKind::Import)?.span;
+        let path_span = self.current_span();
+        let path = self.parse_string()?;
+        Ok(ImportDecl {
+            path,
+            path_span,
+            span: start.merge(path_span),
+        })
     }
 
     /// Parses a datasource block.
@@ -875,6 +888,12 @@ impl<'a> Parser<'a> {
                 let span = self.advance().span;
                 Ok(Ident::new("type".to_string(), span))
             }
+            // `import` is only a keyword at the top level, so a field or
+            // argument may still be called `import`.
+            Some(TokenKind::Import) => {
+                let span = self.advance().span;
+                Ok(Ident::new("import".to_string(), span))
+            }
             Some(kind) => Err(SchemaError::Parse(
                 format!("Expected identifier, found {:?}", kind),
                 self.current_span(),
@@ -1013,7 +1032,8 @@ impl<'a> Parser<'a> {
     fn recover_to_next_declaration(&mut self) {
         while !self.is_at_end() {
             match self.peek_kind() {
-                Some(TokenKind::Datasource)
+                Some(TokenKind::Import)
+                | Some(TokenKind::Datasource)
                 | Some(TokenKind::Generator)
                 | Some(TokenKind::Model)
                 | Some(TokenKind::Enum)
