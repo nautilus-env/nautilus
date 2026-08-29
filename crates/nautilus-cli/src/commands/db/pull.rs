@@ -164,8 +164,8 @@ fn prepare_schema_env_for_pull(schema_arg: Option<&str>) -> anyhow::Result<Optio
 }
 
 fn resolve_url_from_schema_path(path: &Path, field_name: &str) -> Option<String> {
-    let source = std::fs::read_to_string(path).ok()?;
-    let ast = parse_schema_source_with_recovery(&source).ok()?.ast;
+    let set = nautilus_schema::SchemaSet::load_path(path).ok()?;
+    let ast = parse_schema_source_with_recovery(set.source()).ok()?.ast;
     ast.datasource()
         .and_then(|ds| ds.find_field(field_name))
         .and_then(|f| match &f.value {

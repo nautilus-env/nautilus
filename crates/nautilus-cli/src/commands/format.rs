@@ -1,21 +1,69 @@
 use anyhow::Context;
-use nautilus_schema::{format_schema, parse_schema_source_with_recovery, LineIndex};
+use nautilus_schema::{
+    discover_schema_paths, format_schema, parse_schema_source_with_recovery, LineIndex,
+};
+use std::path::{Path, PathBuf};
 
 use crate::commands::db::connection::resolve_schema_path;
 use crate::tui;
 
-/// Execute `nautilus format` — reformat a `.nautilus` schema file in-place.
+/// Execute `nautilus format` — reformat `.nautilus` schema files in-place.
 ///
-/// The file is parsed to AST (syntax only, no semantic validation) and
+/// Each file is parsed to AST (syntax only, no semantic validation) and
 /// re-emitted in the canonical Nautilus style: 2-space indentation, blank
 /// lines between blocks, and aligned field columns within each model.
+///
+/// A multi-file schema is formatted file by file rather than as one assembled
+/// source, so each file keeps its own contents.
 pub async fn run(schema_arg: Option<String>) -> anyhow::Result<()> {
     tui::print_header("format");
 
     let schema_path = resolve_schema_path(schema_arg)?;
+    let targets = format_targets(&schema_path)?;
 
+    let mut formatted_count = 0usize;
+    for target in &targets {
+        if format_file(target)? {
+            formatted_count += 1;
+        }
+    }
+
+    if formatted_count == 0 {
+        tui::print_summary_ok(
+            "Already formatted",
+            &format!("{} — no changes needed", schema_path.display()),
+        );
+    } else {
+        tui::print_summary_ok(
+            "Formatted",
+            &format!(
+                "{} file{}",
+                formatted_count,
+                if formatted_count == 1 { "" } else { "s" }
+            ),
+        );
+    }
+
+    Ok(())
+}
+
+fn format_targets(schema_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    if !schema_path.is_dir() {
+        return Ok(vec![schema_path.to_path_buf()]);
+    }
+
+    let paths = discover_schema_paths(schema_path)
+        .with_context(|| format!("Cannot list schema directory: {}", schema_path.display()))?;
+    if paths.is_empty() {
+        anyhow::bail!("No .nautilus file found in {}", schema_path.display());
+    }
+    Ok(paths)
+}
+
+/// Format one file in place, returning whether it changed.
+fn format_file(schema_path: &Path) -> anyhow::Result<bool> {
     let sp = tui::spinner(&format!("Parsing {}…", schema_path.display()));
-    let schema_source = std::fs::read_to_string(&schema_path)
+    let schema_source = std::fs::read_to_string(schema_path)
         .with_context(|| format!("Cannot read schema file: {}", schema_path.display()))?;
 
     let parsed = parse_schema_source_with_recovery(&schema_source)
@@ -53,19 +101,12 @@ pub async fn run(schema_arg: Option<String>) -> anyhow::Result<()> {
     );
 
     let formatted = format_schema(&parsed.ast, &schema_source);
-
     if formatted == schema_source {
-        tui::print_summary_ok(
-            "Already formatted",
-            &format!("{} — no changes needed", schema_path.display()),
-        );
-        return Ok(());
+        return Ok(false);
     }
 
-    std::fs::write(&schema_path, &formatted)
+    std::fs::write(schema_path, &formatted)
         .with_context(|| format!("Cannot write schema file: {}", schema_path.display()))?;
 
-    tui::print_summary_ok("Formatted", &format!("{}", schema_path.display()));
-
-    Ok(())
+    Ok(true)
 }

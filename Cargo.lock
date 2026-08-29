@@ -1804,6 +1804,7 @@ name = "nautilus-orm-schema"
 version = "1.3.5"
 dependencies = [
  "criterion",
+ "tempfile",
 ]
 
 [[package]]

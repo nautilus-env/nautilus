@@ -40,7 +40,7 @@ use crate::js::{
 use crate::python::{generate_python_composite_types, generate_python_enums, python_runtime_files};
 use crate::writer::{write_java_code, write_js_code, write_python_code, write_rust_code};
 use nautilus_schema::ir::{JavaGenerationMode, ResolvedFieldType, SchemaIr};
-use nautilus_schema::{parse_schema_source, validate_schema_source};
+use nautilus_schema::{parse_schema_source, SchemaSet};
 
 fn eprint_warning(message: &str) {
     eprintln!(
@@ -144,16 +144,16 @@ fn validate_ir_references(ir: &SchemaIr) -> Result<()> {
 /// `options.standalone` (Rust provider only): also write a `Cargo.toml` for the output crate.
 /// When `false` (default) the code is written without a Cargo.toml so it can be
 /// included directly in an existing Cargo workspace.
-pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Result<()> {
+pub fn generate_command(schema_path: &Path, options: GenerateOptions) -> Result<()> {
     let start = std::time::Instant::now();
 
-    let source = fs::read_to_string(schema_path)
-        .with_context(|| format!("Failed to read schema file: {}", schema_path.display()))?;
+    let schema = SchemaSet::load_path(schema_path)
+        .with_context(|| format!("Failed to read schema: {}", schema_path.display()))?;
 
-    let ir = load_generation_ir(schema_path, &source, options.verbose)?;
+    let ir = load_generation_ir(&schema, options.verbose)?;
     report_loaded_schema(schema_path, &ir);
 
-    let ctx = GenerationContext::new(&ir, schema_path, &source, &options);
+    let ctx = GenerationContext::new(&ir, schema_path, schema.source(), &options);
     let generated = match ctx.provider() {
         "nautilus-client-rs" => ctx.generate_rust()?,
         "nautilus-client-py" => ctx.generate_python()?,
@@ -188,13 +188,10 @@ pub fn generate_command(schema_path: &PathBuf, options: GenerateOptions) -> Resu
     Ok(())
 }
 
-fn load_generation_ir(schema_path: &Path, source: &str, verbose: bool) -> Result<SchemaIr> {
-    let validated = validate_schema_source(source).map_err(|e| {
-        anyhow::anyhow!(
-            "Validation failed:\n{}",
-            e.format_with_file(&schema_path.display().to_string(), source)
-        )
-    })?;
+fn load_generation_ir(schema: &SchemaSet, verbose: bool) -> Result<SchemaIr> {
+    let validated = schema
+        .validate()
+        .map_err(|e| anyhow::anyhow!("Validation failed:\n{}", schema.format_error(&e)))?;
     let nautilus_schema::ValidatedSchema { ast, ir } = validated;
 
     if verbose {
@@ -514,18 +511,14 @@ impl<'a> GenerationContext<'a> {
 }
 
 /// Parse and validate the schema, printing a summary. Does not generate code.
-pub fn validate_command(schema_path: &PathBuf) -> Result<()> {
-    let source = fs::read_to_string(schema_path)
-        .with_context(|| format!("Failed to read schema file: {}", schema_path.display()))?;
+pub fn validate_command(schema_path: &Path) -> Result<()> {
+    let schema = SchemaSet::load_path(schema_path)
+        .with_context(|| format!("Failed to read schema: {}", schema_path.display()))?;
 
-    let ir = validate_schema_source(&source)
+    let ir = schema
+        .validate()
         .map(|validated| validated.ir)
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "Validation failed:\n{}",
-                e.format_with_file(&schema_path.display().to_string(), &source)
-            )
-        })?;
+        .map_err(|e| anyhow::anyhow!("Validation failed:\n{}", schema.format_error(&e)))?;
 
     println!("models: {}, enums: {}", ir.models.len(), ir.enums.len());
     for (name, model) in &ir.models {

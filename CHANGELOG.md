@@ -128,6 +128,14 @@ unaffected.
   `StopPropagation` carrying no result defaults to a count of `0`. `aggregate`
   and `explain` stay deliberately event-free, consistent with `count`, `groupBy`
   and `findMany`.
+- Added multi-file schemas: pointing `--schema` at a **directory** assembles
+  every `.nautilus` file in it, in lexicographic order, into one schema.
+  Declaration order across files does not matter — a model in `post.nautilus`
+  may reference an enum in `enums.nautilus` — and diagnostics still name the
+  file, line and column the developer wrote rather than an offset into the
+  assembled source. `nautilus format` on a directory formats each file
+  separately. Pointing `--schema` at a single file, and omitting it altogether,
+  behave exactly as before.
 - Added `@ignore` and `@@ignore`, which declare that a column or a table exists
   in the database but that Nautilus does not manage it. An ignored declaration
   is left out of the generated client and out of every migration: it is never

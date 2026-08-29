@@ -4,7 +4,7 @@ use anyhow::{bail, Context};
 use nautilus_migrate::{
     order_changes_for_apply, Change, ChangeRisk, DatabaseProvider, DiffApplier, LiveSchema,
 };
-use nautilus_schema::{discover_schema_paths_in_current_dir, ir::SchemaIr, validate_schema_source};
+use nautilus_schema::{discover_schema_paths_in_current_dir, ir::SchemaIr, SchemaSet};
 use std::path::{Path, PathBuf};
 
 use crate::tui;
@@ -44,16 +44,17 @@ pub(crate) fn maybe_resolve_schema_path(
     Ok(schema_path)
 }
 
-/// Lex, parse, and validate a schema file, returning the [`SchemaIr`].
+/// Lex, parse, and validate a schema, returning the [`SchemaIr`].
+///
+/// `path` may name a single `.nautilus` file or a directory holding several, in
+/// which case they are assembled into one schema.
 pub fn parse_and_validate_schema(path: &std::path::Path) -> anyhow::Result<SchemaIr> {
-    let source = std::fs::read_to_string(path)
-        .with_context(|| format!("Cannot read schema file: {}", path.display()))?;
+    let set = SchemaSet::load_path(path)
+        .with_context(|| format!("Cannot read schema: {}", path.display()))?;
 
-    let path_str = path.to_string_lossy();
-
-    validate_schema_source(&source)
+    set.validate()
         .map(|validated| validated.ir)
-        .map_err(|e| anyhow::anyhow!("{}", e.format_with_file(&path_str, &source)))
+        .map_err(|e| anyhow::anyhow!("{}", set.format_error(&e)))
 }
 
 /// Resolve an admin/database-tooling URL from (in order): explicit flag,

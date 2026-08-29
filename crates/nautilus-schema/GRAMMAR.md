@@ -29,6 +29,35 @@ Declaration ::= DatasourceDecl
 Newline ::= '\n' | '\r\n'
 ```
 
+### Multiple Files
+
+A schema may be split across several `.nautilus` files in one directory. Point
+`--schema` at the directory instead of at a file and every `.nautilus` file
+directly inside it is assembled, in lexicographic filename order, into a single
+schema:
+
+```
+schema/
+  00-datasource.nautilus   datasource + generator
+  enums.nautilus           enum Role { ... }
+  user.nautilus            model User { role Role ... posts Post[] }
+  post.nautilus            model Post { author User @relation(...) }
+```
+
+```bash
+nautilus generate --schema ./schema
+```
+
+Order affects nothing but the assembled text: every reference is resolved by
+name across the whole set, so a model may reference an enum or another model
+declared in any file. The usual whole-schema rules still apply to the set as a
+whole — one `datasource`, one `generator`, no duplicate declaration names.
+
+Diagnostics report the file, line and column the developer wrote. `nautilus
+format` given a directory formats each file separately rather than merging them.
+
+Pointing `--schema` at a single file loads only that file, exactly as before.
+
 ## Declarations
 
 ### Datasource

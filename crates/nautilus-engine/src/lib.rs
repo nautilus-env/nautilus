@@ -17,7 +17,7 @@ pub mod state;
 pub mod transport;
 
 use nautilus_migrate::{DatabaseProvider, DdlGenerator};
-use nautilus_schema::{ir::SchemaIr, validate_schema_source};
+use nautilus_schema::ir::SchemaIr;
 
 pub use args::CliArgs;
 pub use pool_options::EnginePoolOptions;
@@ -73,8 +73,8 @@ pub async fn run_engine(
 ) -> Result<(), Box<dyn std::error::Error>> {
     observability::init();
 
-    let schema_source = std::fs::read_to_string(&schema_path)?;
-    let validated_ir = validate_schema_source(&schema_source)?.ir;
+    let schema = nautilus_schema::SchemaSet::load_path(std::path::Path::new(&schema_path))?;
+    let validated_ir = schema.validate().map_err(|e| schema.format_error(&e))?.ir;
     // Migrations read the full schema so `@@ignore`d tables are left alone
     // rather than dropped; the runtime never sees them at all.
     let schema_ir = validated_ir.without_ignored();

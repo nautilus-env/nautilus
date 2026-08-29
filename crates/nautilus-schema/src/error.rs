@@ -108,6 +108,29 @@ impl SchemaError {
         }
     }
 
+    /// A copy of this error with its span moved back by `offset` bytes.
+    ///
+    /// Used when a schema was assembled from several files: the parser reports
+    /// offsets into the concatenated source, and reporting the error against
+    /// the file it came from means rebasing the span onto that file.
+    pub fn shifted_back(&self, offset: usize) -> SchemaError {
+        let shift = |span: &Span| Span::new(span.start - offset, span.end - offset);
+        match self {
+            SchemaError::Lexer(msg, span) => SchemaError::Lexer(msg.clone(), shift(span)),
+            SchemaError::Parse(msg, span) => SchemaError::Parse(msg.clone(), shift(span)),
+            SchemaError::Validation(msg, span) => SchemaError::Validation(msg.clone(), shift(span)),
+            SchemaError::Warning(msg, span) => SchemaError::Warning(msg.clone(), shift(span)),
+            SchemaError::UnterminatedString(span) => SchemaError::UnterminatedString(shift(span)),
+            SchemaError::InvalidNumber(num, span) => {
+                SchemaError::InvalidNumber(num.clone(), shift(span))
+            }
+            SchemaError::UnexpectedCharacter(ch, span) => {
+                SchemaError::UnexpectedCharacter(*ch, shift(span))
+            }
+            SchemaError::Other(msg) => SchemaError::Other(msg.clone()),
+        }
+    }
+
     /// Get the span associated with this error, if any.
     pub fn span(&self) -> Option<Span> {
         match self {
