@@ -35,3 +35,10 @@ jobs:
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # rsa is required by SQLx 0.8's MySQL driver and has no patched
+          # release. SQLx 0.9 makes it optional, but requires Rust 1.94 and is
+          # therefore above this workspace's 1.92 MSRV.
+          # rkyv 0.7 is an inactive optional dependency of rust_decimal. The
+          # unsupported 0.7 series has no patch; the separately locked 0.8
+          # series is kept on a fixed release.
+          ignore: RUSTSEC-2023-0071,RUSTSEC-2026-0235

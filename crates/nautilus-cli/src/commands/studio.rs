@@ -230,12 +230,7 @@ fn expected_release_asset_name_for_platform(tag_name: &str, platform: &str) -> S
 }
 
 fn release_asset_platform() -> &'static str {
-    match std::env::consts::OS {
-        "windows" => "windows",
-        "macos" => "macos",
-        "linux" => "linux",
-        other => other,
-    }
+    std::env::consts::OS
 }
 
 fn read_installed_version(app_root: &Path) -> Option<String> {

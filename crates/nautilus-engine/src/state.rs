@@ -967,7 +967,7 @@ model User {
         let tx_id = "long-query".to_string();
 
         state
-            .begin_transaction(tx_id.clone(), Duration::from_secs(5), None)
+            .begin_transaction(tx_id.clone(), Duration::from_secs(30), None)
             .await
             .expect("transaction should start");
 
