@@ -507,6 +507,12 @@ fn render_index_lines(
             if idx.name != default_index_name(table_name, &idx.columns) {
                 args.push(format!("map: \"{}\"", idx.name));
             }
+            if let Some(predicate) = &idx.predicate {
+                args.push(format!(
+                    "where: {}",
+                    remap_bool_expr_identifiers(predicate, &naming.db_to_logical_field)
+                ));
+            }
 
             if args.is_empty() {
                 format!("  @@index([{}])", columns)

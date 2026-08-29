@@ -1682,3 +1682,103 @@ model Doc {
         _ => panic!("Expected validation error"),
     }
 }
+
+#[test]
+fn test_partial_index_rejected_on_mysql() {
+    let source = r#"
+datasource db {
+  provider = "mysql"
+  url      = "mysql://localhost/test"
+}
+
+model Task {
+  id      Int     @id
+  done    Boolean
+  ownerId Int
+
+  @@index([ownerId], where: done = false)
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(
+                msg.contains("Partial indexes") && msg.contains("mysql"),
+                "unexpected message: {}",
+                msg
+            );
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn test_partial_index_predicate_rejects_unknown_field() {
+    let source = r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://localhost/test"
+}
+
+model Task {
+  id      Int @id
+  ownerId Int
+
+  @@index([ownerId], where: archived = true)
+}
+"#;
+    let ast = parse(source).unwrap();
+    let err = validate_schema(ast).unwrap_err();
+    match err {
+        SchemaError::Validation(msg, _) => {
+            assert!(msg.contains("archived"), "unexpected message: {}", msg);
+        }
+        _ => panic!("Expected validation error"),
+    }
+}
+
+#[test]
+fn test_partial_index_accepted_on_postgres_and_sqlite() {
+    for provider in ["postgresql", "sqlite"] {
+        let source = format!(
+            r#"
+datasource db {{
+  provider = "{}"
+  url      = "file:./dev.db"
+}}
+
+model Task {{
+  id      Int     @id
+  done    Boolean
+  ownerId Int
+
+  @@index([ownerId], where: done = false)
+}}
+"#,
+            provider
+        );
+        let ast = parse(&source).unwrap();
+        validate_schema(ast)
+            .unwrap_or_else(|e| panic!("{} rejected partial index: {:?}", provider, e));
+    }
+}
+
+#[test]
+fn test_sql_style_boolean_literals_round_trip_through_validation() {
+    let source = r#"
+model Flag {
+  id Int     @id
+  ok Boolean
+
+  @@check(ok = TRUE)
+  @@index([ok], where: ok = FALSE)
+}
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).unwrap();
+    let model = ir.models.get("Flag").unwrap();
+
+    assert_eq!(model.check_constraints, vec!["ok = TRUE".to_string()]);
+    assert_eq!(model.indexes[0].predicate.as_deref(), Some("ok = FALSE"));
+}

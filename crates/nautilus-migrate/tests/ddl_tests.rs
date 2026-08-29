@@ -830,3 +830,54 @@ model Flagged {
         );
     }
 }
+
+#[test]
+fn test_partial_index_emits_where_clause_on_postgres_and_sqlite() {
+    let source = r#"
+model Task {
+  id      Int     @id
+  done    Boolean
+  ownerId Int     @map("owner_id")
+
+  @@index([ownerId], where: done = false)
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    for provider in [DatabaseProvider::Postgres, DatabaseProvider::Sqlite] {
+        let generator = DdlGenerator::new(provider);
+        let statements = generator.generate_create_tables(&ir).unwrap();
+        let create_index = statements
+            .iter()
+            .find(|s| s.contains("CREATE INDEX"))
+            .unwrap_or_else(|| panic!("no CREATE INDEX for {:?}: {:?}", provider, statements));
+
+        assert!(
+            create_index.contains("WHERE done = FALSE"),
+            "{:?} produced: {}",
+            provider,
+            create_index
+        );
+    }
+}
+
+#[test]
+fn test_index_without_predicate_has_no_where_clause() {
+    let source = r#"
+model Task {
+  id      Int @id
+  ownerId Int
+
+  @@index([ownerId])
+}
+"#;
+    let ir = common::parse(source).unwrap();
+    let generator = DdlGenerator::new(DatabaseProvider::Postgres);
+    let statements = generator.generate_create_tables(&ir).unwrap();
+    let create_index = statements
+        .iter()
+        .find(|s| s.contains("CREATE INDEX"))
+        .unwrap();
+
+    assert!(!create_index.contains("WHERE"), "got: {}", create_index);
+}

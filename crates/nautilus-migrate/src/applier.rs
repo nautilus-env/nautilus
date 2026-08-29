@@ -105,7 +105,15 @@ impl<'a> DiffApplier<'a> {
                 unique,
                 kind,
                 index_name,
-            } => self.sql_create_index(table, columns, *unique, kind, index_name.as_deref()),
+                predicate,
+            } => self.sql_create_index(
+                table,
+                columns,
+                *unique,
+                kind,
+                index_name.as_deref(),
+                predicate.as_deref(),
+            ),
             Change::IndexDropped {
                 table, index_name, ..
             } => self.sql_drop_index(table, index_name),
@@ -406,6 +414,7 @@ impl<'a> DiffApplier<'a> {
         unique: bool,
         kind: &nautilus_schema::ir::IndexKind,
         index_name: Option<&str>,
+        predicate: Option<&str>,
     ) -> Result<Vec<String>> {
         let idx_name = index_name
             .map(|s| s.to_string())
@@ -417,6 +426,7 @@ impl<'a> DiffApplier<'a> {
             unique,
             kind,
             if_not_exists: true,
+            predicate,
         })])
     }
 

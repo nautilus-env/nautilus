@@ -555,7 +555,7 @@ pub enum ModelAttribute {
     Id(Vec<Ident>),
     /// @@unique([field1, field2]) composite unique constraint.
     Unique(Vec<Ident>),
-    /// @@index([field1, field2], type: Hash, opclass: vector_l2_ops, m: 16, ef_construction: 64, name: "idx_name", map: "db_idx") index.
+    /// @@index([field1, field2], type: Hash, opclass: vector_l2_ops, m: 16, ef_construction: 64, name: "idx_name", map: "db_idx", where: active = true) index.
     Index {
         /// Fields that form the index key.
         fields: Vec<Ident>,
@@ -573,6 +573,11 @@ pub enum ModelAttribute {
         name: Option<String>,
         /// Optional physical DB name (`map:` argument).
         map: Option<String>,
+        /// Optional partial-index predicate (`where:` argument). When set, the
+        /// index only covers the rows for which the predicate holds.
+        predicate: Option<crate::bool_expr::BoolExpr>,
+        /// Span of the entire `@@index(...)` attribute.
+        span: Span,
     },
     /// @@check(bool_expr) — table-level CHECK constraint.
     Check {

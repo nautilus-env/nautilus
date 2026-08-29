@@ -598,6 +598,7 @@ fn no_change_when_map_matches_live_name() {
         columns: vec!["id".to_string()],
         unique: false,
         kind: LiveIndexKind::Basic(nautilus_schema::ir::BasicIndexType::BTree),
+        predicate: None,
     }])]);
 
     let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
@@ -618,6 +619,7 @@ fn detects_index_method_change() {
         columns: vec!["id".to_string()],
         unique: false,
         kind: LiveIndexKind::Basic(nautilus_schema::ir::BasicIndexType::BTree),
+        predicate: None,
     }])]);
 
     let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
@@ -695,6 +697,7 @@ model Embedding {
                     lists: None,
                 },
             }),
+            predicate: None,
         }],
         check_constraints: vec![],
         foreign_keys: vec![],
@@ -720,6 +723,7 @@ fn no_false_positive_when_method_is_default_btree() {
         columns: vec!["id".to_string()],
         unique: false,
         kind: LiveIndexKind::Basic(nautilus_schema::ir::BasicIndexType::BTree),
+        predicate: None,
     }])]);
 
     let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
@@ -740,6 +744,7 @@ fn dropped_index_carries_live_physical_name() {
         columns: vec!["id".to_string()],
         unique: false,
         kind: LiveIndexKind::Unknown(None),
+        predicate: None,
     }])]);
 
     let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
@@ -786,6 +791,7 @@ fn unique_constraint_name_mismatch_does_not_trigger_index_churn() {
             columns: vec!["email".to_string()],
             unique: true,
             kind: LiveIndexKind::Basic(nautilus_schema::ir::BasicIndexType::BTree),
+            predicate: None,
         }],
         check_constraints: vec![],
         foreign_keys: vec![],
@@ -1943,5 +1949,113 @@ fn a_genuinely_different_boolean_default_is_still_detected() {
             Change::DefaultChanged { column, .. } if column == "active"
         )),
         "expected a real default flip to be reported: {changes:?}"
+    );
+}
+
+fn partial_task_table(indexes: Vec<LiveIndex>) -> LiveTable {
+    LiveTable {
+        name: "Task".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+            },
+            LiveColumn {
+                name: "done".to_string(),
+                col_type: "boolean".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes,
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }
+}
+
+const PARTIAL_INDEX_SCHEMA: &str =
+    r#"model Task { id Int @id  done Boolean  @@index([done], where: done = false) }"#;
+
+#[test]
+fn partial_index_is_added_when_missing_from_live() {
+    let target = common::parse(PARTIAL_INDEX_SCHEMA).unwrap();
+    let live = common::make_live_schema(vec![partial_task_table(vec![])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        changes.iter().any(|c| matches!(
+            c,
+            Change::IndexAdded { predicate: Some(p), .. } if p == "done = FALSE"
+        )),
+        "expected IndexAdded carrying the predicate, got: {:?}",
+        changes
+    );
+}
+
+#[test]
+fn partial_index_matching_live_predicate_is_not_rewritten() {
+    let target = common::parse(PARTIAL_INDEX_SCHEMA).unwrap();
+    let live = common::make_live_schema(vec![partial_task_table(vec![LiveIndex {
+        name: "idx_Task_done".to_string(),
+        columns: vec!["done".to_string()],
+        unique: false,
+        kind: LiveIndexKind::Basic(nautilus_schema::ir::BasicIndexType::BTree),
+        predicate: Some("done = false".to_string()),
+    }])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        !changes
+            .iter()
+            .any(|c| matches!(c, Change::IndexAdded { .. } | Change::IndexDropped { .. })),
+        "predicate differing only in keyword case must not churn, got: {:?}",
+        changes
+    );
+}
+
+#[test]
+fn widening_a_partial_index_to_a_full_index_is_a_drop_and_add() {
+    let target =
+        common::parse(r#"model Task { id Int @id  done Boolean  @@index([done]) }"#).unwrap();
+    let live = common::make_live_schema(vec![partial_task_table(vec![LiveIndex {
+        name: "idx_Task_done".to_string(),
+        columns: vec!["done".to_string()],
+        unique: false,
+        kind: LiveIndexKind::Basic(nautilus_schema::ir::BasicIndexType::BTree),
+        predicate: Some("done = FALSE".to_string()),
+    }])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        changes.iter().any(|c| matches!(
+            c,
+            Change::IndexAdded {
+                predicate: None,
+                ..
+            }
+        )),
+        "expected the full index to be added, got: {:?}",
+        changes
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|c| matches!(c, Change::IndexDropped { .. })),
+        "expected the partial index to be dropped, got: {:?}",
+        changes
     );
 }

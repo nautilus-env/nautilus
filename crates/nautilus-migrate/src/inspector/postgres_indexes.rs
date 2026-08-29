@@ -7,8 +7,8 @@ use nautilus_schema::ir::{
 };
 
 /// Intermediate row aggregator: `(index_name, is_unique, method, columns,
-/// opclass, with_options)`. One entry per logical index, accumulated as the
-/// `pg_indexes` rows are folded by index name.
+/// opclass, with_options, predicate)`. One entry per logical index, accumulated
+/// as the `pg_indexes` rows are folded by index name.
 type PgIndexAccum = (
     String,
     bool,
@@ -16,6 +16,7 @@ type PgIndexAccum = (
     Vec<String>,
     Option<String>,
     Vec<(String, String)>,
+    Option<String>,
 );
 
 /// Groups raw `pg_indexes` rows (one per index/column) into [`LiveIndex`]
@@ -33,10 +34,15 @@ pub(crate) fn group_pg_indexes(rows: Vec<sqlx::postgres::PgRow>) -> Vec<LiveInde
         let row_opclass: Option<String> = row.try_get("opclass").ok().flatten();
         let index_options: Option<Vec<String>> = row.try_get("index_options").ok().flatten();
         let with_options = normalize_pg_index_options(index_options.as_deref());
+        let predicate: Option<String> = row
+            .try_get::<Option<String>, _>("index_predicate")
+            .ok()
+            .flatten()
+            .map(|raw| super::normalize_pg_check_expr(&raw));
 
         if let Some(entry) = ordered
             .iter_mut()
-            .find(|(name, _, _, _, _, _)| name == &index_name)
+            .find(|(name, _, _, _, _, _, _)| name == &index_name)
         {
             entry.3.push(column_name);
             if entry.4.is_none() {
@@ -50,6 +56,7 @@ pub(crate) fn group_pg_indexes(rows: Vec<sqlx::postgres::PgRow>) -> Vec<LiveInde
                 vec![column_name],
                 row_opclass,
                 with_options,
+                predicate,
             ));
         }
     }
@@ -57,11 +64,12 @@ pub(crate) fn group_pg_indexes(rows: Vec<sqlx::postgres::PgRow>) -> Vec<LiveInde
     ordered
         .into_iter()
         .map(
-            |(name, unique, method, cols, opclass, with_options)| LiveIndex {
+            |(name, unique, method, cols, opclass, with_options, predicate)| LiveIndex {
                 name,
                 columns: cols,
                 unique,
                 kind: parse_live_index_kind(&method, opclass.as_deref(), &with_options),
+                predicate,
             },
         )
         .collect()

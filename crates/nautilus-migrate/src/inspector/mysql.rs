@@ -215,6 +215,7 @@ impl SchemaInspector {
                             columns,
                             unique,
                             kind,
+                            predicate: None,
                         }
                     })
                 })

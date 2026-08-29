@@ -601,3 +601,47 @@ model Post {
         _ => panic!("Expected relation type"),
     }
 }
+
+#[test]
+fn test_partial_index_predicate_uses_physical_column_names() {
+    let source = r#"
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://localhost/test"
+}
+
+model Task {
+  id      Int     @id
+  done    Boolean @map("is_done")
+  ownerId Int     @map("owner_id")
+
+  @@index([ownerId], where: done = false)
+}
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).unwrap();
+    let model = ir.models.get("Task").unwrap();
+
+    assert_eq!(model.indexes.len(), 1);
+    assert_eq!(
+        model.indexes[0].predicate.as_deref(),
+        Some("is_done = FALSE")
+    );
+}
+
+#[test]
+fn test_index_without_predicate_is_none() {
+    let source = r#"
+model Task {
+  id      Int @id
+  ownerId Int
+
+  @@index([ownerId])
+}
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).unwrap();
+    assert!(ir.models.get("Task").unwrap().indexes[0]
+        .predicate
+        .is_none());
+}

@@ -760,6 +760,13 @@ fn index_argument_completions(provider: Option<&str>) -> Vec<CompletionItem> {
         CompletionKind::FieldName,
         Some("Physical DDL index name (overrides auto-generated idx_… name)".to_string()),
     ));
+    if matches!(provider, Some("postgresql") | Some("sqlite") | None) {
+        items.push(CompletionItem::new(
+            "where: ",
+            CompletionKind::Keyword,
+            Some("Partial-index predicate — index only the matching rows".to_string()),
+        ));
+    }
 
     items
 }

@@ -654,6 +654,10 @@ fn create_index_sql_from_live(
     provider: DatabaseProvider,
 ) -> String {
     let kind = index.kind.to_index_kind();
+    let predicate = index
+        .predicate
+        .as_deref()
+        .map(crate::utils::schema_bool_expr_to_sql);
     ProviderStrategy::new(provider).create_index_sql(CreateIndex {
         table: table_name,
         name: &index.name,
@@ -661,6 +665,7 @@ fn create_index_sql_from_live(
         unique: index.unique,
         kind: &kind,
         if_not_exists: true,
+        predicate: predicate.as_deref(),
     })
 }
 
@@ -732,6 +737,7 @@ mod tests {
                     kind: crate::live::LiveIndexKind::Basic(
                         nautilus_schema::ir::BasicIndexType::Hash,
                     ),
+                    predicate: None,
                 },
             ),
             DatabaseProvider::Postgres,
@@ -765,6 +771,7 @@ mod tests {
                     kind: crate::live::LiveIndexKind::Basic(
                         nautilus_schema::ir::BasicIndexType::FullText,
                     ),
+                    predicate: None,
                 },
             ),
             DatabaseProvider::Mysql,

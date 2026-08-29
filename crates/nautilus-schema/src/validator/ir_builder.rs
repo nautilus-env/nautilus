@@ -645,6 +645,8 @@ impl SchemaValidator<'_> {
                 lists,
                 name,
                 map,
+                predicate,
+                ..
             } = attr
             {
                 let indexed_field_type = fields
@@ -674,6 +676,14 @@ impl SchemaValidator<'_> {
                     kind,
                     name: name.clone(),
                     map: map.clone(),
+                    predicate: predicate.as_ref().map(|expr| {
+                        expr.to_sql_mapped(&|name: &str| {
+                            model
+                                .find_field(name)
+                                .map(|f| f.column_name().to_string())
+                                .unwrap_or_else(|| name.to_string())
+                        })
+                    }),
                 });
             }
         }

@@ -527,6 +527,16 @@ impl<'a> Parser<'a> {
     /// Collects boolean expression tokens until a top-level closing paren,
     /// then parses them into a validated [`BoolExpr`] tree.
     fn parse_bool_expr(&mut self) -> Result<crate::bool_expr::BoolExpr> {
+        self.parse_bool_expr_until(false)
+    }
+
+    /// Same as [`Self::parse_bool_expr`], but also stops at a top-level comma.
+    ///
+    /// `@@index(...)` takes the predicate as one named argument among several,
+    /// so the expression ends at whichever comes first: the argument separator
+    /// or the closing paren. Bracket depth is tracked so that the commas inside
+    /// an `IN [A, B]` list do not terminate the expression.
+    fn parse_bool_expr_until(&mut self, stop_at_comma: bool) -> Result<crate::bool_expr::BoolExpr> {
         if self.pos >= self.tokens.len() {
             return Err(SchemaError::Parse(
                 "Unexpected end of file in @check expression".to_string(),
@@ -536,6 +546,7 @@ impl<'a> Parser<'a> {
         let fallback_span = self.current_span();
         let expr_start = self.pos;
         let mut depth: i32 = 0;
+        let mut bracket_depth: i32 = 0;
 
         loop {
             match self.peek_kind() {
@@ -547,6 +558,17 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::RParen) => {
                     depth -= 1;
                     self.advance();
+                }
+                Some(TokenKind::LBracket) => {
+                    bracket_depth += 1;
+                    self.advance();
+                }
+                Some(TokenKind::RBracket) => {
+                    bracket_depth -= 1;
+                    self.advance();
+                }
+                Some(TokenKind::Comma) if stop_at_comma && depth == 0 && bracket_depth == 0 => {
+                    break
                 }
                 None | Some(TokenKind::Eof) => {
                     return Err(SchemaError::Parse(
@@ -594,6 +616,7 @@ impl<'a> Parser<'a> {
                 Ok(ModelAttribute::Unique(fields))
             }
             "index" => {
+                let start = name.span;
                 self.expect(TokenKind::LParen)?;
                 let fields = self.parse_ident_array()?;
                 let mut index_type: Option<Ident> = None;
@@ -603,6 +626,7 @@ impl<'a> Parser<'a> {
                 let mut lists: Option<u32> = None;
                 let mut index_name: Option<String> = None;
                 let mut index_map: Option<String> = None;
+                let mut predicate: Option<crate::bool_expr::BoolExpr> = None;
                 while self.check(TokenKind::Comma) {
                     self.advance();
                     if self.check(TokenKind::RParen) {
@@ -632,6 +656,9 @@ impl<'a> Parser<'a> {
                         "map" => {
                             index_map = Some(self.parse_string()?);
                         }
+                        "where" => {
+                            predicate = Some(self.parse_bool_expr_until(true)?);
+                        }
                         _ => {
                             return Err(SchemaError::Parse(
                                 format!("Unknown @@index argument: '{}'", key.value),
@@ -640,7 +667,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                self.expect(TokenKind::RParen)?;
+                let end = self.expect(TokenKind::RParen)?.span;
                 Ok(ModelAttribute::Index {
                     fields,
                     index_type,
@@ -650,6 +677,8 @@ impl<'a> Parser<'a> {
                     lists,
                     name: index_name,
                     map: index_map,
+                    predicate,
+                    span: start.merge(end),
                 })
             }
             "check" => {

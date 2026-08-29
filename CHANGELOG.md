@@ -128,6 +128,16 @@ unaffected.
   `StopPropagation` carrying no result defaults to a count of `0`. `aggregate`
   and `explain` stay deliberately event-free, consistent with `count`, `groupBy`
   and `findMany`.
+- Added partial indexes: `@@index([...], where: <predicate>)` renders a
+  `CREATE INDEX ... WHERE <predicate>` so the index only covers the matching
+  rows. The predicate uses the same boolean expression language as `@check` /
+  `@@check` and is resolved against physical column names, so `@map`-ed fields
+  work. PostgreSQL and SQLite support it; MySQL has no equivalent syntax and the
+  validator rejects the attribute there rather than silently widening the index.
+  `db pull` reads the predicate back (`pg_index.indpred` on PostgreSQL, the
+  stored `CREATE INDEX` text on SQLite) and writes it out as `where:`, and the
+  diff compares predicates in normalised form so a database that re-renders its
+  own predicate does not produce an endless drop/recreate cycle.
 - Added `nautilus_core::ExtensionScalar`, the marker a generated client
   implements on its PostgreSQL extension wrappers (pgvector, PostGIS, citext,
   hstore, ltree) to opt them into array encoding and decoding. The orphan rule
@@ -136,6 +146,12 @@ unaffected.
 
 ### Fixed
 
+- Boolean literals spelled `TRUE` / `FALSE` are now accepted in `@check`,
+  `@@check` and `@@index(where:)` expressions. Both the formatter and `db pull`
+  render booleans in that SQL-style upper case, but only the lower-case
+  spellings were lexer keywords, so a formatted or pulled schema containing a
+  boolean comparison failed to re-validate with "references non-existent field
+  'TRUE'".
 - `_avg` and `_sum` results now decode in the generated Rust client on
   PostgreSQL. PostgreSQL computes `AVG` — and `SUM` over exact numerics — as
   `numeric`, which the engine puts on the wire as a JSON string so no precision

@@ -7,6 +7,7 @@
 //! produce the final [`IndexIr::kind`] and ignores the diagnostics.
 
 use crate::ast::{FieldType, Ident};
+use crate::bool_expr::BoolExpr;
 use crate::error::SchemaError;
 use crate::ir::DatabaseProvider;
 use crate::ir::{
@@ -255,4 +256,43 @@ fn build_pgvector_kind(
         opclass,
         options,
     })
+}
+
+/// Diagnostics for the `where:` argument of `@@index(...)`.
+///
+/// A partial index is rendered as `CREATE INDEX ... WHERE <predicate>`, which
+/// PostgreSQL (8.0+) and SQLite (3.8.0+) both support. MySQL has no equivalent
+/// syntax at all, so the attribute is rejected there rather than silently
+/// widened into a full index.
+pub(super) fn validate_index_predicate(
+    predicate: &BoolExpr,
+    span: Span,
+    provider: Option<DatabaseProvider>,
+    scalar_field_names: &[&str],
+    model_name: &str,
+) -> Vec<SchemaError> {
+    let mut diagnostics = Vec::new();
+
+    if provider == Some(DatabaseProvider::Mysql) {
+        diagnostics.push(SchemaError::Validation(
+            "Partial indexes (`@@index(..., where: ...)`) are not supported by provider 'mysql' \
+             (supported by: PostgreSQL and SQLite)"
+                .to_string(),
+            span,
+        ));
+    }
+
+    for reference in predicate.field_references() {
+        if !scalar_field_names.contains(&reference) {
+            diagnostics.push(SchemaError::Validation(
+                format!(
+                    "@@index `where:` references non-existent or relation field '{}' in model '{}'",
+                    reference, model_name
+                ),
+                span,
+            ));
+        }
+    }
+
+    diagnostics
 }

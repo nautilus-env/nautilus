@@ -417,12 +417,14 @@ fn serialises_indexes() {
                 columns: vec!["email".to_string()],
                 unique: true,
                 kind: LiveIndexKind::Unknown(None),
+                predicate: None,
             },
             LiveIndex {
                 name: "idx_users_name".to_string(),
                 columns: vec!["name".to_string()],
                 unique: false,
                 kind: LiveIndexKind::Unknown(None),
+                predicate: None,
             },
         ],
         check_constraints: vec![],
@@ -467,6 +469,7 @@ fn serialises_index_type_and_map() {
             columns: vec!["created_at".to_string()],
             unique: false,
             kind: LiveIndexKind::Basic(BasicIndexType::Brin),
+            predicate: None,
         }],
         check_constraints: vec![],
         foreign_keys: vec![],
@@ -517,6 +520,7 @@ fn serialises_pgvector_index_options() {
                     lists: None,
                 },
             }),
+            predicate: None,
         }],
         check_constraints: vec![],
         foreign_keys: vec![],
@@ -1120,6 +1124,7 @@ fn serialises_one_to_one_back_reference_as_optional_scalar() {
                 columns: vec!["user_id".to_string()],
                 unique: true,
                 kind: LiveIndexKind::Basic(BasicIndexType::BTree),
+                predicate: None,
             }],
             check_constraints: vec![],
             foreign_keys: vec![LiveForeignKey {
@@ -1263,6 +1268,7 @@ fn serialises_ambiguous_relations_with_explicit_names() {
                 columns: vec!["current_version_id".to_string()],
                 unique: true,
                 kind: LiveIndexKind::Basic(BasicIndexType::BTree),
+                predicate: None,
             }],
             check_constraints: vec![],
             foreign_keys: vec![LiveForeignKey {
@@ -1682,5 +1688,73 @@ fn pulls_a_mysql_auto_increment_key_back_as_autoincrement() {
     assert!(
         !schema.contains("@default(1)"),
         "a boolean column must not be pulled as a number default: {schema}"
+    );
+}
+
+#[test]
+fn serialises_partial_index_predicate_with_logical_field_names() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: "tasks".to_string(),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+            },
+            LiveColumn {
+                name: "is_done".to_string(),
+                col_type: "boolean".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![LiveIndex {
+            name: "idx_tasks_is_done".to_string(),
+            columns: vec!["is_done".to_string()],
+            unique: false,
+            kind: LiveIndexKind::Basic(BasicIndexType::BTree),
+            predicate: Some("is_done = false".to_string()),
+        }],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let schema = serialize_live_schema_with_options(
+        &live,
+        DatabaseProvider::Postgres,
+        "env(\"DATABASE_URL\")",
+        PullNamingOptions {
+            field_case: PullNameCase::Pascal,
+            ..PullNamingOptions::default()
+        },
+    );
+
+    assert!(
+        schema.contains("where: IsDone = FALSE"),
+        "expected the predicate on logical names, got:\n{}",
+        schema
+    );
+
+    let parsed = nautilus_schema::validate_schema_source(&schema)
+        .unwrap_or_else(|e| panic!("pulled schema does not re-parse: {:?}\n{}", e, schema));
+    let model = parsed
+        .ir
+        .models
+        .values()
+        .find(|m| m.db_name == "tasks")
+        .unwrap();
+    assert_eq!(
+        model.indexes[0].predicate.as_deref(),
+        Some("is_done = FALSE")
     );
 }

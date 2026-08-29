@@ -187,3 +187,44 @@ fn test_format_model_field_columns_aligned() {
         );
     }
 }
+
+#[test]
+fn test_format_partial_index_round_trips() {
+    let source = r#"model Task {
+  id      Int     @id
+  done    Boolean
+  ownerId Int
+
+  @@index([ownerId], where: done = FALSE)
+}
+"#;
+    let formatted = round_trip(source);
+    assert!(
+        formatted.contains("@@index([ownerId], where: done = FALSE)"),
+        "unexpected output:\n{}",
+        formatted
+    );
+}
+
+#[test]
+fn test_format_partial_index_with_map_round_trips() {
+    let source = r#"model Task {
+  id      Int    @id
+  status  String
+  ownerId Int
+
+  @@index([ownerId], map: "idx_open", where: status IN [OPEN, BLOCKED])
+}
+"#;
+    let formatted = round_trip(source);
+    assert!(
+        formatted.contains("map: \"idx_open\""),
+        "unexpected output:\n{}",
+        formatted
+    );
+    assert!(
+        formatted.contains("where: status IN [OPEN, BLOCKED]"),
+        "unexpected output:\n{}",
+        formatted
+    );
+}

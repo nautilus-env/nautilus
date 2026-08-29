@@ -76,3 +76,54 @@ mod tests {
         assert_eq!(strip_outer_parens(""), "");
     }
 }
+
+/// Re-render a boolean expression written in the Nautilus schema dialect as
+/// plain SQL.
+///
+/// The inspector stores index predicates and CHECK expressions in the schema
+/// dialect (`status IN ['A', 'B']`, `active = TRUE`) so they can be written
+/// straight back out by `db pull`. Down-migrations rebuild the same index from
+/// that snapshot and need real SQL again, which is what
+/// [`nautilus_schema::bool_expr::BoolExpr::to_sql`] produces. Expressions the
+/// parser does not understand are passed through unchanged.
+pub(crate) fn schema_bool_expr_to_sql(expr: &str) -> String {
+    let mut lexer = nautilus_schema::Lexer::new(expr);
+    let mut tokens = Vec::new();
+    loop {
+        match lexer.next_token() {
+            Ok(token) if matches!(token.kind, nautilus_schema::TokenKind::Eof) => break,
+            Ok(token) => tokens.push(token),
+            Err(_) => return expr.to_string(),
+        }
+    }
+
+    nautilus_schema::bool_expr::parse_bool_expr(&tokens, nautilus_schema::Span::new(0, expr.len()))
+        .map(|parsed| parsed.to_sql())
+        .unwrap_or_else(|_| expr.to_string())
+}
+
+#[cfg(test)]
+mod bool_expr_tests {
+    use super::schema_bool_expr_to_sql;
+
+    #[test]
+    fn bracket_in_list_becomes_sql_in_list() {
+        assert_eq!(
+            schema_bool_expr_to_sql("status IN [ACTIVE, PENDING]"),
+            "status IN ('ACTIVE', 'PENDING')"
+        );
+    }
+
+    #[test]
+    fn boolean_comparison_round_trips() {
+        assert_eq!(schema_bool_expr_to_sql("active = true"), "active = TRUE");
+    }
+
+    #[test]
+    fn unparseable_expression_is_passed_through() {
+        assert_eq!(
+            schema_bool_expr_to_sql("lower(name) LIKE 'a%'"),
+            "lower(name) LIKE 'a%'"
+        );
+    }
+}

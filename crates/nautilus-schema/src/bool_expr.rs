@@ -409,6 +409,15 @@ impl<'a> BoolExprParser<'a> {
                 self.advance();
                 if in_list {
                     Ok(Operand::EnumVariant(name))
+                } else if name.eq_ignore_ascii_case("true") {
+                    // `Display` renders booleans SQL-style as `TRUE`/`FALSE`, and both
+                    // the formatter and `db pull` write that form back out. Only the
+                    // lower-case spellings are lexer keywords, so the upper-case ones
+                    // arrive here as identifiers and have to be recognised for the
+                    // round-trip to close.
+                    Ok(Operand::Bool(true))
+                } else if name.eq_ignore_ascii_case("false") {
+                    Ok(Operand::Bool(false))
                 } else {
                     Ok(Operand::Field(name))
                 }

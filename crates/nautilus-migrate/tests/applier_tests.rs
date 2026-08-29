@@ -260,6 +260,7 @@ fn index_added_and_dropped() {
             unique: true,
             kind: nautilus_schema::ir::IndexKind::Default,
             index_name: None,
+            predicate: None,
         })
         .unwrap();
     assert_eq!(add_stmts.len(), 1);
@@ -402,6 +403,7 @@ fn index_added_with_custom_map_generates_correct_create() {
             unique: false,
             kind: nautilus_schema::ir::IndexKind::Default,
             index_name: Some("email_lookup".to_string()),
+            predicate: None,
         })
         .unwrap();
 
@@ -426,6 +428,7 @@ fn index_added_with_hash_type_postgres() {
             unique: false,
             kind: IndexKind::Basic(BasicIndexType::Hash),
             index_name: Some("email_hash_idx".to_string()),
+            predicate: None,
         })
         .unwrap();
 
@@ -460,6 +463,7 @@ fn index_added_with_pgvector_hnsw_options_postgres() {
                 },
             }),
             index_name: Some("embedding_hnsw_idx".to_string()),
+            predicate: None,
         })
         .unwrap();
 

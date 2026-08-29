@@ -499,6 +499,8 @@ fn format_model_attr(attr: &ModelAttribute) -> String {
             lists,
             name,
             map,
+            predicate,
+            ..
         } => {
             let names: Vec<_> = fields.iter().map(|i| i.value.clone()).collect();
             let mut s = format!("@@index([{}])", names.join(", "));
@@ -509,6 +511,7 @@ fn format_model_attr(attr: &ModelAttribute) -> String {
                 || lists.is_some()
                 || name.is_some()
                 || map.is_some()
+                || predicate.is_some()
             {
                 s.pop();
                 if let Some(t) = index_type {
@@ -531,6 +534,9 @@ fn format_model_attr(attr: &ModelAttribute) -> String {
                 }
                 if let Some(m) = map {
                     s.push_str(&format!(", map: \"{}\"", m));
+                }
+                if let Some(predicate) = predicate {
+                    s.push_str(&format!(", where: {}", predicate));
                 }
                 s.push(')');
             }

@@ -451,7 +451,7 @@ model User {
 }
 ```
 
-#### @@index([field1, field2, ...], type?, name?, map?)
+#### @@index([field1, field2, ...], type?, name?, map?, where?)
 Database index. Supports optional named arguments:
 
 | Argument | Type | Description |
@@ -459,6 +459,7 @@ Database index. Supports optional named arguments:
 | `type` | Ident | Index access method (see table below). Omit to let the DBMS choose (BTree). |
 | `name` | String | Logical developer name (not used in DDL). |
 | `map` | String | Physical DDL index name override (default: `idx_{table}_{cols}`). |
+| `where` | BoolExpr | Partial-index predicate — index only the rows it matches. PostgreSQL and SQLite only. |
 
 **Supported index types by database:**
 
@@ -484,6 +485,23 @@ model Post {
   @@index([content], type: Gin)
 }
 ```
+
+**Partial indexes.** `where:` takes the same boolean expression language as
+`@check` / `@@check` and restricts the index to the matching rows, which keeps
+it small when queries only ever touch a subset of the table:
+
+```prisma
+model Task {
+  id      Int     @id
+  done    Boolean
+  ownerId Int
+
+  @@index([ownerId], where: done = false, map: "idx_task_open")
+}
+```
+
+MySQL has no partial index syntax; declaring `where:` against a MySQL
+datasource is a validation error rather than a silently widened index.
 
 #### @@check(expr)
 Adds a table-level SQL `CHECK` constraint.

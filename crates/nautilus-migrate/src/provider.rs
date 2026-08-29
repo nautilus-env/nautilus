@@ -12,6 +12,8 @@ pub(crate) struct CreateIndex<'a> {
     pub(crate) unique: bool,
     pub(crate) kind: &'a IndexKind,
     pub(crate) if_not_exists: bool,
+    /// Partial-index predicate, already rendered against physical column names.
+    pub(crate) predicate: Option<&'a str>,
 }
 
 pub(crate) struct AlterColumnType<'a> {
@@ -136,6 +138,13 @@ impl ProviderStrategy {
             .collect::<Vec<_>>()
             .join(", ");
 
+        let where_clause = match index.predicate {
+            Some(predicate) if self.provider != DatabaseProvider::Mysql => {
+                format!(" WHERE {}", predicate)
+            }
+            _ => String::new(),
+        };
+
         if self.provider == DatabaseProvider::Mysql
             && matches!(index.kind, IndexKind::Basic(BasicIndexType::FullText))
         {
@@ -171,6 +180,7 @@ impl ProviderStrategy {
                     using_clause,
                     columns_sql,
                 ) + &with_clause
+                    + &where_clause
             }
             DatabaseProvider::Mysql => format!(
                 "CREATE {}INDEX {} ON {} ({}){}",
@@ -443,6 +453,7 @@ mod tests {
             unique: false,
             kind: &kind,
             if_not_exists: true,
+            predicate: None,
         });
 
         assert_eq!(
@@ -464,6 +475,7 @@ mod tests {
             unique: false,
             kind: &kind,
             if_not_exists: true,
+            predicate: None,
         });
 
         assert_eq!(

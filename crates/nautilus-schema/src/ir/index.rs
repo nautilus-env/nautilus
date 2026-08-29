@@ -27,6 +27,12 @@ pub struct IndexIr {
     /// Physical DDL name. When set this is used as the `CREATE INDEX` name
     /// instead of the auto-generated `idx_{table}_{cols}` name.
     pub map: Option<String>,
+    /// Partial-index predicate, rendered as SQL against the physical column
+    /// names. `None` for a full index.
+    ///
+    /// PostgreSQL and SQLite spell this `CREATE INDEX ... WHERE <predicate>`;
+    /// MySQL has no equivalent and the validator rejects the attribute there.
+    pub predicate: Option<String>,
 }
 
 /// Tagged union of every supported index access method.

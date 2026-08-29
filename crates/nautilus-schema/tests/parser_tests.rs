@@ -464,3 +464,59 @@ model User {
     let schema = parse(source).unwrap();
     assert_eq!(schema.declarations.len(), 2);
 }
+
+#[test]
+fn test_parse_partial_index_predicate() {
+    let source = r#"
+model Task {
+  id     Int     @id
+  done   Boolean
+  ownerId Int
+
+  @@index([ownerId], where: done = false)
+}
+"#;
+
+    let schema = parse(source).unwrap();
+    let model = schema.models().next().unwrap();
+
+    match &model.attributes[0] {
+        ModelAttribute::Index {
+            fields, predicate, ..
+        } => {
+            assert_eq!(fields.len(), 1);
+            assert_eq!(
+                predicate.as_ref().map(|expr| expr.to_string()),
+                Some("done = FALSE".to_string())
+            );
+        }
+        _ => panic!("Expected @@index attribute"),
+    }
+}
+
+#[test]
+fn test_parse_partial_index_predicate_before_other_arguments() {
+    let source = r#"
+model Task {
+  id     Int    @id
+  status String
+  ownerId Int
+
+  @@index([ownerId], where: status IN [OPEN, BLOCKED], map: "idx_open_tasks")
+}
+"#;
+
+    let schema = parse(source).unwrap();
+    let model = schema.models().next().unwrap();
+
+    match &model.attributes[0] {
+        ModelAttribute::Index { predicate, map, .. } => {
+            assert_eq!(
+                predicate.as_ref().map(|expr| expr.to_string()),
+                Some("status IN [OPEN, BLOCKED]".to_string())
+            );
+            assert_eq!(map.as_deref(), Some("idx_open_tasks"));
+        }
+        _ => panic!("Expected @@index attribute"),
+    }
+}

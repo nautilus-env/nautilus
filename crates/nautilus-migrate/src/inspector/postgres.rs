@@ -58,6 +58,7 @@ const INDEXES_SQL: &str = "SELECT \
          am.amname                                             AS index_method, \
          CASE WHEN op.opcname LIKE 'vector_%' THEN op.opcname END AS opclass, \
          idx.reloptions                                         AS index_options, \
+         pg_get_expr(ix.indpred, ix.indrelid)                   AS index_predicate, \
          k.ord                                                  AS column_position \
      FROM pg_class       tbl \
      JOIN pg_namespace   ns   ON ns.oid            = tbl.relnamespace \

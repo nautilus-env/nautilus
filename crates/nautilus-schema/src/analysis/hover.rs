@@ -613,6 +613,8 @@ fn model_hover_content(
                 lists,
                 name,
                 map,
+                predicate,
+                ..
             } => {
                 let fs: Vec<&str> = fields.iter().map(|f| f.value.as_str()).collect();
                 let mut parts = vec![format!("[{}]", fs.join(", "))];
@@ -636,6 +638,9 @@ fn model_hover_content(
                 }
                 if let Some(m) = map {
                     parts.push(format!("map: \"{}\"", m));
+                }
+                if let Some(predicate) = predicate {
+                    parts.push(format!("where: {}", predicate));
                 }
                 Some(format!("_@@index({})_", parts.join(", ")))
             }

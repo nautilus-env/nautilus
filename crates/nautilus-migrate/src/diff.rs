@@ -109,6 +109,9 @@ pub enum Change {
         kind: IndexKind,
         /// Optional DDL name override (from `@@index(map: "...")` or `name:`).
         index_name: Option<String>,
+        /// Partial-index predicate (from `@@index(where: ...)`), already
+        /// rendered against physical column names.
+        predicate: Option<String>,
     },
 
     /// An index that exists in the live database is not present in the target
@@ -1239,6 +1242,7 @@ impl DiffAccumulator {
                     unique: ti.unique,
                     kind: ti.kind.clone(),
                     index_name: Some(ti.effective_name.clone()),
+                    predicate: ti.predicate.clone(),
                 });
             }
         }
@@ -1332,6 +1336,7 @@ struct TargetIndex {
     sorted_cols: Vec<String>,
     unique: bool,
     kind: IndexKind,
+    predicate: Option<String>,
     effective_name: String,
     /// Only indexes with an explicit `map:`/`name:` require the physical name
     /// to match; auto-named ones are matched structurally.
@@ -1375,6 +1380,7 @@ fn collect_target_indexes(table_name: &str, model: &ModelIr) -> Vec<TargetIndex>
             sorted_cols: cols,
             unique: false,
             kind: idx.kind.clone(),
+            predicate: idx.predicate.clone(),
             effective_name: ddl_name,
             name_must_match: idx.map.is_some(),
         });
@@ -1387,6 +1393,7 @@ fn collect_target_indexes(table_name: &str, model: &ModelIr) -> Vec<TargetIndex>
             sorted_cols: cols,
             unique: true,
             kind: IndexKind::Default,
+            predicate: None,
             effective_name: ddl_name,
             name_must_match: false,
         });
@@ -1402,6 +1409,24 @@ fn indexes_match(target: &TargetIndex, live: &NormalizedLiveIndex<'_>) -> bool {
         && live.unique == target.unique
         && (!target.name_must_match || live.live.name == target.effective_name)
         && index_kinds_match(&target.kind, &live.live.kind)
+        && index_predicates_match(target.predicate.as_deref(), live.live.predicate.as_deref())
+}
+
+/// Compares a declared partial-index predicate against the one the database
+/// reports.
+///
+/// Both PostgreSQL and SQLite re-render the predicate from their own parse
+/// tree, so the stored text differs from the schema source in whitespace,
+/// added parentheses and (on PostgreSQL) explicit casts on every literal.
+/// Comparing the normalised forms — the same normalisation `CHECK` constraints
+/// already use — avoids a permanent drop/recreate cycle for an index that has
+/// not actually changed.
+fn index_predicates_match(target: Option<&str>, live: Option<&str>) -> bool {
+    match (target, live) {
+        (None, None) => true,
+        (Some(t), Some(l)) => normalize_check_expr(t) == normalize_check_expr(l),
+        _ => false,
+    }
 }
 
 /// Collect the foreign keys implied by the relation fields of `model`.

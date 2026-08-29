@@ -163,6 +163,8 @@ impl SchemaValidator<'_> {
                 m,
                 ef_construction,
                 lists,
+                predicate,
+                span,
                 ..
             } = attr
             {
@@ -202,8 +204,34 @@ impl SchemaValidator<'_> {
                 for diag in diagnostics {
                     self.errors.push_back(diag);
                 }
+
+                if let Some(expr) = predicate {
+                    let scalar_field_names = self.scalar_field_names(model);
+                    for diag in super::index::validate_index_predicate(
+                        expr,
+                        *span,
+                        provider,
+                        &scalar_field_names,
+                        &model.name.value,
+                    ) {
+                        self.errors.push_back(diag);
+                    }
+                }
             }
         }
+    }
+
+    /// Logical names of every field on `model` that maps to a column, i.e.
+    /// everything except relation fields.
+    fn scalar_field_names<'m>(&self, model: &'m ModelDecl) -> Vec<&'m str> {
+        model
+            .fields
+            .iter()
+            .filter(|f| {
+                !matches!(&f.field_type, FieldType::UserType(name) if self.models.contains_key(name))
+            })
+            .map(|f| f.name.value.as_str())
+            .collect()
     }
 
     pub(super) fn validate_field_type(&mut self, field: &FieldDecl, model_name: &str) {
@@ -459,14 +487,7 @@ impl SchemaValidator<'_> {
             .collect();
 
         for model in &models {
-            let scalar_fields: Vec<&str> = model
-                .fields
-                .iter()
-                .filter(|f| {
-                    !matches!(f.field_type, FieldType::UserType(ref name) if self.models.contains_key(name))
-                })
-                .map(|f| f.name.value.as_str())
-                .collect();
+            let scalar_fields = self.scalar_field_names(model);
 
             let field_enum_map: HashMap<&str, &str> = model
                 .fields

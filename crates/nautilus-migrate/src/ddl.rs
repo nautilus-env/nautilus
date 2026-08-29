@@ -599,6 +599,7 @@ impl DdlGenerator {
                     unique: false,
                     kind: &idx.kind,
                     if_not_exists: true,
+                    predicate: idx.predicate.as_deref(),
                 })
             })
             .collect()

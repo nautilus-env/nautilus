@@ -138,6 +138,9 @@ pub struct LiveIndex {
     pub unique: bool,
     /// Resolved access method + extension payload.
     pub kind: LiveIndexKind,
+    /// Partial-index predicate as reported by the database, or `None` for a
+    /// full index. MySQL has no partial indexes and always reports `None`.
+    pub predicate: Option<String>,
 }
 
 /// Resolved access method for a live index.

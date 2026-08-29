@@ -1,6 +1,7 @@
 use super::{
-    group_sqlite_foreign_keys, normalize_sqlite_default, normalize_sqlite_type,
-    parse_sqlite_check_constraints, parse_sqlite_generated_exprs, SchemaInspector,
+    group_sqlite_foreign_keys, normalize_sqlite_check_expr, normalize_sqlite_default,
+    normalize_sqlite_type, parse_sqlite_check_constraints, parse_sqlite_generated_exprs,
+    SchemaInspector,
 };
 use crate::error::{MigrationError, Result};
 use crate::live::{ComputedKind, LiveColumn, LiveIndex, LiveIndexKind, LiveSchema, LiveTable};
@@ -115,6 +116,29 @@ impl SchemaInspector {
             primary_key.sort_by_key(|(seq, _)| *seq);
             let primary_key = primary_key.into_iter().map(|(_, name)| name).collect();
 
+            let index_sql_rows = sqlx::query(
+                "SELECT name, COALESCE(sql, '') AS create_sql FROM sqlite_master \
+                 WHERE type = 'index' AND tbl_name = ?",
+            )
+            .bind(&table_name)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| MigrationError::Database(e.to_string()))?;
+
+            let mut index_predicates: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            for row in &index_sql_rows {
+                let name: String = row
+                    .try_get("name")
+                    .map_err(|e| MigrationError::Database(e.to_string()))?;
+                let create_sql: String = row
+                    .try_get("create_sql")
+                    .map_err(|e| MigrationError::Database(e.to_string()))?;
+                if let Some(predicate) = parse_sqlite_index_predicate(&create_sql) {
+                    index_predicates.insert(name, normalize_sqlite_check_expr(&predicate));
+                }
+            }
+
             let index_list_sql = format!("PRAGMA index_list(\"{}\")", table_name);
             let idx_list_rows = sqlx::query(&index_list_sql)
                 .fetch_all(&pool)
@@ -155,11 +179,13 @@ impl SchemaInspector {
                 }
                 idx_cols.sort_by_key(|(seq, _)| *seq);
 
+                let predicate = index_predicates.get(&idx_name).cloned();
                 indexes.push(LiveIndex {
                     name: idx_name,
                     columns: idx_cols.into_iter().map(|(_, col)| col).collect(),
                     unique: unique_val != 0,
                     kind: LiveIndexKind::Unknown(None),
+                    predicate,
                 });
             }
 
@@ -185,5 +211,94 @@ impl SchemaInspector {
         }
 
         Ok(live)
+    }
+}
+
+/// Extracts the `WHERE` predicate of a partial index from the `CREATE INDEX`
+/// text SQLite stores verbatim in `sqlite_master`.
+///
+/// `PRAGMA index_list` reports only that an index *is* partial, never the
+/// predicate itself, so the statement text is the only source. The key column
+/// list is always parenthesised and the predicate always follows the closing
+/// paren, so scanning for the first `WHERE` at paren depth zero is enough.
+fn parse_sqlite_index_predicate(create_sql: &str) -> Option<String> {
+    let bytes = create_sql.as_bytes();
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut i = 0usize;
+
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        if in_string {
+            if ch == '\'' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        match ch {
+            '\'' => in_string = true,
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            'w' | 'W' if depth == 0 => {
+                let rest = &create_sql[i..];
+                if rest.len() >= 5
+                    && rest[..5].eq_ignore_ascii_case("where")
+                    && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric())
+                    && rest[5..].starts_with(|c: char| c.is_whitespace() || c == '(')
+                {
+                    let predicate = rest[5..].trim().trim_end_matches(';').trim();
+                    if predicate.is_empty() {
+                        return None;
+                    }
+                    return Some(predicate.to_string());
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_sqlite_index_predicate;
+
+    #[test]
+    fn full_index_has_no_predicate() {
+        assert_eq!(
+            parse_sqlite_index_predicate("CREATE INDEX \"i\" ON \"t\" (\"a\", \"b\")"),
+            None
+        );
+    }
+
+    #[test]
+    fn partial_index_predicate_is_extracted() {
+        assert_eq!(
+            parse_sqlite_index_predicate(
+                "CREATE INDEX \"i\" ON \"t\" (\"a\") WHERE \"active\" = 1"
+            )
+            .as_deref(),
+            Some("\"active\" = 1")
+        );
+    }
+
+    #[test]
+    fn where_inside_a_string_literal_is_not_a_predicate() {
+        assert_eq!(
+            parse_sqlite_index_predicate("CREATE INDEX \"i\" ON \"t\" (\"a\") WHERE b <> 'where'")
+                .as_deref(),
+            Some("b <> 'where'")
+        );
+    }
+
+    #[test]
+    fn column_named_where_prefix_is_not_a_predicate() {
+        assert_eq!(
+            parse_sqlite_index_predicate("CREATE INDEX i ON t (whereabouts)"),
+            None
+        );
     }
 }
