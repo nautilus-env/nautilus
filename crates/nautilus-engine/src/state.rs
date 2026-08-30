@@ -22,6 +22,13 @@ use crate::pool_options::EnginePoolOptions;
 
 const EXPIRED_TRANSACTION_RETENTION: Duration = Duration::from_secs(60);
 
+/// Lifetime granted to a transaction the engine opens on the caller's behalf.
+///
+/// Long enough that a nested write or a read-back cannot be reaped mid-flight,
+/// short enough that a handler which somehow never finishes still releases its
+/// connection back to the pool.
+const IMPLICIT_TRANSACTION_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Convert a [`nautilus_connector::ConnectorError`] to the appropriate [`ProtocolError`],
 /// mapping specific constraint violation kinds to their dedicated error codes.
 pub(crate) fn connector_to_protocol(
@@ -502,6 +509,44 @@ impl EngineState {
         };
         timer.finish();
         affected
+    }
+
+    /// Run `operation` on one connection, opening a transaction for it when the
+    /// caller did not supply one.
+    ///
+    /// An implicit transaction is committed when `operation` returns `Ok` and
+    /// rolled back otherwise; a caller-supplied one is left open, since its
+    /// lifetime belongs to whoever started it. Statements that have to observe
+    /// each other — an insert and the read-back of the key it generated, a
+    /// parent row and the children hung from it — must share a connection, and
+    /// the pool hands out a different one per statement.
+    pub async fn in_transaction<T, F, Fut>(
+        &self,
+        transaction_id: Option<&str>,
+        operation: F,
+    ) -> Result<T, ProtocolError>
+    where
+        F: FnOnce(String) -> Fut,
+        Fut: std::future::Future<Output = Result<T, ProtocolError>>,
+    {
+        if let Some(id) = transaction_id {
+            return operation(id.to_string()).await;
+        }
+
+        let id = uuid::Uuid::new_v4().to_string();
+        self.begin_transaction(id.clone(), IMPLICIT_TRANSACTION_TIMEOUT, None)
+            .await?;
+
+        match operation(id.clone()).await {
+            Ok(value) => {
+                self.commit_transaction(&id).await?;
+                Ok(value)
+            }
+            Err(error) => {
+                let _ = self.rollback_transaction(&id).await;
+                Err(error)
+            }
+        }
     }
 
     /// Begin a new interactive transaction.

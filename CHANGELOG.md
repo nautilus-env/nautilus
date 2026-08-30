@@ -33,6 +33,46 @@ unaffected.
 
 ### Added
 
+- Added nested writes. A relation field named in the `data` of `query.create` or
+  `query.update` now carries an object of operations instead of a column value,
+  and the whole call — parent row, related rows, and the foreign keys between
+  them — runs as one atomic write:
+
+  ```json
+  { "model": "User",
+    "data": { "email": "ada@example.com",
+              "posts": { "create": [{ "title": "on engines" }] },
+              "team":  { "connect": { "name": "analytical" } } } }
+  ```
+
+  Which operations a relation accepts depends on where the foreign key lives.
+  The side that holds it takes `create`, `connect` and `connectOrCreate`, plus
+  `update`, `disconnect` and `delete` on an update. The side pointed at takes
+  `create`, `createMany`, `connect` and `connectOrCreate`, plus `disconnect`,
+  `set`, `update`, `updateMany`, `delete` and `deleteMany` on an update. Names
+  are accepted in the wire spelling and in snake_case, so a Python caller can
+  write `connect_or_create`. A nested `create` payload may itself carry nested
+  writes.
+
+  Every operation is scoped to the row it hangs off: a `where` inside
+  `updateMany` or `deleteMany` can only narrow the rows reached through the
+  relation, never reach rows belonging to another parent. `update` and `delete`
+  report `RecordNotFound` when they match nothing, rather than passing
+  silently.
+
+  A request that already carries a `transactionId` uses it and leaves the
+  commit to its owner; otherwise the engine opens a transaction for the call and
+  commits it, so a failing child rolls the parent back. On `query.update` the
+  filter has to match exactly one row, since children have to be linked to a
+  single parent key; a filter matching several is refused before anything is
+  written.
+
+  The generated JavaScript and Python clients forward `data` unchanged, so both
+  accept nested writes as they stand. The Rust and Java clients do not: their
+  create and update inputs are generated structs with one typed field per
+  column, and reaching parity needs nested-input types per relation plus a typed
+  unique-filter for `connect`.
+
 - Added `import "<path>"` to the schema language. A schema file joins other
   files to itself by naming them, relative to its own directory; the path may
   be a `.nautilus` file or a directory of them. Imports are followed
@@ -191,6 +231,25 @@ unaffected.
 
 ### Fixed
 
+- `query.create`, `query.update` and `query.delete` now return the rows they
+  wrote on MySQL. MySQL has no `RETURNING`, so the statement was rendered
+  without one and `returnData: true` answered with `{"count": 0, "data": []}` —
+  a generated JavaScript or Python client raised "returned no data" on every
+  create. The engine now reads the affected rows back on the same connection,
+  inside a transaction so the read cannot land on a different one:
+  `LAST_INSERT_ID()` for a generated key, the supplied key otherwise, and the
+  primary keys captured before the statement for an update or a delete. A create
+  whose key is neither supplied nor an `AUTO_INCREMENT` column is refused with
+  an error naming the column, instead of silently returning nothing. PostgreSQL
+  and SQLite keep using `RETURNING` and are unaffected. `query.createMany` still
+  returns no rows on MySQL: a multi-row insert reports only the first generated
+  key, and MySQL does not guarantee the rest are contiguous.
+- `db reset` and `db drop` no longer fail on SQLite when the tables reference
+  each other. The drops run in a transaction, where SQLite ignores
+  `PRAGMA foreign_keys`, so dropping tables in name order hit
+  `FOREIGN KEY constraint failed` as soon as a child table outlived its parent.
+  The statements now open with `PRAGMA defer_foreign_keys = ON`, which holds the
+  checks until commit — by which point no table is left to reference another.
 - `db pull` no longer writes `@check(...)` expressions that the schema parser
   rejects. A live `CHECK` the expression language cannot represent — `IS NULL`,
   `LIKE`, a function call, a typed literal such as `interval '0'` — used to be

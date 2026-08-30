@@ -915,3 +915,30 @@ model Legacy {
         sql
     );
 }
+
+#[test]
+fn test_sqlite_drop_live_tables_defers_foreign_key_checks() {
+    let mut live = LiveSchema::default();
+    for name in ["post", "user"] {
+        live.tables.insert(
+            name.to_string(),
+            nautilus_migrate::live::LiveTable {
+                name: name.to_string(),
+                columns: vec![],
+                primary_key: vec![],
+                indexes: vec![],
+                check_constraints: vec![],
+                foreign_keys: vec![],
+            },
+        );
+    }
+
+    let statements = DdlGenerator::new(DatabaseProvider::Sqlite).generate_drop_live_tables(&live);
+
+    assert_eq!(
+        statements.first().map(String::as_str),
+        Some("PRAGMA defer_foreign_keys = ON"),
+        "dropping in name order would otherwise break a foreign key: {:?}",
+        statements
+    );
+}

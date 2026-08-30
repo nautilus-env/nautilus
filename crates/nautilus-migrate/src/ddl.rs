@@ -204,6 +204,11 @@ impl DdlGenerator {
                 statements.push("SET FOREIGN_KEY_CHECKS=1".to_string());
             }
             DatabaseProvider::Sqlite => {
+                // SQLite has no CASCADE and ignores `PRAGMA foreign_keys` inside
+                // a transaction, which is where these statements run. Deferring
+                // the checks to commit is what lets the drops happen in any
+                // order: by then no table is left to reference another.
+                statements.push("PRAGMA defer_foreign_keys = ON".to_string());
                 for name in &names {
                     statements.push(strategy.drop_table_sql(name, false));
                 }

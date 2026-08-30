@@ -5,6 +5,35 @@ pub(super) enum MutationResultData {
     Rows(Vec<Row>),
 }
 
+impl MutationResultData {
+    /// The first returned row, or `None` when the statement answered with a
+    /// count alone.
+    pub(super) fn first_row(&self) -> Option<&Row> {
+        match self {
+            MutationResultData::Rows(rows) => rows.first(),
+            MutationResultData::Count(_) => None,
+        }
+    }
+
+    /// The returned rows, for a caller that asked for them.
+    pub(super) fn into_rows(self, context: &str) -> Result<Vec<Row>, ProtocolError> {
+        match self {
+            MutationResultData::Rows(rows) => Ok(rows),
+            MutationResultData::Count(_) => Err(ProtocolError::Internal(format!(
+                "{context} path expected returned rows"
+            ))),
+        }
+    }
+
+    /// How many rows the statement affected, whichever shape it answered in.
+    pub(super) fn into_count(self) -> usize {
+        match self {
+            MutationResultData::Count(count) => count,
+            MutationResultData::Rows(rows) => rows.len(),
+        }
+    }
+}
+
 pub(super) fn qualify_model_filter(
     model: &ModelIr,
     logical_to_db: &std::collections::HashMap<String, String>,

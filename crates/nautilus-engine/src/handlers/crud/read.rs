@@ -525,6 +525,89 @@ pub(super) fn build_find_unique_sql(
     Ok((sql, row_hints))
 }
 
+/// Load up to `limit` rows of `model` matching `filter`, projecting every
+/// scalar column.
+///
+/// The nested-write paths use this to resolve `connect` targets and to find the
+/// row a nested operation hangs off, so the projection has to cover whatever
+/// key the relation references, not just the primary key.
+pub(super) async fn find_rows_by_filter(
+    state: &EngineState,
+    model: &ModelIr,
+    filter: &JsonValue,
+    limit: i32,
+    tx_id: Option<&str>,
+) -> Result<Vec<Row>, ProtocolError> {
+    let metadata = state.model_metadata(model);
+    let qualified_filter = parse_and_qualify_model_filter(
+        model,
+        filter,
+        metadata.field_types(),
+        metadata.logical_to_db(),
+    )?;
+
+    find_rows_by_expr(state, model, Some(qualified_filter), Some(limit), tx_id).await
+}
+
+/// Load the rows of `model` matching an already-qualified predicate.
+///
+/// The mutation paths reuse the predicate they built for the statement itself,
+/// so the read-back a backend without `RETURNING` needs sees exactly the rows
+/// the statement did.
+pub(super) async fn find_rows_by_expr(
+    state: &EngineState,
+    model: &ModelIr,
+    qualified_filter: Option<Expr>,
+    limit: Option<i32>,
+    tx_id: Option<&str>,
+) -> Result<Vec<Row>, ProtocolError> {
+    let metadata = state.model_metadata(model);
+
+    let mut builder = Select::from_table(&model.db_name).with_capacity(SelectCapacity {
+        items: metadata.scalar_fields().len(),
+        ..SelectCapacity::default()
+    });
+    let mut row_hints = Vec::with_capacity(metadata.scalar_fields().len());
+    for field in metadata.scalar_fields() {
+        builder = builder.item(SelectItem::from(field.marker().clone()));
+        row_hints.push(field.hint());
+    }
+
+    if let Some(filter) = qualified_filter {
+        builder = builder.filter(filter);
+    }
+    if let Some(limit) = limit {
+        builder = builder.take(limit);
+    }
+
+    let select = builder
+        .build()
+        .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build query: {}", e)))?;
+
+    let sql = state
+        .dialect
+        .render_select_owned(select)
+        .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
+
+    normalize_rows_with_hints(
+        state.execute_query_on(&sql, "Query", tx_id).await?,
+        &row_hints,
+    )
+}
+
+/// Load the single row of `model` matching `filter`, or `None`.
+pub(super) async fn find_one_row(
+    state: &EngineState,
+    model: &ModelIr,
+    filter: &JsonValue,
+    tx_id: Option<&str>,
+) -> Result<Option<Row>, ProtocolError> {
+    Ok(find_rows_by_filter(state, model, filter, 1, tx_id)
+        .await?
+        .into_iter()
+        .next())
+}
+
 async fn execute_find_unique_rows(
     state: &EngineState,
     model: &ModelIr,

@@ -29,6 +29,7 @@ mod aggregation;
 mod common;
 pub(crate) mod include;
 mod mutations;
+mod nested;
 mod raw;
 mod read;
 

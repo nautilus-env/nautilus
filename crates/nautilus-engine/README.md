@@ -38,6 +38,23 @@ in the current directory.
 - `transactionId` is supported on request types that can run inside an open transaction.
 - `query.findMany` also supports protocol-level chunking via `chunkSize`; partial responses are emitted before the final response when the client opts in.
 - `query.upsert` runs as one atomic statement. Its `where` must name exactly the columns of one unique constraint (or the primary key), and `create` must supply a value for each of them.
+- `query.create` and `query.update` accept **nested writes**: a relation field in
+  `data` carries an object of operations instead of a column value. The side of
+  the relation that holds the foreign key takes `create`, `connect` and
+  `connectOrCreate`, plus `update`, `disconnect` and `delete` on an update; the
+  side pointed at takes `create`, `createMany`, `connect` and `connectOrCreate`,
+  plus `disconnect`, `set`, `update`, `updateMany`, `delete` and `deleteMany` on
+  an update. Operation names are accepted in the wire spelling and in
+  snake_case. Every operation is scoped to the parent row, so a `where` inside
+  one can only narrow the rows reached through the relation. A request without a
+  `transactionId` gets a transaction for the whole call; one with a
+  `transactionId` runs on it and leaves the commit to its owner. On
+  `query.update` the filter must match exactly one row.
+- On a backend without `RETURNING` (MySQL), `returnData: true` reads the written
+  rows back on the same connection: `LAST_INSERT_ID()` for a generated key, the
+  supplied key otherwise, and the primary keys captured before the statement for
+  an update or a delete. `query.createMany` is the exception — a multi-row
+  insert reports only the first generated key — and still answers with a count.
 - `request.cancel` aborts the engine-side task only; the statement keeps running on the database. Use `--statement-timeout-ms` to bound it server-side.
 - The engine owns schema-aware field mapping, relation hydration for includes, mutation-side `@updatedAt`, transaction timeout handling, and aggregate/raw-query execution.
 

@@ -2,8 +2,9 @@ use super::common::{
     execute_mutation_result, parse_and_qualify_model_filter, parse_optional_model_filter,
     protocol_filter_body, wrap_count_result, wrap_mutation_result, MutationResultData,
 };
-use super::read::build_find_unique_sql;
-use super::*;
+use super::read::{build_find_unique_sql, find_rows_by_expr, find_rows_by_filter};
+use super::{nested, *};
+use nautilus_migrate::DatabaseProvider;
 
 fn row_field_json<'a>(
     data_obj: &'a JsonMap<String, JsonValue>,
@@ -94,41 +95,124 @@ fn create_many_effective_fields<'a>(
         .collect()
 }
 
-fn mutation_count_or_internal(
-    result: MutationResultData,
-    context: &str,
-) -> Result<usize, ProtocolError> {
-    match result {
-        MutationResultData::Count(count) => Ok(count),
-        MutationResultData::Rows(_) => Err(ProtocolError::Internal(format!(
-            "{context} path expected an affected-row count"
-        ))),
-    }
+/// Whether the database supplies this field's value on insert without being
+/// told it, in a way the engine can recover afterwards.
+fn is_autoincrement(field: &FieldIr) -> bool {
+    matches!(
+        &field.default_value,
+        Some(DefaultValue::Function(function)) if function.name == "autoincrement"
+    )
 }
 
-fn mutation_rows_or_internal(
-    result: MutationResultData,
-    context: &str,
-) -> Result<Vec<Row>, ProtocolError> {
-    match result {
-        MutationResultData::Rows(rows) => Ok(rows),
-        MutationResultData::Count(_) => Err(ProtocolError::Internal(format!(
-            "{context} embedded path expected returned rows"
-        ))),
-    }
+fn unresolvable_key(model: &ModelIr, field: &FieldIr) -> ProtocolError {
+    ProtocolError::UnsupportedOperation(format!(
+        "Returning the written '{}' row needs its '{}' value, and this backend cannot report a generated one; supply it in the data or set returnData to false",
+        model.logical_name, field.logical_name
+    ))
 }
 
-async fn execute_create(
+fn primary_key_field<'a>(model: &'a ModelIr, name: &str) -> Result<&'a FieldIr, ProtocolError> {
+    model.find_field(name).ok_or_else(|| {
+        ProtocolError::QueryPlanning(format!(
+            "Model '{}' names unknown field '{}' in its primary key",
+            model.logical_name, name
+        ))
+    })
+}
+
+fn qualified_column(model: &ModelIr, field: &FieldIr) -> Expr {
+    Expr::column(format!("{}__{}", model.db_name, field.db_name))
+}
+
+/// Predicate identifying the row an `INSERT` just wrote, for a backend that
+/// cannot return it inline.
+///
+/// A key the caller supplied is known outright. The only generated key that can
+/// be recovered afterwards is MySQL's single `AUTO_INCREMENT` column, whose
+/// value the server reports as `LAST_INSERT_ID()` — on the same connection,
+/// which is why the read-back runs inside a transaction.
+fn inserted_row_filter(
     state: &EngineState,
-    params: CreateParams,
+    model: &ModelIr,
+    data_obj: &JsonMap<String, JsonValue>,
+) -> Result<Expr, ProtocolError> {
+    let mut conditions: Vec<Expr> = Vec::new();
+    let mut generated: Option<&FieldIr> = None;
+
+    for name in model.primary_key.fields() {
+        let field = primary_key_field(model, name)?;
+        let column = qualified_column(model, field);
+
+        match field_input_value(state, data_obj, field, FieldInputMode::Create)? {
+            Some(value) => conditions.push(column.eq(Expr::param(value))),
+            None if generated.is_none() => {
+                if state.provider() != DatabaseProvider::Mysql || !is_autoincrement(field) {
+                    return Err(unresolvable_key(model, field));
+                }
+                generated = Some(field);
+                conditions.push(column.eq(Expr::FunctionCall {
+                    name: "LAST_INSERT_ID".to_string(),
+                    args: vec![],
+                }));
+            }
+            None => return Err(unresolvable_key(model, field)),
+        }
+    }
+
+    conditions.into_iter().reduce(Expr::and).ok_or_else(|| {
+        ProtocolError::QueryPlanning(format!(
+            "Model '{}' has no primary key to read a written row back by",
+            model.logical_name
+        ))
+    })
+}
+
+/// Predicate matching the rows an `UPDATE` touched, keyed on the primary key
+/// values captured before it ran.
+///
+/// An update that assigns a primary-key column moves the row, so the assigned
+/// value is what the read-back looks for.
+fn updated_rows_filter(
+    state: &EngineState,
+    model: &ModelIr,
+    rows: &[Row],
+    data_obj: &JsonMap<String, JsonValue>,
+) -> Result<Option<Expr>, ProtocolError> {
+    let mut per_row = Vec::with_capacity(rows.len());
+
+    for row in rows {
+        let mut conditions: Vec<Expr> = Vec::new();
+        for name in model.primary_key.fields() {
+            let field = primary_key_field(model, name)?;
+            let value = match field_input_value(state, data_obj, field, FieldInputMode::Update)? {
+                Some(assigned) => assigned,
+                None => row
+                    .get(&format!("{}__{}", model.db_name, field.db_name))
+                    .cloned()
+                    .ok_or_else(|| unresolvable_key(model, field))?,
+            };
+            conditions.push(qualified_column(model, field).eq(Expr::param(value)));
+        }
+        if let Some(predicate) = conditions.into_iter().reduce(Expr::and) {
+            per_row.push(predicate);
+        }
+    }
+
+    Ok(per_row.into_iter().reduce(Expr::or))
+}
+
+/// Insert one row of `model`, reading it back afterwards on a backend without
+/// `RETURNING`.
+async fn insert_row(
+    state: &EngineState,
+    model: &ModelIr,
+    data: &JsonValue,
+    return_data: bool,
+    tx_id: Option<&str>,
 ) -> Result<MutationResultData, ProtocolError> {
-    check_protocol_version(params.protocol_version)?;
-    let tx_id = params.transaction_id;
-    let model = get_model_or_error(state, &params.model)?;
     let metadata = state.model_metadata(model);
 
-    let data_obj = params
-        .data
+    let data_obj = data
         .as_object()
         .ok_or_else(|| ProtocolError::InvalidParams("data must be an object".to_string()))?;
 
@@ -146,15 +230,17 @@ async fn execute_create(
         }
     }
 
+    let returns_inline = return_data && state.dialect.supports_returning();
+
     let mut builder = Insert::into_table(&model.db_name)
         .with_capacity(InsertCapacity {
             columns: columns.len(),
             rows: 1,
-            returning: usize::from(params.return_data) * metadata.scalar_markers().len(),
+            returning: usize::from(returns_inline) * metadata.scalar_markers().len(),
         })
         .columns(columns)
         .values(values);
-    if params.return_data {
+    if returns_inline {
         builder = builder.returning(metadata.scalar_markers().to_vec());
     }
 
@@ -167,15 +253,75 @@ async fn execute_create(
         .render_insert_owned(insert)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 
-    execute_mutation_result(
-        state,
-        &sql,
-        "Insert",
-        tx_id.as_deref(),
-        metadata.scalar_hints(),
-        params.return_data,
-    )
-    .await
+    if returns_inline || !return_data {
+        return execute_mutation_result(
+            state,
+            &sql,
+            "Insert",
+            tx_id,
+            metadata.scalar_hints(),
+            returns_inline,
+        )
+        .await;
+    }
+
+    let filter = inserted_row_filter(state, model, data_obj)?;
+
+    state
+        .in_transaction(tx_id, |tx| async move {
+            state.execute_affected_on(&sql, "Insert", Some(&tx)).await?;
+            let rows = find_rows_by_expr(state, model, Some(filter), Some(1), Some(&tx)).await?;
+            Ok(MutationResultData::Rows(rows))
+        })
+        .await
+}
+
+pub(super) async fn execute_create(
+    state: &EngineState,
+    params: CreateParams,
+) -> Result<MutationResultData, ProtocolError> {
+    check_protocol_version(params.protocol_version)?;
+    let model = get_model_or_error(state, &params.model)?;
+    let plan = nested::split(state, model, &params.data, false)?;
+
+    if plan.is_empty() {
+        return insert_row(
+            state,
+            model,
+            &params.data,
+            params.return_data,
+            params.transaction_id.as_deref(),
+        )
+        .await;
+    }
+
+    let return_data = params.return_data;
+    let needs_row = return_data || plan.writes_children();
+
+    state
+        .in_transaction(params.transaction_id.as_deref(), |tx| async move {
+            let (data, deferred) =
+                nested::prepare_parent_data(state, model, &plan, None, &tx).await?;
+            let result = insert_row(state, model, &data, needs_row, Some(&tx)).await?;
+
+            if plan.writes_children() {
+                let parent = result.first_row().ok_or_else(|| {
+                    ProtocolError::Internal(
+                        "create could not read back the row its nested writes hang from"
+                            .to_string(),
+                    )
+                })?;
+                nested::apply_children(state, model, &plan, parent, &tx).await?;
+            }
+            deferred.run(state, &tx).await?;
+
+            Ok(if return_data {
+                result
+            } else {
+                MutationResultData::Count(1)
+            })
+        })
+        .await
 }
 
 async fn execute_create_many(
@@ -285,24 +431,26 @@ async fn execute_create_many(
     .await
 }
 
-async fn execute_update(
+/// Apply one set of column assignments, reading the affected rows back
+/// afterwards on a backend without `RETURNING`.
+async fn update_rows(
     state: &EngineState,
-    params: UpdateParams,
+    model: &ModelIr,
+    filter: &JsonValue,
+    data: &JsonValue,
+    return_data: bool,
+    tx_id: Option<&str>,
 ) -> Result<MutationResultData, ProtocolError> {
-    check_protocol_version(params.protocol_version)?;
-    let tx_id = params.transaction_id;
-    let model = get_model_or_error(state, &params.model)?;
     let metadata = state.model_metadata(model);
 
     let qualified_filter = parse_optional_model_filter(
         model,
-        &params.filter,
+        filter,
         metadata.field_types(),
         metadata.logical_to_db(),
     )?;
 
-    let data_obj = params
-        .data
+    let data_obj = data
         .as_object()
         .ok_or_else(|| ProtocolError::InvalidParams("data must be an object".to_string()))?;
 
@@ -317,18 +465,20 @@ async fn execute_update(
         }
     }
 
+    let returns_inline = return_data && state.dialect.supports_returning();
+
     let mut builder = Update::table(&model.db_name)
         .with_capacity(UpdateCapacity {
             assignments: assignments.len(),
-            returning: usize::from(params.return_data) * metadata.scalar_markers().len(),
+            returning: usize::from(returns_inline) * metadata.scalar_markers().len(),
         })
         .assignments(assignments);
 
-    if let Some(filter) = qualified_filter {
+    if let Some(filter) = qualified_filter.clone() {
         builder = builder.filter(filter);
     }
 
-    if params.return_data {
+    if returns_inline {
         builder = builder.returning(metadata.scalar_markers().to_vec());
     }
 
@@ -341,15 +491,108 @@ async fn execute_update(
         .render_update_owned(update)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 
-    execute_mutation_result(
-        state,
-        &sql,
-        "Update",
-        tx_id.as_deref(),
-        metadata.scalar_hints(),
-        params.return_data,
-    )
-    .await
+    if returns_inline || !return_data {
+        return execute_mutation_result(
+            state,
+            &sql,
+            "Update",
+            tx_id,
+            metadata.scalar_hints(),
+            returns_inline,
+        )
+        .await;
+    }
+
+    state
+        .in_transaction(tx_id, |tx| async move {
+            let before = find_rows_by_expr(state, model, qualified_filter, None, Some(&tx)).await?;
+            state.execute_affected_on(&sql, "Update", Some(&tx)).await?;
+
+            let Some(key_filter) = updated_rows_filter(state, model, &before, data_obj)? else {
+                return Ok(MutationResultData::Rows(Vec::new()));
+            };
+            let rows = find_rows_by_expr(state, model, Some(key_filter), None, Some(&tx)).await?;
+            Ok(MutationResultData::Rows(rows))
+        })
+        .await
+}
+
+/// Load the one row a nested write hangs off.
+///
+/// Nested operations link related rows to a specific parent, so the filter has
+/// to name exactly one: a filter matching several offers no single key to point
+/// children at.
+async fn single_nested_target(
+    state: &EngineState,
+    model: &ModelIr,
+    filter: &JsonValue,
+    tx: &str,
+) -> Result<Row, ProtocolError> {
+    let mut rows = find_rows_by_filter(state, model, filter, 2, Some(tx)).await?;
+
+    if rows.len() > 1 {
+        return Err(ProtocolError::InvalidFilter(format!(
+            "An update on '{}' that writes relations needs a filter matching exactly one row, and this one matches several",
+            model.logical_name
+        )));
+    }
+
+    rows.pop().ok_or_else(|| {
+        ProtocolError::RecordNotFound(format!(
+            "update on '{}' matched no record to write relations against",
+            model.logical_name
+        ))
+    })
+}
+
+pub(super) async fn execute_update(
+    state: &EngineState,
+    params: UpdateParams,
+) -> Result<MutationResultData, ProtocolError> {
+    check_protocol_version(params.protocol_version)?;
+    let model = get_model_or_error(state, &params.model)?;
+    let plan = nested::split(state, model, &params.data, true)?;
+
+    if plan.is_empty() {
+        return update_rows(
+            state,
+            model,
+            &params.filter,
+            &params.data,
+            params.return_data,
+            params.transaction_id.as_deref(),
+        )
+        .await;
+    }
+
+    let return_data = params.return_data;
+
+    state
+        .in_transaction(params.transaction_id.as_deref(), |tx| async move {
+            let current = single_nested_target(state, model, &params.filter, &tx).await?;
+            let (data, deferred) =
+                nested::prepare_parent_data(state, model, &plan, Some(&current), &tx).await?;
+
+            let writes_columns = data.as_object().is_some_and(|obj| !obj.is_empty());
+            let updated = if writes_columns {
+                Some(update_rows(state, model, &params.filter, &data, true, Some(&tx)).await?)
+            } else {
+                None
+            };
+
+            let parent = updated
+                .as_ref()
+                .and_then(MutationResultData::first_row)
+                .unwrap_or(&current);
+            nested::apply_children(state, model, &plan, parent, &tx).await?;
+            deferred.run(state, &tx).await?;
+
+            if !return_data {
+                return Ok(MutationResultData::Count(1));
+            }
+            Ok(updated.unwrap_or_else(|| MutationResultData::Rows(vec![current])))
+        })
+        .await
 }
 
 /// Resolve the conflict target of an upsert from its unique `where` filter.
@@ -581,14 +824,14 @@ pub(in crate::handlers) async fn handle_upsert_embedded(
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
     let params: UpsertParams = parse_params(&request, "upsert")?;
-    mutation_rows_or_internal(execute_upsert(state, params).await?, "upsert")
+    execute_upsert(state, params).await?.into_rows("upsert")
 }
 
 pub(in crate::handlers) async fn handle_upsert_typed(
     state: &EngineState,
     params: UpsertParams,
 ) -> Result<Vec<Row>, ProtocolError> {
-    mutation_rows_or_internal(execute_upsert(state, params).await?, "upsert")
+    execute_upsert(state, params).await?.into_rows("upsert")
 }
 
 /// Handle `query.create`.
@@ -609,14 +852,14 @@ pub(in crate::handlers) async fn handle_create_embedded(
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
     let params: CreateParams = parse_params(&request, "create")?;
-    mutation_rows_or_internal(execute_create(state, params).await?, "create")
+    execute_create(state, params).await?.into_rows("create")
 }
 
 pub(in crate::handlers) async fn handle_create_typed(
     state: &EngineState,
     params: CreateParams,
 ) -> Result<Vec<Row>, ProtocolError> {
-    mutation_rows_or_internal(execute_create(state, params).await?, "create")
+    execute_create(state, params).await?.into_rows("create")
 }
 
 /// Handle `query.createMany`.
@@ -637,14 +880,18 @@ pub(in crate::handlers) async fn handle_create_many_embedded(
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
     let params: CreateManyParams = parse_params(&request, "createMany")?;
-    mutation_rows_or_internal(execute_create_many(state, params).await?, "createMany")
+    execute_create_many(state, params)
+        .await?
+        .into_rows("createMany")
 }
 
 pub(in crate::handlers) async fn handle_create_many_typed(
     state: &EngineState,
     params: CreateManyParams,
 ) -> Result<Vec<Row>, ProtocolError> {
-    mutation_rows_or_internal(execute_create_many(state, params).await?, "createMany")
+    execute_create_many(state, params)
+        .await?
+        .into_rows("createMany")
 }
 
 /// Handle `query.update`.
@@ -665,17 +912,17 @@ pub(in crate::handlers) async fn handle_update_embedded(
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
     let params: UpdateParams = parse_params(&request, "update")?;
-    mutation_rows_or_internal(execute_update(state, params).await?, "update")
+    execute_update(state, params).await?.into_rows("update")
 }
 
 pub(in crate::handlers) async fn handle_update_typed(
     state: &EngineState,
     params: UpdateParams,
 ) -> Result<Vec<Row>, ProtocolError> {
-    mutation_rows_or_internal(execute_update(state, params).await?, "update")
+    execute_update(state, params).await?.into_rows("update")
 }
 
-async fn execute_delete(
+pub(super) async fn execute_delete(
     state: &EngineState,
     params: DeleteParams,
 ) -> Result<MutationResultData, ProtocolError> {
@@ -691,14 +938,16 @@ async fn execute_delete(
         metadata.logical_to_db(),
     )?;
 
+    let returns_inline = params.return_data && state.dialect.supports_returning();
+
     let mut builder = Delete::from_table(&model.db_name).with_capacity(DeleteCapacity {
-        returning: usize::from(params.return_data) * metadata.scalar_markers().len(),
+        returning: usize::from(returns_inline) * metadata.scalar_markers().len(),
     });
-    if let Some(filter) = qualified_filter {
+    if let Some(filter) = qualified_filter.clone() {
         builder = builder.filter(filter);
     }
 
-    if params.return_data {
+    if returns_inline {
         builder = builder.returning(metadata.scalar_markers().to_vec());
     }
 
@@ -711,15 +960,25 @@ async fn execute_delete(
         .render_delete_owned(delete)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 
-    execute_mutation_result(
-        state,
-        &sql,
-        "Delete",
-        tx_id.as_deref(),
-        metadata.scalar_hints(),
-        params.return_data,
-    )
-    .await
+    if returns_inline || !params.return_data {
+        return execute_mutation_result(
+            state,
+            &sql,
+            "Delete",
+            tx_id.as_deref(),
+            metadata.scalar_hints(),
+            returns_inline,
+        )
+        .await;
+    }
+
+    state
+        .in_transaction(tx_id.as_deref(), |tx| async move {
+            let rows = find_rows_by_expr(state, model, qualified_filter, None, Some(&tx)).await?;
+            state.execute_affected_on(&sql, "Delete", Some(&tx)).await?;
+            Ok(MutationResultData::Rows(rows))
+        })
+        .await
 }
 
 /// Handle `query.delete`.
@@ -763,21 +1022,19 @@ async fn execute_update_many(
     state: &EngineState,
     params: UpdateManyParams,
 ) -> Result<usize, ProtocolError> {
-    mutation_count_or_internal(
-        execute_update(
-            state,
-            UpdateParams {
-                protocol_version: params.protocol_version,
-                model: params.model,
-                filter: params.filter,
-                data: params.data,
-                transaction_id: params.transaction_id,
-                return_data: false,
-            },
-        )
-        .await?,
-        "updateMany",
+    Ok(execute_update(
+        state,
+        UpdateParams {
+            protocol_version: params.protocol_version,
+            model: params.model,
+            filter: params.filter,
+            data: params.data,
+            transaction_id: params.transaction_id,
+            return_data: false,
+        },
     )
+    .await?
+    .into_count())
 }
 
 /// Handle `query.deleteMany`. See [`handle_update_many`].
@@ -804,20 +1061,18 @@ async fn execute_delete_many(
     state: &EngineState,
     params: DeleteManyParams,
 ) -> Result<usize, ProtocolError> {
-    mutation_count_or_internal(
-        execute_delete(
-            state,
-            DeleteParams {
-                protocol_version: params.protocol_version,
-                model: params.model,
-                filter: params.filter,
-                transaction_id: params.transaction_id,
-                return_data: false,
-            },
-        )
-        .await?,
-        "deleteMany",
+    Ok(execute_delete(
+        state,
+        DeleteParams {
+            protocol_version: params.protocol_version,
+            model: params.model,
+            filter: params.filter,
+            transaction_id: params.transaction_id,
+            return_data: false,
+        },
     )
+    .await?
+    .into_count())
 }
 
 #[cfg(test)]
