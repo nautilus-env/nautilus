@@ -17,6 +17,9 @@ use super::types::{{ type_name }};
 use super::{{ relation_model }};
 {%- endfor %}
 {%- endif %}
+{%- for input_type in nested_write_imports %}
+use super::{{ input_type }};
+{%- endfor %}
 
 fn all_scalar_value_hints() -> &'static [Option<crate::ValueHint>] {
     &[

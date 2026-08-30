@@ -100,6 +100,26 @@ struct FieldContext {
     doc_comment: String,
 }
 
+/// Template context for the nested-write entry a relation adds to
+/// `{Model}CreateInput` and `{Model}UpdateInput`.
+///
+/// Which operations the generated struct carries depends on `is_owning`: the
+/// side holding the foreign key writes a single related row and so takes one
+/// operation at a time, while the side pointed at takes lists of them.
+#[derive(Debug, Clone, Serialize)]
+struct NestedWriteContext {
+    /// Rust field name on the create/update input.
+    field_name: String,
+    /// Name the engine matches the relation by.
+    wire_name: String,
+    target_model: String,
+    create_nested_name: String,
+    update_nested_name: String,
+    target_create_input: String,
+    target_update_input: String,
+    is_owning: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct AggregateFieldContext {
     name: String,
@@ -315,6 +335,15 @@ fn generate_model_with_registry(
     context.insert("scalar_fields", &fields.scalar);
     context.insert("relation_fields", &build_relation_fields(&view, extensions));
     context.insert("relations", &build_relations(&view, ir, extensions));
+
+    let nested_writes = build_nested_writes(&view);
+    context.insert("has_nested_writes", &!nested_writes.is_empty());
+    context.insert(
+        "nested_write_imports",
+        &nested_write_imports(&view, &nested_writes),
+    );
+    context.insert("nested_writes", &nested_writes);
+
     context.insert("create_fields", &fields.create);
     context.insert("updated_at_fields", &fields.updated_at);
     context.insert("all_scalar_fields", &fields.scalar);
@@ -538,6 +567,54 @@ fn build_relation_fields(
             }
         })
         .collect()
+}
+
+/// Build the nested-write entry of every relation whose target model exists.
+///
+/// A relation pointing at a model the schema does not declare gets no entry:
+/// there would be no input type to nest.
+fn build_nested_writes(view: &ModelView<'_>) -> Vec<NestedWriteContext> {
+    view.resolved_relations()
+        .map(|(relation, target)| {
+            let relation_pascal = relation.logical_name().to_pascal_case();
+            NestedWriteContext {
+                field_name: relation.snake_name(),
+                wire_name: relation.logical_name().to_string(),
+                target_model: target.logical_name.clone(),
+                create_nested_name: format!(
+                    "{}{}CreateNested",
+                    view.logical_name(),
+                    relation_pascal
+                ),
+                update_nested_name: format!(
+                    "{}{}UpdateNested",
+                    view.logical_name(),
+                    relation_pascal
+                ),
+                target_create_input: format!("{}CreateInput", target.logical_name),
+                target_update_input: format!("{}UpdateInput", target.logical_name),
+                is_owning: relation.is_owning(),
+            }
+        })
+        .collect()
+}
+
+/// The `{Model}CreateInput` / `{Model}UpdateInput` types a model file has to
+/// import to nest writes, minus the ones it declares itself.
+fn nested_write_imports(view: &ModelView<'_>, nested_writes: &[NestedWriteContext]) -> Vec<String> {
+    let mut names: Vec<String> = nested_writes
+        .iter()
+        .filter(|nested| nested.target_model != view.logical_name())
+        .flat_map(|nested| {
+            [
+                nested.target_create_input.clone(),
+                nested.target_update_input.clone(),
+            ]
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 fn build_relations(

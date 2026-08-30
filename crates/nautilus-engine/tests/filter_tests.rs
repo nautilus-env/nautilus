@@ -196,7 +196,7 @@ fn test_null_checks() {
             ),
             _ => panic!("Expected Column inside IsNull"),
         },
-        _ => panic!("Expected Expr::IsNull, got {:?}", filter),
+        _ => panic!("Expected Expr::IsNull"),
     }
 }
 
@@ -218,7 +218,7 @@ fn test_not_null_check() {
             nautilus_core::Expr::Column(name) => assert!(!name.is_empty()),
             _ => panic!("Expected Column inside IsNotNull"),
         },
-        _ => panic!("Expected Expr::IsNotNull, got {:?}", filter),
+        _ => panic!("Expected Expr::IsNotNull"),
     }
 }
 

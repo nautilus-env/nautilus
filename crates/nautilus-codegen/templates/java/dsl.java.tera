@@ -194,6 +194,281 @@ public final class {{ name }} {
     }
 
 {% endif %}
+{%- for nested in nested_writes %}
+    /**
+     * Nested writes on the {{ nested.wire_name }} relation, as accepted by
+     * {@link CreateInput}. Every operation runs inside the same transaction as
+     * the parent write, so a failing child rolls the parent back.
+     */
+    public static final class {{ nested.create_nested_name }} implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+{% if not nested.is_owning %}
+        private ArrayNode entries(String key) {
+            JsonNode existing = this.node.get(key);
+            if (existing instanceof ArrayNode arrayNode) {
+                return arrayNode;
+            }
+            ArrayNode created = JsonSupport.array();
+            this.node.set(key, created);
+            return created;
+        }
+{% endif %}
+        private static ObjectNode filter(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            {{ nested.target_dsl }}.Where where = new {{ nested.target_dsl }}.Where();
+            if (spec != null) {
+                spec.accept(where);
+            }
+            return where.node();
+        }
+
+        private static ObjectNode input(Consumer<{{ nested.target_dsl }}.CreateInput> spec) {
+            {{ nested.target_dsl }}.CreateInput value = new {{ nested.target_dsl }}.CreateInput();
+            if (spec != null) {
+                spec.accept(value);
+            }
+            return value.node();
+        }
+{% if nested.is_owning %}
+        /** Create the related {{ nested.target_model }} and point at it. */
+        public {{ nested.create_nested_name }} create(Consumer<{{ nested.target_dsl }}.CreateInput> spec) {
+            this.node.set("create", input(spec));
+            return this;
+        }
+
+        /** Point at the existing {{ nested.target_model }} the filter matches. */
+        public {{ nested.create_nested_name }} connect(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            this.node.set("connect", filter(spec));
+            return this;
+        }
+
+        /** Point at the matched {{ nested.target_model }}, creating it when there is none. */
+        public {{ nested.create_nested_name }} connectOrCreate(
+            Consumer<{{ nested.target_dsl }}.Where> where,
+            Consumer<{{ nested.target_dsl }}.CreateInput> create
+        ) {
+            ObjectNode entry = JsonSupport.object();
+            entry.set("where", filter(where));
+            entry.set("create", input(create));
+            this.node.set("connectOrCreate", entry);
+            return this;
+        }
+{% else %}
+        /** Create a {{ nested.target_model }} pointing at the parent. */
+        public {{ nested.create_nested_name }} create(Consumer<{{ nested.target_dsl }}.CreateInput> spec) {
+            entries("create").add(input(spec));
+            return this;
+        }
+
+        /** Same as {@code create}, spelled the way the batch operation is. */
+        public {{ nested.create_nested_name }} createMany(Consumer<{{ nested.target_dsl }}.CreateInput> spec) {
+            JsonNode existing = this.node.get("createMany");
+            ObjectNode batch = existing instanceof ObjectNode objectNode
+                ? objectNode
+                : JsonSupport.object();
+            this.node.set("createMany", batch);
+            JsonNode rows = batch.get("data");
+            ArrayNode data = rows instanceof ArrayNode arrayNode ? arrayNode : JsonSupport.array();
+            batch.set("data", data);
+            data.add(input(spec));
+            return this;
+        }
+
+        /** Point the matched {{ nested.target_model }} at the parent. */
+        public {{ nested.create_nested_name }} connect(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            entries("connect").add(filter(spec));
+            return this;
+        }
+
+        /** Connect the matched {{ nested.target_model }}, creating it when there is none. */
+        public {{ nested.create_nested_name }} connectOrCreate(
+            Consumer<{{ nested.target_dsl }}.Where> where,
+            Consumer<{{ nested.target_dsl }}.CreateInput> create
+        ) {
+            ObjectNode entry = JsonSupport.object();
+            entry.set("where", filter(where));
+            entry.set("create", input(create));
+            entries("connectOrCreate").add(entry);
+            return this;
+        }
+{% endif %}
+{{ m::serializable_tail() }}
+    }
+
+    /**
+     * Nested writes on the {{ nested.wire_name }} relation, as accepted by
+     * {@link UpdateInput}. Removals run before additions, so a {@code set}
+     * clears the relation before {@code connect} fills it again.
+     */
+    public static final class {{ nested.update_nested_name }} implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+{% if not nested.is_owning %}
+        private ArrayNode entries(String key) {
+            JsonNode existing = this.node.get(key);
+            if (existing instanceof ArrayNode arrayNode) {
+                return arrayNode;
+            }
+            ArrayNode created = JsonSupport.array();
+            this.node.set(key, created);
+            return created;
+        }
+{% endif %}
+
+        private static ObjectNode filter(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            {{ nested.target_dsl }}.Where where = new {{ nested.target_dsl }}.Where();
+            if (spec != null) {
+                spec.accept(where);
+            }
+            return where.node();
+        }
+
+        private static ObjectNode input(Consumer<{{ nested.target_dsl }}.CreateInput> spec) {
+            {{ nested.target_dsl }}.CreateInput value = new {{ nested.target_dsl }}.CreateInput();
+            if (spec != null) {
+                spec.accept(value);
+            }
+            return value.node();
+        }
+
+        private static ObjectNode assignments(Consumer<{{ nested.target_dsl }}.UpdateInput> spec) {
+            {{ nested.target_dsl }}.UpdateInput value = new {{ nested.target_dsl }}.UpdateInput();
+            if (spec != null) {
+                spec.accept(value);
+            }
+            return value.node();
+        }
+{% if nested.is_owning %}
+        /** Create the related {{ nested.target_model }} and point at it. */
+        public {{ nested.update_nested_name }} create(Consumer<{{ nested.target_dsl }}.CreateInput> spec) {
+            this.node.set("create", input(spec));
+            return this;
+        }
+
+        /** Point at the existing {{ nested.target_model }} the filter matches. */
+        public {{ nested.update_nested_name }} connect(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            this.node.set("connect", filter(spec));
+            return this;
+        }
+
+        /** Point at the matched {{ nested.target_model }}, creating it when there is none. */
+        public {{ nested.update_nested_name }} connectOrCreate(
+            Consumer<{{ nested.target_dsl }}.Where> where,
+            Consumer<{{ nested.target_dsl }}.CreateInput> create
+        ) {
+            ObjectNode entry = JsonSupport.object();
+            entry.set("where", filter(where));
+            entry.set("create", input(create));
+            this.node.set("connectOrCreate", entry);
+            return this;
+        }
+
+        /** Clear the foreign key without touching the related record. */
+        public {{ nested.update_nested_name }} disconnect() {
+            this.node.put("disconnect", true);
+            return this;
+        }
+
+        /** Update the {{ nested.target_model }} the foreign key currently points at. */
+        public {{ nested.update_nested_name }} update(Consumer<{{ nested.target_dsl }}.UpdateInput> spec) {
+            this.node.set("update", assignments(spec));
+            return this;
+        }
+
+        /** Clear the foreign key and delete the record it pointed at. */
+        public {{ nested.update_nested_name }} delete() {
+            this.node.put("delete", true);
+            return this;
+        }
+{% else %}
+        /** Create a {{ nested.target_model }} pointing at the parent. */
+        public {{ nested.update_nested_name }} create(Consumer<{{ nested.target_dsl }}.CreateInput> spec) {
+            entries("create").add(input(spec));
+            return this;
+        }
+
+        /** Same as {@code create}, spelled the way the batch operation is. */
+        public {{ nested.update_nested_name }} createMany(Consumer<{{ nested.target_dsl }}.CreateInput> spec) {
+            JsonNode existing = this.node.get("createMany");
+            ObjectNode batch = existing instanceof ObjectNode objectNode
+                ? objectNode
+                : JsonSupport.object();
+            this.node.set("createMany", batch);
+            JsonNode rows = batch.get("data");
+            ArrayNode data = rows instanceof ArrayNode arrayNode ? arrayNode : JsonSupport.array();
+            batch.set("data", data);
+            data.add(input(spec));
+            return this;
+        }
+
+        /** Point the matched {{ nested.target_model }} at the parent. */
+        public {{ nested.update_nested_name }} connect(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            entries("connect").add(filter(spec));
+            return this;
+        }
+
+        /** Connect the matched {{ nested.target_model }}, creating it when there is none. */
+        public {{ nested.update_nested_name }} connectOrCreate(
+            Consumer<{{ nested.target_dsl }}.Where> where,
+            Consumer<{{ nested.target_dsl }}.CreateInput> create
+        ) {
+            ObjectNode entry = JsonSupport.object();
+            entry.set("where", filter(where));
+            entry.set("create", input(create));
+            entries("connectOrCreate").add(entry);
+            return this;
+        }
+
+        /** Detach the matched records from the parent. */
+        public {{ nested.update_nested_name }} disconnect(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            entries("disconnect").add(filter(spec));
+            return this;
+        }
+
+        /** Replace the members of the relation with the matched records. */
+        public {{ nested.update_nested_name }} set(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            entries("set").add(filter(spec));
+            return this;
+        }
+
+        /** Update one connected record; a filter matching none fails. */
+        public {{ nested.update_nested_name }} update(
+            Consumer<{{ nested.target_dsl }}.Where> where,
+            Consumer<{{ nested.target_dsl }}.UpdateInput> data
+        ) {
+            ObjectNode entry = JsonSupport.object();
+            entry.set("where", filter(where));
+            entry.set("data", assignments(data));
+            entries("update").add(entry);
+            return this;
+        }
+
+        /** Update every connected record the filter narrows to. */
+        public {{ nested.update_nested_name }} updateMany(
+            Consumer<{{ nested.target_dsl }}.Where> where,
+            Consumer<{{ nested.target_dsl }}.UpdateInput> data
+        ) {
+            ObjectNode entry = JsonSupport.object();
+            entry.set("where", filter(where));
+            entry.set("data", assignments(data));
+            entries("updateMany").add(entry);
+            return this;
+        }
+
+        /** Delete one connected record; a filter matching none fails. */
+        public {{ nested.update_nested_name }} delete(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            entries("delete").add(filter(spec));
+            return this;
+        }
+
+        /** Delete every connected record the filter narrows to. */
+        public {{ nested.update_nested_name }} deleteMany(Consumer<{{ nested.target_dsl }}.Where> spec) {
+            entries("deleteMany").add(filter(spec));
+            return this;
+        }
+{% endif %}
+{{ m::serializable_tail() }}
+    }
+
+{% endfor %}
     public static final class CreateInput implements WireSerializable {
         private final ObjectNode node;
 
@@ -217,6 +492,18 @@ public final class {{ name }} {
         }
 
 {%- endif %}
+{%- endfor %}
+{%- for nested in nested_writes %}
+        /** Nested writes on the {{ nested.wire_name }} relation. */
+        public CreateInput {{ nested.method_name }}(Consumer<{{ nested.create_nested_name }}> spec) {
+            {{ nested.create_nested_name }} nested = new {{ nested.create_nested_name }}();
+            if (spec != null) {
+                spec.accept(nested);
+            }
+            this.node.set("{{ nested.wire_name }}", nested.node());
+            return this;
+        }
+
 {%- endfor %}
 {{ m::serializable_tail() }}
     }
@@ -244,6 +531,18 @@ public final class {{ name }} {
         }
 
 {%- endif %}
+{%- endfor %}
+{%- for nested in nested_writes %}
+        /** Nested writes on the {{ nested.wire_name }} relation. */
+        public UpdateInput {{ nested.method_name }}(Consumer<{{ nested.update_nested_name }}> spec) {
+            {{ nested.update_nested_name }} nested = new {{ nested.update_nested_name }}();
+            if (spec != null) {
+                spec.accept(nested);
+            }
+            this.node.set("{{ nested.wire_name }}", nested.node());
+            return this;
+        }
+
 {%- endfor %}
 {{ m::serializable_tail() }}
     }

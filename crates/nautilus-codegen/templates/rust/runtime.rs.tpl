@@ -261,8 +261,15 @@ where
         Ok(Some(handlers::engine_metrics_typed(state.as_ref(), reset).await))
     }
 
+    /// Gate for `create`, `update` and `delete`.
+    ///
+    /// A dialect without `RETURNING` (MySQL) cannot answer these from the
+    /// direct connector path at all: the statement reports no rows, so the
+    /// caller would get an error on a create and an empty result on an update
+    /// or a delete. The engine reads the written rows back on the connection
+    /// that wrote them, so it is the only path that can serve them there.
     fn should_try_engine_for_mutation(&self) -> bool {
-        self.engine_mode.uses_engine_for_simple_crud()
+        self.engine_mode.uses_engine_for_simple_crud() || !self.dialect().supports_returning()
     }
 
     /// Gate for the operations the direct connector path cannot serve at all —
@@ -764,16 +771,20 @@ pub(crate) async fn try_create_via_engine<E, M>(
     client: &Client<E>,
     model: &str,
     data: JsonValue,
+    require_engine: bool,
     decode_row: impl FnMut(crate::Row) -> nautilus_core::Result<M>,
 ) -> nautilus_core::Result<Option<M>>
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_mutation() {
+    if !require_engine && !client.should_try_engine_for_mutation() {
         return Ok(None);
     }
 
     let Some(state) = client.engine_state().await? else {
+        if require_engine {
+            return Err(nested::writes_need_engine(model));
+        }
         return Ok(None);
     };
 
@@ -830,16 +841,20 @@ pub(crate) async fn try_update_via_engine<E, M>(
     model: &str,
     filter: JsonValue,
     data: JsonValue,
+    require_engine: bool,
     decode_row: impl FnMut(crate::Row) -> nautilus_core::Result<M>,
 ) -> nautilus_core::Result<Option<Vec<M>>>
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_mutation() {
+    if !require_engine && !client.should_try_engine_for_mutation() {
         return Ok(None);
     }
 
     let Some(state) = client.engine_state().await? else {
+        if require_engine {
+            return Err(nested::writes_need_engine(model));
+        }
         return Ok(None);
     };
 
@@ -893,6 +908,116 @@ where
         .map_err(map_engine_protocol_error)?;
 
     decode_engine_rows(rows, decode_row).map(Some)
+}
+
+/// Nested-write plumbing shared by the generated create and update inputs.
+///
+/// Which of these a client reaches for depends on the relations its schema
+/// declares — a schema naming only the side that holds a foreign key leaves the
+/// list helpers unused — so the module as a whole opts out of the dead-code
+/// lint instead of every item carrying its own attribute.
+#[allow(dead_code)]
+pub(crate) mod nested {
+    use nautilus_core::Error;
+    use serde_json::Value as JsonValue;
+
+    /// A generated create or update input, as the nested-write helpers read it.
+    pub trait NestedInput {
+        /// The payload the engine receives for this input.
+        fn to_nested_json(&self) -> nautilus_core::Result<JsonValue>;
+    }
+
+    /// One entry of a nested-write operation pairing a filter with a payload.
+    pub trait NestedEntry {
+        /// The entry as the engine receives it.
+        fn to_nested_json(&self) -> nautilus_core::Result<JsonValue>;
+    }
+
+    /// Connect the record `where_` matches, creating one from `create` when the
+    /// filter matches none.
+    #[derive(Debug, Clone)]
+    pub struct ConnectOrCreate<C> {
+        /// Filter identifying the record to connect.
+        pub where_: nautilus_core::Expr,
+        /// Input used when the filter matches no record.
+        pub create: C,
+    }
+
+    impl<C: NestedInput> NestedEntry for ConnectOrCreate<C> {
+        fn to_nested_json(&self) -> nautilus_core::Result<JsonValue> {
+            Ok(serde_json::json!({
+                "where": filter_json(&self.where_)?,
+                "create": self.create.to_nested_json()?,
+            }))
+        }
+    }
+
+    /// One nested `update` or `updateMany`: `where_` narrows the records reached
+    /// through the relation, `data` is applied to them.
+    #[derive(Debug, Clone, Default)]
+    pub struct NestedUpdate<U> {
+        /// Filter narrowing the connected records, or `None` for all of them.
+        pub where_: Option<nautilus_core::Expr>,
+        /// Assignments applied to the records the filter keeps.
+        pub data: U,
+    }
+
+    impl<U: NestedInput> NestedEntry for NestedUpdate<U> {
+        fn to_nested_json(&self) -> nautilus_core::Result<JsonValue> {
+            let mut entry = serde_json::Map::new();
+            if let Some(filter) = &self.where_ {
+                entry.insert("where".to_string(), filter_json(filter)?);
+            }
+            entry.insert("data".to_string(), self.data.to_nested_json()?);
+            Ok(JsonValue::Object(entry))
+        }
+    }
+
+    pub fn filter_json(filter: &nautilus_core::Expr) -> nautilus_core::Result<JsonValue> {
+        nautilus_core::where_expr_to_protocol_json(filter)
+    }
+
+    pub fn filter_array(filters: &[nautilus_core::Expr]) -> nautilus_core::Result<JsonValue> {
+        let mut items = Vec::with_capacity(filters.len());
+        for filter in filters {
+            items.push(filter_json(filter)?);
+        }
+        Ok(JsonValue::Array(items))
+    }
+
+    pub fn input_json<C: NestedInput>(input: &C) -> nautilus_core::Result<JsonValue> {
+        input.to_nested_json()
+    }
+
+    pub fn data_array<C: NestedInput>(inputs: &[C]) -> nautilus_core::Result<JsonValue> {
+        let mut items = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            items.push(input.to_nested_json()?);
+        }
+        Ok(JsonValue::Array(items))
+    }
+
+    pub fn entry_json<E: NestedEntry>(entry: &E) -> nautilus_core::Result<JsonValue> {
+        entry.to_nested_json()
+    }
+
+    pub fn entry_array<E: NestedEntry>(entries: &[E]) -> nautilus_core::Result<JsonValue> {
+        let mut items = Vec::with_capacity(entries.len());
+        for entry in entries {
+            items.push(entry.to_nested_json()?);
+        }
+        Ok(JsonValue::Array(items))
+    }
+
+    /// The error a nested write raises when no embedded engine can serve it.
+    ///
+    /// Relation operations span several statements in one transaction, which the
+    /// direct connector path has no plan for; only the engine can run them.
+    pub fn writes_need_engine(model: &str) -> Error {
+        Error::InvalidQuery(format!(
+            "nested writes on '{model}' need the embedded engine, which this client is not configured to use"
+        ))
+    }
 }
 
 fn decode_engine_rows<M>(

@@ -232,6 +232,11 @@ fn test_write_rust_code_lib_rs_contains_template_exports() {
     );
     assert!(
         lib_content
+            .contains("pub use runtime::nested::{ConnectOrCreate, NestedInput, NestedUpdate};"),
+        "lib.rs should re-export the nested-write input types:\n{lib_content}"
+    );
+    assert!(
+        lib_content
             .contains("pub use nautilus_connector::{execute_all, execute_one, execute_optional};"),
         "lib.rs should re-export execute helpers for generated fast paths:\n{lib_content}"
     );

@@ -67,11 +67,43 @@ unaffected.
   single parent key; a filter matching several is refused before anything is
   written.
 
-  The generated JavaScript and Python clients forward `data` unchanged, so both
-  accept nested writes as they stand. The Rust and Java clients do not: their
-  create and update inputs are generated structs with one typed field per
-  column, and reaching parity needs nested-input types per relation plus a typed
-  unique-filter for `connect`.
+  All four generated clients accept nested writes. JavaScript and Python forward
+  `data` unchanged; Rust and Java get a typed nested-write input per relation.
+
+  In Rust, `{Model}CreateInput` and `{Model}UpdateInput` grow a field per
+  relation, holding a `{Model}{Relation}CreateNested` / `…UpdateNested` whose
+  own fields are the operations. Filters are `nautilus_core::Expr`, payloads are
+  the target's own input type, and `ConnectOrCreate` / `NestedUpdate` pair a
+  filter with one:
+
+  ```rust
+  authors.create(AuthorCreateInput {
+      email: Some("ada@example.com".to_string()),
+      books: AuthorBooksCreateNested {
+          create: vec![BookCreateInput { title: Some("on engines".to_string()), ..Default::default() }],
+          connect: vec![Book::title().eq("on looms")],
+          ..Default::default()
+      },
+      ..Default::default()
+  })?;
+  ```
+
+  Nested writes span several statements in one transaction, which the direct
+  connector path cannot run, so a create or update carrying one goes through the
+  embedded engine regardless of `EngineMode`, and reports a clear error when the
+  client is configured with `EngineMode::Never`. `upsert` refuses them: it
+  writes one row with a single statement and has no place to run them from.
+
+  In Java, `CreateInput` and `UpdateInput` grow a builder method per relation,
+  taking a `Consumer` of the relation's nested-write builder:
+
+  ```java
+  db.author().create(data -> data
+      .email("ada@example.com")
+      .books(books -> books
+          .create(book -> book.title("on engines"))
+          .connect(book -> book.title("on looms"))));
+  ```
 
 - Added `import "<path>"` to the schema language. A schema file joins other
   files to itself by naming them, relative to its own directory; the path may
@@ -230,6 +262,14 @@ unaffected.
   `nautilus-core` keyed on this marker.
 
 ### Fixed
+
+- The generated Rust client no longer loses the result of `create`, `update` and
+  `delete` on MySQL. Without `RETURNING` the direct connector path gets no rows
+  back from the statement, so a create failed with "Expected exactly one row,
+  got 0" and an update or a delete answered with an empty list even though it
+  had written. These three now go through the embedded engine on a dialect
+  without `RETURNING`, which reads the written rows back on the connection that
+  wrote them. PostgreSQL and SQLite are unaffected.
 
 - `query.create`, `query.update` and `query.delete` now return the rows they
   wrote on MySQL. MySQL has no `RETURNING`, so the statement was rendered

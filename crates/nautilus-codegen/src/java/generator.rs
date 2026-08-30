@@ -307,6 +307,22 @@ struct DslRelationFieldCtx {
     target_model: String,
 }
 
+/// Template context for the nested-write builder a relation contributes to
+/// `CreateInput` and `UpdateInput`.
+#[derive(Debug, Serialize)]
+struct DslNestedWriteCtx {
+    /// Builder method name on the create/update input.
+    method_name: String,
+    /// Name the engine matches the relation by.
+    wire_name: String,
+    target_model: String,
+    /// The DSL class carrying the target model's inputs and filters.
+    target_dsl: String,
+    create_nested_name: String,
+    update_nested_name: String,
+    is_owning: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct DslOrderByFieldCtx {
     method_name: String,
@@ -322,6 +338,7 @@ struct DslTemplateContext {
     create_fields: Vec<DslWritableFieldCtx>,
     update_fields: Vec<DslWritableFieldCtx>,
     relation_fields: Vec<DslRelationFieldCtx>,
+    nested_writes: Vec<DslNestedWriteCtx>,
     numeric_field_names: Vec<String>,
     order_by_fields: Vec<DslOrderByFieldCtx>,
     orderable_field_names: Vec<String>,
@@ -1062,6 +1079,22 @@ fn generate_dsl_file(
         })
         .collect();
 
+    let nested_writes: Vec<DslNestedWriteCtx> = view
+        .resolved_relations()
+        .map(|(relation, target)| {
+            let relation_pascal = relation.logical_name().to_upper_camel_case();
+            DslNestedWriteCtx {
+                method_name: relation.logical_name().to_lower_camel_case(),
+                wire_name: relation.logical_name().to_string(),
+                target_model: target.logical_name.clone(),
+                target_dsl: format!("{}Dsl", target.logical_name),
+                create_nested_name: format!("{relation_pascal}CreateNested"),
+                update_nested_name: format!("{relation_pascal}UpdateNested"),
+                is_owning: relation.is_owning(),
+            }
+        })
+        .collect();
+
     let mut context = Context::from_serialize(&DslTemplateContext {
         package_name: config.root_package.clone(),
         imports: imports.into_iter().collect(),
@@ -1070,6 +1103,7 @@ fn generate_dsl_file(
         create_fields,
         update_fields,
         relation_fields,
+        nested_writes,
         numeric_field_names,
         order_by_fields,
         orderable_field_names,

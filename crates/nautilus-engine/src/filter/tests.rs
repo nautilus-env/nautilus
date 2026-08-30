@@ -552,22 +552,22 @@ model Report {
     assert!(matches!(filter, Expr::Exists(_)));
     assert!(
         expr_contains_column(&filter, "blog_posts__post_status"),
-        "expected mapped child column qualification in relation filter: {filter:?}"
+        "expected mapped child column qualification in relation filter"
     );
     assert!(
         expr_contains_enum(&filter, "PUBLISHED", "poststatus"),
-        "expected enum coercion in relation filter: {filter:?}"
+        "expected enum coercion in relation filter"
     );
     assert!(
         expr_contains_subquery_table(&filter, "comments"),
-        "expected nested every() relation subquery: {filter:?}"
+        "expected nested every() relation subquery"
     );
     assert!(
         expr_contains_subquery_table(&filter, "comment_reports"),
-        "expected nested none() relation subquery: {filter:?}"
+        "expected nested none() relation subquery"
     );
     assert!(
         expr_contains_column(&filter, "comment_reports__kind_text"),
-        "expected mapped grandchild column qualification in nested relation filter: {filter:?}"
+        "expected mapped grandchild column qualification in nested relation filter"
     );
 }

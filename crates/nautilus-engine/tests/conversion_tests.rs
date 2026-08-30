@@ -371,7 +371,7 @@ fn normalize_row_with_hints_returns_original_row_when_all_hints_are_none() {
     assert_eq!(normalized.columns()[1].0.as_ptr(), payload_name_ptr);
     match &normalized.columns()[1].1 {
         Value::Bytes(bytes) => assert_eq!(bytes.as_ptr(), payload_value_ptr),
-        other => panic!("expected bytes value, got {other:?}"),
+        _ => panic!("expected bytes value"),
     }
     assert_eq!(normalized.get("id"), Some(&Value::I64(1)));
     assert_eq!(

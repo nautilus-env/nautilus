@@ -106,6 +106,14 @@ impl<'a> RelationView<'a> {
         self.field.is_array
     }
 
+    /// Whether this side of the relation declares the foreign-key columns.
+    ///
+    /// The owning side has to write the related row before its own, since the
+    /// key it stores points at it; the inverse side is the other way round.
+    pub fn is_owning(&self) -> bool {
+        !self.relation.fields.is_empty()
+    }
+
     /// The resolved target together with this view, for the backends that can
     /// only emit a relation whose target model exists.
     pub fn resolved_target(&self) -> Option<&'a ModelIr> {

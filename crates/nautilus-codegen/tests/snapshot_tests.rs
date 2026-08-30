@@ -1190,11 +1190,11 @@ model Comment {
     );
     assert!(
         post_code.contains(r#"relation_value = _get_wire_value(row, "author_json")"#),
-        "expected Python hydration to read relation JSON columns on nested models:\n{post_code}"
+        "expected Python hydration to read relation JSON columns on nested models"
     );
     assert!(
         post_code.contains(r#"from .user import _user_from_wire"#),
-        "expected Python nested include hydration to recurse into related models:\n{post_code}"
+        "expected Python nested include hydration to recurse into related models"
     );
     assert!(
         comment_code.contains(r#"relation_value = _get_wire_value(row, "post_json")"#)
@@ -1373,11 +1373,11 @@ model Comment {
     );
     assert!(
         post_code.contains("import { _coerceUser as _coerceUser_for_author } from './user.js';"),
-        "expected JS nested include hydration to import the related model coercer:\n{post_code}"
+        "expected JS nested include hydration to import the related model coercer"
     );
     assert!(
         post_code.contains("const relationValue = _getWireValue(row, 'author_json');"),
-        "expected JS hydration to read relation JSON columns on nested models:\n{post_code}"
+        "expected JS hydration to read relation JSON columns on nested models"
     );
     assert!(
         comment_code.contains("const relationValue = _getWireValue(row, 'post_json');")
@@ -1746,6 +1746,182 @@ model User {
             && engine_runtime.contains("--test-before-acquire")
             && engine_runtime.contains("--statement-cache-capacity"),
         "expected JS runtime engine to forward pool options to the CLI:\n{engine_runtime}"
+    );
+}
+
+/// The field list of a generated Rust struct, without its surrounding items.
+fn struct_body<'a>(code: &'a str, name: &str) -> &'a str {
+    let header = format!("pub struct {name} {{");
+    let start = code
+        .find(&header)
+        .unwrap_or_else(|| panic!("missing generated struct '{name}'"))
+        + header.len();
+    let end = code[start..]
+        .find("\n}")
+        .unwrap_or_else(|| panic!("unterminated generated struct '{name}'"));
+    &code[start..start + end]
+}
+
+const NESTED_WRITE_RUST_SCHEMA: &str = r#"
+model Author {
+  id    Int    @id @default(autoincrement())
+  email String @unique
+  books Book[]
+}
+
+model Book {
+  id       Int     @id @default(autoincrement())
+  title    String  @unique
+  authorId Int?    @map("author_id")
+  author   Author? @relation(fields: [authorId], references: [id])
+}
+"#;
+
+#[test]
+fn test_rust_create_input_carries_nested_writes_for_both_relation_sides() {
+    let ir = validate(NESTED_WRITE_RUST_SCHEMA);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
+    let author = models.get("Author").expect("Author model missing");
+    let book = models.get("Book").expect("Book model missing");
+
+    assert!(
+        author.contains("pub books: AuthorBooksCreateNested,"),
+        "expected the create input to carry the relation"
+    );
+    assert!(
+        author.contains("pub create_many: Vec<BookCreateInput>,")
+            && author.contains("pub connect: Vec<nautilus_core::Expr>,"),
+        "expected the inverse side to take lists of operations"
+    );
+    assert!(
+        author.contains("pub set: Vec<nautilus_core::Expr>,")
+            && author.contains("pub update_many: Vec<crate::NestedUpdate<BookUpdateInput>>,"),
+        "expected the update-only operations only on the update input"
+    );
+    let create_nested = struct_body(author, "AuthorBooksCreateNested");
+    assert!(
+        !create_nested.contains("pub set:") && !create_nested.contains("pub delete_many:"),
+        "expected the create input to stop short of the update-only operations"
+    );
+
+    assert!(
+        book.contains("pub create: Option<Box<AuthorCreateInput>>,"),
+        "expected the owning side to box its single related input"
+    );
+    assert!(
+        book.contains("pub disconnect: bool,") && book.contains("pub delete: bool,"),
+        "expected the owning side to take a flag where the inverse side takes filters"
+    );
+    assert!(
+        book.contains("use super::AuthorCreateInput;")
+            && book.contains("use super::AuthorUpdateInput;"),
+        "expected the model file to import the target input types"
+    );
+}
+
+#[test]
+fn test_rust_nested_writes_route_through_the_engine() {
+    let ir = validate(NESTED_WRITE_RUST_SCHEMA);
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
+    let author = models.get("Author").expect("Author model missing");
+
+    assert!(
+        author.contains("data.has_nested_writes(),"),
+        "expected create to tell the engine helper that it cannot fall back"
+    );
+    assert!(
+        author.contains("args.data.has_nested_writes(),"),
+        "expected update to tell the engine helper that it cannot fall back"
+    );
+    assert!(
+        author.contains("return Err(crate::runtime::nested::writes_need_engine(\"Author\"));"),
+        "expected the connector fallback to refuse a nested write"
+    );
+    assert!(
+        author.contains("upsert on 'Author' does not accept nested writes"),
+        "expected upsert to refuse nested writes"
+    );
+}
+
+#[test]
+fn test_rust_model_without_relations_has_no_nested_write_types() {
+    let ir = validate(
+        r#"
+model User {
+  id   Int    @id @default(autoincrement())
+  name String
+}
+"#,
+    );
+    let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
+    let user = models.get("User").expect("User model missing");
+
+    assert!(
+        !user.contains("CreateNested"),
+        "expected no nested-write types for a model with no relations"
+    );
+    assert!(
+        user.contains("pub(crate) fn has_nested_writes(&self) -> bool {\n        false\n    }"),
+        "expected the gate to fold to a constant"
+    );
+}
+
+#[test]
+fn test_java_dsl_exposes_nested_writes_for_both_relation_sides() {
+    let ir = validate(
+        r#"
+generator client {
+  provider    = "nautilus-client-java"
+  output      = "./generated-java"
+  package     = "com.acme.db"
+  group_id    = "com.acme"
+  artifact_id = "db-client"
+}
+
+model Author {
+  id    Int    @id @default(autoincrement())
+  email String @unique
+  books Book[]
+}
+
+model Book {
+  id       Int     @id @default(autoincrement())
+  title    String  @unique
+  authorId Int?    @map("author_id")
+  author   Author? @relation(fields: [authorId], references: [id])
+}
+"#,
+    );
+    let files =
+        generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
+    let author_dsl = generated_java_file(&files, "dsl/AuthorDsl.java");
+    let book_dsl = generated_java_file(&files, "dsl/BookDsl.java");
+
+    assert!(
+        author_dsl.contains("public CreateInput books(Consumer<BooksCreateNested> spec)")
+            && author_dsl.contains("public UpdateInput books(Consumer<BooksUpdateNested> spec)"),
+        "expected the inputs to take the relation builder"
+    );
+    assert!(
+        author_dsl.contains("public BooksCreateNested create(Consumer<BookDsl.CreateInput> spec)"),
+        "expected a nested create taking the target model input"
+    );
+    assert!(
+        author_dsl.contains("public BooksUpdateNested deleteMany(Consumer<BookDsl.Where> spec)"),
+        "expected the inverse side to expose the update-only operations"
+    );
+    assert!(
+        !author_dsl.contains("public BooksCreateNested deleteMany(Consumer<BookDsl.Where> spec)"),
+        "expected the create input to stop short of the update-only operations"
+    );
+
+    assert!(
+        book_dsl.contains("public AuthorUpdateNested disconnect() {"),
+        "expected the owning side to disconnect without a filter"
+    );
+    assert!(
+        book_dsl.contains("this.node.set(\"create\", input(spec));"),
+        "expected the owning side to set one operation instead of appending"
     );
 }
 

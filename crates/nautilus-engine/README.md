@@ -49,7 +49,9 @@ in the current directory.
   one can only narrow the rows reached through the relation. A request without a
   `transactionId` gets a transaction for the whole call; one with a
   `transactionId` runs on it and leaves the commit to its owner. On
-  `query.update` the filter must match exactly one row.
+  `query.update` the filter must match exactly one row. All four generated
+  clients expose them: JavaScript and Python forward `data` unchanged, Rust and
+  Java carry a typed nested-write input per relation.
 - On a backend without `RETURNING` (MySQL), `returnData: true` reads the written
   rows back on the same connection: `LAST_INSERT_ID()` for a generated key, the
   supplied key otherwise, and the primary keys captured before the statement for

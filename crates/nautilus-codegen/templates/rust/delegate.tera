@@ -1,3 +1,230 @@
+{%- for nested in nested_writes %}
+/// Nested writes on the `{{ nested.field_name }}` relation of {{ model_name }},
+/// as accepted by `{{ model_name }}CreateInput`.
+///
+/// Every operation runs inside the same transaction as the {{ model_name }}
+/// write, so a failing child rolls the parent back.
+#[derive(Debug, Default, Clone)]
+pub struct {{ nested.create_nested_name }} {
+{%- if nested.is_owning %}
+    /// Create the related {{ nested.target_model }} and point at it.
+    pub create: Option<Box<{{ nested.target_create_input }}>>,
+    /// Point at the existing {{ nested.target_model }} the filter matches.
+    pub connect: Option<nautilus_core::Expr>,
+    /// Point at the matched {{ nested.target_model }}, creating it when there is none.
+    pub connect_or_create: Option<Box<crate::ConnectOrCreate<{{ nested.target_create_input }}>>>,
+{%- else %}
+    /// Create these {{ nested.target_model }} records pointing at the parent.
+    pub create: Vec<{{ nested.target_create_input }}>,
+    /// Same as `create`, spelled the way the batch operation is.
+    pub create_many: Vec<{{ nested.target_create_input }}>,
+    /// Point the matched {{ nested.target_model }} records at the parent.
+    pub connect: Vec<nautilus_core::Expr>,
+    /// Connect each matched {{ nested.target_model }}, creating it when there is none.
+    pub connect_or_create: Vec<crate::ConnectOrCreate<{{ nested.target_create_input }}>>,
+{%- endif %}
+}
+
+impl {{ nested.create_nested_name }} {
+    fn is_empty(&self) -> bool {
+{%- if nested.is_owning %}
+        self.create.is_none() && self.connect.is_none() && self.connect_or_create.is_none()
+{%- else %}
+        self.create.is_empty()
+            && self.create_many.is_empty()
+            && self.connect.is_empty()
+            && self.connect_or_create.is_empty()
+{%- endif %}
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut operations = serde_json::Map::new();
+{%- if nested.is_owning %}
+        if let Some(create) = &self.create {
+            operations.insert("create".to_string(), crate::runtime::nested::input_json(create.as_ref())?);
+        }
+        if let Some(filter) = &self.connect {
+            operations.insert("connect".to_string(), crate::runtime::nested::filter_json(filter)?);
+        }
+        if let Some(entry) = &self.connect_or_create {
+            operations.insert(
+                "connectOrCreate".to_string(),
+                crate::runtime::nested::entry_json(entry.as_ref())?,
+            );
+        }
+{%- else %}
+        if !self.create.is_empty() {
+            operations.insert("create".to_string(), crate::runtime::nested::data_array(&self.create)?);
+        }
+        if !self.create_many.is_empty() {
+            operations.insert(
+                "createMany".to_string(),
+                serde_json::json!({ "data": crate::runtime::nested::data_array(&self.create_many)? }),
+            );
+        }
+        if !self.connect.is_empty() {
+            operations.insert(
+                "connect".to_string(),
+                crate::runtime::nested::filter_array(&self.connect)?,
+            );
+        }
+        if !self.connect_or_create.is_empty() {
+            operations.insert(
+                "connectOrCreate".to_string(),
+                crate::runtime::nested::entry_array(&self.connect_or_create)?,
+            );
+        }
+{%- endif %}
+        Ok(serde_json::Value::Object(operations))
+    }
+}
+
+/// Nested writes on the `{{ nested.field_name }}` relation of {{ model_name }},
+/// as accepted by `{{ model_name }}UpdateInput`.
+///
+/// Removals run before additions, so a `set` clears the relation before
+/// `connect` fills it again.
+#[derive(Debug, Default, Clone)]
+pub struct {{ nested.update_nested_name }} {
+{%- if nested.is_owning %}
+    /// Create the related {{ nested.target_model }} and point at it.
+    pub create: Option<Box<{{ nested.target_create_input }}>>,
+    /// Point at the existing {{ nested.target_model }} the filter matches.
+    pub connect: Option<nautilus_core::Expr>,
+    /// Point at the matched {{ nested.target_model }}, creating it when there is none.
+    pub connect_or_create: Option<Box<crate::ConnectOrCreate<{{ nested.target_create_input }}>>>,
+    /// Clear the foreign key without touching the related record.
+    pub disconnect: bool,
+    /// Update the {{ nested.target_model }} the foreign key currently points at.
+    pub update: Option<Box<{{ nested.target_update_input }}>>,
+    /// Clear the foreign key and delete the record it pointed at.
+    pub delete: bool,
+{%- else %}
+    /// Create these {{ nested.target_model }} records pointing at the parent.
+    pub create: Vec<{{ nested.target_create_input }}>,
+    /// Same as `create`, spelled the way the batch operation is.
+    pub create_many: Vec<{{ nested.target_create_input }}>,
+    /// Point the matched {{ nested.target_model }} records at the parent.
+    pub connect: Vec<nautilus_core::Expr>,
+    /// Connect each matched {{ nested.target_model }}, creating it when there is none.
+    pub connect_or_create: Vec<crate::ConnectOrCreate<{{ nested.target_create_input }}>>,
+    /// Detach the matched records from the parent.
+    pub disconnect: Vec<nautilus_core::Expr>,
+    /// Replace the members of the relation with the matched records.
+    pub set: Vec<nautilus_core::Expr>,
+    /// Update one connected record per entry; an entry matching none fails.
+    pub update: Vec<crate::NestedUpdate<{{ nested.target_update_input }}>>,
+    /// Update every connected record the filter of the entry narrows to.
+    pub update_many: Vec<crate::NestedUpdate<{{ nested.target_update_input }}>>,
+    /// Delete one connected record per filter; a filter matching none fails.
+    pub delete: Vec<nautilus_core::Expr>,
+    /// Delete every connected record the filter narrows to.
+    pub delete_many: Vec<nautilus_core::Expr>,
+{%- endif %}
+}
+
+impl {{ nested.update_nested_name }} {
+    fn is_empty(&self) -> bool {
+{%- if nested.is_owning %}
+        self.create.is_none()
+            && self.connect.is_none()
+            && self.connect_or_create.is_none()
+            && !self.disconnect
+            && self.update.is_none()
+            && !self.delete
+{%- else %}
+        self.create.is_empty()
+            && self.create_many.is_empty()
+            && self.connect.is_empty()
+            && self.connect_or_create.is_empty()
+            && self.disconnect.is_empty()
+            && self.set.is_empty()
+            && self.update.is_empty()
+            && self.update_many.is_empty()
+            && self.delete.is_empty()
+            && self.delete_many.is_empty()
+{%- endif %}
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut operations = serde_json::Map::new();
+{%- if nested.is_owning %}
+        if let Some(create) = &self.create {
+            operations.insert("create".to_string(), crate::runtime::nested::input_json(create.as_ref())?);
+        }
+        if let Some(filter) = &self.connect {
+            operations.insert("connect".to_string(), crate::runtime::nested::filter_json(filter)?);
+        }
+        if let Some(entry) = &self.connect_or_create {
+            operations.insert(
+                "connectOrCreate".to_string(),
+                crate::runtime::nested::entry_json(entry.as_ref())?,
+            );
+        }
+        if self.disconnect {
+            operations.insert("disconnect".to_string(), serde_json::Value::Bool(true));
+        }
+        if let Some(update) = &self.update {
+            operations.insert("update".to_string(), crate::runtime::nested::input_json(update.as_ref())?);
+        }
+        if self.delete {
+            operations.insert("delete".to_string(), serde_json::Value::Bool(true));
+        }
+{%- else %}
+        if !self.create.is_empty() {
+            operations.insert("create".to_string(), crate::runtime::nested::data_array(&self.create)?);
+        }
+        if !self.create_many.is_empty() {
+            operations.insert(
+                "createMany".to_string(),
+                serde_json::json!({ "data": crate::runtime::nested::data_array(&self.create_many)? }),
+            );
+        }
+        if !self.connect.is_empty() {
+            operations.insert(
+                "connect".to_string(),
+                crate::runtime::nested::filter_array(&self.connect)?,
+            );
+        }
+        if !self.connect_or_create.is_empty() {
+            operations.insert(
+                "connectOrCreate".to_string(),
+                crate::runtime::nested::entry_array(&self.connect_or_create)?,
+            );
+        }
+        if !self.disconnect.is_empty() {
+            operations.insert(
+                "disconnect".to_string(),
+                crate::runtime::nested::filter_array(&self.disconnect)?,
+            );
+        }
+        if !self.set.is_empty() {
+            operations.insert("set".to_string(), crate::runtime::nested::filter_array(&self.set)?);
+        }
+        if !self.update.is_empty() {
+            operations.insert("update".to_string(), crate::runtime::nested::entry_array(&self.update)?);
+        }
+        if !self.update_many.is_empty() {
+            operations.insert(
+                "updateMany".to_string(),
+                crate::runtime::nested::entry_array(&self.update_many)?,
+            );
+        }
+        if !self.delete.is_empty() {
+            operations.insert("delete".to_string(), crate::runtime::nested::filter_array(&self.delete)?);
+        }
+        if !self.delete_many.is_empty() {
+            operations.insert(
+                "deleteMany".to_string(),
+                crate::runtime::nested::filter_array(&self.delete_many)?,
+            );
+        }
+{%- endif %}
+        Ok(serde_json::Value::Object(operations))
+    }
+}
+
+{% endfor %}
 /// Structured input for creating a {{ model_name }} record.
 ///
 /// All fields are optional; unset fields are omitted from the INSERT.
@@ -7,10 +234,26 @@ pub struct {{ model_name }}CreateInput {
     /// {{ field.name }} column.
     pub {{ field.name }}: Option<{{ field.rust_type }}>,
 {%- endfor %}
+{%- for nested in nested_writes %}
+    /// Nested writes on the `{{ nested.field_name }}` relation.
+    pub {{ nested.field_name }}: {{ nested.create_nested_name }},
+{%- endfor %}
 }
 
 impl {{ model_name }}CreateInput {
-    fn to_engine_data(&self) -> serde_json::Value {
+    /// Whether the input names a relation, which only the engine can write.
+    pub(crate) fn has_nested_writes(&self) -> bool {
+{%- if has_nested_writes %}
+{%- for nested in nested_writes %}
+        !self.{{ nested.field_name }}.is_empty()
+{%- if not loop.last %} ||{% endif %}
+{%- endfor %}
+{%- else %}
+        false
+{%- endif %}
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
         let mut data = serde_json::Map::new();
 {%- for field in create_fields %}
         if let Some(value) = &self.{{ field.name }} {
@@ -27,7 +270,21 @@ impl {{ model_name }}CreateInput {
             );
         }
 {%- endfor %}
-        serde_json::Value::Object(data)
+{%- for nested in nested_writes %}
+        if !self.{{ nested.field_name }}.is_empty() {
+            data.insert(
+                "{{ nested.wire_name }}".to_string(),
+                self.{{ nested.field_name }}.to_engine_data()?,
+            );
+        }
+{%- endfor %}
+        Ok(serde_json::Value::Object(data))
+    }
+}
+
+impl crate::runtime::nested::NestedInput for {{ model_name }}CreateInput {
+    fn to_nested_json(&self) -> nautilus_core::Result<serde_json::Value> {
+        self.to_engine_data()
     }
 }
 
@@ -40,10 +297,26 @@ pub struct {{ model_name }}UpdateInput {
     /// {{ field.name }} column.
     pub {{ field.name }}: Option<{{ field.rust_type }}>,
 {%- endfor %}
+{%- for nested in nested_writes %}
+    /// Nested writes on the `{{ nested.field_name }}` relation.
+    pub {{ nested.field_name }}: {{ nested.update_nested_name }},
+{%- endfor %}
 }
 
 impl {{ model_name }}UpdateInput {
-    fn to_engine_data(&self) -> serde_json::Value {
+    /// Whether the input names a relation, which only the engine can write.
+    pub(crate) fn has_nested_writes(&self) -> bool {
+{%- if has_nested_writes %}
+{%- for nested in nested_writes %}
+        !self.{{ nested.field_name }}.is_empty()
+{%- if not loop.last %} ||{% endif %}
+{%- endfor %}
+{%- else %}
+        false
+{%- endif %}
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
         let mut data = serde_json::Map::new();
 {%- for field in create_fields %}
         if let Some(value) = &self.{{ field.name }} {
@@ -60,14 +333,28 @@ impl {{ model_name }}UpdateInput {
             );
         }
 {%- endfor %}
-        serde_json::Value::Object(data)
+{%- for nested in nested_writes %}
+        if !self.{{ nested.field_name }}.is_empty() {
+            data.insert(
+                "{{ nested.wire_name }}".to_string(),
+                self.{{ nested.field_name }}.to_engine_data()?,
+            );
+        }
+{%- endfor %}
+        Ok(serde_json::Value::Object(data))
     }
 
     fn has_assignments(&self) -> bool {
 {%- for field in create_fields %}
-        self.{{ field.name }}.is_some()
-{%- if not loop.last %} ||{% endif %}
+        self.{{ field.name }}.is_some() ||
 {%- endfor %}
+        self.has_nested_writes()
+    }
+}
+
+impl crate::runtime::nested::NestedInput for {{ model_name }}UpdateInput {
+    fn to_nested_json(&self) -> nautilus_core::Result<serde_json::Value> {
+        self.to_engine_data()
     }
 }
 
@@ -1317,7 +1604,7 @@ where
         let _events = {% if is_async %}self.client.events().clone(){% else %}_c.events().clone(){% endif %};
         let _transaction_id = {% if is_async %}self.client.transaction_id(){% else %}_c.transaction_id(){% endif %};
         let _event_args = data.clone();
-        let _event_payload = data.to_engine_data();
+        let _event_payload = data.to_engine_data()?;
         let mut _event_state = std::collections::HashMap::new();
         let mut _before_ctx = {{ model_name }}CreateEventContext::new(
             "{{ model_name }}",
@@ -1344,6 +1631,7 @@ where
                     {% if is_async %}&self.client{% else %}&_c{% endif %},
                     "{{ model_name }}",
                     _event_payload.clone(),
+                    data.has_nested_writes(),
                     |row| {
                         decode_model_row_with_hints(
                             row,
@@ -1544,7 +1832,7 @@ where
         let _events = {% if is_async %}self.client.events().clone(){% else %}_c.events().clone(){% endif %};
         let _transaction_id = {% if is_async %}self.client.transaction_id(){% else %}_c.transaction_id(){% endif %};
         let _event_args = args.clone();
-        let _engine_data = args.data.to_engine_data();
+        let _engine_data = args.data.to_engine_data()?;
         let _event_payload = {
             let mut _payload = serde_json::Map::new();
             _payload.insert(
@@ -1592,6 +1880,7 @@ where
                         "{{ model_name }}",
                         filter_json,
                         _engine_data.clone(),
+                        args.data.has_nested_writes(),
                         |row| {
                             decode_model_row_with_hints(
                                 row,
@@ -1604,6 +1893,10 @@ where
                 {
                     return Ok(rows);
                 }
+            }
+
+            if args.data.has_nested_writes() {
+                return Err(crate::runtime::nested::writes_need_engine("{{ model_name }}"));
             }
 
             let mut builder = {{ update_name }}::new({% if is_async %}self.client.clone(){% else %}_c{% endif %}).set_data(args.data);
@@ -1939,7 +2232,7 @@ where
         let _event_args = args.clone();
         let filter = serialize_update_filter_for_engine(args.where_.as_ref())?
             .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
-        let _event_data = args.data.to_engine_data();
+        let _event_data = args.data.to_engine_data()?;
         let _event_payload = {
             let mut _payload = serde_json::Map::new();
             _payload.insert("filter".to_string(), filter.clone());
@@ -2261,11 +2554,17 @@ where
         &self,
         args: {{ model_name }}UpsertArgs,
     ) -> nautilus_core::Result<Option<{{ model_name }}>> {
+        if args.create.has_nested_writes() || args.update.has_nested_writes() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "upsert on '{{ model_name }}' does not accept nested writes; use create or update"
+                    .to_string(),
+            ));
+        }
         let _engine_filter = serialize_update_filter_for_engine(args.where_.as_ref())?;
 {%- if not is_async %}
         let _upsert_client = self.client.clone();
-        let _engine_create = args.create.to_engine_data();
-        let _engine_update = args.update.to_engine_data();
+        let _engine_create = args.create.to_engine_data()?;
+        let _engine_update = args.update.to_engine_data()?;
         let _engine_rows: Option<Vec<{{ model_name }}>> = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async move {
                 let Some(filter_json) = _engine_filter else {
@@ -2295,8 +2594,8 @@ where
                     &self.client,
                     "{{ model_name }}",
                     filter_json,
-                    args.create.to_engine_data(),
-                    args.update.to_engine_data(),
+                    args.create.to_engine_data()?,
+                    args.update.to_engine_data()?,
                     |row| {
                         decode_model_row_with_hints(
                             row,
