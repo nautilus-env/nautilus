@@ -111,6 +111,9 @@ jobs:
       - name: Check
         run: cargo check --locked --workspace --all-targets
 
+      - name: Test codegen portability
+        run: cargo test --locked -p nautilus-orm-codegen --test writer_tests
+
   codegen-e2e:
     name: Codegen runtime end-to-end
     runs-on: ubuntu-latest
@@ -133,11 +136,19 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Resolve Java release from the code generator
+        id: java-release
+        run: |
+          version="$(grep -oP '^const JAVA_RELEASE: &str = "\K[^"]+' \
+            crates/nautilus-codegen/src/java/bundle.rs)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Install Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ steps.java-release.outputs.version }}
 
       - name: Cache Cargo
         uses: actions/cache@v4

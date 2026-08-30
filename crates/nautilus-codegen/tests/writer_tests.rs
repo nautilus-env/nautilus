@@ -527,6 +527,10 @@ fn seed_workspace_lockfile(crate_dir: &std::path::Path, workspace_root: &std::pa
     .expect("failed to seed the generated crate with the workspace lockfile");
 }
 
+fn cargo_manifest_path(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 /// A generated standalone Rust client with relations should compile as a crate.
 #[test]
 fn test_write_rust_code_standalone_generated_client_compiles() {
@@ -599,8 +603,8 @@ edition = "2021"
 db = {{ package = "nautilus-client", path = "{}" }}
 nautilus-events-macros = {{ path = "{}/crates/nautilus-events-macros" }}
 "#,
-            generated_dir.display(),
-            workspace_root.display()
+            cargo_manifest_path(&generated_dir),
+            cargo_manifest_path(&workspace_root)
         ),
     )
     .expect("failed to write consumer Cargo.toml");
