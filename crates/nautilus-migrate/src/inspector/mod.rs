@@ -675,8 +675,8 @@ fn strip_numeric_paren_literals(s: &str) -> String {
     result
 }
 
-/// Group raw FK rows (one row per FK column) into [`LiveForeignKey`] values.
-/// Group PostgreSQL foreign-key rows into [`LiveForeignKey`] values.
+/// Group raw PostgreSQL FK rows (one row per FK column) into
+/// [`LiveForeignKey`] values.
 ///
 /// `qualified` mirrors how the tables themselves are keyed: a single-schema
 /// inspection leaves every name bare, so stamping the referenced table with its
