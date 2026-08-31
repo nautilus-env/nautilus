@@ -348,6 +348,34 @@ unaffected.
 
 ### Fixed
 
+- The JavaScript and Python clients now prepare an `include` node the way they
+  prepare the arguments of a top-level read. Both used to walk the include tree
+  as a plain object, recursing into every value they found, so a nested
+  `where` never reached the filter preparation the same `where` gets at the top
+  level. Three things followed, two of them silently:
+
+  ```js
+  // the Date became {} on the wire, and the include matched nothing
+  db.author.findMany({ include: { posts: { where: { publishedAt: { gt: new Date(...) } } } } });
+  // `equals` reached the engine untranslated, which only knows `eq`
+  db.author.findMany({ include: { posts: { where: { title: { equals: 'looms' } } } } });
+  // a lone orderBy object was rejected: "orderBy must be an array"
+  db.author.findMany({ include: { posts: { orderBy: { title: 'asc' } } } });
+  ```
+
+  A `Date`, a `Buffer` and any value with a `toWire()` were rebuilt field by
+  field and lost, `equals` was never mapped to `eq`, mapped column names were
+  left unresolved, and the guard that asks for `{ equals: ... }` on a JSON
+  column never fired. An include node is now prepared by the model it loads —
+  its own field map, its own serializers — and a lone `orderBy` object becomes
+  the one-element list the engine expects, at every depth. The TypeScript
+  declaration of a nested `orderBy` widens to `OrderByInput | OrderByInput[]`
+  to match the top-level one it always accepted in fact.
+
+  Rust and Java were unaffected: one passes a typed `IncludeRelation`, the other
+  builds the node through its DSL, so neither could carry an unprepared value
+  into one.
+
 - The generated Rust client no longer loses the result of `create`, `update` and
   `delete` on MySQL. Without `RETURNING` the direct connector path gets no rows
   back from the statement, so a create failed with "Expected exactly one row,

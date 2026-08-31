@@ -1372,8 +1372,12 @@ model Comment {
         "expected JS hydration to read nested logical scalar keys for mapped fields:\n{user_code}"
     );
     assert!(
-        post_code.contains("import { _coerceUser as _coerceUser_for_author } from './user.js';"),
-        "expected JS nested include hydration to import the related model coercer"
+        post_code.contains("  _coerceUser as _coerceUser_for_author,")
+            && post_code
+                .contains("  _serializeUserIncludeArgs as _serializeUserIncludeArgs_for_author,")
+            && post_code.contains("} from './user.js';"),
+        "expected JS nested include hydration to import the related model's coercer and include serializer:
+{post_code}"
     );
     assert!(
         post_code.contains("const relationValue = _getWireValue(row, 'author_json');"),
@@ -3097,5 +3101,79 @@ model Doc {
         citext.contains("nautilus_core::Value::Extension { value: value.into_inner(), type_name: \"citext\".to_string() }"),
         "a citext must carry its type name so the dialect can emit `$1::citext`; without the \
          cast PostgreSQL compares a citext column case sensitively:\n{citext}"
+    );
+}
+
+/// An include node has the shape of a read's arguments and must get the same
+/// preparation, against the model it loads rather than the one it hangs off.
+///
+/// A serializer that walks into the node's `where` instead rebuilds the values
+/// inside it, which turns a `Date` into `{}` and leaves `equals` untranslated —
+/// both silent, because neither reaches the engine as an error.
+#[test]
+fn test_js_and_python_prepare_include_nodes_against_the_included_model() {
+    let ir = validate(
+        r#"
+model Author {
+  id    Int    @id @default(autoincrement())
+  posts Post[]
+}
+
+model Post {
+  id       Int      @id @default(autoincrement())
+  authorId Int      @map("author_id")
+  author   Author   @relation(fields: [authorId], references: [id])
+}
+"#,
+    );
+
+    let (js_models, _) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
+    let (_, author_js) = js_models
+        .iter()
+        .find(|(name, _)| name == "author.js")
+        .expect("author runtime missing");
+    let (_, post_js) = js_models
+        .iter()
+        .find(|(name, _)| name == "post.js")
+        .expect("post runtime missing");
+
+    assert!(
+        post_js.contains("_processWhereFilters(spec.where, _PostFieldToDb)"),
+        "an include node's where must go through the included model's own filter preparation:\n{post_js}"
+    );
+    assert!(
+        post_js.contains(
+            "node['orderBy']  = Array.isArray(spec.orderBy) ? spec.orderBy : [spec.orderBy];"
+        ),
+        "an include node's orderBy must reach the engine as a list:\n{post_js}"
+    );
+    assert!(
+        author_js.contains("result[field] = _serializePostIncludeArgs_for_posts(spec);"),
+        "each relation must be prepared by the model it loads:\n{author_js}"
+    );
+
+    let python = generate_all_python_models(&ir, false, 0)
+        .expect("generate_all_python_models should succeed");
+    let (_, author_py) = python
+        .iter()
+        .find(|(name, _)| name == "author.py")
+        .expect("author model missing");
+    let (_, post_py) = python
+        .iter()
+        .find(|(name, _)| name == "post.py")
+        .expect("post model missing");
+
+    assert!(
+        post_py.contains("_process_where_filters(value, _Post_py_to_db)"),
+        "an include node's where must go through the included model's own filter preparation:\n{post_py}"
+    );
+    assert!(
+        post_py.contains(r#"node["orderBy"] = [{fk: fv} for fk, fv in value.items()]"#),
+        "an include node's order_by must reach the engine as a list:\n{post_py}"
+    );
+    assert!(
+        author_py.contains("from .post import _serialize_post_include_args"),
+        "each relation must be prepared by the model it loads:\n{author_py}"
     );
 }

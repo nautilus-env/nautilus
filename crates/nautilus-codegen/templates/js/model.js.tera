@@ -22,7 +22,10 @@ import { {% for t in ext.types %}{{ t }}{% if not loop.last %}, {% endif %}{% en
 {%- if has_includes %}
 {%- for field in include_fields %}
 {%- if field.target_model != model_name %}
-import { _coerce{{ field.target_model }} as _coerce{{ field.target_model }}_for_{{ field.name }} } from './{{ field.target_snake }}.js';
+import {
+  _coerce{{ field.target_model }} as _coerce{{ field.target_model }}_for_{{ field.name }},
+  _serialize{{ field.target_model }}IncludeArgs as _serialize{{ field.target_model }}IncludeArgs_for_{{ field.name }},
+} from './{{ field.target_snake }}.js';
 {%- endif %}
 {%- endfor %}
 {%- endif %}
@@ -58,7 +61,7 @@ function _{{ model_name }}ReadArgs(args) {
   if (args?.take     != null) rpcArgs['take']    = args.take;
   if (args?.skip     != null) rpcArgs['skip']    = args.skip;
   if (args?.select   != null) rpcArgs['select']  = args.select;
-  if (args?.include  != null) rpcArgs['include'] = _serializeInclude(args.include);
+  if (args?.include  != null) rpcArgs['include'] = _serialize{{ model_name }}Include(args.include);
   if (args?.cursor   != null) rpcArgs['cursor']  = args.cursor;
   if (args?.distinct != null) rpcArgs['distinct'] = args.distinct;
   return rpcArgs;
@@ -317,18 +320,40 @@ function _processCreateData(data, fieldToDb) {
   return out;
 }
 
-function _serializeInclude(include) {
-  if (include == null || typeof include === 'boolean') return include;
-  if (typeof include !== 'object' || Array.isArray(include)) return include;
+/**
+ * Prepare one include node, which loads {{ model_name }} records under a parent.
+ *
+ * The node is the same shape as the arguments of a top-level read, and gets
+ * the same preparation: its `where` is a {{ model_name }} filter, so it goes
+ * through this model's own serializers rather than the parent's, and a lone
+ * `orderBy` becomes the list the engine expects.
+ */
+export function _serialize{{ model_name }}IncludeArgs(spec) {
+  if (spec == null || typeof spec === 'boolean') return spec;
+  if (typeof spec !== 'object' || Array.isArray(spec)) return spec;
+  const node = {};
+  if (spec.where    != null) node['where']    = _processWhereFilters(spec.where, _{{ table_name }}FieldToDb);
+  if (spec.orderBy  != null) node['orderBy']  = Array.isArray(spec.orderBy) ? spec.orderBy : [spec.orderBy];
+  if (spec.take     != null) node['take']     = spec.take;
+  if (spec.skip     != null) node['skip']     = spec.skip;
+  if (spec.cursor   != null) node['cursor']   = spec.cursor;
+  if (spec.distinct != null) node['distinct'] = spec.distinct;
+  if (spec.include  != null) node['include']  = _serialize{{ model_name }}Include(spec.include);
+  return node;
+}
+
+/** Prepare the relations {{ model_name }} eager-loads, each against its own model. */
+function _serialize{{ model_name }}Include(include) {
+  if (include == null || typeof include !== 'object' || Array.isArray(include)) return include;
   const result = {};
   for (const [field, spec] of Object.entries(include)) {
-    if (typeof spec === 'boolean') {
-      result[field] = spec;
-    } else if (spec && typeof spec === 'object') {
-      result[field] = _serializeInclude(spec);
-    } else {
-      result[field] = spec;
+{%- for field in include_fields %}
+    if (field === '{{ field.name }}') {
+      result[field] = {% if field.target_model == model_name %}_serialize{{ field.target_model }}IncludeArgs{% else %}_serialize{{ field.target_model }}IncludeArgs_for_{{ field.name }}{% endif %}(spec);
+      continue;
     }
+{%- endfor %}
+    result[field] = spec;
   }
   return result;
 }
@@ -389,7 +414,7 @@ export class {{ delegate_name }} {
     if (args?.take     != null) rpcArgs['take']    = args.take;
     if (args?.skip     != null) rpcArgs['skip']    = args.skip;
     if (args?.select   != null) rpcArgs['select']  = args.select;
-    if (args?.include  != null) rpcArgs['include'] = _serializeInclude(args.include);
+    if (args?.include  != null) rpcArgs['include'] = _serialize{{ model_name }}Include(args.include);
     if (args?.cursor   != null) rpcArgs['cursor']  = args.cursor;
     if (args?.distinct != null) rpcArgs['distinct'] = args.distinct;
 
@@ -421,7 +446,7 @@ export class {{ delegate_name }} {
 {%- endif %}
     rpcArgs['take'] = 1;
     if (args?.select   != null) rpcArgs['select']  = args.select;
-    if (args?.include  != null) rpcArgs['include'] = _serializeInclude(args.include);
+    if (args?.include  != null) rpcArgs['include'] = _serialize{{ model_name }}Include(args.include);
     const request = {
       protocolVersion: PROTOCOL_VERSION,
       model: '{{ model_name }}',

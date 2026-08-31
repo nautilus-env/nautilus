@@ -679,37 +679,58 @@ def _process_select_fields(select: Dict[str, bool], py_to_logical: Dict[str, str
     return result
 
 
-def _serialize_include(include: Any) -> Any:
-    """Serialize include dict to the engine wire format.
+def _serialize_{{ snake_name }}_include_args(spec: Any) -> Any:
+    """Prepare one include node, which loads {{ model_name }} under a parent.
 
-    Converts Python snake_case keys (``order_by``) to camelCase (``orderBy``)
-    and recursively processes nested includes.
+    The node has the shape of a read's arguments and gets the same
+    preparation: its ``where`` is a {{ model_name }} filter, so it goes through
+    this model's own serializers rather than the parent's, and ``order_by``
+    becomes the ``orderBy`` list the engine expects.
     """
+    if spec is None or isinstance(spec, bool):
+        return spec
+    if not isinstance(spec, dict):
+        return spec
+    node: Dict[str, Any] = {}
+    for key, value in spec.items():
+        if value is None:
+            # An entry set to None is one the caller left out, not an empty
+            # filter or an empty ordering, which the engine would reject.
+            continue
+        if key in ("order_by", "orderBy"):
+            if isinstance(value, dict):
+                node["orderBy"] = [{fk: fv} for fk, fv in value.items()]
+            else:
+                node["orderBy"] = value
+        elif key == "where":
+            node["where"] = (
+                _process_where_filters(value, _{{ table_name }}_py_to_db)
+                if isinstance(value, dict)
+                else value
+            )
+        elif key == "include":
+            node["include"] = _serialize_{{ snake_name }}_include(value)
+        else:
+            node[key] = value
+    return node
+
+
+def _serialize_{{ snake_name }}_include(include: Any) -> Any:
+    """Prepare the relations {{ model_name }} eager-loads, each against its own model."""
     if include is None or isinstance(include, bool):
         return include
     if not isinstance(include, dict):
         return include
     result: Dict[str, Any] = {}
     for field, spec in include.items():
-        if isinstance(spec, bool):
-            result[field] = spec
-        elif isinstance(spec, dict):
-            node: Dict[str, Any] = {}
-            for k, v in spec.items():
-                if k == "order_by":
-                    if isinstance(v, list):
-                        node["orderBy"] = v
-                    elif isinstance(v, dict):
-                        node["orderBy"] = [{fk: fv} for fk, fv in v.items()]
-                    else:
-                        node["orderBy"] = v
-                elif k == "include":
-                    node["include"] = _serialize_include(v)
-                else:
-                    node[k] = v
-            result[field] = node
-        else:
-            result[field] = spec
+{%- for field in include_fields %}
+        if field == "{{ field.name }}":
+            from .{{ field.target_snake }} import _serialize_{{ field.target_snake }}_include_args
+
+            result[field] = _serialize_{{ field.target_snake }}_include_args(spec)
+            continue
+{%- endfor %}
+        result[field] = spec
     return result
 
 
@@ -910,7 +931,7 @@ class {{ delegate_name }}:
         if select is not None:
             args["select"] = _process_select_fields(select, _{{ table_name }}_py_to_logical)
         if include is not None:
-            args["include"] = _serialize_include(include)
+            args["include"] = _serialize_{{ snake_name }}_include(include)
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
@@ -1014,7 +1035,7 @@ class {{ delegate_name }}:
         if select is not None:
             args["select"] = _process_select_fields(select, _{{ table_name }}_py_to_logical)
         if include is not None:
-            args["include"] = _serialize_include(include)
+            args["include"] = _serialize_{{ snake_name }}_include(include)
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
@@ -1084,7 +1105,7 @@ class {{ delegate_name }}:
         if select is not None:
             args["select"] = _process_select_fields(select, _{{ table_name }}_py_to_logical)
         if include is not None:
-            args["include"] = _serialize_include(include)
+            args["include"] = _serialize_{{ snake_name }}_include(include)
 
         payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,

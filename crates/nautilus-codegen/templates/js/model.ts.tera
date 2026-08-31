@@ -220,7 +220,7 @@ export interface {{ model_name }}IncludeInput {
 {%- for field in include_fields %}
 export interface FindMany{{ field.target_model }}ArgsFrom{{ model_name }} {
   where?:    {{ field.target_model }}WhereInput;
-  orderBy?:  {{ field.target_model }}OrderByInput;
+  orderBy?:  {{ field.target_model }}OrderByInput | {{ field.target_model }}OrderByInput[];
 {%- if field.is_array %}
   take?:     number;
   skip?:     number;
@@ -396,18 +396,36 @@ function _processCreateData(
   return out;
 }
 
+/**
+ * Prepare one include node.
+ *
+ * The node has the shape of a read's arguments, so only its own keys are
+ * touched: a lone `orderBy` becomes the list the engine expects, and `include`
+ * recurses. Everything else is passed through — walking into `where` would
+ * rebuild the values inside it, which loses a `Date` or a `Buffer` outright.
+ */
+function _serializeIncludeNode(spec: unknown): unknown {
+  if (spec == null || typeof spec === 'boolean') return spec;
+  if (typeof spec !== 'object' || Array.isArray(spec)) return spec;
+  const node: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(spec as Record<string, unknown>)) {
+    if (key === 'orderBy') {
+      node[key] = Array.isArray(value) ? value : [value];
+    } else if (key === 'include') {
+      node[key] = _serializeInclude(value);
+    } else {
+      node[key] = value;
+    }
+  }
+  return node;
+}
+
 function _serializeInclude(include: unknown): unknown {
   if (include == null || typeof include === 'boolean') return include;
   if (typeof include !== 'object' || Array.isArray(include)) return include;
   const result: Record<string, unknown> = {};
   for (const [field, spec] of Object.entries(include as Record<string, unknown>)) {
-    if (typeof spec === 'boolean') {
-      result[field] = spec;
-    } else if (spec && typeof spec === 'object') {
-      result[field] = _serializeInclude(spec);
-    } else {
-      result[field] = spec;
-    }
+    result[field] = _serializeIncludeNode(spec);
   }
   return result;
 }

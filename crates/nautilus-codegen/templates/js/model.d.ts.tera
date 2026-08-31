@@ -176,7 +176,7 @@ export interface {{ model_name }}IncludeInput {
 {%- for field in include_fields %}
 export interface FindMany{{ field.target_model }}ArgsFrom{{ model_name }} {
   where?:    {{ field.target_model }}WhereInput;
-  orderBy?:  {{ field.target_model }}OrderByInput;
+  orderBy?:  {{ field.target_model }}OrderByInput | {{ field.target_model }}OrderByInput[];
 {%- if field.is_array %}
   take?:     number;
   skip?:     number;
