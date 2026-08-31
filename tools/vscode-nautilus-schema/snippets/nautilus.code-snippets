@@ -18,6 +18,18 @@
     ],
     "description": "Datasource configuration block"
   },
+  "Datasource block (multi-schema PostgreSQL)": {
+    "prefix": "datasource-pg-schemas",
+    "scope": "nautilus",
+    "body": [
+      "datasource db {",
+      "  provider = \"postgresql\"",
+      "  url      = env(\"${1:DATABASE_URL}\")",
+      "  schemas  = [\"${2:app}\", \"${3:analytics}\"]",
+      "}"
+    ],
+    "description": "PostgreSQL datasource spanning several schemas (every model and view then needs @@schema)"
+  },
   "Datasource block (PostgreSQL extensions)": {
     "prefix": "datasource-pg-ext",
     "scope": "nautilus",
@@ -36,7 +48,7 @@
     "scope": "nautilus",
     "body": [
       "generator client {",
-      "  provider  = \"${1|nautilus-client-rs,nautilus-client-py|}\"",
+      "  provider  = \"${1|nautilus-client-rs,nautilus-client-py,nautilus-client-js,nautilus-client-java|}\"",
       "  output    = \"${2:src/generated}\"",
       "  interface = \"${3|sync,async|}\"",
       "}"
@@ -67,6 +79,28 @@
     ],
     "description": "Model definition block"
   },
+  "View block": {
+    "prefix": "view",
+    "scope": "nautilus",
+    "body": [
+      "view ${1:ViewName} {",
+      "  id    ${2:Int}    @id",
+      "  ${3:field} ${4:String}",
+      "  @@map(\"${5:view_name}\")",
+      "}"
+    ],
+    "description": "Read-only view the database owns — queried, never created, altered, dropped or written to"
+  },
+  "Composite type block": {
+    "prefix": "type",
+    "scope": "nautilus",
+    "body": [
+      "type ${1:TypeName} {",
+      "  ${2:field} ${3:String}",
+      "}"
+    ],
+    "description": "Composite type definition block"
+  },
   "Enum block": {
     "prefix": "enum",
     "scope": "nautilus",
@@ -81,55 +115,73 @@
   "@id attribute": {
     "prefix": "@id",
     "scope": "nautilus",
-    "body": ["@id"],
+    "body": [
+      "@id"
+    ],
     "description": "Mark field as primary key"
   },
   "@unique attribute": {
     "prefix": "@unique",
     "scope": "nautilus",
-    "body": ["@unique"],
+    "body": [
+      "@unique"
+    ],
     "description": "Add unique constraint to field"
   },
   "@default attribute": {
     "prefix": "@default",
     "scope": "nautilus",
-    "body": ["@default(${1:value})"],
+    "body": [
+      "@default(${1:value})"
+    ],
     "description": "Set default value"
   },
   "@default uuid": {
     "prefix": "@default-uuid",
     "scope": "nautilus",
-    "body": ["@default(uuid())"],
+    "body": [
+      "@default(uuid())"
+    ],
     "description": "Default UUID value"
   },
   "@default uuidv7": {
     "prefix": "@default-uuidv7",
     "scope": "nautilus",
-    "body": ["@default(uuidv7())"],
+    "body": [
+      "@default(uuidv7())"
+    ],
     "description": "Default UUIDv7 value"
   },
   "@default now": {
     "prefix": "@default-now",
     "scope": "nautilus",
-    "body": ["@default(now())"],
+    "body": [
+      "@default(now())"
+    ],
     "description": "Default current timestamp"
   },
   "@default autoincrement": {
     "prefix": "@default-autoincrement",
     "scope": "nautilus",
-    "body": ["@default(autoincrement())"],
+    "body": [
+      "@default(autoincrement())"
+    ],
     "description": "Default auto-increment value"
   },
   "@map attribute": {
     "prefix": "@map",
     "scope": "nautilus",
-    "body": ["@map(\"${1:column_name}\")"],
+    "body": [
+      "@map(\"${1:column_name}\")"
+    ],
     "description": "Map field to a different column name"
   },
   "@store attribute": {
     "prefix": "@store",
     "scope": "nautilus",
-    "body": ["@store(${1|json,native|})"],
+    "body": [
+      "@store(${1|json,native|})"
+    ],
     "description": "Array storage strategy (for SQLite/MySQL)"
   },
   "@relation attribute": {
@@ -143,37 +195,105 @@
   "@@map attribute": {
     "prefix": "@@map",
     "scope": "nautilus",
-    "body": ["@@map(\"${1:table_name}\")"],
+    "body": [
+      "@@map(\"${1:table_name}\")"
+    ],
     "description": "Map model to a different table name"
   },
   "@@id attribute": {
     "prefix": "@@id",
     "scope": "nautilus",
-    "body": ["@@id([${1:field1}, ${2:field2}])"],
+    "body": [
+      "@@id([${1:field1}, ${2:field2}])"
+    ],
     "description": "Composite primary key"
   },
   "@@unique attribute": {
     "prefix": "@@unique",
     "scope": "nautilus",
-    "body": ["@@unique([${1:field1}, ${2:field2}])"],
+    "body": [
+      "@@unique([${1:field1}, ${2:field2}])"
+    ],
     "description": "Composite unique constraint"
   },
   "@@index attribute": {
     "prefix": "@@index",
     "scope": "nautilus",
-    "body": ["@@index([${1:field1}, ${2:field2}])"],
+    "body": [
+      "@@index([${1:field1}, ${2:field2}])"
+    ],
     "description": "Composite index (default DBMS type)"
   },
   "@@index with type": {
     "prefix": "@@index-typed",
     "scope": "nautilus",
-    "body": ["@@index([${1:field1}], type: ${2|BTree,Hash,Gin,Gist,Brin,FullText|})"],
-    "description": "Composite index with explicit type (BTree/Hash/Gin/Gist/Brin/FullText)"
+    "body": [
+      "@@index([${1:field1}], type: ${2|BTree,Hash,Gin,Gist,Brin,Hnsw,Ivfflat,FullText|})"
+    ],
+    "description": "Composite index with explicit type (BTree/Hash/Gin/Gist/Brin/Hnsw/Ivfflat/FullText)"
   },
   "@@index with name": {
     "prefix": "@@index-named",
     "scope": "nautilus",
-    "body": ["@@index([${1:field1}], map: \"${2:idx_name}\")"],
+    "body": [
+      "@@index([${1:field1}], map: \"${2:idx_name}\")"
+    ],
     "description": "Composite index with custom DDL name"
+  },
+  "@updatedAt attribute": {
+    "prefix": "@updatedAt",
+    "scope": "nautilus",
+    "body": [
+      "@updatedAt"
+    ],
+    "description": "Stamp the field with the current time on every update"
+  },
+  "@ignore attribute": {
+    "prefix": "@ignore",
+    "scope": "nautilus",
+    "body": [
+      "@ignore"
+    ],
+    "description": "Exclude this field from the generated client"
+  },
+  "@computed attribute": {
+    "prefix": "@computed",
+    "scope": "nautilus",
+    "body": [
+      "@computed(${1:price * quantity}, ${2|Stored,Virtual|})"
+    ],
+    "description": "Generated column — Stored (all databases) or Virtual (MySQL/SQLite)"
+  },
+  "@check attribute": {
+    "prefix": "@check",
+    "scope": "nautilus",
+    "body": [
+      "@check(${1:price > 0})"
+    ],
+    "description": "Field-level CHECK constraint"
+  },
+  "@@check attribute": {
+    "prefix": "@@check",
+    "scope": "nautilus",
+    "body": [
+      "@@check(${1:totalAmount > 0})"
+    ],
+    "description": "Model-level CHECK constraint"
+  },
+  "@@ignore attribute": {
+    "prefix": "@@ignore",
+    "scope": "nautilus",
+    "body": [
+      "@@ignore"
+    ],
+    "description": "Exclude this model from the generated client"
+  },
+  "@@schema attribute": {
+    "prefix": "@@schema",
+    "scope": "nautilus",
+    "body": [
+      "@@schema(\"${1:app}\")"
+    ],
+    "description": "PostgreSQL schema that owns this model or view — required once the datasource declares schemas"
   }
 }

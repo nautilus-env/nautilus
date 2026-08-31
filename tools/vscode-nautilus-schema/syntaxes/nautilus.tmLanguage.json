@@ -73,8 +73,8 @@
           }
         },
         {
-          "comment": "Block keyword followed by name: 'model User', 'enum Role', 'type Address', etc.",
-          "match": "\\b(datasource|generator|model|enum|type)\\b(\\s+([A-Za-z_][A-Za-z0-9_]*))?",
+          "comment": "Block keyword followed by name: 'model User', 'view PublishedPost', 'enum Role', 'type Address', etc.",
+          "match": "\\b(datasource|generator|model|view|enum|type)\\b(\\s+([A-Za-z_][A-Za-z0-9_]*))?",
           "captures": {
             "1": { "name": "keyword.control.nautilus" },
             "3": { "name": "entity.name.type.nautilus" }
@@ -84,7 +84,7 @@
     },
     "config-keys": {
       "comment": "Known config field names inside datasource/generator blocks",
-      "match": "^\\s+(provider|url|direct_url|extensions|preserve_extensions|output|interface|recursive_type_depth|package|group_id|artifact_id|mode)(?=\\s*=)",
+      "match": "^\\s+(provider|url|direct_url|extensions|preserve_extensions|schemas|output|interface|recursive_type_depth|package|group_id|artifact_id|mode)(?=\\s*=)",
       "captures": {
         "1": { "name": "support.type.property-name.nautilus" }
       }
@@ -180,7 +180,7 @@
     },
     "builtin-functions": {
       "comment": "Built-in default/value functions",
-      "match": "\\b(uuidv7|uuid|now|autoincrement|env|cuid|dbgenerated)\\b(?=\\s*\\()",
+      "match": "\\b(uuidv7|uuid|now|autoincrement|env)\\b(?=\\s*\\()",
       "name": "support.function.nautilus"
     },
     "boolean-literals": {
