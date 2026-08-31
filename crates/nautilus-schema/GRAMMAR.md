@@ -24,6 +24,7 @@ Declaration ::= ImportDecl
               | DatasourceDecl
               | GeneratorDecl  
               | ModelDecl
+              | ViewDecl
               | TypeDecl
               | EnumDecl
 
@@ -234,6 +235,33 @@ model User {
 
   @@map("users")
   @@index([email])
+}
+```
+
+### View
+
+```ebnf
+ViewDecl ::= 'view' Ident '{' Newline*
+             ( FieldDecl | ModelAttribute Newline* )*
+             '}' Newline*
+```
+
+A view has a model's body and parses into the same node, flagged as a view. It
+names a read-only relation the database owns: Nautilus queries it and emits no
+DDL for it, so the attributes that describe storage — `@@index`, `@@check`,
+`@default`, `@updatedAt`, `@computed`, `@check` — are rejected on one, and a
+view can take part in no relation, on either side, because it carries no
+foreign key.
+
+**Example:**
+```prisma
+view PublishedPost {
+  id     Int    @id
+  title  String
+  views  Int
+  author String
+
+  @@map("published_posts")
 }
 ```
 
@@ -754,8 +782,8 @@ Token ::= Keyword
         | Newline
         | EOF
 
-Keyword ::= 'datasource' | 'generator' | 'model' | 'enum'
-          | 'true' | 'false'
+Keyword ::= 'datasource' | 'generator' | 'model' | 'view' | 'enum'
+          | 'type' | 'import' | 'true' | 'false'
 
 Ident ::= [a-zA-Z_][a-zA-Z0-9_]*
 

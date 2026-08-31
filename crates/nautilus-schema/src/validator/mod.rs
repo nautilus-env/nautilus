@@ -11,6 +11,7 @@ mod ir_builder;
 mod models;
 mod names;
 mod relations;
+mod views;
 
 use crate::ast::*;
 use crate::error::{Result, SchemaError};
@@ -108,6 +109,7 @@ impl<'a> SchemaValidator<'a> {
         self.validate_generators();
         self.validate_composite_types();
         self.validate_models();
+        self.validate_views();
         self.validate_relations();
         self.validate_back_relations();
         self.validate_defaults();
@@ -135,6 +137,7 @@ impl<'a> SchemaValidator<'a> {
         self.validate_generators();
         self.validate_composite_types();
         self.validate_models();
+        self.validate_views();
         self.validate_relations();
         self.validate_back_relations();
         self.validate_defaults();

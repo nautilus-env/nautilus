@@ -235,6 +235,11 @@ pub struct ModelIr {
     /// Whether the model carries `@@ignore` — the table exists but Nautilus
     /// does not manage it. See [`SchemaIr::without_ignored`].
     pub is_ignored: bool,
+    /// Whether this block was declared as a `view`.
+    ///
+    /// A view is read-only: Nautilus queries it like a table but never emits
+    /// DDL for it and rejects every write method against it.
+    pub is_view: bool,
     /// Span of the model declaration.
     pub span: Span,
 }

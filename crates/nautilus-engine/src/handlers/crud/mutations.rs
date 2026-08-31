@@ -281,7 +281,7 @@ pub(super) async fn execute_create(
     params: CreateParams,
 ) -> Result<MutationResultData, ProtocolError> {
     check_protocol_version(params.protocol_version)?;
-    let model = get_model_or_error(state, &params.model)?;
+    let model = get_writable_model_or_error(state, &params.model)?;
     let plan = nested::split(state, model, &params.data, false)?;
 
     if plan.is_empty() {
@@ -330,7 +330,7 @@ async fn execute_create_many(
 ) -> Result<MutationResultData, ProtocolError> {
     check_protocol_version(params.protocol_version)?;
     let tx_id = params.transaction_id;
-    let model = get_model_or_error(state, &params.model)?;
+    let model = get_writable_model_or_error(state, &params.model)?;
     let metadata = state.model_metadata(model);
 
     if params.data.is_empty() {
@@ -550,7 +550,7 @@ pub(super) async fn execute_update(
     params: UpdateParams,
 ) -> Result<MutationResultData, ProtocolError> {
     check_protocol_version(params.protocol_version)?;
-    let model = get_model_or_error(state, &params.model)?;
+    let model = get_writable_model_or_error(state, &params.model)?;
     let plan = nested::split(state, model, &params.data, true)?;
 
     if plan.is_empty() {
@@ -674,7 +674,7 @@ async fn execute_upsert(
 ) -> Result<MutationResultData, ProtocolError> {
     check_protocol_version(params.protocol_version)?;
     let tx_id = params.transaction_id;
-    let model = get_model_or_error(state, &params.model)?;
+    let model = get_writable_model_or_error(state, &params.model)?;
     let metadata = state.model_metadata(model);
 
     let create_obj = params
@@ -927,7 +927,7 @@ pub(super) async fn execute_delete(
     params: DeleteParams,
 ) -> Result<MutationResultData, ProtocolError> {
     check_protocol_version(params.protocol_version)?;
-    let model = get_model_or_error(state, &params.model)?;
+    let model = get_writable_model_or_error(state, &params.model)?;
     let tx_id = params.transaction_id;
     let metadata = state.model_metadata(model);
 

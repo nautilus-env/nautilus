@@ -355,6 +355,7 @@ struct DelegateTemplateContext {
     projection_name: String,
     dsl_name: String,
     is_async: bool,
+    is_view: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -931,6 +932,7 @@ fn generate_delegate_file(config: &JavaConfig, model: &ModelIr) -> Result<String
         projection_name,
         dsl_name,
         is_async: config.is_async,
+        is_view: model.is_view,
     })
     .expect("Java delegate context should serialize");
     render("java_delegate.tera", &context)

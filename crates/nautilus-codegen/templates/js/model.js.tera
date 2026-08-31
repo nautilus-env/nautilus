@@ -458,6 +458,7 @@ export class {{ delegate_name }} {
     return record;
   }
 
+{%- if not is_view %}
   async create(args) {
     const returnData = args.returnData ?? true;
     const eventArgs = { data: args.data, returnData };
@@ -497,7 +498,9 @@ export class {{ delegate_name }} {
       throw error;
     }
   }
+{% endif %}
 
+{%- if not is_view %}
   async createMany(args) {
     const returnData = args.returnData ?? true;
     const eventArgs = { data: args.data, returnData };
@@ -534,7 +537,9 @@ export class {{ delegate_name }} {
       throw error;
     }
   }
+{% endif %}
 
+{%- if not is_view %}
   async update(args) {
     const returnData = args.returnData ?? true;
     const eventArgs = { where: args.where, data: args.data, returnData };
@@ -572,7 +577,9 @@ export class {{ delegate_name }} {
       throw error;
     }
   }
+{% endif %}
 
+{%- if not is_view %}
   async delete(args) {
     const record = await this.findFirst({ where: args.where });
     if (record == null) throw new NotFoundError('delete: no {{ model_name }} record found matching the given filter');
@@ -618,7 +625,9 @@ export class {{ delegate_name }} {
       throw error;
     }
   }
+{% endif %}
 
+{%- if not is_view %}
   async deleteMany(args) {
     const returnData = args?.returnData ?? false;
     const eventArgs = { where: args?.where, returnData };
@@ -658,7 +667,9 @@ export class {{ delegate_name }} {
       throw error;
     }
   }
+{% endif %}
 
+{%- if not is_view %}
   async updateMany(args) {
     const eventArgs = { where: args?.where, data: args.data };
     const payload = {
@@ -692,6 +703,7 @@ export class {{ delegate_name }} {
       throw error;
     }
   }
+{% endif %}
 
   async aggregate(args) {
     const rpcArgs = {};
@@ -754,6 +766,7 @@ export class {{ delegate_name }} {
     return result['data'] ?? [];
   }
 
+{%- if not is_view %}
   async upsert(args) {
     const returnData = args.returnData ?? true;
     const result = await this.client._rpc('query.upsert', {
@@ -773,6 +786,7 @@ export class {{ delegate_name }} {
     }
     return _coerce{{ model_name }}(rows[0]);
   }
+{% endif %}
 
   async groupBy(args) {
     const rpcArgs = { by: [...args.by] };

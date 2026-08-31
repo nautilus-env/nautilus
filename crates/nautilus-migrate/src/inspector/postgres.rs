@@ -20,6 +20,11 @@ const TABLES_SQL: &str = "SELECT c.relname AS table_name \
        AND c.relname !~ '^_nautilus_' \
      ORDER BY c.relname";
 
+/// NOTE: plain views only (`relkind = 'v'`). A materialized view is absent from
+/// `information_schema.columns`, which is where [`COLUMNS_SQL`] reads column
+/// metadata, so listing one here would yield a view with no fields.
+const VIEWS_SQL: &str = "SELECT c.relname AS table_name      FROM pg_class c      JOIN pg_namespace n ON n.oid = c.relnamespace      WHERE n.nspname = $1        AND c.relkind = 'v'        AND c.relname !~ '^_nautilus_'      ORDER BY c.relname";
+
 const COLUMNS_SQL: &str = "SELECT c.table_name, \
             column_name, \
             udt_name, \
@@ -146,13 +151,18 @@ impl SchemaInspector {
             .map_err(|e| MigrationError::Database(format!("PostgreSQL connection failed: {e}")))?;
 
         let schema_name = fetch_current_schema(&pool).await?;
-        let table_names = fetch_table_names(&pool, &schema_name).await?;
+        let table_names = fetch_relation_names(&pool, &schema_name, TABLES_SQL).await?;
+        let view_names = fetch_relation_names(&pool, &schema_name, VIEWS_SQL).await?;
         let mut metadata = TableMetadata::fetch(&pool, &schema_name).await?;
 
         let mut live = LiveSchema::default();
         for table_name in table_names {
             let table = metadata.build_table(table_name)?;
             live.tables.insert(table.name.clone(), table);
+        }
+        for view_name in view_names {
+            let view = metadata.build_view(view_name)?;
+            live.views.insert(view.name.clone(), view);
         }
 
         load_enums(&pool, &schema_name, &mut live).await?;
@@ -220,6 +230,31 @@ impl TableMetadata {
             foreign_keys,
         })
     }
+
+    /// Build the column-only snapshot of a view.
+    ///
+    /// `information_schema.columns` reports view columns alongside table
+    /// columns, so the same grouped rows serve both; everything else a
+    /// [`LiveTable`] carries is storage a view does not have.
+    fn build_view(&mut self, view_name: String) -> Result<LiveTable> {
+        let mut columns = build_columns(&take_rows(&mut self.columns, &view_name), &view_name)?;
+        for column in &mut columns {
+            column.default_value = None;
+            column.generated_expr = None;
+            column.computed_kind = None;
+            column.check_expr = None;
+            column.auto_increment = false;
+        }
+
+        Ok(LiveTable {
+            name: view_name,
+            columns,
+            primary_key: Vec::new(),
+            indexes: Vec::new(),
+            check_constraints: Vec::new(),
+            foreign_keys: Vec::new(),
+        })
+    }
 }
 
 fn take_rows(grouped: &mut HashMap<String, Vec<PgRow>>, table_name: &str) -> Vec<PgRow> {
@@ -239,8 +274,8 @@ async fn fetch_current_schema(pool: &PgPool) -> Result<String> {
     Ok(schema_name.unwrap_or_else(|| "public".to_string()))
 }
 
-async fn fetch_table_names(pool: &PgPool, schema_name: &str) -> Result<Vec<String>> {
-    let rows = pg_query(TABLES_SQL)
+async fn fetch_relation_names(pool: &PgPool, schema_name: &str, sql: &str) -> Result<Vec<String>> {
+    let rows = pg_query(sql)
         .bind(schema_name)
         .fetch_all(pool)
         .await

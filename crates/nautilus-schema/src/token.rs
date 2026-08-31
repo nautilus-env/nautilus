@@ -34,6 +34,8 @@ pub enum TokenKind {
     Generator,
     /// `model` keyword.
     Model,
+    /// `view` keyword.
+    View,
     /// `enum` keyword.
     Enum,
     /// `type` keyword.
@@ -121,6 +123,7 @@ impl TokenKind {
             TokenKind::Datasource
                 | TokenKind::Generator
                 | TokenKind::Model
+                | TokenKind::View
                 | TokenKind::Enum
                 | TokenKind::Type
                 | TokenKind::Import
@@ -135,6 +138,7 @@ impl TokenKind {
             "datasource" => TokenKind::Datasource,
             "generator" => TokenKind::Generator,
             "model" => TokenKind::Model,
+            "view" => TokenKind::View,
             "enum" => TokenKind::Enum,
             "type" => TokenKind::Type,
             "import" => TokenKind::Import,
@@ -151,6 +155,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Datasource => write!(f, "datasource"),
             TokenKind::Generator => write!(f, "generator"),
             TokenKind::Model => write!(f, "model"),
+            TokenKind::View => write!(f, "view"),
             TokenKind::Enum => write!(f, "enum"),
             TokenKind::Type => write!(f, "type"),
             TokenKind::Import => write!(f, "import"),

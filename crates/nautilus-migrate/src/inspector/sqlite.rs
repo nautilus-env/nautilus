@@ -210,6 +210,61 @@ impl SchemaInspector {
             );
         }
 
+        let view_rows = sqlx::query(
+            "SELECT name FROM sqlite_master              WHERE type = 'view'                AND name NOT LIKE 'sqlite_%'                AND name NOT LIKE '_nautilus_%'              ORDER BY name",
+        )
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| MigrationError::Database(e.to_string()))?;
+
+        for row in &view_rows {
+            let view_name: String = row
+                .try_get("name")
+                .map_err(|e| MigrationError::Database(e.to_string()))?;
+
+            let pragma_sql = format!("PRAGMA table_info(\"{}\")", view_name);
+            let col_rows = sqlx::query(&pragma_sql)
+                .fetch_all(&pool)
+                .await
+                .map_err(|e| MigrationError::Database(e.to_string()))?;
+
+            let mut columns = Vec::with_capacity(col_rows.len());
+            for col_row in &col_rows {
+                let col_name: String = col_row
+                    .try_get("name")
+                    .map_err(|e| MigrationError::Database(e.to_string()))?;
+                let type_str: String = col_row
+                    .try_get("type")
+                    .map_err(|e| MigrationError::Database(e.to_string()))?;
+                let notnull: i64 = col_row
+                    .try_get("notnull")
+                    .map_err(|e| MigrationError::Database(e.to_string()))?;
+
+                columns.push(LiveColumn {
+                    name: col_name,
+                    col_type: normalize_sqlite_type(&type_str),
+                    nullable: notnull == 0,
+                    default_value: None,
+                    generated_expr: None,
+                    computed_kind: None,
+                    check_expr: None,
+                    auto_increment: false,
+                });
+            }
+
+            live.views.insert(
+                view_name.clone(),
+                LiveTable {
+                    name: view_name,
+                    columns,
+                    primary_key: Vec::new(),
+                    indexes: Vec::new(),
+                    check_constraints: Vec::new(),
+                    foreign_keys: Vec::new(),
+                },
+            );
+        }
+
         Ok(live)
     }
 }

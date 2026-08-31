@@ -233,6 +233,7 @@ fn generate_js_model_with_registry(
     context.insert("model_name", view.logical_name());
     context.insert("snake_name", &view.snake_name());
     context.insert("table_name", view.db_name());
+    context.insert("is_view", &view.model.is_view);
     context.insert("delegate_name", &format!("{}Delegate", view.logical_name()));
     context.insert("primary_key_fields", &view.primary_key_fields);
 

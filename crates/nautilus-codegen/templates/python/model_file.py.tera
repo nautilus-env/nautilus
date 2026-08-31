@@ -1228,6 +1228,7 @@ class {{ delegate_name }}:
             )
         return record
 
+{%- if not is_view %}
     {% if is_async %}async {% endif %}def create(self, data: {{ model_name }}CreateInput, *, return_data: bool = True) -> Optional[{{ model_name }}]:
         """Create a new {{ model_name }} record.
 
@@ -1291,7 +1292,9 @@ class {{ delegate_name }}:
             )
             {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
             raise
+{% endif %}
 
+{%- if not is_view %}
     {% if is_async %}async {% endif %}def create_many(
         self,
         data: List[{{ model_name }}CreateInput],
@@ -1355,7 +1358,9 @@ class {{ delegate_name }}:
             )
             {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
             raise
+{% endif %}
 
+{%- if not is_view %}
     {% if is_async %}async {% endif %}def update(
         self,
         *,
@@ -1428,7 +1433,9 @@ class {{ delegate_name }}:
             )
             {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
             raise
+{% endif %}
 
+{%- if not is_view %}
     {% if is_async %}async {% endif %}def delete(
         self,
         *,
@@ -1514,7 +1521,9 @@ class {{ delegate_name }}:
             )
             {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
             raise
+{% endif %}
 
+{%- if not is_view %}
     {% if is_async %}async {% endif %}def delete_many(
         self,
         *,
@@ -1580,7 +1589,9 @@ class {{ delegate_name }}:
             )
             {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
             raise
+{% endif %}
 
+{%- if not is_view %}
     {% if is_async %}async {% endif %}def update_many(
         self,
         *,
@@ -1643,6 +1654,7 @@ class {{ delegate_name }}:
             )
             {% if is_async %}await run_crud_event(_error_ctx, handle_stop_propagation=False){% else %}run_crud_event_sync(_error_ctx, handle_stop_propagation=False){% endif %}
             raise
+{% endif %}
 
     {% if is_async %}async {% endif %}def aggregate(
         self,
@@ -1925,6 +1937,7 @@ class {{ delegate_name }}:
         })
         return result.get("data", [])
 
+{%- if not is_view %}
     {% if is_async %}async {% endif %}def upsert(
         self,
         *,
@@ -1976,6 +1989,7 @@ class {{ delegate_name }}:
             rows = {% if is_async %}await {% endif %}self.find_many(where=where, take=1, include=include)
             return rows[0] if rows else record
         return record
+{% endif %}
 
 
 

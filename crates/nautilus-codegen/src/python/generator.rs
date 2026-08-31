@@ -360,6 +360,7 @@ fn insert_derived_names(context: &mut Context, view: &ModelView<'_>) {
     context.insert("model_name", name);
     context.insert("snake_name", &view.snake_name());
     context.insert("table_name", view.db_name());
+    context.insert("is_view", &view.model.is_view);
     context.insert("delegate_name", &format!("{}Delegate", name));
     context.insert("find_many_name", &format!("{}FindMany", name));
     context.insert("create_name", &format!("{}Create", name));

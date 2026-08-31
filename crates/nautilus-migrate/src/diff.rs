@@ -954,9 +954,10 @@ impl DiffAccumulator {
                 continue; // already emitted DroppedTable
             };
 
-            // An `@@ignore`d model exists only so the diff knows the table is
-            // not orphaned. Nothing about it is Nautilus's to change.
-            if model.is_ignored {
+            // An `@@ignore`d model — and a `view`, which names a relation the
+            // database owns outright — exists only so the diff knows the table
+            // is not orphaned. Nothing about it is Nautilus's to change.
+            if model.is_ignored || model.is_view {
                 continue;
             }
 

@@ -203,6 +203,7 @@ impl SchemaValidator<'_> {
             indexes,
             check_constraints,
             is_ignored: model.is_ignored(),
+            is_view: model.is_view,
             span: model.span,
         })
     }

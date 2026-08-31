@@ -6,15 +6,17 @@ use nautilus_schema::ir::{
     PostgresExtensionIr, ResolvedFieldType, ScalarType, SchemaIr,
 };
 
-/// Every model Nautilus manages, i.e. everything except `@@ignore`d ones.
+/// Every model Nautilus manages, i.e. everything except `@@ignore`d models and
+/// `view` blocks.
 ///
 /// An ignored model names a table that exists but that Nautilus neither creates
-/// nor drops, so it must not appear in any generated DDL.
+/// nor drops; a view names a relation the database owns outright. Neither may
+/// appear in any generated DDL.
 pub(crate) fn managed_models(schema: &SchemaIr) -> Vec<&ModelIr> {
     schema
         .models
         .values()
-        .filter(|model| !model.is_ignored)
+        .filter(|model| !model.is_ignored && !model.is_view)
         .collect()
 }
 

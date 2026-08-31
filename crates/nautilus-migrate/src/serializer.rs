@@ -100,7 +100,9 @@ pub fn serialize_live_schema_with_options(
 
     let mut table_names: Vec<&String> = live.tables.keys().collect();
     table_names.sort();
-    let table_naming = build_table_naming_contexts(live, &table_names, options);
+    let mut view_names: Vec<&String> = live.views.keys().collect();
+    view_names.sort();
+    let table_naming = build_table_naming_contexts(live, &table_names, &view_names, options);
     let relation_pair_counts = build_relation_pair_counts(live, &table_names);
     let directional_relation_counts = build_directional_relation_counts(live, &table_names);
     let forward_relations = build_forward_relations(
@@ -127,6 +129,10 @@ pub fn serialize_live_schema_with_options(
             slice_for(&forward_relations, table_name),
             slice_for(&back_relations, table_name),
         ));
+    }
+
+    for view_name in &view_names {
+        parts.push(render_view_block(live, view_name, &table_naming));
     }
 
     let mut out = parts.join("\n\n");
@@ -316,6 +322,31 @@ fn render_model_block(
 
     lines.push("}".to_string());
     lines.join("\n")
+}
+
+/// Render a `view` block for one introspected view.
+///
+/// A view has no key, index, constraint or foreign key of its own, so the block
+/// carries its columns and the `@@map` that ties it back to the database name.
+fn render_view_block(
+    live: &LiveSchema,
+    view_name: &str,
+    table_naming: &HashMap<String, TableNamingContext>,
+) -> String {
+    let view = &live.views[view_name];
+    let naming = &table_naming[view_name];
+
+    let mut lines = vec![format!("view {} {{", naming.model_name)];
+    lines.extend(render_column_lines(live, view, naming));
+    lines.push(format!("  @@map(\"{}\")", view_name));
+    if !unmodellable_columns(live, view).is_empty() {
+        lines.push("  @@ignore".to_string());
+    }
+    lines.push("}".to_string());
+    lines.join(
+        "
+",
+    )
 }
 
 /// The DB names of the columns of `table` that Nautilus cannot model, and so
@@ -900,13 +931,17 @@ fn infer_relation_field_name(fk_cols: &[String], ref_table: &str) -> String {
 fn build_table_naming_contexts(
     live: &LiveSchema,
     table_names: &[&String],
+    view_names: &[&String],
     options: PullNamingOptions,
 ) -> HashMap<String, TableNamingContext> {
     let mut contexts = HashMap::new();
     let mut used_model_names = HashSet::new();
 
-    for &table_name in table_names {
-        let table = &live.tables[table_name];
+    for &table_name in table_names.iter().chain(view_names.iter()) {
+        let table = live
+            .tables
+            .get(table_name)
+            .unwrap_or_else(|| &live.views[table_name]);
         let model_name = choose_unique_field_name(
             vec![apply_model_case(table_name, options.model_case)],
             &mut used_model_names,

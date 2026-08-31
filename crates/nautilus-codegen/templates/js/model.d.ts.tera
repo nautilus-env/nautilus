@@ -451,32 +451,43 @@ export declare class {{ delegate_name }} {
   findFirstOrThrow(args?: Omit<{{ model_name }}FindFirstArgs, 'select'> & { select?: undefined }): Promise<{{ model_name }}Model>;
   findFirstOrThrow<const S extends {{ model_name }}SelectInput>(args: Omit<{{ model_name }}FindFirstArgs, 'select'> & { select: S }): Promise<{{ model_name }}Selected<S>>;
 
+{%- if not is_view %}
   create(args: {
     data:        {{ model_name }}CreateInput;
     returnData?: boolean;
   }): Promise<{{ model_name }}Model | null>;
+{% endif %}
 
+{%- if not is_view %}
   createMany(args: {
     data:        {{ model_name }}CreateInput[];
     returnData?: boolean;
   }): Promise<{{ model_name }}Model[]>;
+{% endif %}
 
+{%- if not is_view %}
   update(args: {
     where?:      {{ model_name }}WhereInput;
     data:        {{ model_name }}UpdateInput;
     returnData?: boolean;
   }): Promise<{{ model_name }}Model[] | number>;
+{% endif %}
 
+{%- if not is_view %}
   delete(args: {
     where:       {{ model_name }}WhereInput;
     returnData?: boolean;
   }): Promise<{{ model_name }}Model | null>;
+{% endif %}
 
+{%- if not is_view %}
   deleteMany(args?: {
     where?:      {{ model_name }}WhereInput;
     returnData?: boolean;
   }): Promise<{{ model_name }}Model[] | number>;
+{% endif %}
 
+{%- if not is_view %}
   /**
    * Update every row matching `where` and resolve to the affected-row count.
    *
@@ -487,6 +498,7 @@ export declare class {{ delegate_name }} {
     where?: {{ model_name }}WhereInput;
     data:   {{ model_name }}UpdateInput;
   }): Promise<number>;
+{% endif %}
 
   /**
    * Aggregate over every row matching `where`, without a grouping key.
@@ -527,6 +539,7 @@ export declare class {{ delegate_name }} {
   /** Execute a raw prepared-statement query with bound parameters. */
   rawStmtQuery(sql: string, params?: unknown[]): Promise<Record<string, unknown>[]>;
 
+{%- if not is_view %}
   /**
    * Create or update a {{ model_name }} in one atomic statement.
    *
@@ -540,6 +553,7 @@ export declare class {{ delegate_name }} {
     include?:    {% if has_includes %}{{ model_name }}IncludeInput{% else %}Record<string, unknown>{% endif %};
     returnData?: boolean;
   }): Promise<{{ model_name }}Model | null>;
+{% endif %}
 
   groupBy(args: {
     by:      {{ model_name }}ScalarFieldKeys[];

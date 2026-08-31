@@ -85,6 +85,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Datasource) => Ok(Declaration::Datasource(self.parse_datasource()?)),
             Some(TokenKind::Generator) => Ok(Declaration::Generator(self.parse_generator()?)),
             Some(TokenKind::Model) => Ok(Declaration::Model(self.parse_model()?)),
+            Some(TokenKind::View) => Ok(Declaration::Model(self.parse_view()?)),
             Some(TokenKind::Enum) => Ok(Declaration::Enum(self.parse_enum()?)),
             Some(TokenKind::Type) => Ok(Declaration::Type(self.parse_type_decl()?)),
             Some(kind) => Err(SchemaError::Parse(
@@ -163,7 +164,19 @@ impl<'a> Parser<'a> {
 
     /// Parses a model block.
     fn parse_model(&mut self) -> Result<ModelDecl> {
-        let start = self.expect(TokenKind::Model)?.span;
+        self.parse_model_block(TokenKind::Model, false)
+    }
+
+    /// Parses a `view` block.
+    ///
+    /// A view has the same body as a model; the keyword is the only difference
+    /// the parser records.
+    fn parse_view(&mut self) -> Result<ModelDecl> {
+        self.parse_model_block(TokenKind::View, true)
+    }
+
+    fn parse_model_block(&mut self, keyword: TokenKind, is_view: bool) -> Result<ModelDecl> {
+        let start = self.expect(keyword)?.span;
         let name = self.parse_ident()?;
         self.expect(TokenKind::LBrace)?;
         self.skip_newlines();
@@ -185,6 +198,7 @@ impl<'a> Parser<'a> {
             name,
             fields,
             attributes,
+            is_view,
             span: start.merge(end),
         })
     }
@@ -1036,6 +1050,7 @@ impl<'a> Parser<'a> {
                 | Some(TokenKind::Datasource)
                 | Some(TokenKind::Generator)
                 | Some(TokenKind::Model)
+                | Some(TokenKind::View)
                 | Some(TokenKind::Enum)
                 | Some(TokenKind::Type) => break,
                 _ => {

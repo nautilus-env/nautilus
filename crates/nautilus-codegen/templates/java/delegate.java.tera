@@ -262,6 +262,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         });
     }
 
+{%- if not is_view %}
     public CompletableFuture<{{ model_name }}> create(Consumer<{{ dsl_name }}.CreateInput> spec) {
         return async(() -> {
             {{ dsl_name }}.CreateInput input = new {{ dsl_name }}.CreateInput();
@@ -271,15 +272,21 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             return createInternal(input);
         });
     }
+{% endif %}
 
+{%- if not is_view %}
     public CompletableFuture<{{ model_name }}> create({{ dsl_name }}.CreateInput data) {
         return async(() -> createInternal(data == null ? new {{ dsl_name }}.CreateInput() : data));
     }
+{% endif %}
 
+{%- if not is_view %}
     public CompletableFuture<List<{{ model_name }}>> createMany(List<{{ dsl_name }}.CreateInput> data) {
         return async(() -> createManyInternal(data));
     }
+{% endif %}
 
+{%- if not is_view %}
     public CompletableFuture<List<{{ model_name }}>> update(Consumer<{{ dsl_name }}.UpdateArgs> spec) {
         return async(() -> {
             {{ dsl_name }}.UpdateArgs args = new {{ dsl_name }}.UpdateArgs();
@@ -289,7 +296,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             return updateInternal(args);
         });
     }
+{% endif %}
 
+{%- if not is_view %}
     public CompletableFuture<{{ model_name }}> delete(Consumer<{{ dsl_name }}.DeleteArgs> spec) {
         return async(() -> {
             {{ dsl_name }}.DeleteArgs args = new {{ dsl_name }}.DeleteArgs();
@@ -299,7 +308,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             return deleteInternal(args);
         });
     }
+{% endif %}
 
+{%- if not is_view %}
     public CompletableFuture<Long> deleteMany(Consumer<{{ dsl_name }}.DeleteArgs> spec) {
         return async(() -> {
             {{ dsl_name }}.DeleteArgs args = new {{ dsl_name }}.DeleteArgs();
@@ -309,7 +320,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             return deleteManyInternal(args);
         });
     }
+{% endif %}
 
+{%- if not is_view %}
     /**
      * Update every {{ model_name }} row matching {@code where}, resolving to the
      * affected-row count.
@@ -326,6 +339,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             return updateManyInternal(args);
         });
     }
+{% endif %}
 
     /**
      * Aggregate over every {{ model_name }} row matching {@code where}, without a
@@ -374,6 +388,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         });
     }
 
+{%- if not is_view %}
     /**
      * Create or update a {{ model_name }} in one atomic statement.
      *
@@ -390,6 +405,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             return upsertInternal(args);
         });
     }
+{% endif %}
 
     public CompletableFuture<List<JsonNode>> groupBy(Consumer<{{ dsl_name }}.GroupByArgs> spec) {
         return async(() -> {
@@ -602,6 +618,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         return record;
     }
 
+{%- if not is_view %}
     public {{ model_name }} create(Consumer<{{ dsl_name }}.CreateInput> spec) {
         {{ dsl_name }}.CreateInput input = new {{ dsl_name }}.CreateInput();
         if (spec != null) {
@@ -609,15 +626,21 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         }
         return createInternal(input);
     }
+{% endif %}
 
+{%- if not is_view %}
     public {{ model_name }} create({{ dsl_name }}.CreateInput data) {
         return createInternal(data == null ? new {{ dsl_name }}.CreateInput() : data);
     }
+{% endif %}
 
+{%- if not is_view %}
     public List<{{ model_name }}> createMany(List<{{ dsl_name }}.CreateInput> data) {
         return createManyInternal(data);
     }
+{% endif %}
 
+{%- if not is_view %}
     public List<{{ model_name }}> update(Consumer<{{ dsl_name }}.UpdateArgs> spec) {
         {{ dsl_name }}.UpdateArgs args = new {{ dsl_name }}.UpdateArgs();
         if (spec != null) {
@@ -625,7 +648,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         }
         return updateInternal(args);
     }
+{% endif %}
 
+{%- if not is_view %}
     public {{ model_name }} delete(Consumer<{{ dsl_name }}.DeleteArgs> spec) {
         {{ dsl_name }}.DeleteArgs args = new {{ dsl_name }}.DeleteArgs();
         if (spec != null) {
@@ -633,7 +658,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         }
         return deleteInternal(args);
     }
+{% endif %}
 
+{%- if not is_view %}
     public long deleteMany(Consumer<{{ dsl_name }}.DeleteArgs> spec) {
         {{ dsl_name }}.DeleteArgs args = new {{ dsl_name }}.DeleteArgs();
         if (spec != null) {
@@ -641,7 +668,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         }
         return deleteManyInternal(args);
     }
+{% endif %}
 
+{%- if not is_view %}
     public long updateMany(Consumer<{{ dsl_name }}.UpdateArgs> spec) {
         {{ dsl_name }}.UpdateArgs args = new {{ dsl_name }}.UpdateArgs();
         if (spec != null) {
@@ -649,6 +678,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         }
         return updateManyInternal(args);
     }
+{% endif %}
 
     public JsonNode aggregate(Consumer<{{ dsl_name }}.AggregateArgs> spec) {
         {{ dsl_name }}.AggregateArgs args = new {{ dsl_name }}.AggregateArgs();
@@ -678,6 +708,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         return countInternal(args);
     }
 
+{%- if not is_view %}
     /**
      * Create or update a {{ model_name }} in one atomic statement.
      *
@@ -692,6 +723,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         }
         return upsertInternal(args);
     }
+{% endif %}
 
     public List<JsonNode> groupBy(Consumer<{{ dsl_name }}.GroupByArgs> spec) {
         {{ dsl_name }}.GroupByArgs args = new {{ dsl_name }}.GroupByArgs();
@@ -965,6 +997,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         return findFirstSelectRawInternal(args);
     }
 
+{%- if not is_view %}
     private {{ model_name }} createInternal({{ dsl_name }}.CreateInput data) {
         Map<String, Object> eventArgs = new HashMap<>();
         eventArgs.put("data", data);
@@ -995,7 +1028,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             throw error;
         }
     }
+{% endif %}
 
+{%- if not is_view %}
     private List<{{ model_name }}> createManyInternal(List<{{ dsl_name }}.CreateInput> data) {
         Map<String, Object> eventArgs = new HashMap<>();
         eventArgs.put("data", data);
@@ -1026,7 +1061,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             throw error;
         }
     }
+{% endif %}
 
+{%- if not is_view %}
     private List<{{ model_name }}> updateInternal({{ dsl_name }}.UpdateArgs args) {
         Map<String, Object> eventArgs = new HashMap<>();
         eventArgs.put("where", args == null ? null : args.whereNode());
@@ -1055,7 +1092,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             throw error;
         }
     }
+{% endif %}
 
+{%- if not is_view %}
     private {{ model_name }} deleteInternal({{ dsl_name }}.DeleteArgs args) {
         Map<String, Object> eventArgs = new HashMap<>();
         eventArgs.put("where", args == null ? null : args.whereNode());
@@ -1086,7 +1125,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             throw error;
         }
     }
+{% endif %}
 
+{%- if not is_view %}
     private long deleteManyInternal({{ dsl_name }}.DeleteArgs args) {
         Map<String, Object> eventArgs = new HashMap<>();
         eventArgs.put("where", args == null ? null : args.whereNode());
@@ -1115,7 +1156,9 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             throw error;
         }
     }
+{% endif %}
 
+{%- if not is_view %}
     private long updateManyInternal({{ dsl_name }}.UpdateArgs args) {
         Map<String, Object> eventArgs = new HashMap<>();
         eventArgs.put("where", args == null ? null : args.whereNode());
@@ -1145,6 +1188,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
             throw error;
         }
     }
+{% endif %}
 
     private JsonNode aggregateInternal({{ dsl_name }}.AggregateArgs args) {
         ObjectNode request = JsonSupport.object();
@@ -1174,6 +1218,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         return JsonSupport.count(result);
     }
 
+{%- if not is_view %}
     private {{ model_name }} upsertInternal({{ dsl_name }}.UpsertArgs args) {
         ObjectNode request = JsonSupport.object();
         request.put("protocolVersion", JsonSupport.PROTOCOL_VERSION);
@@ -1189,6 +1234,7 @@ public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
         }
         return {{ model_name }}.fromJsonNode(row);
     }
+{% endif %}
 
     private List<JsonNode> groupByInternal({{ dsl_name }}.GroupByArgs args) {
         ObjectNode request = JsonSupport.object();

@@ -33,6 +33,44 @@ unaffected.
 
 ### Added
 
+- Added `view` blocks. A `view` names a read-only relation the database owns —
+  Nautilus queries it and never creates, alters, drops or writes to it:
+
+  ```text
+  view PublishedPost {
+    id     Int    @id
+    title  String
+    views  Int
+    author String
+
+    @@map("published_posts")
+  }
+  ```
+
+  A view reads exactly like a model: `findMany`, `findFirst`, `findUnique`,
+  `where`, `orderBy`, `take`/`skip`, `count`, `aggregate`, `groupBy`,
+  `stream_many` and `explain` all work against it. Every write method is
+  refused by the engine with `'<View>' is a view and is read-only`, and the
+  generated clients simply do not carry one: JavaScript and Python delegates
+  have no `create`/`update`/`delete`/`upsert` attribute, and in Rust and Java
+  calling one does not compile.
+
+  Migrations leave a view alone. It never reaches DDL, `db push` neither
+  creates nor drops it, and a live view is not proposed for deletion. Creating
+  the view is the database's job — Nautilus only needs to be told its shape.
+
+  `db pull` now emits a `view` block for every view it finds, so an
+  introspected schema round-trips instead of losing them.
+
+  Because a view carries no foreign key, it cannot take part in a relation: a
+  relation field on a view, or a model relation pointing at one, is a
+  validation error. `@@index`, `@@check`, `@default`, `@updatedAt`, `@computed`
+  and `@check` are rejected on a view for the same reason — they describe
+  storage a view does not have.
+
+  `view` is now a keyword, so a model, field or enum named `view` has to be
+  renamed or `@map`ped.
+
 - Added nested writes. A relation field named in the `data` of `query.create` or
   `query.update` now carries an object of operations instead of a column value,
   and the whole call — parent row, related rows, and the foreign keys between

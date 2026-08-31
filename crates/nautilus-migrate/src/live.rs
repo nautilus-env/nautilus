@@ -10,6 +10,12 @@ pub use nautilus_schema::ComputedKind;
 pub struct LiveSchema {
     /// Keyed on the *DB* table name (as returned by the database).
     pub tables: HashMap<String, LiveTable>,
+    /// Read-only relations (SQL views) present in the live database.
+    ///
+    /// Keyed on the *DB* view name. A view is never created, altered or dropped
+    /// by Nautilus, so only its columns are collected: the primary key, index,
+    /// CHECK and foreign-key fields of [`LiveTable`] are always empty here.
+    pub views: HashMap<String, LiveTable>,
     /// PostgreSQL enum types present in the live database.
     ///
     /// Keyed on the *DB* type name (lower-case), value is the ordered list of

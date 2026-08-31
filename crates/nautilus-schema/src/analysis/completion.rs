@@ -643,6 +643,11 @@ fn top_level_completions() -> Vec<CompletionItem> {
             Some("Define a data model".to_string()),
         ),
         CompletionItem::new(
+            "view",
+            CompletionKind::Keyword,
+            Some("Define a read-only database view".to_string()),
+        ),
+        CompletionItem::new(
             "enum",
             CompletionKind::Keyword,
             Some("Define an enumeration".to_string()),

@@ -1,6 +1,8 @@
 //! {{ model_name }} model and associated builders.
 
+{%- if not is_view %}
 use crate::Row;
+{%- endif %}
 use futures::stream::StreamExt;
 {%- if has_enums %}
 {%- for enum_name in enum_imports %}
@@ -21,6 +23,7 @@ use super::{{ relation_model }};
 use super::{{ input_type }};
 {%- endfor %}
 
+{%- if not is_view %}
 fn all_scalar_value_hints() -> &'static [Option<crate::ValueHint>] {
     &[
 {%- for field in scalar_fields %}
@@ -36,6 +39,7 @@ fn all_scalar_decode_slots() -> &'static [usize] {
 {%- endfor %}
     ]
 }
+{% endif %}
 
 fn projected_scalar_value_hints(
     fields: &std::collections::HashSet<String>,
@@ -253,6 +257,7 @@ fn normalize_projection_row(
 
 {% include "find_many.tera" %}
 
+{%- if not is_view %}
 {% include "create.tera" %}
 
 {% include "create_many.tera" %}
@@ -260,3 +265,4 @@ fn normalize_projection_row(
 {% include "update.tera" %}
 
 {% include "delete.tera" %}
+{% endif %}

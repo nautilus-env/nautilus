@@ -547,6 +547,7 @@ export class {{ delegate_name }} {
     return record;
   }
 
+{%- if not is_view %}
   async create(args: {
     data:        {{ model_name }}CreateInput;
     returnData?: boolean;
@@ -568,7 +569,9 @@ export class {{ delegate_name }} {
     if (!rows?.length) throw new Error('create: engine returned no data');
     return _coerce{{ model_name }}(rows[0] as Record<string, unknown>);
   }
+{% endif %}
 
+{%- if not is_view %}
   async createMany(args: {
     data:        {{ model_name }}CreateInput[];
     returnData?: boolean;
@@ -591,7 +594,9 @@ export class {{ delegate_name }} {
     if (!(args.returnData ?? true)) return [];
     return ((result['data'] as unknown[]) ?? []).map(r => _coerce{{ model_name }}(r as Record<string, unknown>));
   }
+{% endif %}
 
+{%- if not is_view %}
   async update(args: {
     where?:      {{ model_name }}WhereInput;
     data:        {{ model_name }}UpdateInput;
@@ -613,7 +618,9 @@ export class {{ delegate_name }} {
     if (!(args.returnData ?? true)) return (result['count'] as number) ?? 0;
     return ((result['data'] as unknown[]) ?? []).map(r => _coerce{{ model_name }}(r as Record<string, unknown>));
   }
+{% endif %}
 
+{%- if not is_view %}
   async delete(args: {
     where:       {{ model_name }}WhereInput;
     returnData?: boolean;
@@ -635,7 +642,9 @@ export class {{ delegate_name }} {
     const rows = result['data'] as unknown[] | undefined;
     return rows?.length ? _coerce{{ model_name }}(rows[0] as Record<string, unknown>) : record;
   }
+{% endif %}
 
+{%- if not is_view %}
   async deleteMany(args?: {
     where?:      {{ model_name }}WhereInput;
     returnData?: boolean;
@@ -653,7 +662,9 @@ export class {{ delegate_name }} {
     if (returnData) return ((result['data'] as unknown[]) ?? []).map(r => _coerce{{ model_name }}(r as Record<string, unknown>));
     return (result['count'] as number) ?? 0;
   }
+{% endif %}
 
+{%- if not is_view %}
   /**
    * Update every row matching `where` and resolve to the affected-row count.
    *
@@ -678,6 +689,7 @@ export class {{ delegate_name }} {
     })) as Record<string, unknown>;
     return (result['count'] as number) ?? 0;
   }
+{% endif %}
 
   /**
    * Aggregate over every row matching `where`, without a grouping key.
@@ -778,6 +790,7 @@ export class {{ delegate_name }} {
     return (result['data'] as Record<string, unknown>[]) ?? [];
   }
 
+{%- if not is_view %}
   async upsert(args: {
     where:       {{ model_name }}WhereInput;
     data:        {{ model_name }}UpsertInput;
@@ -802,6 +815,7 @@ export class {{ delegate_name }} {
     }
     return _coerce{{ model_name }}(rows[0] as Record<string, unknown>);
   }
+{% endif %}
 
   async groupBy(args: {
     by:      {{ model_name }}ScalarFieldKeys[];

@@ -80,6 +80,24 @@ pub(super) fn get_model_or_error<'a>(
         .ok_or_else(|| ProtocolError::InvalidModel(format!("Model not found: {}", model_name)))
 }
 
+/// Look up a model that a write may target, rejecting `view` blocks.
+///
+/// A view has no storage of its own, so every write method is a client error
+/// rather than something the database could be asked to attempt.
+pub(super) fn get_writable_model_or_error<'a>(
+    state: &'a EngineState,
+    model_name: &str,
+) -> Result<&'a ModelIr, ProtocolError> {
+    let model = get_model_or_error(state, model_name)?;
+    if model.is_view {
+        return Err(ProtocolError::UnsupportedOperation(format!(
+            "'{}' is a view and is read-only",
+            model_name
+        )));
+    }
+    Ok(model)
+}
+
 /// Build a `RelationMap` for the given model so that the filter parser can resolve
 /// `some` / `none` / `every` predicates and `include` entries at runtime.
 pub(super) fn build_relation_map(
@@ -686,6 +704,7 @@ mod tests {
             check_constraints: vec![],
             span: Span::new(0, 0),
             is_ignored: false,
+            is_view: false,
         };
         let field = FieldIr {
             logical_name: "id".to_string(),
@@ -766,6 +785,7 @@ model Post {
             check_constraints: vec![],
             span: Span::new(0, 0),
             is_ignored: false,
+            is_view: false,
         };
         let mut models = HashMap::new();
         models.insert(node_model.logical_name.clone(), node_model.clone());
@@ -794,6 +814,7 @@ model Post {
             check_constraints: vec![],
             span: Span::new(0, 0),
             is_ignored: false,
+            is_view: false,
         };
         let post_model = ModelIr {
             logical_name: "Post".to_string(),
@@ -811,6 +832,7 @@ model Post {
             check_constraints: vec![],
             span: Span::new(0, 0),
             is_ignored: false,
+            is_view: false,
         };
 
         let mut models = HashMap::new();

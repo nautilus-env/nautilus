@@ -225,6 +225,7 @@ impl {{ nested.update_nested_name }} {
 }
 
 {% endfor %}
+{%- if not is_view %}
 /// Structured input for creating a {{ model_name }} record.
 ///
 /// All fields are optional; unset fields are omitted from the INSERT.
@@ -399,6 +400,7 @@ pub type {{ model_name }}DeleteEventContext =
     crate::CrudEventContext<{{ model_name }}DeleteArgs, Option<{{ model_name }}>>;
 pub type {{ model_name }}DeleteManyEventContext =
     crate::CrudEventContext<{{ model_name }}DeleteArgs, Vec<{{ model_name }}>>;
+{% endif %}
 
 /// Scalar fields on {{ model_name }} that can be referenced in generated aggregate APIs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1091,6 +1093,7 @@ where
     }
 }
 
+{%- if not is_view %}
 fn serialize_update_filter_for_engine(
     filter: Option<&nautilus_core::Expr>,
 ) -> nautilus_core::Result<Option<serde_json::Value>> {
@@ -1175,6 +1178,7 @@ fn is_single_record_filter(filter: &nautilus_core::Expr) -> bool {
         .iter()
         .any(|constraint| matches_single_record_constraint(&fields, constraint))
 }
+{% endif %}
 
 /// Delegate for {{ model_name }} queries.
 ///
@@ -1590,6 +1594,7 @@ where
     }
 {% endif %}
 
+{%- if not is_view %}
     /// Create a new {{ model_name }} record.
     ///
     /// Executes immediately and returns the created `{{ model_name }}`.
@@ -1701,7 +1706,9 @@ where
         }))
 {%- endif %}
     }
+{% endif %}
 
+{%- if not is_view %}
     /// Create multiple {{ model_name }} records in a single batch.
     ///
     /// Executes immediately and returns the created records.
@@ -1816,7 +1823,9 @@ where
         }))
 {%- endif %}
     }
+{% endif %}
 
+{%- if not is_view %}
     /// Update {{ model_name }} records matching `args.where_`.
     ///
     /// If `args.where_` is `None`, all rows are updated.
@@ -1955,7 +1964,9 @@ where
         }))
 {%- endif %}
     }
+{% endif %}
 
+{%- if not is_view %}
     /// Delete the first {{ model_name }} record matching `args.where_`.
     ///
     /// finds the first matching record and
@@ -2081,7 +2092,9 @@ where
 {%- else %}
 {%- endif %}
     }
+{% endif %}
 
+{%- if not is_view %}
     /// Delete all {{ model_name }} records matching `args.where_`.
     ///
     /// If `args.where_` is `None`, all rows are deleted.
@@ -2184,6 +2197,7 @@ where
         }))
 {%- endif %}
     }
+{% endif %}
 
     /// Count {{ model_name }} records matching `args`.
     pub {% if is_async %}async {% endif %}fn count(
@@ -2214,6 +2228,7 @@ where
 {%- endif %}
     }
 
+{%- if not is_view %}
     /// Update every {{ model_name }} record matching `args.where_`, returning
     /// the affected-row count.
     ///
@@ -2323,7 +2338,9 @@ where
         }))
 {%- endif %}
     }
+{% endif %}
 
+{%- if not is_view %}
     /// Delete every {{ model_name }} record matching `args.where_`, returning
     /// the affected-row count.
     ///
@@ -2361,6 +2378,7 @@ where
         }))
 {%- endif %}
     }
+{% endif %}
 
     /// Aggregate over every {{ model_name }} record matching `args.where_`,
     /// without a grouping key.
@@ -2540,6 +2558,7 @@ where
 {%- endif %}
     }
 
+{%- if not is_view %}
     /// Create or update a {{ model_name }} record.
     ///
     /// When the embedded engine is available this runs as a single atomic
@@ -2662,4 +2681,5 @@ where
             Ok(Some(created))
         }
     }
+{% endif %}
 }

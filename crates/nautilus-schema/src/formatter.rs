@@ -130,7 +130,7 @@ pub fn format_schema(schema: &Schema, source: &str) -> String {
                     .max()
                     .unwrap_or(0);
 
-                let mut lines = vec![format!("model {} {{", model.name.value)];
+                let mut lines = vec![format!("{} {} {{", model.keyword(), model.name.value)];
 
                 for (idx, field) in model.fields.iter().enumerate() {
                     // Preserve blank lines and comment lines between consecutive fields.

@@ -42,12 +42,21 @@ impl Schema {
         Self { declarations, span }
     }
 
-    /// Finds all model declarations in the schema.
+    /// Finds every model-shaped declaration, `view` blocks included.
+    ///
+    /// Views share the model node and every rule that applies to a model's
+    /// fields applies to them; callers that care about the difference filter on
+    /// [`ModelDecl::is_view`].
     pub fn models(&self) -> impl Iterator<Item = &ModelDecl> {
         self.declarations.iter().filter_map(|d| match d {
             Declaration::Model(m) => Some(m),
             _ => None,
         })
+    }
+
+    /// Finds all `view` declarations in the schema.
+    pub fn views(&self) -> impl Iterator<Item = &ModelDecl> {
+        self.models().filter(|m| m.is_view)
     }
 
     /// Finds all enum declarations in the schema.
@@ -254,7 +263,11 @@ pub struct ConfigField {
     pub span: Span,
 }
 
-/// A model block declaration.
+/// A model or `view` block declaration.
+///
+/// A view is parsed into the same node as a model and differs only by
+/// [`is_view`](Self::is_view): it names a read-only relation that Nautilus
+/// queries but never creates, alters, drops or writes to.
 ///
 /// # Example
 ///
@@ -263,6 +276,11 @@ pub struct ConfigField {
 ///   id    Int    @id @default(autoincrement())
 ///   email String @unique
 ///   @@map("users")
+/// }
+///
+/// view ActiveUser {
+///   id    Int    @id
+///   email String
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -273,6 +291,8 @@ pub struct ModelDecl {
     pub fields: Vec<FieldDecl>,
     /// Model-level attributes (@@map, @@id, etc.).
     pub attributes: Vec<ModelAttribute>,
+    /// `true` when the block was declared with the `view` keyword.
+    pub is_view: bool,
     /// Span covering the entire model block.
     pub span: Span,
 }
@@ -292,6 +312,16 @@ impl ModelDecl {
                 _ => None,
             })
             .unwrap_or(&self.name.value)
+    }
+
+    /// The keyword this block was declared with, for diagnostics that quote it
+    /// back to the user.
+    pub fn keyword(&self) -> &'static str {
+        if self.is_view {
+            "view"
+        } else {
+            "model"
+        }
     }
 
     /// Checks if this model carries `@@ignore`.
@@ -867,6 +897,7 @@ mod tests {
             name: Ident::new("User".to_string(), Span::new(0, 4)),
             fields: vec![],
             attributes: vec![ModelAttribute::Map("users".to_string())],
+            is_view: false,
             span: Span::new(0, 10),
         };
         assert_eq!(model.table_name(), "users");
@@ -878,6 +909,7 @@ mod tests {
             name: Ident::new("User".to_string(), Span::new(0, 4)),
             fields: vec![],
             attributes: vec![],
+            is_view: false,
             span: Span::new(0, 10),
         };
         assert_eq!(model.table_name(), "User");
@@ -903,6 +935,7 @@ mod tests {
                     name: Ident::new("User".to_string(), Span::new(0, 4)),
                     fields: vec![],
                     attributes: vec![],
+                    is_view: false,
                     span: Span::new(0, 10),
                 }),
                 Declaration::Enum(EnumDecl {

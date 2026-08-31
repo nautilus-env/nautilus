@@ -232,6 +232,35 @@ directory; imports are followed transitively and each file is joined once. This
 is also what tells the language server which files belong together — see
 [crates/nautilus-schema/GRAMMAR.md](crates/nautilus-schema/GRAMMAR.md#imports).
 
+### Views
+
+A `view` block names a read-only relation the database owns. Nautilus queries it
+and never creates, alters, drops or writes to it:
+
+```prisma
+view PublishedPost {
+  id     Int    @id
+  title  String
+  views  Int
+  author String
+
+  @@map("published_posts")
+}
+```
+
+A view reads exactly like a model — `findMany`, `where`, `orderBy`, `take` /
+`skip`, `count`, `aggregate`, `groupBy`, streaming and `explain` all work — and
+carries no write API at all: the generated delegate has no `create`, `update`,
+`delete` or `upsert`, and the engine refuses one if it is called over the wire.
+
+Migrations leave a view alone: it never reaches DDL, `db push` neither creates
+nor drops it, and `db pull` emits a `view` block for every view it finds.
+Creating the view is the database's job; Nautilus only needs its shape.
+
+A view carries no foreign key, so it cannot take part in a relation, and the
+attributes that describe storage (`@@index`, `@@check`, `@default`,
+`@updatedAt`, `@computed`, `@check`) are rejected on one.
+
 ### PostgreSQL extensions
 
 PostgreSQL extensions can be declared directly in the datasource block. Nautilus
