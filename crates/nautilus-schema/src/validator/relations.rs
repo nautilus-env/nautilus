@@ -1,5 +1,26 @@
 use super::*;
 
+/// One `@relation` a model declares towards a given target, reduced to what
+/// deciding a name clash needs.
+struct RelationSlot {
+    name: Option<String>,
+    /// An array side that names no foreign key — one half of an implicit
+    /// many-to-many.
+    is_dangling_array: bool,
+}
+
+/// Whether two relation fields sharing a name are the two ends of a
+/// many-to-many a model has with itself.
+///
+/// Those are the one case where a repeated relation name inside one model is
+/// correct rather than ambiguous: the name is what pairs the two array fields,
+/// and there is no other model to carry it.
+fn is_self_many_to_many(sharing: &[&RelationSlot], model: &ModelDecl, target: &str) -> bool {
+    sharing.len() == 2
+        && model.name.value == target
+        && sharing.iter().all(|slot| slot.is_dangling_array)
+}
+
 impl SchemaValidator<'_> {
     pub(super) fn validate_relations(&mut self) {
         let models: Vec<_> = self.schema.models().cloned().collect();
@@ -9,7 +30,7 @@ impl SchemaValidator<'_> {
     }
 
     pub(super) fn validate_model_relations(&mut self, model: &ModelDecl) {
-        let mut relations_to_models: HashMap<String, Vec<Option<String>>> = HashMap::new();
+        let mut relations_to_models: HashMap<String, Vec<RelationSlot>> = HashMap::new();
 
         for field in &model.fields {
             for attr in &field.attributes {
@@ -53,7 +74,12 @@ impl SchemaValidator<'_> {
                 relations_to_models
                     .entry(target_model.clone())
                     .or_default()
-                    .push(name.clone());
+                    .push(RelationSlot {
+                        name: name.clone(),
+                        is_dangling_array: field.modifier == FieldModifier::Array
+                            && fields.is_none()
+                            && references.is_none(),
+                    });
 
                 if field.modifier == FieldModifier::Array {
                     if fields.is_some() || references.is_some() {
@@ -144,31 +170,41 @@ impl SchemaValidator<'_> {
             }
         }
 
-        for (target_model, relation_names) in relations_to_models {
-            if relation_names.len() > 1 {
-                let named_count = relation_names.iter().filter(|n| n.is_some()).count();
-                if named_count < relation_names.len() {
-                    self.errors.push_back(SchemaError::Validation(
-                        format!(
-                            "Model '{}' has multiple relations to '{}' but not all have unique 'name' parameters",
-                            model.name.value, target_model
-                        ),
-                        model.span,
-                    ));
-                } else {
-                    let mut seen_names = HashSet::new();
-                    for n in relation_names.into_iter().flatten() {
-                        if !seen_names.insert(n.clone()) {
-                            self.errors.push_back(SchemaError::Validation(
-                                format!(
-                                    "Duplicate relation name '{}' in model '{}' to model '{}'",
-                                    n, model.name.value, target_model
-                                ),
-                                model.span,
-                            ));
-                        }
-                    }
+        for (target_model, slots) in relations_to_models {
+            if slots.len() < 2 {
+                continue;
+            }
+
+            let named_count = slots.iter().filter(|slot| slot.name.is_some()).count();
+            if named_count < slots.len() {
+                self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "Model '{}' has multiple relations to '{}' but not all have unique 'name' parameters",
+                        model.name.value, target_model
+                    ),
+                    model.span,
+                ));
+                continue;
+            }
+
+            let mut by_name: HashMap<&str, Vec<&RelationSlot>> = HashMap::new();
+            for slot in &slots {
+                if let Some(name) = slot.name.as_deref() {
+                    by_name.entry(name).or_default().push(slot);
                 }
+            }
+
+            for (name, sharing) in by_name {
+                if sharing.len() < 2 || is_self_many_to_many(&sharing, model, &target_model) {
+                    continue;
+                }
+                self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "Duplicate relation name '{}' in model '{}' to model '{}'",
+                        name, model.name.value, target_model
+                    ),
+                    model.span,
+                ));
             }
         }
     }

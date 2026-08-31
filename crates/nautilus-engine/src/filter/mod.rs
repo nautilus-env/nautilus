@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value as JsonValue;
 
 use nautilus_core::{
-    BinaryOp, Expr, FindManyArgs, IncludeRelation, OrderBy, OrderDir, PartitionWindow, Select,
-    Value, VectorMetric,
+    BinaryOp, Expr, FindManyArgs, IncludeRelation, JoinClause, OrderBy, OrderDir, PartitionWindow,
+    Select, Value, VectorMetric,
 };
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::{ModelIr, ResolvedFieldType, ScalarType};
@@ -44,6 +44,23 @@ pub struct RelationInfo {
     pub pk_db: String,
     /// Whether this relation is one-to-many (`true`) or one-to-one / FK-side (`false`).
     pub is_array: bool,
+    /// The join table, when the relation is an implicit many-to-many.
+    ///
+    /// Neither side holds a foreign key then, so `fk_db` names the target's own
+    /// key column and every query reaches the children through the table
+    /// described here instead of a column on one of the two models.
+    pub via: Option<JoinTableInfo>,
+}
+
+/// The join table of an implicit many-to-many, as the query planner needs it.
+#[derive(Debug, Clone)]
+pub struct JoinTableInfo {
+    /// Physical name of the join table.
+    pub table: String,
+    /// Join-table column holding the parent's key.
+    pub parent_column: String,
+    /// Join-table column holding the child's key.
+    pub child_column: String,
 }
 
 /// A map from relation *field* name (logical, as used in the `where` / `include` payload)
@@ -139,6 +156,23 @@ pub struct QueryArgs {
     /// per group instead of once per result set. Set by the batched include
     /// path; never parsed from client args.
     pub partition: Option<PartitionWindow>,
+    /// Optional extra table joined into the query. Set by the include path for
+    /// an implicit many-to-many; never parsed from client args.
+    pub join: Option<RelationJoin>,
+}
+
+/// A table joined into a `findMany` on top of the model's own, together with
+/// the columns it contributes to every row.
+///
+/// Only the join table of an implicit many-to-many uses this: the relation has
+/// no foreign key on either model, so the parent key each child belongs to has
+/// to be read out of the join table and travel with the child row.
+#[derive(Debug, Clone)]
+pub struct RelationJoin {
+    /// The joined table and its `ON` condition.
+    pub clause: JoinClause,
+    /// Decoding hint for each column of `clause.items`, in the same order.
+    pub hints: Vec<Option<crate::conversion::ValueHint>>,
 }
 
 fn strip_column_qualifier(name: &str) -> String {
@@ -283,6 +317,7 @@ impl QueryArgs {
             distinct,
             nearest,
             partition: None,
+            join: None,
         })
     }
 
@@ -350,6 +385,7 @@ impl QueryArgs {
                     distinct: vec![],
                     nearest: None,
                     partition: None,
+                    join: None,
                 });
             }
         };
@@ -481,6 +517,7 @@ impl QueryArgs {
             distinct,
             nearest,
             partition: None,
+            join: None,
         })
     }
 }

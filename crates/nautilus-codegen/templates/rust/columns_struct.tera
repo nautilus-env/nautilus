@@ -18,33 +18,32 @@ impl {{ columns_name }} {
 {%- if relations %}
 {%- for relation in relations %}
 {%- if relation.is_array %}
+{%- for op in ["some", "none", "every"] %}
+{%- if op == "some" %}
     /// Filter parent rows that have **at least one** `{{ relation.field_name }}` matching `child_filter`.
-    pub fn {{ relation.field_name }}_some(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
-        nautilus_core::Expr::relation_some(
-            "{{ relation.field_name }}",
-            "{{ table_name }}",
-            "{{ relation.target_table }}",
-            "{{ relation.references_db | first }}",
-            "{{ relation.fields_db | first }}",
-            child_filter,
-        )
-    }
-
+{%- elif op == "none" %}
     /// Filter parent rows that have **no** `{{ relation.field_name }}` matching `child_filter`.
-    pub fn {{ relation.field_name }}_none(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
-        nautilus_core::Expr::relation_none(
-            "{{ relation.field_name }}",
-            "{{ table_name }}",
-            "{{ relation.target_table }}",
-            "{{ relation.references_db | first }}",
-            "{{ relation.fields_db | first }}",
-            child_filter,
-        )
-    }
-
+{%- else %}
     /// Filter parent rows where **all** `{{ relation.field_name }}` match `child_filter`.
-    pub fn {{ relation.field_name }}_every(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
-        nautilus_core::Expr::relation_every(
+{%- endif %}
+    pub fn {{ relation.field_name }}_{{ op }}(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
+{%- if relation.join %}
+        nautilus_core::Expr::relation_through(
+            nautilus_core::RelationFilterOp::{{ op | capitalize }},
+            "{{ relation.field_name }}",
+            "{{ table_name }}",
+            "{{ relation.target_table }}",
+            "{{ relation.references_db | first }}",
+            "{{ relation.fields_db | first }}",
+            nautilus_core::RelationJoinTable {
+                table: "{{ relation.join.table }}".to_string(),
+                parent_column: "{{ relation.join.parent_column }}".to_string(),
+                child_column: "{{ relation.join.child_column }}".to_string(),
+            },
+            child_filter,
+        )
+{%- else %}
+        nautilus_core::Expr::relation_{{ op }}(
             "{{ relation.field_name }}",
             "{{ table_name }}",
             "{{ relation.target_table }}",
@@ -52,8 +51,10 @@ impl {{ columns_name }} {
             "{{ relation.fields_db | first }}",
             child_filter,
         )
+{%- endif %}
     }
 
+{%- endfor %}
 {%- endif %}
 {%- endfor %}
 {%- endif %}

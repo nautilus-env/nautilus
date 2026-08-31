@@ -11,7 +11,9 @@
 //! it answers *what* a model contains, never *how* a language spells it.
 
 use heck::ToSnakeCase;
-use nautilus_schema::ir::{FieldIr, ModelIr, RelationIr, ResolvedFieldType, ScalarType, SchemaIr};
+use nautilus_schema::ir::{
+    FieldIr, ManyToManyJoinIr, ModelIr, RelationIr, ResolvedFieldType, ScalarType, SchemaIr,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::extension_types::{ExtensionRegistry, ExtensionType};
@@ -87,6 +89,16 @@ pub(crate) struct RelationView<'a> {
     pub references: Vec<String>,
     pub fields_db: Vec<String>,
     pub references_db: Vec<String>,
+}
+
+impl RelationView<'_> {
+    /// The join table, when this relation is an implicit many-to-many.
+    ///
+    /// The two key columns are in `fields_db` and `references_db` like any
+    /// other relation; what this adds is the table the links live in.
+    pub fn join(&self) -> Option<&ManyToManyJoinIr> {
+        self.relation.join.as_ref()
+    }
 }
 
 impl<'a> RelationView<'a> {
@@ -277,12 +289,21 @@ fn build_relations<'a>(model: &'a ModelIr, ir: &'a SchemaIr) -> Vec<RelationView
             };
             let target = ir.models.get(&relation.target_model);
 
-            let (fields, references) = match target {
-                Some(target) if relation.fields.is_empty() => resolve_inverse_relation_fields(
-                    &model.logical_name,
-                    relation.name.as_deref(),
-                    target,
+            // A many-to-many has no foreign key to resolve: the two keys the
+            // join table stores stand in for one, so the rest of the pipeline
+            // sees the same `(parent key, child key)` pair every relation has.
+            let (fields, references) = match (&relation.join, target) {
+                (Some(join), _) => (
+                    vec![join.self_reference.clone()],
+                    vec![join.target_reference.clone()],
                 ),
+                (None, Some(target)) if relation.fields.is_empty() => {
+                    resolve_inverse_relation_fields(
+                        &model.logical_name,
+                        relation.name.as_deref(),
+                        target,
+                    )
+                }
                 _ => (relation.fields.clone(), relation.references.clone()),
             };
 

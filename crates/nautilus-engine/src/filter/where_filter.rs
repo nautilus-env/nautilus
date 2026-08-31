@@ -90,9 +90,30 @@ pub(super) fn parse_relation_filter(
     let empty_field_types = FieldTypeMap::new();
     let child_ctx = relation_filter_context(rel, schema_context)?;
 
-    let join_cond = || {
-        Expr::column(format!("{}__{}", rel.target_table, rel.fk_db))
-            .eq(Expr::column(format!("{}__{}", rel.parent_table, rel.pk_db)))
+    // An implicit many-to-many keeps its links in a table of its own, so the
+    // subquery starts there and joins the children in; every other relation
+    // reads the parent key straight off the child row.
+    let join_cond = || match &rel.via {
+        Some(via) => Expr::column(format!("{}__{}", via.table, via.parent_column))
+            .eq(Expr::column(format!("{}__{}", rel.parent_table, rel.pk_db))),
+        None => Expr::column(format!("{}__{}", rel.target_table, rel.fk_db))
+            .eq(Expr::column(format!("{}__{}", rel.parent_table, rel.pk_db))),
+    };
+
+    let subquery_over = |predicate: Expr| -> Result<Select, ProtocolError> {
+        let builder = match &rel.via {
+            Some(via) => Select::from_table(&via.table).inner_join(
+                rel.target_table.clone(),
+                Expr::column(format!("{}__{}", rel.target_table, rel.fk_db))
+                    .eq(Expr::column(format!("{}__{}", via.table, via.child_column))),
+                Vec::new(),
+            ),
+            None => Select::from_table(&rel.target_table),
+        };
+        builder
+            .filter(predicate)
+            .build()
+            .map_err(|e| ProtocolError::QueryPlanning(e.to_string()))
     };
 
     let parse_child_filter = |child_value: &JsonValue| -> Result<Expr, ProtocolError> {
@@ -120,29 +141,21 @@ pub(super) fn parse_relation_filter(
 
     if let Some(some_val) = spec.get("some") {
         let child_filter = parse_child_filter(some_val)?;
-        let subquery = Select::from_table(&rel.target_table)
-            .filter(join_cond().and(child_filter))
-            .build()
-            .map_err(|e| ProtocolError::QueryPlanning(e.to_string()))?;
-        conditions.push(Expr::exists(subquery));
+        conditions.push(Expr::exists(subquery_over(join_cond().and(child_filter))?));
     }
 
     if let Some(none_val) = spec.get("none") {
         let child_filter = parse_child_filter(none_val)?;
-        let subquery = Select::from_table(&rel.target_table)
-            .filter(join_cond().and(child_filter))
-            .build()
-            .map_err(|e| ProtocolError::QueryPlanning(e.to_string()))?;
-        conditions.push(Expr::not_exists(subquery));
+        conditions.push(Expr::not_exists(subquery_over(
+            join_cond().and(child_filter),
+        )?));
     }
 
     if let Some(every_val) = spec.get("every") {
         let child_filter = parse_child_filter(every_val)?;
-        let subquery = Select::from_table(&rel.target_table)
-            .filter(join_cond().and(!child_filter))
-            .build()
-            .map_err(|e| ProtocolError::QueryPlanning(e.to_string()))?;
-        conditions.push(Expr::not_exists(subquery));
+        conditions.push(Expr::not_exists(subquery_over(
+            join_cond().and(!child_filter),
+        )?));
     }
 
     if conditions.is_empty() {

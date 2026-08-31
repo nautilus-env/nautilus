@@ -53,6 +53,17 @@ struct BackRelation {
     is_one_to_one: bool,
 }
 
+/// One end of an implicit many-to-many recovered from the live database.
+struct ManyToManyEnd {
+    /// The live table on the other side of the join.
+    target_table: String,
+    field_name: String,
+    /// Set when the join table's name does not spell the default
+    /// `_<A model>To<B model>` for this pair, so the schema has to say which
+    /// relation it is.
+    relation_name: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 struct TableNamingContext {
     model_name: String,
@@ -102,6 +113,12 @@ pub fn serialize_live_schema_with_options(
     table_names.sort();
     let mut view_names: Vec<&String> = live.views.keys().collect();
     view_names.sort();
+
+    // A join table is the storage of a relation, not a model: it comes back as
+    // an array field on each of the two models it links.
+    let joins = find_join_tables(live, &table_names);
+    table_names.retain(|name| !joins.iter().any(|join| join.name == **name));
+
     let table_naming = build_table_naming_contexts(live, &table_names, &view_names, options);
     let relation_pair_counts = build_relation_pair_counts(live, &table_names);
     let directional_relation_counts = build_directional_relation_counts(live, &table_names);
@@ -121,6 +138,14 @@ pub fn serialize_live_schema_with_options(
         options,
     );
 
+    let many_to_many = build_many_to_many_ends(
+        &joins,
+        &table_naming,
+        &forward_relations,
+        &back_relations,
+        options,
+    );
+
     for table_name in &table_names {
         parts.push(render_model_block(
             live,
@@ -128,6 +153,7 @@ pub fn serialize_live_schema_with_options(
             &table_naming,
             slice_for(&forward_relations, table_name),
             slice_for(&back_relations, table_name),
+            slice_for(&many_to_many, table_name),
         ));
     }
 
@@ -140,6 +166,145 @@ pub fn serialize_live_schema_with_options(
         out.push('\n');
     }
     out
+}
+
+/// A live table that is the join table of an implicit many-to-many.
+struct JoinTable {
+    name: String,
+    /// The table the `A` column points at.
+    a_table: String,
+    /// The table the `B` column points at.
+    b_table: String,
+}
+
+/// Recognise the join tables among the live ones.
+///
+/// The shape is the one Nautilus creates and nothing else plausibly is: a name
+/// starting with `_`, exactly the two required columns `A` and `B`, a primary
+/// key over the pair, and one foreign key per column. Recovering them is what
+/// makes `db pull` return the schema that produced the database rather than a
+/// second, explicit spelling of it.
+fn find_join_tables(live: &LiveSchema, table_names: &[&String]) -> Vec<JoinTable> {
+    let mut joins: Vec<JoinTable> = table_names
+        .iter()
+        .filter_map(|name| {
+            let table = &live.tables[*name];
+            if !name.starts_with('_') || table.primary_key != ["A", "B"] {
+                return None;
+            }
+            let columns: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
+            if columns != ["A", "B"] || table.columns.iter().any(|column| column.nullable) {
+                return None;
+            }
+
+            let referenced = |column: &str| {
+                table
+                    .foreign_keys
+                    .iter()
+                    .find(|fk| fk.columns == [column])
+                    .filter(|fk| live.tables.contains_key(&fk.referenced_table))
+                    .map(|fk| fk.referenced_table.clone())
+            };
+            if table.foreign_keys.len() != 2 {
+                return None;
+            }
+
+            Some(JoinTable {
+                name: (*name).clone(),
+                a_table: referenced("A")?,
+                b_table: referenced("B")?,
+            })
+        })
+        .collect();
+    joins.sort_by(|a, b| a.name.cmp(&b.name));
+    joins
+}
+
+/// Build the array relation field each side of a recovered many-to-many needs.
+///
+/// Field names are chosen against the names the model already carries, so a
+/// recovered relation never collides with a column or another relation.
+fn build_many_to_many_ends(
+    joins: &[JoinTable],
+    table_naming: &HashMap<String, TableNamingContext>,
+    forward_relations: &HashMap<String, Vec<ForwardRelation>>,
+    back_relations: &HashMap<String, Vec<BackRelation>>,
+    options: PullNamingOptions,
+) -> HashMap<String, Vec<ManyToManyEnd>> {
+    let mut used_fields: HashMap<&str, HashSet<String>> = HashMap::new();
+    let mut result: HashMap<String, Vec<ManyToManyEnd>> = HashMap::new();
+
+    for (table_name, naming) in table_naming {
+        let mut used: HashSet<String> = naming.logical_field_order.iter().cloned().collect();
+        used.extend(
+            slice_for(forward_relations, table_name)
+                .iter()
+                .map(|relation| relation.field_name.clone()),
+        );
+        used.extend(
+            slice_for(back_relations, table_name)
+                .iter()
+                .map(|relation| relation.field_name.clone()),
+        );
+        used_fields.insert(table_name.as_str(), used);
+    }
+
+    for join in joins {
+        let Some(a_naming) = table_naming.get(&join.a_table) else {
+            continue;
+        };
+        let Some(b_naming) = table_naming.get(&join.b_table) else {
+            continue;
+        };
+
+        let default_name = format!("_{}To{}", a_naming.model_name, b_naming.model_name);
+        let relation_name =
+            (join.name != default_name).then(|| join.name.trim_start_matches('_').to_string());
+
+        for (owner, target, target_model) in [
+            (&join.a_table, &join.b_table, &b_naming.model_name),
+            (&join.b_table, &join.a_table, &a_naming.model_name),
+        ] {
+            let used = used_fields
+                .get_mut(owner.as_str())
+                .expect("every live table has a naming context");
+            let base = apply_derived_field_case(
+                &pluralize_name(&to_snake_case_identifier(&singular_name(target_model))),
+                options.field_case,
+            );
+            let field_name = choose_unique_field_name(vec![base], used);
+            result
+                .entry(owner.clone())
+                .or_default()
+                .push(ManyToManyEnd {
+                    target_table: target.clone(),
+                    field_name,
+                    relation_name: relation_name.clone(),
+                });
+        }
+    }
+
+    result
+}
+
+fn render_many_to_many_lines(
+    table_naming: &HashMap<String, TableNamingContext>,
+    ends: &[ManyToManyEnd],
+) -> Vec<String> {
+    ends.iter()
+        .map(|end| {
+            let target_model = &table_naming[&end.target_table].model_name;
+            match &end.relation_name {
+                Some(relation_name) => format!(
+                    "  {}  {}[]  @relation(name: \"{}\")",
+                    end.field_name,
+                    target_model,
+                    escape_schema_string(relation_name)
+                ),
+                None => format!("  {}  {}[]", end.field_name, target_model),
+            }
+        })
+        .collect()
 }
 
 fn slice_for<'a, T>(map: &'a HashMap<String, Vec<T>>, table_name: &str) -> &'a [T] {
@@ -281,6 +446,7 @@ fn render_model_block(
     table_naming: &HashMap<String, TableNamingContext>,
     forward_relations: &[ForwardRelation],
     back_relations: &[BackRelation],
+    many_to_many: &[ManyToManyEnd],
 ) -> String {
     let table = &live.tables[table_name];
     let naming = &table_naming[table_name];
@@ -294,6 +460,7 @@ fn render_model_block(
         forward_relations,
     ));
     lines.extend(render_back_relation_lines(table_naming, back_relations));
+    lines.extend(render_many_to_many_lines(table_naming, many_to_many));
 
     if table.primary_key.len() > 1 {
         lines.push(format!(

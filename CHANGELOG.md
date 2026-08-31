@@ -33,6 +33,53 @@ unaffected.
 
 ### Added
 
+- Added implicit many-to-many relations. A relation declared as an array on
+  both sides, with neither side naming `fields`/`references`, no longer needs a
+  join model written by hand:
+
+  ```text
+  model Post {
+    id   Int   @id @default(autoincrement())
+    tags Tag[]
+  }
+
+  model Tag {
+    id    Int    @id @default(autoincrement())
+    posts Post[]
+  }
+  ```
+
+  Nautilus synthesises the join table. It is called `_<A model>To<B model>` —
+  `_PostToTag` here — or `_<relation name>` when the relation is named, and
+  carries two columns `A` and `B`, `A` belonging to whichever side sorts first
+  by `(model, field)`. Each is typed after the primary key it points at and
+  cascades on delete and update, and the pair is the table's primary key, with
+  an index on `B` so the relation reads as cheaply from either end. `db push`
+  and migrations create and drop it like any other table.
+
+  The join table is not part of any generated client: `Post` gets a `tags`
+  list, `Tag` a `posts` list, and the nested writes of both are the way to make
+  and break links — `create`, `createMany`, `connect`, `connectOrCreate` on a
+  create, plus `disconnect`, `set`, `update`, `updateMany`, `delete` and
+  `deleteMany` on an update. `connect` is idempotent: linking twice leaves the
+  relation as it was rather than failing on the join table's key. The
+  operations that reach existing children resolve the relation's members first
+  and narrow to them, so a `where` of the caller's can only narrow the reach,
+  never widen it to a row linked to another parent.
+
+  Reads go through the join table in a single query: `include` (with `where`,
+  `orderBy` and per-parent `take`/`skip`, and nesting under it), and
+  `where: { tags: { some | none | every: ... } }`. The Rust client's generated
+  `tags_some(...)` predicate carries the join table too, so the direct
+  connector path compiles the same `EXISTS`.
+
+  Both models need a single-field primary key, since each key has one column to
+  land in; a composite one is a validation error that points at declaring the
+  join table as a model instead. A model can hold a many-to-many with itself,
+  which is the one case where the same relation `name` may appear twice inside
+  one model. A many-to-many with a `view` is refused: a view is read-only, so
+  its join table could never be created.
+
 - Added `view` blocks. A `view` names a read-only relation the database owns —
   Nautilus queries it and never creates, alters, drops or writes to it:
 

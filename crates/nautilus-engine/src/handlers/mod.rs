@@ -27,7 +27,7 @@ use tokio::sync::mpsc;
 
 use crate::conversion::check_protocol_version;
 use crate::conversion::to_snake_case;
-use crate::filter::{RelationInfo, RelationMap};
+use crate::filter::{JoinTableInfo, RelationInfo, RelationMap};
 use crate::state::EngineState;
 
 mod crud;
@@ -98,6 +98,13 @@ pub(super) fn get_writable_model_or_error<'a>(
     Ok(model)
 }
 
+/// The physical column name of a model's logical field.
+fn column_of(model: &ModelIr, logical_name: &str) -> Option<String> {
+    model
+        .find_field(logical_name)
+        .map(|field| field.db_name.clone())
+}
+
 /// Build a `RelationMap` for the given model so that the filter parser can resolve
 /// `some` / `none` / `every` predicates and `include` entries at runtime.
 pub(super) fn build_relation_map(
@@ -111,6 +118,32 @@ pub(super) fn build_relation_map(
             let target_logical_name = rel.target_model.clone();
 
             if let Some(target_model) = models.get(&target_logical_name) {
+                if let Some(join) = &rel.join {
+                    let Some(pk_db) = column_of(model, &join.self_reference) else {
+                        continue;
+                    };
+                    let Some(fk_db) = column_of(target_model, &join.target_reference) else {
+                        continue;
+                    };
+                    map.insert(
+                        to_snake_case(&field.logical_name),
+                        RelationInfo {
+                            parent_table: model.db_name.clone(),
+                            target_logical_name,
+                            target_table: target_model.db_name.clone(),
+                            fk_db,
+                            pk_db,
+                            is_array: true,
+                            via: Some(JoinTableInfo {
+                                table: join.table.clone(),
+                                parent_column: join.self_column.clone(),
+                                child_column: join.target_column.clone(),
+                            }),
+                        },
+                    );
+                    continue;
+                }
+
                 // Resolve (fk_db, pk_db) based on which side carries the FK.
                 let (fk_db, pk_db) = if rel.fields.is_empty() {
                     // Array / many-side: FK is in the target model.
@@ -232,6 +265,7 @@ pub(super) fn build_relation_map(
                             fk_db,
                             pk_db,
                             is_array: field.is_array,
+                            via: None,
                         },
                     );
                 }
@@ -678,6 +712,7 @@ mod tests {
                 references: references.iter().map(|s| (*s).to_string()).collect(),
                 on_delete: None,
                 on_update: None,
+                join: None,
             }),
             is_required: !is_array,
             is_array,
@@ -705,6 +740,7 @@ mod tests {
             span: Span::new(0, 0),
             is_ignored: false,
             is_view: false,
+            is_join_table: false,
         };
         let field = FieldIr {
             logical_name: "id".to_string(),
@@ -786,6 +822,7 @@ model Post {
             span: Span::new(0, 0),
             is_ignored: false,
             is_view: false,
+            is_join_table: false,
         };
         let mut models = HashMap::new();
         models.insert(node_model.logical_name.clone(), node_model.clone());
@@ -815,6 +852,7 @@ model Post {
             span: Span::new(0, 0),
             is_ignored: false,
             is_view: false,
+            is_join_table: false,
         };
         let post_model = ModelIr {
             logical_name: "Post".to_string(),
@@ -833,6 +871,7 @@ model Post {
             span: Span::new(0, 0),
             is_ignored: false,
             is_view: false,
+            is_join_table: false,
         };
 
         let mut models = HashMap::new();

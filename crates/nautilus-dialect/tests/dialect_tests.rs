@@ -1322,6 +1322,79 @@ fn check_join_star_columns(h: &Harness) {
     assert!(sql.params.is_empty(), "[{}]", h.name);
 }
 
+fn check_relation_predicate(h: &Harness) {
+    let q = h.q;
+    let filter = Expr::relation_some(
+        "posts",
+        "User",
+        "Post",
+        "user_id",
+        "id",
+        Expr::column("Post__published").eq(Expr::param(Value::Bool(true))),
+    );
+    let select = Select::from_table("User").filter(filter).build().unwrap();
+    let sql = h.dialect.render_select(&select).unwrap();
+    assert_eq!(
+        sql.text,
+        format!(
+            "SELECT * FROM {} WHERE EXISTS (SELECT * FROM {} WHERE {}.{} = {}.{} AND ({}.{} = {}))",
+            q("User"),
+            q("Post"),
+            q("Post"),
+            q("user_id"),
+            q("User"),
+            q("id"),
+            q("Post"),
+            q("published"),
+            (h.p)(1),
+        ),
+        "[{}]",
+        h.name
+    );
+}
+
+fn check_relation_predicate_through_a_join_table(h: &Harness) {
+    let q = h.q;
+    let filter = Expr::relation_through(
+        nautilus_core::RelationFilterOp::Some,
+        "tags",
+        "Post",
+        "Tag",
+        "id",
+        "id",
+        nautilus_core::RelationJoinTable {
+            table: "_PostToTag".to_string(),
+            parent_column: "A".to_string(),
+            child_column: "B".to_string(),
+        },
+        Expr::column("Tag__label").eq(Expr::param(Value::String("rust".to_string()))),
+    );
+    let select = Select::from_table("Post").filter(filter).build().unwrap();
+    let sql = h.dialect.render_select(&select).unwrap();
+    assert_eq!(
+        sql.text,
+        format!(
+            "SELECT * FROM {} WHERE EXISTS (SELECT * FROM {} INNER JOIN {} ON {}.{} = {}.{} WHERE {}.{} = {}.{} AND ({}.{} = {}))",
+            q("Post"),
+            q("_PostToTag"),
+            q("Tag"),
+            q("Tag"),
+            q("id"),
+            q("_PostToTag"),
+            q("B"),
+            q("_PostToTag"),
+            q("A"),
+            q("Post"),
+            q("id"),
+            q("Tag"),
+            q("label"),
+            (h.p)(1),
+        ),
+        "[{}]",
+        h.name
+    );
+}
+
 #[test]
 fn select_star() {
     for h in all_harnesses() {
@@ -1645,4 +1718,18 @@ fn postgres_distinct_on_uses_qualified_identifier_splitting() {
         sql.text,
         "SELECT DISTINCT ON (\"users\".\"profile__slug\") * FROM \"users\""
     );
+}
+
+#[test]
+fn relation_predicate() {
+    for h in all_harnesses() {
+        check_relation_predicate(&h);
+    }
+}
+
+#[test]
+fn relation_predicate_through_a_join_table() {
+    for h in all_harnesses() {
+        check_relation_predicate_through_a_join_table(&h);
+    }
 }

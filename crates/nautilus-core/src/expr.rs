@@ -54,6 +54,25 @@ pub struct RelationFilter {
     pub pk_db: String,
     /// Child filter to apply inside the relation predicate.
     pub filter: Box<Expr>,
+    /// The join table, when the relation is an implicit many-to-many.
+    ///
+    /// `None` for every relation whose child rows carry the foreign key, where
+    /// [`fk_db`](Self::fk_db) names that column. When set, `fk_db` names the
+    /// child's own key instead, and the predicate reaches the children through
+    /// the table described here.
+    pub via: Option<RelationJoinTable>,
+}
+
+/// The table an implicit many-to-many keeps its links in, as a relation
+/// predicate needs it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RelationJoinTable {
+    /// Physical name of the join table.
+    pub table: String,
+    /// Join-table column holding the parent's key.
+    pub parent_column: String,
+    /// Join-table column holding the child's key.
+    pub child_column: String,
 }
 
 /// Binary operators for expressions.
@@ -440,6 +459,36 @@ impl Expr {
         Expr::NotExists(Box::new(subquery))
     }
 
+    /// Creates a relation predicate that reaches the children through a join
+    /// table, for an implicit many-to-many.
+    ///
+    /// `fk_db` names the child's own key column here, not a foreign key: the
+    /// link between parent and child is a row of `via`, not a column of either.
+    #[allow(clippy::too_many_arguments)]
+    pub fn relation_through(
+        op: RelationFilterOp,
+        field: impl Into<String>,
+        parent_table: impl Into<String>,
+        target_table: impl Into<String>,
+        fk_db: impl Into<String>,
+        pk_db: impl Into<String>,
+        via: RelationJoinTable,
+        filter: Expr,
+    ) -> Self {
+        Expr::Relation {
+            op,
+            relation: Box::new(RelationFilter {
+                field: field.into(),
+                parent_table: parent_table.into(),
+                target_table: target_table.into(),
+                fk_db: fk_db.into(),
+                pk_db: pk_db.into(),
+                filter: Box::new(filter),
+                via: Some(via),
+            }),
+        }
+    }
+
     /// Creates a relation `some` predicate.
     pub fn relation_some(
         field: impl Into<String>,
@@ -458,6 +507,7 @@ impl Expr {
                 fk_db: fk_db.into(),
                 pk_db: pk_db.into(),
                 filter: Box::new(filter),
+                via: None,
             }),
         }
     }
@@ -480,6 +530,7 @@ impl Expr {
                 fk_db: fk_db.into(),
                 pk_db: pk_db.into(),
                 filter: Box::new(filter),
+                via: None,
             }),
         }
     }
@@ -502,6 +553,7 @@ impl Expr {
                 fk_db: fk_db.into(),
                 pk_db: pk_db.into(),
                 filter: Box::new(filter),
+                via: None,
             }),
         }
     }

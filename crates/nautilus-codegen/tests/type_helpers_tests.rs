@@ -128,6 +128,7 @@ fn relation_field(
             references,
             on_delete: None,
             on_update: None,
+            join: None,
         }),
         is_required: true,
         is_array: array,

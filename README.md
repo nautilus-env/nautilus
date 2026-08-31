@@ -232,6 +232,40 @@ directory; imports are followed transitively and each file is joined once. This
 is also what tells the language server which files belong together — see
 [crates/nautilus-schema/GRAMMAR.md](crates/nautilus-schema/GRAMMAR.md#imports).
 
+### Many-to-many relations
+
+A relation declared as an array on both sides, with neither side naming a
+foreign key, is a many-to-many. Nautilus owns the join table:
+
+```prisma
+model Post {
+  id   Int   @id @default(autoincrement())
+  tags Tag[]
+}
+
+model Tag {
+  id    Int    @id @default(autoincrement())
+  posts Post[]
+}
+```
+
+`db push` creates `_PostToTag` with one column per side, a foreign key each that
+cascades on delete, and a composite primary key over the pair. The table never
+reaches a generated client — `Post` gets a `tags` list, `Tag` a `posts` list,
+and the nested writes of both are how links are made:
+
+```ts
+await db.post.create({
+  data: { title: 'engines', tags: { connect: [{ label: 'rust' }], create: [{ label: 'storage' }] } },
+});
+await db.post.update({ where: { title: 'engines' }, data: { tags: { set: [{ label: 'rust' }] } } });
+```
+
+`include`, `where: { tags: { some: ... } }`, and per-parent `take`/`skip` all
+read through the join table in a single query. Both models need a single-field
+primary key; a model can hold a many-to-many with itself by naming the relation
+on both of its fields.
+
 ### Views
 
 A `view` block names a read-only relation the database owns. Nautilus queries it

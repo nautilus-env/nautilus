@@ -177,7 +177,16 @@ struct RelationContext {
     references: Vec<String>,
     fields_db: Vec<String>,
     references_db: Vec<String>,
+    /// The join table, when the relation is an implicit many-to-many.
+    join: Option<JoinTableContext>,
     target_scalar_fields: Vec<FieldContext>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct JoinTableContext {
+    table: String,
+    parent_column: String,
+    child_column: String,
 }
 
 fn field_read_hint_expr(field: &FieldIr) -> String {
@@ -633,6 +642,11 @@ fn build_relations(
                 is_array: relation.is_array(),
                 fields_db: relation.fields_db.clone(),
                 references_db: relation.references_db.clone(),
+                join: relation.join().map(|join| JoinTableContext {
+                    table: join.table.clone(),
+                    parent_column: join.self_column.clone(),
+                    child_column: join.target_column.clone(),
+                }),
                 fields: relation.fields.clone(),
                 references: relation.references.clone(),
                 target_scalar_fields: target_view

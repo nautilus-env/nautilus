@@ -11,6 +11,9 @@
 //! - **Inverse side** — the related model holds the foreign key. The parent row
 //!   has to exist before its children can point at it, so these operations run
 //!   after the parent statement, scoped to the key it produced.
+//! - **Many-to-many** — neither model holds one. The links live in a join table
+//!   Nautilus owns, so these operations also run after the parent statement and
+//!   add or remove rows there instead of writing a foreign key anywhere.
 //!
 //! Every operation reaches the database through the handler a top-level request
 //! would use, on the caller's transaction, so value conversion, defaults,
@@ -21,7 +24,7 @@ use nautilus_core::Value;
 use nautilus_protocol::{
     CreateParams, DeleteParams, ProtocolError, UpdateParams, PROTOCOL_VERSION,
 };
-use nautilus_schema::ir::{FieldIr, ModelIr, RelationIr, ResolvedFieldType};
+use nautilus_schema::ir::{FieldIr, ManyToManyJoinIr, ModelIr, RelationIr, ResolvedFieldType};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
 use super::mutations::{execute_create, execute_delete, execute_update};
@@ -34,6 +37,8 @@ enum RelationSide {
     Owning,
     /// The related model holds them; the parent row must exist first.
     Inverse,
+    /// Neither does: the links live in a join table. See [`ManyToManyJoinIr`].
+    ManyToMany,
 }
 
 /// The two field lists a nested write needs: the columns that hold the foreign
@@ -42,10 +47,15 @@ enum RelationSide {
 struct RelationBinding {
     target_model: String,
     side: RelationSide,
-    /// Logical field names on the model that carries the foreign key.
+    /// Logical field names on the model that carries the foreign key. Empty on
+    /// a many-to-many, where no model carries one.
     foreign_keys: Vec<String>,
-    /// Logical field names on the model the foreign key points at.
+    /// Logical field names on the model the foreign key points at. On a
+    /// many-to-many this is the written model's own key, which the join table
+    /// stores.
     referenced: Vec<String>,
+    /// The join table, on a many-to-many.
+    via: Option<ManyToManyJoinIr>,
 }
 
 /// One relation field of a `data` payload together with its parsed operations.
@@ -206,6 +216,16 @@ fn binding_for(
         ))
     })?;
 
+    if let Some(join) = &relation.join {
+        return Ok(RelationBinding {
+            target_model: target.logical_name.clone(),
+            side: RelationSide::ManyToMany,
+            foreign_keys: Vec::new(),
+            referenced: vec![join.self_reference.clone()],
+            via: Some(join.clone()),
+        });
+    }
+
     if relation.fields.is_empty() {
         let inverse = inverse_relation(model, field, relation, target)?;
         Ok(RelationBinding {
@@ -213,6 +233,7 @@ fn binding_for(
             side: RelationSide::Inverse,
             foreign_keys: inverse.fields.clone(),
             referenced: inverse.references.clone(),
+            via: None,
         })
     } else {
         Ok(RelationBinding {
@@ -220,6 +241,7 @@ fn binding_for(
             side: RelationSide::Owning,
             foreign_keys: relation.fields.clone(),
             referenced: relation.references.clone(),
+            via: None,
         })
     }
 }
@@ -263,7 +285,7 @@ pub(super) fn split<'a>(
 
         match write.binding.side {
             RelationSide::Owning => plan.owning.push(write),
-            RelationSide::Inverse => plan.inverse.push(write),
+            RelationSide::Inverse | RelationSide::ManyToMany => plan.inverse.push(write),
         }
     }
 
@@ -625,6 +647,11 @@ async fn apply_inverse_writes(
 ) -> Result<(), ProtocolError> {
     for write in writes {
         let binding = &write.binding;
+        if binding.side == RelationSide::ManyToMany {
+            apply_many_to_many_writes(state, model, write, parent, tx).await?;
+            continue;
+        }
+
         let parent_key = row_key_values(state, model, parent, &binding.referenced)?;
         let link = key_filter(&binding.foreign_keys, &parent_key);
 
@@ -713,6 +740,300 @@ async fn apply_inverse_writes(
     }
 
     Ok(())
+}
+
+/// Run the operations of one many-to-many relation.
+///
+/// The parent row exists by the time this runs, so every operation is at most
+/// two writes: the child row itself, and the link in the join table. The
+/// operations that reach existing children resolve the relation's current
+/// members first and narrow to them, which is what keeps a caller-supplied
+/// `where` from reaching a row linked to a different parent.
+async fn apply_many_to_many_writes(
+    state: &EngineState,
+    model: &ModelIr,
+    write: &NestedWrite<'_>,
+    parent: &Row,
+    tx: &str,
+) -> Result<(), ProtocolError> {
+    let binding = &write.binding;
+    let join = binding
+        .via
+        .as_ref()
+        .expect("a many-to-many binding always carries its join table");
+    let parent_key = row_key_values(state, model, parent, &binding.referenced)?
+        .into_iter()
+        .next()
+        .expect("a many-to-many binding references exactly one key field");
+
+    for (operation, payload) in &write.operations {
+        match *operation {
+            "create" => {
+                for item in payload_items(payload) {
+                    let child =
+                        create_one(state, binding, join, write.field_name, item, tx).await?;
+                    link_child(state, join, &parent_key, &child, tx).await?;
+                }
+            }
+            "createMany" => {
+                let object = require_object(payload, "createMany")?;
+                let items = require_member(object, "data", "createMany")?;
+                for item in payload_items(items) {
+                    let child =
+                        create_one(state, binding, join, write.field_name, item, tx).await?;
+                    link_child(state, join, &parent_key, &child, tx).await?;
+                }
+            }
+            "connect" => {
+                for item in payload_items(payload) {
+                    let child =
+                        connected_key(state, binding, join, write.field_name, item, tx).await?;
+                    link_child(state, join, &parent_key, &child, tx).await?;
+                }
+            }
+            "connectOrCreate" => {
+                for item in payload_items(payload) {
+                    let object = require_object(item, "connectOrCreate")?;
+                    let filter = require_member(object, "where", "connectOrCreate")?;
+                    let child = match find_related(state, &binding.target_model, filter, tx).await?
+                    {
+                        Some(child) => child_key_value(state, binding, join, &child)?,
+                        None => {
+                            let data = require_member(object, "create", "connectOrCreate")?;
+                            create_one(state, binding, join, write.field_name, data, tx).await?
+                        }
+                    };
+                    link_child(state, join, &parent_key, &child, tx).await?;
+                }
+            }
+            "disconnect" => {
+                let scope = member_filter(join, &linked_keys(state, join, &parent_key, tx).await?);
+                for filter in child_filters(payload, &scope) {
+                    let matched =
+                        matching_children(state, &binding.target_model, &filter, tx).await?;
+                    unlink_children(state, binding, join, &parent_key, &matched, tx).await?;
+                }
+            }
+            "set" => {
+                unlink_all(state, join, &parent_key, tx).await?;
+                for item in payload_items(payload) {
+                    let child =
+                        connected_key(state, binding, join, write.field_name, item, tx).await?;
+                    link_child(state, join, &parent_key, &child, tx).await?;
+                }
+            }
+            "update" | "updateMany" => {
+                let scope = member_filter(join, &linked_keys(state, join, &parent_key, tx).await?);
+                for item in payload_items(payload) {
+                    let object = require_object(item, operation)?;
+                    let data = require_member(object, "data", operation)?;
+                    let filter = scoped_filter(scope.clone(), object.get("where"));
+                    let affected =
+                        update_related(state, &binding.target_model, filter, data.clone(), tx)
+                            .await?;
+                    if *operation == "update" && affected == 0 {
+                        return Err(not_found("update", write.field_name, binding));
+                    }
+                }
+            }
+            "delete" | "deleteMany" => {
+                let scope = member_filter(join, &linked_keys(state, join, &parent_key, tx).await?);
+                for filter in child_filters(payload, &scope) {
+                    let affected = delete_related(state, &binding.target_model, filter, tx).await?;
+                    if *operation == "delete" && affected == 0 {
+                        return Err(not_found("delete", write.field_name, binding));
+                    }
+                }
+            }
+            other => {
+                return Err(ProtocolError::UnsupportedOperation(format!(
+                    "Nested '{}' is not available on '{}.{}'",
+                    other, model.logical_name, write.field_name
+                )))
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Create one child of the relation and answer with the key the join table
+/// stores for it.
+async fn create_one(
+    state: &EngineState,
+    binding: &RelationBinding,
+    join: &ManyToManyJoinIr,
+    field_name: &str,
+    data: &JsonValue,
+    tx: &str,
+) -> Result<Value, ProtocolError> {
+    let rows = create_related(state, &binding.target_model, data.clone(), tx).await?;
+    let child = first_row(&rows, field_name)?;
+    child_key_value(state, binding, join, child)
+}
+
+/// Resolve an existing child by the filter a `connect` or `set` names.
+async fn connected_key(
+    state: &EngineState,
+    binding: &RelationBinding,
+    join: &ManyToManyJoinIr,
+    field_name: &str,
+    filter: &JsonValue,
+    tx: &str,
+) -> Result<Value, ProtocolError> {
+    let child = find_related(state, &binding.target_model, filter, tx)
+        .await?
+        .ok_or_else(|| not_found("connect", field_name, binding))?;
+    child_key_value(state, binding, join, &child)
+}
+
+/// The model Nautilus synthesised for the links of this relation.
+fn join_model<'a>(
+    state: &'a EngineState,
+    join: &ManyToManyJoinIr,
+) -> Result<&'a ModelIr, ProtocolError> {
+    state.models().get(&join.table).ok_or_else(|| {
+        ProtocolError::QueryPlanning(format!("Join table '{}' not found", join.table))
+    })
+}
+
+/// Read one column out of a row of the join table.
+fn join_column(join: &ManyToManyJoinIr, row: &Row, column: &str) -> Option<Value> {
+    row.get(&format!("{}__{}", join.table, column)).cloned()
+}
+
+/// The keys of every child currently linked to `parent_key`.
+async fn linked_keys(
+    state: &EngineState,
+    join: &ManyToManyJoinIr,
+    parent_key: &Value,
+    tx: &str,
+) -> Result<Vec<JsonValue>, ProtocolError> {
+    let model = join_model(state, join)?;
+    let filter = serde_json::json!({ &join.self_column: parent_key.to_json_plain() });
+    let rows = super::read::find_all_rows_by_filter(state, model, &filter, Some(tx)).await?;
+
+    Ok(rows
+        .iter()
+        .filter_map(|row| join_column(join, row, &join.target_column))
+        .map(|value| value.to_json_plain())
+        .collect())
+}
+
+/// A filter matching exactly the children the relation currently holds.
+///
+/// An empty member list stays expressible on purpose: narrowing to nothing is
+/// the right answer for an operation aimed at an empty relation, and it is what
+/// makes a `where` supplied by the caller unable to widen the reach.
+fn member_filter(join: &ManyToManyJoinIr, members: &[JsonValue]) -> JsonValue {
+    serde_json::json!({
+        &join.target_reference: { "in": JsonValue::Array(members.to_vec()) }
+    })
+}
+
+/// The rows of the target model that `filter` selects.
+async fn matching_children(
+    state: &EngineState,
+    target_model: &str,
+    filter: &JsonValue,
+    tx: &str,
+) -> Result<Vec<Row>, ProtocolError> {
+    let target = state
+        .models()
+        .get(target_model)
+        .ok_or_else(|| ProtocolError::InvalidModel(target_model.to_string()))?;
+    super::read::find_all_rows_by_filter(state, target, filter, Some(tx)).await
+}
+
+/// Link `child` to the parent, unless the two are linked already.
+///
+/// Connecting twice is not an error the caller can act on — the relation ends
+/// up the same either way — so the second link is skipped rather than left to
+/// violate the join table's primary key.
+async fn link_child(
+    state: &EngineState,
+    join: &ManyToManyJoinIr,
+    parent_key: &Value,
+    child_key: &Value,
+    tx: &str,
+) -> Result<(), ProtocolError> {
+    let model = join_model(state, join)?;
+    let link = serde_json::json!({
+        &join.self_column: parent_key.to_json_plain(),
+        &join.target_column: child_key.to_json_plain(),
+    });
+
+    if super::read::find_one_row(state, model, &link, Some(tx))
+        .await?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    create_related(state, &model.logical_name, link, tx).await?;
+    Ok(())
+}
+
+/// Drop the links between the parent and each of `children`.
+async fn unlink_children(
+    state: &EngineState,
+    binding: &RelationBinding,
+    join: &ManyToManyJoinIr,
+    parent_key: &Value,
+    children: &[Row],
+    tx: &str,
+) -> Result<(), ProtocolError> {
+    if children.is_empty() {
+        return Ok(());
+    }
+
+    let keys: Vec<JsonValue> = children
+        .iter()
+        .map(|child| child_key_value(state, binding, join, child).map(|key| key.to_json_plain()))
+        .collect::<Result<_, _>>()?;
+
+    let filter = serde_json::json!({
+        &join.self_column: parent_key.to_json_plain(),
+        &join.target_column: { "in": JsonValue::Array(keys) },
+    });
+    delete_related(state, &join.table, filter, tx).await?;
+    Ok(())
+}
+
+/// Drop every link the parent holds through this relation.
+async fn unlink_all(
+    state: &EngineState,
+    join: &ManyToManyJoinIr,
+    parent_key: &Value,
+    tx: &str,
+) -> Result<(), ProtocolError> {
+    let filter = serde_json::json!({ &join.self_column: parent_key.to_json_plain() });
+    delete_related(state, &join.table, filter, tx).await?;
+    Ok(())
+}
+
+/// Read the key the join table stores for a child row.
+fn child_key_value(
+    state: &EngineState,
+    binding: &RelationBinding,
+    join: &ManyToManyJoinIr,
+    child: &Row,
+) -> Result<Value, ProtocolError> {
+    let target = state
+        .models()
+        .get(&binding.target_model)
+        .ok_or_else(|| ProtocolError::InvalidModel(binding.target_model.clone()))?;
+    row_key_values(
+        state,
+        target,
+        child,
+        std::slice::from_ref(&join.target_reference),
+    )?
+    .into_iter()
+    .next()
+    .ok_or_else(|| {
+        ProtocolError::Internal("Many-to-many link could not read the child's key back".to_string())
+    })
 }
 
 /// Filters for the operations that address children by an optional `where`:

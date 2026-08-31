@@ -76,6 +76,29 @@ impl SchemaIr {
         }
     }
 
+    /// A copy of this schema without the join tables Nautilus synthesised for
+    /// implicit many-to-many relations.
+    ///
+    /// A join table is an implementation detail of the two array fields it
+    /// links: it has no meaning to someone writing against a generated client,
+    /// and exposing it would offer a second, untyped way to write the relation.
+    /// Code generation therefore prunes it, while migrations and the engine —
+    /// which have to create it and query through it — keep it.
+    pub fn without_join_tables(&self) -> SchemaIr {
+        SchemaIr {
+            datasource: self.datasource.clone(),
+            generator: self.generator.clone(),
+            models: self
+                .models
+                .iter()
+                .filter(|(_, model)| !model.is_join_table)
+                .map(|(name, model)| (name.clone(), model.clone()))
+                .collect(),
+            enums: self.enums.clone(),
+            composite_types: self.composite_types.clone(),
+        }
+    }
+
     /// Gets a model by logical name.
     pub fn get_model(&self, name: &str) -> Option<&ModelIr> {
         self.models.get(name)
@@ -240,6 +263,9 @@ pub struct ModelIr {
     /// A view is read-only: Nautilus queries it like a table but never emits
     /// DDL for it and rejects every write method against it.
     pub is_view: bool,
+    /// Whether Nautilus synthesised this model as the join table of an
+    /// implicit many-to-many relation. See [`ManyToManyJoinIr`].
+    pub is_join_table: bool,
     /// Span of the model declaration.
     pub span: Span,
 }
@@ -495,6 +521,39 @@ pub struct RelationIr {
     pub on_delete: Option<ReferentialAction>,
     /// Referential action on update.
     pub on_update: Option<ReferentialAction>,
+    /// The join table, when this is one side of an implicit many-to-many.
+    ///
+    /// `fields` and `references` are empty on such a relation because neither
+    /// model carries a foreign key: the links live in the table named here.
+    pub join: Option<ManyToManyJoinIr>,
+}
+
+/// The join table carrying an implicit many-to-many relation.
+///
+/// A relation declared as an array on both sides has nowhere to put a foreign
+/// key, so Nautilus owns a table of links for it. That table is synthesised
+/// into the schema — it is created and dropped by migrations like any other,
+/// but it is not a model the user declared, so it never reaches a generated
+/// client and is only ever read or written through the two array fields.
+///
+/// The two columns are named `A` and `B` after the convention every ORM with
+/// this feature uses, `A` belonging to whichever side sorts first by
+/// `(model, field)`. Sorting rather than declaration order is what makes the
+/// table name and column roles the same whichever file the reader is looking
+/// at, and it is the only naming that survives a self-relation, where both
+/// ends name the same model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManyToManyJoinIr {
+    /// Physical name of the join table (`_PostToTag`).
+    pub table: String,
+    /// Join-table column holding the key of the model that declares this field.
+    pub self_column: String,
+    /// Join-table column holding the key of the target model.
+    pub target_column: String,
+    /// Logical field on the declaring model that [`self_column`](Self::self_column) points at.
+    pub self_reference: String,
+    /// Logical field on the target model that [`target_column`](Self::target_column) points at.
+    pub target_reference: String,
 }
 
 /// Default value for a field.

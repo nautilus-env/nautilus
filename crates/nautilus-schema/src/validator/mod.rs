@@ -8,6 +8,7 @@ mod declarations;
 mod defaults;
 mod index;
 mod ir_builder;
+mod many_to_many;
 mod models;
 mod names;
 mod relations;

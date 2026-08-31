@@ -202,8 +202,9 @@ fn load_generation_ir(schema: &SchemaSet, verbose: bool) -> Result<SchemaIr> {
 
     // Generation runs on the pruned schema: an `@@ignore`d model or `@ignore`d
     // field names something the client has no faithful type for and no way to
-    // write.
-    let ir = ir.without_ignored();
+    // write, and the join table of an implicit many-to-many is reached through
+    // the two relation fields rather than as a model of its own.
+    let ir = ir.without_ignored().without_join_tables();
 
     if verbose {
         println!("{:#?}", ir);

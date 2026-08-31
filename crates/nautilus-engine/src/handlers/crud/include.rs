@@ -18,13 +18,13 @@ use std::collections::HashMap;
 
 use futures::stream::{self, StreamExt, TryStreamExt};
 use nautilus_connector::Row;
-use nautilus_core::{Expr, PartitionWindow, Value};
+use nautilus_core::{Expr, JoinClause, JoinType, PartitionWindow, SelectItem, Value};
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::ModelIr;
 use serde_json::Value as JsonValue;
 
 use super::read::execute_find_many_rows;
-use crate::filter::{IncludeNode, QueryArgs, RelationInfo};
+use crate::filter::{IncludeNode, QueryArgs, RelationInfo, RelationJoin};
 use crate::state::EngineState;
 
 /// Concurrency cap for the per-parent fallback path (include with
@@ -41,8 +41,60 @@ fn parent_join_column(rel_info: &RelationInfo) -> String {
     format!("{}__{}", rel_info.parent_table, rel_info.pk_db)
 }
 
+/// The column of a loaded child row that carries the key of the parent it
+/// belongs to.
+///
+/// For an ordinary relation that is the child's own foreign key; for an
+/// implicit many-to-many it is the parent-side column of the join table, which
+/// the query projects alongside the child's columns.
 fn child_join_column(rel_info: &RelationInfo) -> String {
-    format!("{}__{}", rel_info.target_table, rel_info.fk_db)
+    match &rel_info.via {
+        Some(via) => format!("{}__{}", via.table, via.parent_column),
+        None => format!("{}__{}", rel_info.target_table, rel_info.fk_db),
+    }
+}
+
+/// The join that reaches the children of an implicit many-to-many, projecting
+/// the parent key each child is linked by.
+///
+/// `None` for every other relation, where the child row already carries the
+/// foreign key and no second table is involved.
+fn relation_join(
+    state: &EngineState,
+    rel_info: &RelationInfo,
+) -> Result<Option<RelationJoin>, ProtocolError> {
+    let Some(via) = &rel_info.via else {
+        return Ok(None);
+    };
+
+    let join_model = state.models().get(&via.table).ok_or_else(|| {
+        ProtocolError::QueryPlanning(format!("Join table '{}' not found", via.table))
+    })?;
+    let metadata = state.model_metadata(join_model);
+    let parent_key = metadata
+        .scalar_fields()
+        .iter()
+        .find(|field| field.db_name() == via.parent_column)
+        .ok_or_else(|| {
+            ProtocolError::QueryPlanning(format!(
+                "Join table '{}' has no column '{}'",
+                via.table, via.parent_column
+            ))
+        })?;
+
+    let on = Expr::column(format!("{}__{}", via.table, via.child_column)).eq(Expr::column(
+        format!("{}__{}", rel_info.target_table, rel_info.fk_db),
+    ));
+
+    Ok(Some(RelationJoin {
+        clause: JoinClause::new(
+            JoinType::Inner,
+            via.table.clone(),
+            on,
+            vec![SelectItem::from(parent_key.marker().clone())],
+        ),
+        hints: vec![parent_key.hint()],
+    }))
 }
 
 fn empty_include_value(is_array: bool) -> Value {
@@ -266,6 +318,7 @@ async fn load_relation_include_value(
         distinct: vec![],
         nearest: None,
         partition: None,
+        join: relation_join(state, rel_info)?,
     };
 
     let child_rows = Box::pin(execute_find_many_rows(
@@ -370,6 +423,7 @@ async fn batch_load_relation_include(
         distinct: vec![],
         nearest: None,
         partition: window,
+        join: relation_join(state, rel_info)?,
     };
 
     let child_rows = Box::pin(execute_find_many_rows(

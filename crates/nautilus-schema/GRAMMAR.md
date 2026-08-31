@@ -544,6 +544,42 @@ reviewer User @relation("ReviewedPosts", fields: [reviewerId], references: [id])
 - `onDelete` (optional): Referential action on delete
 - `onUpdate` (optional): Referential action on update
 
+**Implicit many-to-many.** A relation declared as an array on *both* sides, with
+neither side naming `fields`/`references`, is a many-to-many. Nautilus owns a
+join table for it:
+
+```prisma
+model Post {
+  id   Int   @id @default(autoincrement())
+  tags Tag[]
+}
+
+model Tag {
+  id    Int    @id @default(autoincrement())
+  posts Post[]
+}
+```
+
+The table is called `_<A model>To<B model>` — `_PostToTag` here — or
+`_<relation name>` when the relation is named. Its two columns are `A` and `B`,
+`A` belonging to whichever side sorts first by `(model, field)`, each typed
+after the primary key it points at and cascading on delete and update. It is
+created and dropped by migrations like any other table, and it never appears in
+a generated client: the two array fields are the only way to read or write the
+relation.
+
+Both models need a single-field primary key, since each key has one column to
+land in. A model can hold a many-to-many with itself, which is the one case
+where the same relation `name` appears twice inside one model:
+
+```prisma
+model Post {
+  id       Int    @id
+  related  Post[] @relation(name: "RelatedPost")
+  relating Post[] @relation(name: "RelatedPost")
+}
+```
+
 ### Model Attributes
 
 ```ebnf

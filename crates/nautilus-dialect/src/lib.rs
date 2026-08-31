@@ -507,14 +507,55 @@ macro_rules! render_expr_common_mut {
                 } else {
                     $ctx.sql.push_str("NOT EXISTS (SELECT * FROM ");
                 }
-                crate::push_quoted_identifier(&mut $ctx.sql, &relation.target_table, $quote);
-                $ctx.sql.push_str(" WHERE ");
-                crate::push_qualified_identifier(
-                    &mut $ctx.sql,
-                    &relation.target_table,
-                    &relation.fk_db,
-                    $quote,
-                );
+                // An implicit many-to-many keeps its links in a table of its
+                // own, so the subquery starts there and joins the children in;
+                // every other relation reads the parent key off the child row.
+                match relation.via.as_ref() {
+                    Some(via) => {
+                        crate::push_quoted_identifier(&mut $ctx.sql, &via.table, $quote);
+                        $ctx.sql.push_str(" INNER JOIN ");
+                        crate::push_quoted_identifier(
+                            &mut $ctx.sql,
+                            &relation.target_table,
+                            $quote,
+                        );
+                        $ctx.sql.push_str(" ON ");
+                        crate::push_qualified_identifier(
+                            &mut $ctx.sql,
+                            &relation.target_table,
+                            &relation.fk_db,
+                            $quote,
+                        );
+                        $ctx.sql.push_str(" = ");
+                        crate::push_qualified_identifier(
+                            &mut $ctx.sql,
+                            &via.table,
+                            &via.child_column,
+                            $quote,
+                        );
+                        $ctx.sql.push_str(" WHERE ");
+                        crate::push_qualified_identifier(
+                            &mut $ctx.sql,
+                            &via.table,
+                            &via.parent_column,
+                            $quote,
+                        );
+                    }
+                    None => {
+                        crate::push_quoted_identifier(
+                            &mut $ctx.sql,
+                            &relation.target_table,
+                            $quote,
+                        );
+                        $ctx.sql.push_str(" WHERE ");
+                        crate::push_qualified_identifier(
+                            &mut $ctx.sql,
+                            &relation.target_table,
+                            &relation.fk_db,
+                            $quote,
+                        );
+                    }
+                }
                 $ctx.sql.push_str(" = ");
                 crate::push_qualified_identifier(
                     &mut $ctx.sql,

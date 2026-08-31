@@ -172,6 +172,7 @@ fn build_find_many_plan(
         distinct,
         nearest,
         partition,
+        join,
     } = query_args;
 
     let metadata = state.model_metadata(model);
@@ -182,6 +183,7 @@ fn build_find_many_plan(
 
     let mut builder = Select::from_table(&model.db_name).with_capacity(SelectCapacity {
         items: metadata.scalar_fields().len(),
+        joins: usize::from(join.is_some()),
         order_by_columns: order_by.len() + distinct.len() + pk_fields.len(),
         order_by_exprs: usize::from(nearest.is_some()),
         distinct: distinct.len(),
@@ -310,6 +312,14 @@ fn build_find_many_plan(
         builder = builder.partition_window(window);
     }
 
+    // The joined columns are appended to the select list after the model's own,
+    // so their hints have to be appended in the same order for
+    // `normalize_row_with_hints` to line up with the row it decodes.
+    if let Some(join) = join {
+        row_hints.extend(join.hints);
+        builder = builder.join(join.clause);
+    }
+
     let select = builder
         .build()
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build query: {}", e)))?;
@@ -350,9 +360,10 @@ fn resolved_projection(
 
 /// Build the plan-cache key (and the owned parameter values to bind on a hit)
 /// for a `findMany`/`findFirst` request, or `None` when the request is not
-/// cacheable: cursor, backward pagination, distinct, vector ordering and
-/// includes change the SQL or the post-processing in ways the cached replay
-/// does not cover, and the filter must be a flat parametric AND chain.
+/// cacheable: cursor, backward pagination, distinct, vector ordering, a joined
+/// relation table and includes change the SQL or the post-processing in ways
+/// the cached replay does not cover, and the filter must be a flat parametric
+/// AND chain.
 fn find_many_cache_request(
     state: &EngineState,
     model: &ModelIr,
@@ -362,6 +373,7 @@ fn find_many_cache_request(
         || query_args.backward
         || query_args.nearest.is_some()
         || query_args.partition.is_some()
+        || query_args.join.is_some()
         || !query_args.distinct.is_empty()
         || !query_args.include.is_empty()
     {
@@ -593,6 +605,28 @@ pub(super) async fn find_rows_by_expr(
         state.execute_query_on(&sql, "Query", tx_id).await?,
         &row_hints,
     )
+}
+
+/// Load every row of `model` matching `filter`.
+///
+/// The nested-write path uses this to resolve the members of a relation before
+/// it narrows an operation to them, where a limit would silently drop rows the
+/// caller asked to reach.
+pub(super) async fn find_all_rows_by_filter(
+    state: &EngineState,
+    model: &ModelIr,
+    filter: &JsonValue,
+    tx_id: Option<&str>,
+) -> Result<Vec<Row>, ProtocolError> {
+    let metadata = state.model_metadata(model);
+    let qualified_filter = parse_and_qualify_model_filter(
+        model,
+        filter,
+        metadata.field_types(),
+        metadata.logical_to_db(),
+    )?;
+
+    find_rows_by_expr(state, model, Some(qualified_filter), None, tx_id).await
 }
 
 /// Load the single row of `model` matching `filter`, or `None`.

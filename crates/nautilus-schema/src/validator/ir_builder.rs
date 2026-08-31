@@ -29,6 +29,8 @@ impl SchemaValidator<'_> {
             ir.models.insert(model_ir.logical_name.clone(), model_ir);
         }
 
+        super::many_to_many::link_implicit_many_to_many(&mut ir)?;
+
         Ok(ir)
     }
 
@@ -204,6 +206,7 @@ impl SchemaValidator<'_> {
             check_constraints,
             is_ignored: model.is_ignored(),
             is_view: model.is_view,
+            is_join_table: false,
             span: model.span,
         })
     }
@@ -519,6 +522,7 @@ impl SchemaValidator<'_> {
                                     .unwrap_or_default(),
                                 on_delete: *on_delete,
                                 on_update: *on_update,
+                                join: None,
                             }));
                         }
                     }
@@ -530,6 +534,7 @@ impl SchemaValidator<'_> {
                         references: vec![],
                         on_delete: None,
                         on_update: None,
+                        join: None,
                     }));
                 }
 
