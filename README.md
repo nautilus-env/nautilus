@@ -227,9 +227,13 @@ import "./enums.nautilus"
 import "../shared"
 ```
 
-The path is relative to the file that declares it and may name a file or a
-directory; imports are followed transitively and each file is joined once. This
-is also what tells the language server which files belong together — see
+The path is relative to the file that declares it and may name a `.nautilus`
+file or a directory containing `.nautilus` files; imports are followed
+transitively and each file is joined once. Inside the quotes, language-server
+completion offers directories as targets or for navigation, plus `.nautilus`
+files. A missing path, a file with another extension, or a directory without
+schema files is reported on the `import` line. This is also what tells the
+language server which files belong together — see
 [crates/nautilus-schema/GRAMMAR.md](crates/nautilus-schema/GRAMMAR.md#imports).
 
 ### Many-to-many relations

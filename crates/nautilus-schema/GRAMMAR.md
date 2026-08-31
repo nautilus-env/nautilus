@@ -66,9 +66,9 @@ Pointing `--schema` at a single file loads that file and everything it imports.
 ImportDecl ::= 'import' String Newline*
 ```
 
-An `import` joins another schema file to this one. The path is relative to the
-directory of the file that declares it and names either a `.nautilus` file or a
-directory of them:
+An `import` joins other schema declarations to this one. The path is relative
+to the directory of the file that declares it and may name either a
+`.nautilus` file or a directory containing `.nautilus` files:
 
 ```prisma
 import "./enums.nautilus"
@@ -93,14 +93,17 @@ more than one `generator`, in the assembled set is an error**, reported on the
 second block. That is what catches an import which reached another schema's
 root file instead of the shared models it was meant to pull in.
 
-An import naming a file that does not exist is an error reported on the `import`
-line; the files that were reached are still validated, so one broken path does
-not hide the rest of the schema.
+An import naming a path that does not exist, a regular file whose name does not
+end in `.nautilus`, or a directory containing no `.nautilus` files is an error
+reported on the `import` line. The files that were reached are still validated,
+so one broken path does not hide the rest of the schema.
 
 This is also how an editor knows a file is part of a larger schema. The language
 server assembles the open file with everything it imports before analysing it,
 so a reference across files resolves and a diagnostic lands on the file that
-holds it. A file that imports nothing is analysed on its own — sibling files in
+holds it. Completion inside the quoted import path reads the filesystem and
+offers directories as import targets or for navigation, plus `.nautilus` files.
+A file that imports nothing is analysed on its own — sibling files in
 the same directory are *not* joined implicitly, which is what keeps a directory
 of alternative schemas (one per provider, say) from being merged into a pile of
 duplicate declarations.

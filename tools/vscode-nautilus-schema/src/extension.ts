@@ -74,17 +74,28 @@ export function deactivate(): Thenable<void> | undefined {
  * Resolves how to launch `nautilus-lsp`.
  *
  * Search order:
- * 1. `nautilus.lspPath` VS Code setting (user-defined override).
- * 2. Dev build: `<repo-root>/target/debug/nautilus-lsp[.exe]`.
- * 3. Global storage cache (auto-downloaded binary, refreshed from GitHub when a newer release exists).
- * 4. `nautilus-lsp[.exe]` on PATH.
- * 5. Local npm install: `<workspace>/node_modules/.bin/nautilus-lsp`.
- * 6. npm package available via `npx` (global or local install).
- * 7. Auto-download from GitHub Releases -> cache in global storage.
+ * 1. Development host: `cargo run -p nautilus-orm-lsp` from the repository.
+ * 2. `nautilus.lspPath` VS Code setting (user-defined override outside development).
+ * 3. Dev build fallback: `<repo-root>/target/debug/nautilus-lsp[.exe]`.
+ * 4. Global storage cache (auto-downloaded binary, refreshed from GitHub when a newer release exists).
+ * 5. `nautilus-lsp[.exe]` on PATH.
+ * 6. Local npm install: `<workspace>/node_modules/.bin/nautilus-lsp`.
+ * 7. npm package available via `npx` (global or local install).
+ * 8. Auto-download from GitHub Releases -> cache in global storage.
  */
 async function resolveServerOptions(
   context: vscode.ExtensionContext
 ): Promise<ServerOptions> {
+  const repoRoot = path.resolve(context.extensionPath, "..", "..");
+  const cargo = process.platform === "win32" ? "cargo.exe" : "cargo";
+  if (
+    context.extensionMode === vscode.ExtensionMode.Development &&
+    fs.existsSync(path.join(repoRoot, "Cargo.toml")) &&
+    isOnPath(cargo)
+  ) {
+    return cargoServerOptions(cargo, repoRoot);
+  }
+
   const rawSetting = vscode.workspace
     .getConfiguration("nautilus")
     .get<string>("lspPath");
@@ -95,14 +106,7 @@ async function resolveServerOptions(
     }
   }
 
-  const devBuild = path.join(
-    context.extensionPath,
-    "..",
-    "..",
-    "target",
-    "debug",
-    BIN_NAME
-  );
+  const devBuild = path.join(repoRoot, "target", "debug", BIN_NAME);
   if (fs.existsSync(devBuild)) {
     return binaryServerOptions(devBuild);
   }
@@ -133,6 +137,15 @@ async function resolveServerOptions(
 function binaryServerOptions(binPath: string): ServerOptions {
   return {
     command: binPath,
+    transport: TransportKind.stdio,
+  };
+}
+
+function cargoServerOptions(cargo: string, repoRoot: string): ServerOptions {
+  return {
+    command: cargo,
+    args: ["run", "--quiet", "--locked", "-p", "nautilus-orm-lsp", "--"],
+    options: { cwd: repoRoot },
     transport: TransportKind.stdio,
   };
 }

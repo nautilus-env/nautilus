@@ -213,6 +213,44 @@ fn importing_a_directory_joins_every_schema_file_in_it() {
 }
 
 #[test]
+fn importing_a_directory_without_schema_files_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("domain")).unwrap();
+    let root = write(
+        dir.path(),
+        "schema.nautilus",
+        "import \"./domain\"\n\nmodel User {\n  id Int @id\n}\n",
+    );
+
+    let set = SchemaSet::load_path(&root).unwrap();
+    let error = set.validate().unwrap_err();
+    let rendered = set.format_error(&error);
+
+    assert!(rendered.contains("schema.nautilus:1:1"), "{rendered}");
+    assert!(rendered.contains("holds no .nautilus file"), "{rendered}");
+    assert_eq!(set.paths().count(), 1);
+}
+
+#[test]
+fn importing_a_file_without_the_nautilus_extension_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "models.txt", "model Hidden { id Int @id }");
+    let root = write(
+        dir.path(),
+        "schema.nautilus",
+        "import \"./models.txt\"\n\nmodel User {\n  id Int @id\n}\n",
+    );
+
+    let set = SchemaSet::load_path(&root).unwrap();
+    let error = set.validate().unwrap_err();
+    let rendered = set.format_error(&error);
+
+    assert!(rendered.contains("schema.nautilus:1:1"), "{rendered}");
+    assert!(rendered.contains(".nautilus extension"), "{rendered}");
+    assert_eq!(set.paths().count(), 1);
+}
+
+#[test]
 fn an_unresolved_import_fails_validation_at_the_import_statement() {
     let dir = tempfile::tempdir().unwrap();
     let root = write(

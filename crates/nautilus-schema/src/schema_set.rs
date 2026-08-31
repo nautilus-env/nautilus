@@ -252,6 +252,16 @@ impl Assembler<'_> {
         if !self.visited.insert(identity(path)) {
             return;
         }
+        if path.extension().and_then(|extension| extension.to_str()) != Some("nautilus") {
+            self.set.import_errors.push(SchemaError::Validation(
+                format!(
+                    "Cannot import schema {}: imported files must use the .nautilus extension",
+                    path.display()
+                ),
+                span,
+            ));
+            return;
+        }
         match self.read(path) {
             Ok(source) => {
                 let index = self.push(path, source);

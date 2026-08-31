@@ -18,6 +18,7 @@ use crate::convert::{nautilus_diagnostic_to_lsp_with_index, span_to_range_with_i
 /// One file of an assembled schema, with what is needed to talk about it in LSP
 /// terms.
 struct WorkspaceFile {
+    path: PathBuf,
     uri: Url,
     start: usize,
     end: usize,
@@ -40,15 +41,41 @@ impl Workspace {
     /// Returns `None` when the file cannot be read at all — an unsaved
     /// `untitled:` buffer has no path, and a document the client sent for a
     /// deleted file has nothing to assemble.
+    #[cfg(test)]
     pub fn load(root: &Path, open: &HashMap<PathBuf, String>) -> Option<Workspace> {
+        Self::load_inner(root, None, open)
+    }
+
+    /// Assemble a workspace while preserving the root URI exactly as the
+    /// editor sent it. VS Code percent-encodes the Windows drive colon, and
+    /// diagnostics must use the same URI spelling to attach to the document.
+    pub fn load_for_uri(
+        root: &Path,
+        root_uri: &Url,
+        open: &HashMap<PathBuf, String>,
+    ) -> Option<Workspace> {
+        Self::load_inner(root, Some(root_uri), open)
+    }
+
+    fn load_inner(
+        root: &Path,
+        root_uri: Option<&Url>,
+        open: &HashMap<PathBuf, String>,
+    ) -> Option<Workspace> {
         let set =
             SchemaSet::load_path_with(root, &|path| open.get(&canonical(path)).cloned()).ok()?;
+        let root = canonical(root);
 
         let files = set
             .files()
             .filter_map(|file| {
-                let uri = Url::from_file_path(file.path).ok()?;
+                let path = canonical(file.path);
+                let uri = root_uri
+                    .filter(|_| path == root)
+                    .cloned()
+                    .or_else(|| Url::from_file_path(&path).ok())?;
                 Some(WorkspaceFile {
+                    path,
                     uri,
                     start: file.start,
                     end: file.start + file.source.len(),
@@ -77,15 +104,12 @@ impl Workspace {
 
     /// Byte offset at which `uri`'s text starts in the assembled source.
     pub fn base_of(&self, uri: &Url) -> Option<usize> {
-        self.files
-            .iter()
-            .find(|file| &file.uri == uri)
-            .map(|file| file.start)
+        self.file_for_uri(uri).map(|file| file.start)
     }
 
     /// Whether `uri` is one of the files this workspace was assembled from.
     pub fn contains(&self, uri: &Url) -> bool {
-        self.files.iter().any(|file| &file.uri == uri)
+        self.file_for_uri(uri).is_some()
     }
 
     /// The files this workspace was assembled from.
@@ -141,6 +165,14 @@ impl Workspace {
             .position(|file| offset >= file.start && offset < file.end)
     }
 
+    fn file_for_uri(&self, uri: &Url) -> Option<&WorkspaceFile> {
+        if let Some(file) = self.files.iter().find(|file| &file.uri == uri) {
+            return Some(file);
+        }
+        let path = canonical(&file_path_from_uri(uri)?);
+        self.files.iter().find(|file| file.path == path)
+    }
+
     /// Rebase `span` from the assembled source onto `file`, clamped to it: a
     /// span that runs past the end of one file would otherwise highlight into
     /// the next.
@@ -158,9 +190,38 @@ pub fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Convert a client document URI into a local path.
+///
+/// VS Code serializes Windows drive letters as `file:///c%3A/...`, while the
+/// `url` crate's standard file-path conversion expects `file:///c:/...`.
+pub fn file_path_from_uri(uri: &Url) -> Option<PathBuf> {
+    if let Ok(path) = uri.to_file_path() {
+        return Some(path);
+    }
+
+    #[cfg(windows)]
+    {
+        let path = uri.path();
+        let encoded_drive = path.get(1..5)?;
+        if uri.scheme() != "file"
+            || !encoded_drive[1..].eq_ignore_ascii_case("%3a")
+            || !encoded_drive.as_bytes()[0].is_ascii_alphabetic()
+        {
+            return None;
+        }
+
+        let decoded_drive = format!("{}:", &encoded_drive[..1]);
+        let normalized = uri.as_str().replacen(encoded_drive, &decoded_drive, 1);
+        Url::parse(&normalized).ok()?.to_file_path().ok()
+    }
+
+    #[cfg(not(windows))]
+    None
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{canonical, Workspace};
+    use super::{canonical, file_path_from_uri, Workspace};
     use std::collections::HashMap;
     use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 
@@ -176,6 +237,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
         dir
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn vscode_percent_encoded_windows_drive_uri_resolves_to_a_path() {
+        let root = write(
+            &temp_dir("encoded-uri"),
+            "schema.nautilus",
+            "model User { id Int @id }",
+        );
+        let expected = canonical(&root);
+        let mut serialized = Url::from_file_path(&expected).unwrap().to_string();
+        let path_start = serialized.find(":///").unwrap() + 4;
+        let drive_colon = path_start + serialized[path_start..].find(':').unwrap();
+        serialized.replace_range(drive_colon..=drive_colon, "%3A");
+        let uri = Url::parse(&serialized).unwrap();
+
+        assert_eq!(
+            file_path_from_uri(&uri).map(|path| canonical(&path)),
+            Some(expected)
+        );
     }
 
     #[test]

@@ -33,6 +33,7 @@
 mod backend;
 mod convert;
 mod document;
+mod import_completion;
 mod workspace;
 
 use backend::Backend;

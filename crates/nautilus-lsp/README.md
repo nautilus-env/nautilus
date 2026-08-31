@@ -9,7 +9,7 @@ It is intentionally thin: almost all schema intelligence lives in `nautilus-sche
 | Capability | Current behavior |
 | --- | --- |
 | Diagnostics | Published after open/change/save, to the file each one belongs to |
-| Completion | Triggered from schema-aware analysis, imported declarations included |
+| Completion | Schema-aware suggestions, imported declarations, and filesystem paths inside `import` |
 | Hover | Uses resolved schema metadata |
 | Go to definition | Jumps to model, enum, type, and field declarations, across imported files |
 | Document formatting | Whole-file canonical formatting |
@@ -23,6 +23,12 @@ A document that declares `import "…"` is analysed together with the files it
 imports, transitively. The assembled schema is what resolves names, so a model
 referring to an enum in another file is not an error, and each diagnostic is
 published to the file that holds it rather than to the open document.
+
+Inside an import string, completion lists directories as import targets or for
+navigation, plus `.nautilus` files. The import itself must resolve to a
+`.nautilus` file or a directory containing schema files; a missing path,
+different file extension, or directory without schema files is reported
+directly on the declaration.
 
 Open buffers win over disk: an imported file being edited in another tab is
 assembled from the editor's text, and editing any file re-analyses the other
@@ -54,6 +60,7 @@ The server speaks stdio and is designed to be launched by an editor integration 
 | --- | --- |
 | `backend` | `tower-lsp` server implementation |
 | `document` | Cached source + analysis per open document |
+| `import_completion` | Filesystem-backed completion for import paths |
 | `workspace` | The open file assembled with the files it imports |
 | `convert` | Offset/span conversions between Nautilus and LSP |
 | `main` | stdio server bootstrap |

@@ -490,6 +490,13 @@ unaffected.
 
 ### Changed
 
+- Schema imports now validate their filesystem targets: a path may resolve to
+  a `.nautilus` file or a directory containing `.nautilus` files. Missing paths,
+  files with another extension, and directories without schema files report an
+  error on the `import` declaration. LSP completion inside an import string
+  reads the importing file's directory, offers folders as targets or for path
+  navigation, filters out non-schema files, and inserts the selected relative
+  path; `/` and `\\` also trigger another completion pass while navigating.
 - The workspace now declares `rust-version = "1.92"`, so an older toolchain
   reports an unsupported-version error instead of failing later with unrelated
   compilation errors.

@@ -35,7 +35,8 @@ use crate::convert::{
     position_to_offset_with_index, span_to_range_with_index,
 };
 use crate::document::DocumentState;
-use crate::workspace::{canonical, Workspace};
+use crate::import_completion::import_path_completions;
+use crate::workspace::{canonical, file_path_from_uri, Workspace};
 
 /// The LSP backend.  Holds the client handle and the per-document cache.
 pub struct Backend {
@@ -73,7 +74,7 @@ impl Backend {
     /// Build the state for `uri`, assembling the schema it belongs to when it
     /// names a file on disk.
     fn analyze_document(&self, uri: &Url, source: String) -> DocumentState {
-        let Ok(path) = uri.to_file_path() else {
+        let Some(path) = file_path_from_uri(uri) else {
             return DocumentState::new(source);
         };
 
@@ -85,9 +86,9 @@ impl Backend {
         // exists to resolve.
         let workspace = self
             .importing_root(uri)
-            .and_then(|root| Workspace::load(&root, &open))
+            .and_then(|(root, root_uri)| Workspace::load_for_uri(&root, &root_uri, &open))
             .filter(|workspace| workspace.contains(uri))
-            .or_else(|| Workspace::load(&path, &open));
+            .or_else(|| Workspace::load_for_uri(&path, uri, &open));
 
         match workspace {
             Some(workspace) => DocumentState::with_workspace(source, uri, Arc::new(workspace)),
@@ -96,14 +97,15 @@ impl Backend {
     }
 
     /// The path of an open document whose schema already includes `uri`.
-    fn importing_root(&self, uri: &Url) -> Option<PathBuf> {
+    fn importing_root(&self, uri: &Url) -> Option<(PathBuf, Url)> {
         self.docs.iter().find_map(|entry| {
             if entry.key() == uri {
                 return None;
             }
             let workspace = entry.value().workspace.as_ref()?;
             workspace.contains(uri).then_some(())?;
-            entry.key().to_file_path().ok()
+            let root_uri = entry.key().clone();
+            Some((file_path_from_uri(&root_uri)?, root_uri))
         })
     }
 
@@ -114,7 +116,7 @@ impl Backend {
         self.docs
             .iter()
             .filter_map(|entry| {
-                let path = entry.key().to_file_path().ok()?;
+                let path = file_path_from_uri(entry.key())?;
                 Some((canonical(&path), entry.value().source.clone()))
             })
             .collect()
@@ -226,7 +228,13 @@ impl Backend {
                 },
             )),
             completion_provider: Some(CompletionOptions {
-                trigger_characters: Some(vec!["@".to_string(), "=".to_string(), "\"".to_string()]),
+                trigger_characters: Some(vec![
+                    "@".to_string(),
+                    "=".to_string(),
+                    "\"".to_string(),
+                    "/".to_string(),
+                    "\\".to_string(),
+                ]),
                 ..Default::default()
             }),
             hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -364,6 +372,13 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         let offset = position_to_offset_with_index(&state.source, &state.line_index, pos);
+        if let Some(path) = file_path_from_uri(uri) {
+            if let Some(items) =
+                import_path_completions(&state.source, &state.line_index, offset, &path)
+            {
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
+        }
         let items = state.completion(offset);
         let lsp_items: Vec<CompletionItem> = items
             .iter()
@@ -480,20 +495,23 @@ impl LanguageServer for Backend {
 mod tests {
     use super::Backend;
     use dashmap::DashMap;
+    use futures::StreamExt;
+    use tower_lsp::jsonrpc::Request;
     use tower_lsp::lsp_types::{
         CompletionParams, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
-        DidSaveTextDocumentParams, GotoDefinitionParams, Position, Range,
+        DidSaveTextDocumentParams, GotoDefinitionParams, Position, PublishDiagnosticsParams, Range,
         TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
         TextDocumentPositionParams, VersionedTextDocumentIdentifier,
     };
     use tower_lsp::{LanguageServer, LspService};
+    use tower_service::Service;
 
     #[test]
     fn server_capabilities_match_documented_triggers_and_formatting() {
         let caps = Backend::server_capabilities();
         let completion = caps.completion_provider.expect("completion provider");
         let triggers = completion.trigger_characters.expect("trigger characters");
-        assert_eq!(triggers, vec!["@", "=", "\""]);
+        assert_eq!(triggers, vec!["@", "=", "\"", "/", "\\"]);
         let sync = caps.text_document_sync.expect("text sync");
         let tower_lsp::lsp_types::TextDocumentSyncCapability::Options(sync) = sync else {
             panic!("expected text sync options");
@@ -524,6 +542,23 @@ mod tests {
             std::fs::canonicalize(path).expect("canonical path"),
         )
         .expect("file uri")
+    }
+
+    #[cfg(windows)]
+    fn vscode_file_uri(path: &std::path::Path) -> tower_lsp::lsp_types::Url {
+        let mut serialized = file_uri(path).to_string();
+        let path_start = serialized.find(":///").expect("file URI path") + 4;
+        let drive_colon = path_start
+            + serialized[path_start..]
+                .find(':')
+                .expect("Windows drive colon");
+        serialized.replace_range(drive_colon..=drive_colon, "%3A");
+        tower_lsp::lsp_types::Url::parse(&serialized).expect("VS Code file URI")
+    }
+
+    #[cfg(not(windows))]
+    fn vscode_file_uri(path: &std::path::Path) -> tower_lsp::lsp_types::Url {
+        file_uri(path)
     }
 
     #[tokio::test]
@@ -610,6 +645,141 @@ mod tests {
             items.iter().any(|item| item.label == "Role"),
             "an imported enum is offered as a field type"
         );
+    }
+
+    #[tokio::test]
+    async fn import_path_completion_lists_folders_and_nautilus_files() {
+        let dir = schema_dir("import-path-completion");
+        std::fs::create_dir(dir.join("domain")).expect("create domain");
+        std::fs::write(dir.join("enums.nautilus"), "enum Role { USER }").expect("write enums");
+        std::fs::write(dir.join("notes.txt"), "not a schema").expect("write notes");
+        let schema = dir.join("schema.nautilus");
+        let source = "import \"\"";
+        std::fs::write(&schema, source).expect("write schema");
+
+        let (service, _socket) = LspService::new(|client| Backend {
+            client,
+            docs: DashMap::new(),
+            published: DashMap::new(),
+        });
+        let backend = service.inner();
+        let uri = vscode_file_uri(&schema);
+        backend
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "nautilus".to_string(),
+                    version: 1,
+                    text: source.to_string(),
+                },
+            })
+            .await;
+
+        let completion = backend
+            .completion(CompletionParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position: Position::new(0, 8),
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+                context: None,
+            })
+            .await
+            .expect("completion result")
+            .expect("completion payload");
+        let tower_lsp::lsp_types::CompletionResponse::Array(items) = completion else {
+            panic!("expected completion array");
+        };
+
+        assert!(items.iter().any(|item| {
+            item.label == "domain/"
+                && item.kind == Some(tower_lsp::lsp_types::CompletionItemKind::FOLDER)
+        }));
+        assert!(items.iter().any(|item| {
+            item.label == "enums.nautilus"
+                && item.kind == Some(tower_lsp::lsp_types::CompletionItemKind::FILE)
+        }));
+        assert!(!items.iter().any(|item| item.label == "notes.txt"));
+    }
+
+    #[tokio::test]
+    async fn changing_to_a_missing_import_publishes_a_diagnostic() {
+        let dir = schema_dir("missing-import-diagnostic");
+        let schema = dir.join("schema.nautilus");
+        let initial = "model User {\r\n  id Int @id\r\n}\r\n";
+        std::fs::write(&schema, initial).expect("write schema");
+
+        let (mut service, mut socket) = LspService::new(|client| Backend {
+            client,
+            docs: DashMap::new(),
+            published: DashMap::new(),
+        });
+        service
+            .call(
+                Request::build("initialize")
+                    .id(1)
+                    .params(serde_json::json!({ "capabilities": {} }))
+                    .finish(),
+            )
+            .await
+            .expect("initialize service")
+            .expect("initialize response");
+        let backend = service.inner();
+        let uri = vscode_file_uri(&schema);
+        backend
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "nautilus".to_string(),
+                    version: 1,
+                    text: initial.to_string(),
+                },
+            })
+            .await;
+        let opened = socket.next().await.expect("open diagnostics");
+        assert_eq!(opened.method(), "textDocument/publishDiagnostics");
+
+        backend
+            .did_change(DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri: uri.clone(),
+                    version: 2,
+                },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: Some(Range::new(Position::new(0, 0), Position::new(0, 0))),
+                    range_length: None,
+                    text: concat!(
+                        "import \"./missing.nautilus\"\r\n",
+                        "import \"./models\"\r\n\r\n"
+                    )
+                    .to_string(),
+                }],
+            })
+            .await;
+
+        let published = socket.next().await.expect("changed diagnostics");
+        assert_eq!(published.method(), "textDocument/publishDiagnostics");
+        let params: PublishDiagnosticsParams =
+            serde_json::from_value(published.params().cloned().expect("diagnostic params"))
+                .expect("valid diagnostic params");
+        assert_eq!(params.uri, uri);
+        assert_eq!(params.diagnostics.len(), 2, "{params:?}");
+        assert!(
+            params
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("missing.nautilus")),
+            "{params:?}"
+        );
+        assert!(
+            params
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains(".nautilus extension")),
+            "{params:?}"
+        );
+        assert_eq!(params.diagnostics[0].range.start, Position::new(0, 0));
     }
 
     #[tokio::test]
