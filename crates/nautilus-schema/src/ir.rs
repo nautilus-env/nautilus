@@ -157,6 +157,13 @@ pub struct DatasourceIr {
     /// Entries are deduplicated by name and sorted for stable output.
     /// Empty for non-Postgres providers (enforced by the validator).
     pub extensions: Vec<PostgresExtensionIr>,
+    /// PostgreSQL schemas the datasource spans, in declaration order.
+    ///
+    /// Empty means single-schema mode: table names are unqualified and resolve
+    /// through the connection's `search_path`. When non-empty, every model and
+    /// view must name its owning schema with `@@schema("...")`, and `db pull`
+    /// introspects exactly these schemas.
+    pub schemas: Vec<String>,
     /// Preserve PostgreSQL extensions that are installed in the live database
     /// but not listed in [`extensions`](Self::extensions).
     ///
@@ -245,6 +252,11 @@ pub struct ModelIr {
     pub logical_name: String,
     /// The physical database table name (from @@map or logical_name).
     pub db_name: String,
+    /// The PostgreSQL schema that owns the table, from `@@schema("...")`.
+    ///
+    /// `None` in single-schema mode, where the table name is rendered
+    /// unqualified and resolves through the connection's `search_path`.
+    pub schema: Option<String>,
     /// All fields in the model.
     pub fields: Vec<FieldIr>,
     /// Primary key metadata.

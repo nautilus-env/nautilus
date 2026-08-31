@@ -1,12 +1,13 @@
 use crate::ddl::DatabaseProvider;
 use crate::error::{MigrationError, Result};
+use nautilus_core::TableName;
 use nautilus_schema::ast::StorageStrategy;
 use nautilus_schema::ir::{BasicIndexType, IndexKind};
 
 mod pgvector;
 
 pub(crate) struct CreateIndex<'a> {
-    pub(crate) table: &'a str,
+    pub(crate) table: &'a TableName,
     pub(crate) name: &'a str,
     pub(crate) columns: &'a [String],
     pub(crate) unique: bool,
@@ -17,14 +18,14 @@ pub(crate) struct CreateIndex<'a> {
 }
 
 pub(crate) struct AlterColumnType<'a> {
-    pub(crate) table: &'a str,
+    pub(crate) table: &'a TableName,
     pub(crate) column: &'a str,
     pub(crate) target_type: &'a str,
     pub(crate) full_column_definition: Option<&'a str>,
 }
 
 pub(crate) struct AlterColumnNullability<'a> {
-    pub(crate) table: &'a str,
+    pub(crate) table: &'a TableName,
     pub(crate) column: &'a str,
     pub(crate) now_required: bool,
     pub(crate) is_generated: bool,
@@ -33,7 +34,7 @@ pub(crate) struct AlterColumnNullability<'a> {
 }
 
 pub(crate) struct AlterColumnDefault<'a> {
-    pub(crate) table: &'a str,
+    pub(crate) table: &'a TableName,
     pub(crate) column: &'a str,
     pub(crate) new_default: Option<&'a str>,
     pub(crate) preserve_implicit_default: bool,
@@ -55,17 +56,24 @@ impl ProviderStrategy {
         Self { provider }
     }
 
-    pub(crate) fn drop_table_sql(&self, table: &str, cascade: bool) -> String {
+    /// Quote a table in the statement's table position, qualifying it with its
+    /// schema when it has one.
+    pub(crate) fn quote_table(&self, table: &TableName) -> String {
+        match table.schema() {
+            Some(schema) => format!(
+                "{}.{}",
+                self.provider.quote_identifier(schema),
+                self.provider.quote_identifier(&table.name)
+            ),
+            None => self.provider.quote_identifier(&table.name),
+        }
+    }
+
+    pub(crate) fn drop_table_sql(&self, table: &TableName, cascade: bool) -> String {
         if self.provider == DatabaseProvider::Postgres && cascade {
-            format!(
-                "DROP TABLE IF EXISTS {} CASCADE",
-                self.provider.quote_identifier(table)
-            )
+            format!("DROP TABLE IF EXISTS {} CASCADE", self.quote_table(table))
         } else {
-            format!(
-                "DROP TABLE IF EXISTS {}",
-                self.provider.quote_identifier(table)
-            )
+            format!("DROP TABLE IF EXISTS {}", self.quote_table(table))
         }
     }
 
@@ -151,7 +159,7 @@ impl ProviderStrategy {
             return format!(
                 "CREATE FULLTEXT INDEX {} ON {} ({})",
                 q(index.name),
-                q(index.table),
+                self.quote_table(index.table),
                 columns_sql,
             );
         }
@@ -176,7 +184,7 @@ impl ProviderStrategy {
                     unique_kw,
                     if_not_exists,
                     q(index.name),
-                    q(index.table),
+                    self.quote_table(index.table),
                     using_clause,
                     columns_sql,
                 ) + &with_clause
@@ -186,7 +194,7 @@ impl ProviderStrategy {
                 "CREATE {}INDEX {} ON {} ({}){}",
                 unique_kw,
                 q(index.name),
-                q(index.table),
+                self.quote_table(index.table),
                 columns_sql,
                 using_clause,
             ),
@@ -223,7 +231,7 @@ impl ProviderStrategy {
         match self.provider {
             DatabaseProvider::Postgres => Ok(ProviderSqlPlan::Statements(vec![format!(
                 "ALTER TABLE {} ALTER COLUMN {} TYPE {}",
-                q(alteration.table),
+                self.quote_table(alteration.table),
                 q(alteration.column),
                 alteration.target_type,
             )])),
@@ -236,7 +244,7 @@ impl ProviderStrategy {
                 })?;
                 Ok(ProviderSqlPlan::Statements(vec![format!(
                     "ALTER TABLE {} MODIFY COLUMN {}",
-                    q(alteration.table),
+                    self.quote_table(alteration.table),
                     col_def,
                 )]))
             }
@@ -253,14 +261,14 @@ impl ProviderStrategy {
         match (self.provider, alteration.now_required) {
             (DatabaseProvider::Postgres, false) => Ok(ProviderSqlPlan::Statements(vec![format!(
                 "ALTER TABLE {} ALTER COLUMN {} DROP NOT NULL",
-                q(alteration.table),
+                self.quote_table(alteration.table),
                 q(alteration.column),
             )])),
             (DatabaseProvider::Postgres, true) => {
                 if alteration.is_generated {
                     return Ok(ProviderSqlPlan::Statements(vec![format!(
                         "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL",
-                        q(alteration.table),
+                        self.quote_table(alteration.table),
                         q(alteration.column),
                     )]));
                 }
@@ -269,20 +277,20 @@ impl ProviderStrategy {
                     return Ok(ProviderSqlPlan::Statements(vec![
                         format!(
                             "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}",
-                            q(alteration.table),
+                            self.quote_table(alteration.table),
                             q(alteration.column),
                             default_sql,
                         ),
                         format!(
                             "UPDATE {} SET {} = {} WHERE {} IS NULL",
-                            q(alteration.table),
+                            self.quote_table(alteration.table),
                             q(alteration.column),
                             default_sql,
                             q(alteration.column),
                         ),
                         format!(
                             "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL",
-                            q(alteration.table),
+                            self.quote_table(alteration.table),
                             q(alteration.column),
                         ),
                     ]));
@@ -304,7 +312,7 @@ impl ProviderStrategy {
                 })?;
                 Ok(ProviderSqlPlan::Statements(vec![format!(
                     "ALTER TABLE {} MODIFY COLUMN {}",
-                    q(alteration.table),
+                    self.quote_table(alteration.table),
                     col_def,
                 )]))
             }
@@ -328,14 +336,14 @@ impl ProviderStrategy {
                     if let Some(default_sql) = alteration.new_default {
                         format!(
                             "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}",
-                            q(alteration.table),
+                            self.quote_table(alteration.table),
                             q(alteration.column),
                             default_sql,
                         )
                     } else {
                         format!(
                             "ALTER TABLE {} ALTER COLUMN {} DROP DEFAULT",
-                            q(alteration.table),
+                            self.quote_table(alteration.table),
                             q(alteration.column),
                         )
                     },
@@ -350,7 +358,7 @@ impl ProviderStrategy {
                 })?;
                 Ok(ProviderSqlPlan::Statements(vec![format!(
                     "ALTER TABLE {} MODIFY COLUMN {}",
-                    q(alteration.table),
+                    self.quote_table(alteration.table),
                     col_def,
                 )]))
             }
@@ -360,7 +368,7 @@ impl ProviderStrategy {
 
     pub(crate) fn reverse_nullability_change_sql(
         &self,
-        table: &str,
+        table: &TableName,
         column: &str,
         now_required: bool,
     ) -> Option<Vec<String>> {
@@ -369,12 +377,12 @@ impl ProviderStrategy {
         match (self.provider, now_required) {
             (DatabaseProvider::Postgres, true) => Some(vec![format!(
                 "ALTER TABLE {} ALTER COLUMN {} DROP NOT NULL",
-                q(table),
+                self.quote_table(table),
                 q(column),
             )]),
             (DatabaseProvider::Postgres, false) => Some(vec![format!(
                 "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL",
-                q(table),
+                self.quote_table(table),
                 q(column),
             )]),
             _ => None,
@@ -383,7 +391,7 @@ impl ProviderStrategy {
 
     pub(crate) fn reverse_default_change_sql(
         &self,
-        table: &str,
+        table: &TableName,
         column: &str,
         old_default: Option<&str>,
     ) -> Option<Vec<String>> {
@@ -393,14 +401,14 @@ impl ProviderStrategy {
             DatabaseProvider::Postgres => Some(vec![if let Some(default_sql) = old_default {
                 format!(
                     "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}",
-                    q(table),
+                    self.quote_table(table),
                     q(column),
                     default_sql,
                 )
             } else {
                 format!(
                     "ALTER TABLE {} ALTER COLUMN {} DROP DEFAULT",
-                    q(table),
+                    self.quote_table(table),
                     q(column),
                 )
             }]),
@@ -410,7 +418,7 @@ impl ProviderStrategy {
 
     pub(crate) fn reverse_column_type_sql(
         &self,
-        table: &str,
+        table: &TableName,
         column: &str,
         old_type: &str,
     ) -> Option<Vec<String>> {
@@ -419,7 +427,7 @@ impl ProviderStrategy {
         match self.provider {
             DatabaseProvider::Postgres => Some(vec![format!(
                 "ALTER TABLE {} ALTER COLUMN {} TYPE {}",
-                q(table),
+                self.quote_table(table),
                 q(column),
                 old_type,
             )]),
@@ -447,7 +455,7 @@ mod tests {
         let kind = IndexKind::Basic(BasicIndexType::Hash);
 
         let sql = strategy.create_index_sql(CreateIndex {
-            table: "User",
+            table: &TableName::new("User"),
             name: "email_hash_idx",
             columns: &columns,
             unique: false,
@@ -469,7 +477,7 @@ mod tests {
         let kind = IndexKind::Basic(BasicIndexType::FullText);
 
         let sql = strategy.create_index_sql(CreateIndex {
-            table: "Post",
+            table: &TableName::new("Post"),
             name: "body_search",
             columns: &columns,
             unique: false,
@@ -489,11 +497,11 @@ mod tests {
         let strategy = ProviderStrategy::new(DatabaseProvider::Postgres);
 
         assert_eq!(
-            strategy.drop_table_sql("users", true),
+            strategy.drop_table_sql(&TableName::new("users"), true),
             "DROP TABLE IF EXISTS \"users\" CASCADE"
         );
         assert_eq!(
-            strategy.drop_table_sql("users", false),
+            strategy.drop_table_sql(&TableName::new("users"), false),
             "DROP TABLE IF EXISTS \"users\""
         );
     }
@@ -504,7 +512,7 @@ mod tests {
 
         let plan = strategy
             .alter_column_nullability_sql(AlterColumnNullability {
-                table: "User",
+                table: &TableName::new("User"),
                 column: "email",
                 now_required: true,
                 is_generated: false,
@@ -535,7 +543,7 @@ mod tests {
 
         let plan = strategy
             .alter_column_type_sql(AlterColumnType {
-                table: "User",
+                table: &TableName::new("User"),
                 column: "email",
                 target_type: "VARCHAR(255)",
                 full_column_definition: Some("`email` VARCHAR(255) NOT NULL"),
@@ -558,7 +566,7 @@ mod tests {
 
         let type_plan = strategy
             .alter_column_type_sql(AlterColumnType {
-                table: "User",
+                table: &TableName::new("User"),
                 column: "email",
                 target_type: "TEXT",
                 full_column_definition: None,
@@ -568,7 +576,7 @@ mod tests {
 
         let default_plan = strategy
             .alter_column_default_sql(AlterColumnDefault {
-                table: "User",
+                table: &TableName::new("User"),
                 column: "email",
                 new_default: Some("'x'"),
                 preserve_implicit_default: false,
@@ -587,7 +595,7 @@ mod tests {
 
         let plan = strategy
             .alter_column_default_sql(AlterColumnDefault {
-                table: "User",
+                table: &TableName::new("User"),
                 column: "id",
                 new_default: None,
                 preserve_implicit_default: true,

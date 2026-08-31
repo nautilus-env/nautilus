@@ -40,6 +40,7 @@ impl SchemaValidator<'_> {
         let direct_url = Self::datasource_direct_url_value(datasource)?;
         let extensions = Self::datasource_extensions_value(datasource);
         let preserve_extensions = Self::datasource_preserve_extensions_value(datasource)?;
+        let schemas = Self::datasource_schemas_value(datasource);
 
         Ok(DatasourceIr {
             name: datasource.name.value.clone(),
@@ -47,6 +48,7 @@ impl SchemaValidator<'_> {
             url,
             direct_url,
             extensions,
+            schemas,
             preserve_extensions,
             span: datasource.span,
         })
@@ -199,6 +201,7 @@ impl SchemaValidator<'_> {
         Ok(ModelIr {
             logical_name,
             db_name,
+            schema: model.schema_name().map(str::to_string),
             fields,
             primary_key,
             unique_constraints,

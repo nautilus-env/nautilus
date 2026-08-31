@@ -10,11 +10,13 @@ pub(super) use postgres_indexes::group_pg_indexes;
 use crate::ddl::DatabaseProvider;
 use crate::error::Result;
 use crate::live::{LiveForeignKey, LiveSchema};
+use nautilus_core::TableName;
 
 /// Inspects a live database and returns a snapshot of its current schema.
 pub struct SchemaInspector {
     provider: DatabaseProvider,
     url: String,
+    schemas: Vec<String>,
 }
 
 impl SchemaInspector {
@@ -23,7 +25,20 @@ impl SchemaInspector {
         Self {
             provider,
             url: url.into(),
+            schemas: Vec::new(),
         }
+    }
+
+    /// Restrict introspection to the PostgreSQL schemas the datasource declares.
+    ///
+    /// An empty list keeps the single-schema behaviour: only `current_schema()`
+    /// is scanned and its tables come back unqualified. With a list, every named
+    /// schema is scanned and each table carries its schema, so two tables of the
+    /// same name in different schemas stay distinct.
+    #[must_use]
+    pub fn with_schemas(mut self, schemas: Vec<String>) -> Self {
+        self.schemas = schemas;
+        self
     }
 
     /// Connect to the database and return the current [`LiveSchema`].
@@ -661,7 +676,12 @@ fn strip_numeric_paren_literals(s: &str) -> String {
 }
 
 /// Group raw FK rows (one row per FK column) into [`LiveForeignKey`] values.
-fn group_pg_foreign_keys(rows: Vec<sqlx::postgres::PgRow>) -> Vec<LiveForeignKey> {
+/// Group PostgreSQL foreign-key rows into [`LiveForeignKey`] values.
+///
+/// `qualified` mirrors how the tables themselves are keyed: a single-schema
+/// inspection leaves every name bare, so stamping the referenced table with its
+/// schema there would make it point at a table the snapshot does not hold.
+fn group_pg_foreign_keys(rows: Vec<sqlx::postgres::PgRow>, qualified: bool) -> Vec<LiveForeignKey> {
     use sqlx::Row as _;
 
     let mut ordered: Vec<String> = Vec::new();
@@ -672,6 +692,9 @@ fn group_pg_foreign_keys(rows: Vec<sqlx::postgres::PgRow>) -> Vec<LiveForeignKey
         let con_name: String = row.try_get("constraint_name").unwrap_or_default();
         let col: String = row.try_get("column_name").unwrap_or_default();
         let ref_table: String = row.try_get("referenced_table").unwrap_or_default();
+        let ref_schema: Option<String> = qualified
+            .then(|| row.try_get("referenced_schema").ok().flatten())
+            .flatten();
         let ref_col: String = row.try_get("referenced_column").unwrap_or_default();
         let del_type: String = row.try_get("delete_type").unwrap_or_default();
         let upd_type: String = row.try_get("update_type").unwrap_or_default();
@@ -685,7 +708,7 @@ fn group_pg_foreign_keys(rows: Vec<sqlx::postgres::PgRow>) -> Vec<LiveForeignKey
             .or_insert_with(|| LiveForeignKey {
                 constraint_name: con_name,
                 columns: Vec::new(),
-                referenced_table: ref_table,
+                referenced_table: TableName::with_schema(ref_schema, ref_table),
                 referenced_columns: Vec::new(),
                 on_delete: pg_fk_action(&del_type),
                 on_update: pg_fk_action(&upd_type),
@@ -753,7 +776,7 @@ fn group_sqlite_foreign_keys(
             result.push(LiveForeignKey {
                 constraint_name,
                 columns: fk_cols,
-                referenced_table: ref_table,
+                referenced_table: TableName::new(ref_table),
                 referenced_columns: ref_cols,
                 on_delete: sqlite_fk_action(&on_delete),
                 on_update: sqlite_fk_action(&on_update),
@@ -795,7 +818,7 @@ fn group_mysql_foreign_keys(rows: Vec<sqlx::mysql::MySqlRow>) -> Vec<LiveForeign
             .or_insert_with(|| LiveForeignKey {
                 constraint_name: con_name,
                 columns: Vec::new(),
-                referenced_table: ref_table,
+                referenced_table: TableName::new(ref_table),
                 referenced_columns: Vec::new(),
                 on_delete: mysql_fk_action(&del_rule),
                 on_update: mysql_fk_action(&upd_rule),

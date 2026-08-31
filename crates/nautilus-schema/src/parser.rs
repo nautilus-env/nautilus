@@ -722,6 +722,15 @@ impl<'a> Parser<'a> {
                 })
             }
             "ignore" => Ok(ModelAttribute::Ignore { span: name.span }),
+            "schema" => {
+                self.expect(TokenKind::LParen)?;
+                let schema_name = self.parse_string()?;
+                let end = self.expect(TokenKind::RParen)?.span;
+                Ok(ModelAttribute::Schema {
+                    name: schema_name,
+                    span: name.span.merge(end),
+                })
+            }
             _ => Err(SchemaError::Parse(
                 format!("Unknown model attribute: @@{}", name.value),
                 name.span,

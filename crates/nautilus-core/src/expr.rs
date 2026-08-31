@@ -1,6 +1,7 @@
 //! Expression AST for building WHERE clauses and filters.
 
 use crate::select::Select;
+use crate::table::TableName;
 use crate::value::Value;
 
 /// Internal expression function marker rendered as pgvector `<->`.
@@ -47,7 +48,7 @@ pub struct RelationFilter {
     /// Database table name of the parent model.
     pub parent_table: String,
     /// Database table name of the related child model.
-    pub target_table: String,
+    pub target_table: TableName,
     /// Child-side foreign-key column name.
     pub fk_db: String,
     /// Parent-side referenced key column name.
@@ -68,7 +69,7 @@ pub struct RelationFilter {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelationJoinTable {
     /// Physical name of the join table.
-    pub table: String,
+    pub table: TableName,
     /// Join-table column holding the parent's key.
     pub parent_column: String,
     /// Join-table column holding the child's key.
@@ -469,7 +470,7 @@ impl Expr {
         op: RelationFilterOp,
         field: impl Into<String>,
         parent_table: impl Into<String>,
-        target_table: impl Into<String>,
+        target_table: impl Into<TableName>,
         fk_db: impl Into<String>,
         pk_db: impl Into<String>,
         via: RelationJoinTable,
@@ -493,7 +494,7 @@ impl Expr {
     pub fn relation_some(
         field: impl Into<String>,
         parent_table: impl Into<String>,
-        target_table: impl Into<String>,
+        target_table: impl Into<TableName>,
         fk_db: impl Into<String>,
         pk_db: impl Into<String>,
         filter: Expr,
@@ -516,7 +517,7 @@ impl Expr {
     pub fn relation_none(
         field: impl Into<String>,
         parent_table: impl Into<String>,
-        target_table: impl Into<String>,
+        target_table: impl Into<TableName>,
         fk_db: impl Into<String>,
         pk_db: impl Into<String>,
         filter: Expr,
@@ -539,7 +540,7 @@ impl Expr {
     pub fn relation_every(
         field: impl Into<String>,
         parent_table: impl Into<String>,
-        target_table: impl Into<String>,
+        target_table: impl Into<TableName>,
         fk_db: impl Into<String>,
         pk_db: impl Into<String>,
         filter: Expr,

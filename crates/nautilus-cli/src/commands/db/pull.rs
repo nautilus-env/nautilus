@@ -28,6 +28,7 @@ pub async fn run(
         obfuscate_url(&database_url)
     ));
     let live = SchemaInspector::new(provider, &database_url)
+        .with_schemas(datasource_schemas(schema_arg.as_deref()))
         .inspect()
         .await
         .context("Failed to inspect live schema")?;
@@ -112,6 +113,25 @@ fn datasource_url_expression(schema_arg: Option<&str>) -> String {
         Some(name) => format!("env(\"{name}\")"),
         None => DEFAULT.to_string(),
     }
+}
+
+/// The PostgreSQL schemas the existing schema file declares.
+///
+/// `db pull` has to be told which schemas to scan: the connection alone only
+/// names one. When there is no readable schema file the list is empty and the
+/// pull stays single-schema, exactly as before.
+fn datasource_schemas(schema_arg: Option<&str>) -> Vec<String> {
+    let Ok(Some(path)) = maybe_resolve_schema_path(schema_arg) else {
+        return Vec::new();
+    };
+    let Ok(schema_ir) = parse_and_validate_schema(&path) else {
+        return Vec::new();
+    };
+    schema_ir
+        .datasource
+        .as_ref()
+        .map(|ds| ds.schemas.clone())
+        .unwrap_or_default()
 }
 
 /// The variable an `env(...)` datasource url refers to, however the IR spells it.

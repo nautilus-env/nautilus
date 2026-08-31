@@ -111,6 +111,15 @@ impl SchemaValidator<'_> {
                     ),
                     *span,
                 )),
+                ModelAttribute::Schema { span, .. } => {
+                    self.errors.push_back(SchemaError::Validation(
+                        format!(
+                            "@@schema is not allowed on a composite type (type '{}')",
+                            type_decl.name.value
+                        ),
+                        *span,
+                    ))
+                }
             }
         }
     }

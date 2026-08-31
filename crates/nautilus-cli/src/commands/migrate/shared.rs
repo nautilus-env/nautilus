@@ -1,14 +1,14 @@
 //! Shared helpers for all `nautilus migrate` subcommands.
 
 use anyhow::Context;
-use nautilus_migrate::{DatabaseProvider, MigrationExecutor, MigrationFileStore};
+use nautilus_migrate::{DatabaseProvider, MigrationExecutor, MigrationFileStore, SchemaInspector};
 use nautilus_schema::ir::SchemaIr;
 use sqlx::AnyPool;
 use std::path::PathBuf;
 
 use crate::commands::db::connection::{
-    detect_provider, load_dotenv_for_schema, obfuscate_url, parse_and_validate_schema,
-    resolve_db_url, resolve_schema_path,
+    detect_provider, inspector_for, load_dotenv_for_schema, obfuscate_url,
+    parse_and_validate_schema, resolve_db_url, resolve_schema_path,
 };
 
 /// Everything a migrate subcommand typically needs.
@@ -21,6 +21,11 @@ pub struct MigrateContext {
 }
 
 impl MigrateContext {
+    /// An inspector scoped to the schemas this datasource declares.
+    pub fn inspector(&self) -> SchemaInspector {
+        inspector_for(self.provider, &self.database_url, &self.schema_ir)
+    }
+
     /// Build a [`MigrateContext`] from the raw CLI arguments shared by all
     /// migrate subcommands.
     pub async fn build(

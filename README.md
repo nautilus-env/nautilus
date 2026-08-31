@@ -295,6 +295,50 @@ A view carries no foreign key, so it cannot take part in a relation, and the
 attributes that describe storage (`@@index`, `@@check`, `@default`,
 `@updatedAt`, `@computed`, `@check`) are rejected on one.
 
+### Multi-schema PostgreSQL
+
+A PostgreSQL datasource can span several schemas. List them on the datasource
+and give every block a `@@schema("...")`:
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["app", "analytics"]
+}
+
+model Post {
+  id    Int    @id @default(autoincrement())
+  title String @unique
+  @@map("posts")
+  @@schema("app")
+}
+
+model PostSnapshot {
+  id     Int    @id @default(autoincrement())
+  title  String @unique
+  bucket String
+  @@map("posts")
+  @@schema("analytics")
+}
+```
+
+Two models may share a physical table name as long as they sit in different
+schemas: Nautilus keys tables on `(schema, name)` everywhere — query rendering,
+the migration diff, and introspection. Only the table position of a statement
+carries the qualifier (`FROM "analytics"."posts"`); column references keep the
+bare name, which PostgreSQL supplies as the implicit alias.
+
+Migrations emit `CREATE SCHEMA IF NOT EXISTS` before the first `CREATE TABLE`
+and never drop a schema — one can hold objects Nautilus does not manage.
+`db pull` introspects exactly the declared schemas and writes both
+`schemas = [...]` and `@@schema` back out.
+
+`@@schema` is required on every block once `schemas` is declared, rather than
+defaulting to the first entry: `search_path` decides where an unqualified name
+lands at runtime, so a silent default would let the diff and the query planner
+disagree about which table a model means. `schemas` is PostgreSQL-only.
+
 ### PostgreSQL extensions
 
 PostgreSQL extensions can be declared directly in the datasource block. Nautilus

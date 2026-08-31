@@ -26,6 +26,7 @@ const KNOWN_DATASOURCE_FIELDS: &[&str] = &[
     "direct_url",
     "extensions",
     "preserve_extensions",
+    "schemas",
 ];
 
 /// Curated whitelist of PostgreSQL extensions that Nautilus knows about.

@@ -3,6 +3,7 @@
 use crate::column::ColumnMarker;
 use crate::error::{Error, Result};
 use crate::expr::Expr;
+use crate::table::TableName;
 
 /// A select list item that can be either a simple column or a computed expression.
 #[derive(Debug, Clone, PartialEq)]
@@ -118,7 +119,7 @@ pub struct JoinClause {
     /// The type of join (INNER, LEFT).
     pub join_type: JoinType,
     /// The table to join.
-    pub table: String,
+    pub table: TableName,
     /// The ON condition expression.
     pub on: Expr,
     /// Select items (columns or computed expressions) from the joined table.
@@ -129,7 +130,7 @@ impl JoinClause {
     /// Creates a new JOIN clause.
     pub fn new(
         join_type: JoinType,
-        table: impl Into<String>,
+        table: impl Into<TableName>,
         on: Expr,
         items: Vec<SelectItem>,
     ) -> Self {
@@ -198,7 +199,7 @@ impl PartitionWindow {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Select {
     /// Table name.
-    pub table: String,
+    pub table: TableName,
     /// Select items (columns or computed expressions).
     pub items: Vec<SelectItem>,
     /// JOIN clauses.
@@ -236,7 +237,7 @@ pub struct Select {
 
 impl Select {
     /// Creates a new SELECT query builder for the given table.
-    pub fn from_table(table: impl Into<String>) -> SelectBuilder {
+    pub fn from_table(table: impl Into<TableName>) -> SelectBuilder {
         SelectBuilder {
             table: table.into(),
             items: Vec::new(),
@@ -258,7 +259,7 @@ impl Select {
 /// Builder for SELECT queries.
 #[derive(Debug, Clone)]
 pub struct SelectBuilder {
-    table: String,
+    table: TableName,
     items: Vec<SelectItem>,
     joins: Vec<JoinClause>,
     filter: Option<Expr>,
@@ -369,13 +370,13 @@ impl SelectBuilder {
 
     /// Adds an INNER JOIN clause.
     #[must_use]
-    pub fn inner_join(self, table: impl Into<String>, on: Expr, items: Vec<SelectItem>) -> Self {
+    pub fn inner_join(self, table: impl Into<TableName>, on: Expr, items: Vec<SelectItem>) -> Self {
         self.join(JoinClause::new(JoinType::Inner, table, on, items))
     }
 
     /// Adds a LEFT JOIN clause.
     #[must_use]
-    pub fn left_join(self, table: impl Into<String>, on: Expr, items: Vec<SelectItem>) -> Self {
+    pub fn left_join(self, table: impl Into<TableName>, on: Expr, items: Vec<SelectItem>) -> Self {
         self.join(JoinClause::new(JoinType::Left, table, on, items))
     }
 

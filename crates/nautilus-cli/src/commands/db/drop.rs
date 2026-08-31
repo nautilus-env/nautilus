@@ -1,5 +1,5 @@
 use anyhow::{bail, Context};
-use nautilus_migrate::{DdlGenerator, SchemaInspector};
+use nautilus_migrate::DdlGenerator;
 
 use super::connection::DbContext;
 use crate::tui;
@@ -29,7 +29,8 @@ pub async fn run(
 
     tui::print_section("Dropping tables");
 
-    let live = SchemaInspector::new(ctx.provider, &ctx.database_url)
+    let live = ctx
+        .inspector()
         .inspect()
         .await
         .context("Failed to inspect live schema")?;

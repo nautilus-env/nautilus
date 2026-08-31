@@ -1,3 +1,4 @@
+use nautilus_core::TableName;
 mod common;
 
 use nautilus_migrate::live::{
@@ -16,7 +17,7 @@ use nautilus_schema::ir::{
 #[test]
 fn serialises_single_table() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "users".to_string(),
+        name: TableName::new("users".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -97,7 +98,7 @@ fn serialises_postgres_extensions_in_datasource_block() {
 #[test]
 fn serialises_jsonb_columns_without_degrading_to_json() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "events".to_string(),
+        name: TableName::new("events".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -151,7 +152,7 @@ fn serialises_jsonb_columns_without_degrading_to_json() {
 #[test]
 fn serialises_pgvector_columns_with_dimension() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "embeddings".to_string(),
+        name: TableName::new("embeddings".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -205,7 +206,7 @@ fn serialises_pgvector_columns_with_dimension() {
 #[test]
 fn serialises_postgis_columns() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "places".to_string(),
+        name: TableName::new("places".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -281,7 +282,7 @@ fn serialises_postgis_columns() {
 #[test]
 fn serialises_nullable_column() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "posts".to_string(),
+        name: TableName::new("posts".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -318,7 +319,7 @@ fn serialises_nullable_column() {
 #[test]
 fn serialises_nullable_array_without_optional_marker() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "posts".to_string(),
+        name: TableName::new("posts".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -356,7 +357,7 @@ fn serialises_nullable_array_without_optional_marker() {
 #[test]
 fn serialises_composite_pk() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "order_items".to_string(),
+        name: TableName::new("order_items".to_string()),
         columns: vec![
             LiveColumn {
                 name: "order_id".to_string(),
@@ -399,7 +400,7 @@ fn serialises_composite_pk() {
 #[test]
 fn serialises_indexes() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "users".to_string(),
+        name: TableName::new("users".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "integer".to_string(),
@@ -440,7 +441,7 @@ fn serialises_indexes() {
 #[test]
 fn serialises_index_type_and_map() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "users".to_string(),
+        name: TableName::new("users".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -483,7 +484,7 @@ fn serialises_index_type_and_map() {
 #[test]
 fn serialises_pgvector_index_options() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "embeddings".to_string(),
+        name: TableName::new("embeddings".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -540,7 +541,7 @@ fn serialises_pgvector_index_options() {
 #[test]
 fn serialises_default_value() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "config".to_string(),
+        name: TableName::new("config".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -577,7 +578,7 @@ fn serialises_default_value() {
 #[test]
 fn serialises_autoincrement_default() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "users".to_string(),
+        name: TableName::new("users".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "integer".to_string(),
@@ -602,7 +603,7 @@ fn serialises_autoincrement_default() {
 #[test]
 fn serialises_computed_column() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "orders".to_string(),
+        name: TableName::new("orders".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -640,7 +641,7 @@ fn serialises_computed_column() {
 #[test]
 fn serialises_column_check_constraint() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "products".to_string(),
+        name: TableName::new("products".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -677,7 +678,7 @@ fn serialises_column_check_constraint() {
 #[test]
 fn serialises_table_check_constraint() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "events".to_string(),
+        name: TableName::new("events".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -724,7 +725,7 @@ fn serialises_table_check_constraint() {
 #[test]
 fn serialises_and_reparses_computed_column_with_sql_string_literal() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "users".to_string(),
+        name: TableName::new("users".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -787,7 +788,7 @@ fn serialises_and_reparses_computed_column_with_sql_string_literal() {
 #[test]
 fn serialises_and_reparses_check_constraints_with_sql_string_literals() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "accounts".to_string(),
+        name: TableName::new("accounts".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -870,9 +871,9 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
         },
     );
     live.tables.insert(
-        "profiles".to_string(),
+        TableName::new("profiles".to_string()),
         LiveTable {
-            name: "profiles".to_string(),
+            name: TableName::new("profiles".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -976,7 +977,7 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
 #[test]
 fn serialises_varchar_lengths() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "users".to_string(),
+        name: TableName::new("users".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1014,7 +1015,7 @@ fn serialises_varchar_lengths() {
 fn serialises_relation_actions_with_schema_casing() {
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "users".to_string(),
+            name: TableName::new("users".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "integer".to_string(),
@@ -1031,7 +1032,7 @@ fn serialises_relation_actions_with_schema_casing() {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "posts".to_string(),
+            name: TableName::new("posts".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1060,7 +1061,7 @@ fn serialises_relation_actions_with_schema_casing() {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "fk_posts_user_id".to_string(),
                 columns: vec!["user_id".to_string()],
-                referenced_table: "users".to_string(),
+                referenced_table: TableName::new("users".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: Some("CASCADE".to_string()),
                 on_update: Some("SET NULL".to_string()),
@@ -1078,7 +1079,7 @@ fn serialises_relation_actions_with_schema_casing() {
 fn serialises_one_to_one_back_reference_as_optional_scalar() {
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "users".to_string(),
+            name: TableName::new("users".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "uuid".to_string(),
@@ -1095,7 +1096,7 @@ fn serialises_one_to_one_back_reference_as_optional_scalar() {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "profiles".to_string(),
+            name: TableName::new("profiles".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1130,7 +1131,7 @@ fn serialises_one_to_one_back_reference_as_optional_scalar() {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "fk_profiles_user_id".to_string(),
                 columns: vec!["user_id".to_string()],
-                referenced_table: "users".to_string(),
+                referenced_table: TableName::new("users".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: Some("CASCADE".to_string()),
                 on_update: None,
@@ -1156,9 +1157,9 @@ fn serialises_mixed_case_postgres_enum_columns_and_defaults() {
         ],
     );
     live.tables.insert(
-        "Agent".to_string(),
+        TableName::new("Agent".to_string()),
         LiveTable {
-            name: "Agent".to_string(),
+            name: TableName::new("Agent".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1206,7 +1207,7 @@ fn serialises_mixed_case_postgres_enum_columns_and_defaults() {
 #[test]
 fn serialises_uuidv7_default() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "users".to_string(),
+        name: TableName::new("users".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "uuid".to_string(),
@@ -1239,7 +1240,7 @@ fn serialises_uuidv7_default() {
 fn serialises_ambiguous_relations_with_explicit_names() {
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "App".to_string(),
+            name: TableName::new("App".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1274,14 +1275,14 @@ fn serialises_ambiguous_relations_with_explicit_names() {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "App_current_version_id_fkey".to_string(),
                 columns: vec!["current_version_id".to_string()],
-                referenced_table: "History".to_string(),
+                referenced_table: TableName::new("History".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: Some("SET NULL".to_string()),
                 on_update: Some("CASCADE".to_string()),
             }],
         },
         LiveTable {
-            name: "History".to_string(),
+            name: TableName::new("History".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1310,7 +1311,7 @@ fn serialises_ambiguous_relations_with_explicit_names() {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "History_app_id_fkey".to_string(),
                 columns: vec!["app_id".to_string()],
-                referenced_table: "App".to_string(),
+                referenced_table: TableName::new("App".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: Some("CASCADE".to_string()),
                 on_update: Some("CASCADE".to_string()),
@@ -1349,7 +1350,7 @@ fn serialises_ambiguous_relations_with_explicit_names() {
 #[test]
 fn serialises_self_relations_with_explicit_names() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Folder".to_string(),
+        name: TableName::new("Folder".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1378,7 +1379,7 @@ fn serialises_self_relations_with_explicit_names() {
         foreign_keys: vec![LiveForeignKey {
             constraint_name: "Folder_parent_id_fkey".to_string(),
             columns: vec!["parent_id".to_string()],
-            referenced_table: "Folder".to_string(),
+            referenced_table: TableName::new("Folder".to_string()),
             referenced_columns: vec!["id".to_string()],
             on_delete: Some("CASCADE".to_string()),
             on_update: Some("CASCADE".to_string()),
@@ -1404,7 +1405,7 @@ fn serialises_self_relations_with_explicit_names() {
 #[test]
 fn serialises_custom_model_and_field_case_with_maps() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "APICollection".to_string(),
+        name: TableName::new("APICollection".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1452,7 +1453,7 @@ fn serialises_custom_model_and_field_case_with_maps() {
 fn serialises_relations_with_logical_names_under_custom_case() {
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "Users".to_string(),
+            name: TableName::new("Users".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "uuid".to_string(),
@@ -1469,7 +1470,7 @@ fn serialises_relations_with_logical_names_under_custom_case() {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "BlogPosts".to_string(),
+            name: TableName::new("BlogPosts".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1498,7 +1499,7 @@ fn serialises_relations_with_logical_names_under_custom_case() {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "BlogPosts_author_id_fkey".to_string(),
                 columns: vec!["author_id".to_string()],
-                referenced_table: "Users".to_string(),
+                referenced_table: TableName::new("Users".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: Some("CASCADE".to_string()),
                 on_update: Some("CASCADE".to_string()),
@@ -1526,7 +1527,7 @@ fn serialises_relations_with_logical_names_under_custom_case() {
 #[test]
 fn serialises_reserved_field_name_with_safe_logical_identifier() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "AppAgent".to_string(),
+        name: TableName::new("AppAgent".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1570,7 +1571,7 @@ fn serialises_reserved_field_name_with_safe_logical_identifier() {
 #[test]
 fn mysql_inline_enums_are_lifted_into_declarations() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "posts".to_string(),
+        name: TableName::new("posts".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1644,7 +1645,7 @@ fn an_env_reference_is_written_verbatim_into_the_datasource() {
 #[test]
 fn pulls_a_mysql_auto_increment_key_back_as_autoincrement() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Flagged".to_string(),
+        name: TableName::new("Flagged".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1694,7 +1695,7 @@ fn pulls_a_mysql_auto_increment_key_back_as_autoincrement() {
 #[test]
 fn serialises_partial_index_predicate_with_logical_field_names() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "tasks".to_string(),
+        name: TableName::new("tasks".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1775,7 +1776,7 @@ fn unmodellable_column(name: &str, col_type: &str, nullable: bool) -> LiveColumn
 #[test]
 fn pull_marks_an_unmodellable_nullable_column_ignored() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "device".to_string(),
+        name: TableName::new("device".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1828,7 +1829,7 @@ fn pull_marks_an_unmodellable_nullable_column_ignored() {
 #[test]
 fn pull_marks_a_table_with_a_required_unmodellable_column_ignored() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "legacy_audit".to_string(),
+        name: TableName::new("legacy_audit".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1858,7 +1859,7 @@ fn pull_marks_a_table_with_a_required_unmodellable_column_ignored() {
 #[test]
 fn unparseable_checks_are_pulled_as_raw_predicates_that_reparse() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "device".to_string(),
+        name: TableName::new("device".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1922,7 +1923,7 @@ fn unparseable_checks_are_pulled_as_raw_predicates_that_reparse() {
 #[test]
 fn raw_predicates_are_written_back_as_sql_in_lists() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "tasks".to_string(),
+        name: TableName::new("tasks".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "integer".to_string(),

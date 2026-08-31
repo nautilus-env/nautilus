@@ -33,6 +33,45 @@ unaffected.
 
 ### Added
 
+- Added `@@schema("...")` for multi-schema PostgreSQL. A datasource declares the
+  schemas it spans and every model and view names the one that owns it:
+
+  ```text
+  datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+    schemas  = ["app", "analytics"]
+  }
+
+  model Post {
+    id    Int    @id @default(autoincrement())
+    title String @unique
+    @@map("posts")
+    @@schema("app")
+  }
+
+  model PostSnapshot {
+    id     Int    @id @default(autoincrement())
+    title  String @unique
+    bucket String
+    @@map("posts")
+    @@schema("analytics")
+  }
+  ```
+
+  Tables are keyed on `(schema, name)` throughout, so two models may share a
+  physical table name in different schemas. Query rendering qualifies only the
+  table position of a statement — `FROM "analytics"."posts"` — and leaves column
+  references bare, which every supported provider resolves through the implicit
+  alias. Migrations emit `CREATE SCHEMA IF NOT EXISTS` before the first
+  `CREATE TABLE` and never drop a schema; `db pull` introspects exactly the
+  declared schemas and writes `schemas = [...]` and `@@schema` back out.
+
+  `@@schema` is required on every block once `schemas` is declared rather than
+  defaulting to the first entry, because `search_path` decides where an
+  unqualified name lands at runtime. `schemas` is rejected for MySQL and SQLite.
+  Exercised end to end against a live PostgreSQL by `examples/multi-schema`.
+
 - Added implicit many-to-many relations. A relation declared as an array on
   both sides, with neither side naming `fields`/`references`, no longer needs a
   join model written by hand:

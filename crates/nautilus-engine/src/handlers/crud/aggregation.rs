@@ -207,13 +207,15 @@ fn build_group_by_select(spec: GroupBySelect<'_>) -> Result<Select, ProtocolErro
         .filter(|order| matches!(order, crate::filter::GroupByOrderItem::Column(_)))
         .count();
 
-    let mut builder = Select::from_table(&spec.model.db_name).with_capacity(SelectCapacity {
-        items: spec.by_fields.len() + spec.aggregate_items.len(),
-        order_by_columns,
-        order_by_exprs: spec.orders.len() - order_by_columns,
-        group_by: spec.by_fields.len(),
-        ..SelectCapacity::default()
-    });
+    let mut builder = Select::from_table(crate::metadata::model_table(spec.model)).with_capacity(
+        SelectCapacity {
+            items: spec.by_fields.len() + spec.aggregate_items.len(),
+            order_by_columns,
+            order_by_exprs: spec.orders.len() - order_by_columns,
+            group_by: spec.by_fields.len(),
+            ..SelectCapacity::default()
+        },
+    );
 
     for field_name in spec.by_fields {
         let marker = ColumnMarker::new(

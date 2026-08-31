@@ -11,6 +11,7 @@ use crate::error::{MigrationError, Result};
 use crate::live::{
     ComputedKind, LiveColumn, LiveCompositeField, LiveCompositeType, LiveSchema, LiveTable,
 };
+use nautilus_core::TableName;
 
 const TABLES_SQL: &str = "SELECT c.relname AS table_name \
      FROM pg_class c \
@@ -97,13 +98,15 @@ const FOREIGN_KEYS_SQL: &str = "SELECT \
          c.conname                                    AS constraint_name, \
          a.attname                                    AS column_name, \
          rf.relname                                   AS referenced_table, \
+         rn.nspname                                   AS referenced_schema, \
          ra.attname                                   AS referenced_column, \
          c.confdeltype::text                          AS delete_type, \
          c.confupdtype::text                          AS update_type \
      FROM pg_constraint c \
      JOIN pg_class t   ON t.oid  = c.conrelid \
      JOIN pg_class rf  ON rf.oid = c.confrelid \
-     JOIN pg_namespace n ON n.oid = t.relnamespace \
+     JOIN pg_namespace n  ON n.oid  = t.relnamespace \
+     JOIN pg_namespace rn ON rn.oid = rf.relnamespace \
      JOIN LATERAL unnest(c.conkey, c.confkey) \
           WITH ORDINALITY AS u(local_att, ref_att, pos) ON true \
      JOIN pg_attribute a  \
@@ -139,6 +142,9 @@ const COMPOSITE_TYPES_SQL: &str = "SELECT t.typname AS composite_name, \
        ) \
      ORDER BY t.typname, a.attnum";
 
+const SCHEMAS_SQL: &str = "SELECT nspname FROM pg_namespace \
+     WHERE nspname NOT LIKE 'pg%' AND nspname <> 'information_schema'";
+
 const EXTENSIONS_SQL: &str = "SELECT e.extname, e.extversion, n.nspname AS extschema \
      FROM pg_extension e \
      JOIN pg_namespace n ON n.oid = e.extnamespace \
@@ -150,24 +156,44 @@ impl SchemaInspector {
             .await
             .map_err(|e| MigrationError::Database(format!("PostgreSQL connection failed: {e}")))?;
 
-        let schema_name = fetch_current_schema(&pool).await?;
-        let table_names = fetch_relation_names(&pool, &schema_name, TABLES_SQL).await?;
-        let view_names = fetch_relation_names(&pool, &schema_name, VIEWS_SQL).await?;
-        let mut metadata = TableMetadata::fetch(&pool, &schema_name).await?;
-
         let mut live = LiveSchema::default();
-        for table_name in table_names {
-            let table = metadata.build_table(table_name)?;
-            live.tables.insert(table.name.clone(), table);
-        }
-        for view_name in view_names {
-            let view = metadata.build_view(view_name)?;
-            live.views.insert(view.name.clone(), view);
+
+        // A declared schema list is what makes a table name qualified: without
+        // one the connection's `search_path` alone decides where an unqualified
+        // name lands, and stamping a schema on it would make the diff propose
+        // moving every table.
+        let scanned: Vec<(String, Option<String>)> = if self.schemas.is_empty() {
+            vec![(fetch_current_schema(&pool).await?, None)]
+        } else {
+            self.schemas
+                .iter()
+                .map(|schema| (schema.clone(), Some(schema.clone())))
+                .collect()
+        };
+
+        for (schema_name, qualifier) in &scanned {
+            let table_names = fetch_relation_names(&pool, schema_name, TABLES_SQL).await?;
+            let view_names = fetch_relation_names(&pool, schema_name, VIEWS_SQL).await?;
+            let mut metadata = TableMetadata::fetch(&pool, schema_name).await?;
+
+            for table_name in table_names {
+                let table = metadata.build_table(table_name, qualifier.clone())?;
+                live.tables.insert(table.name.clone(), table);
+            }
+            for view_name in view_names {
+                let view = metadata.build_view(view_name, qualifier.clone())?;
+                live.views.insert(view.name.clone(), view);
+            }
         }
 
-        load_enums(&pool, &schema_name, &mut live).await?;
-        load_composite_types(&pool, &schema_name, &mut live).await?;
+        for (schema_name, _) in &scanned {
+            load_enums(&pool, schema_name, &mut live).await?;
+            load_composite_types(&pool, schema_name, &mut live).await?;
+        }
         load_extensions(&pool, &mut live).await?;
+        if !self.schemas.is_empty() {
+            load_schemas(&pool, &mut live).await?;
+        }
 
         Ok(live)
     }
@@ -209,7 +235,7 @@ impl TableMetadata {
         })
     }
 
-    fn build_table(&mut self, table_name: String) -> Result<LiveTable> {
+    fn build_table(&mut self, table_name: String, schema: Option<String>) -> Result<LiveTable> {
         let mut columns = build_columns(&take_rows(&mut self.columns, &table_name), &table_name)?;
         let primary_key =
             build_primary_key(&take_rows(&mut self.primary_keys, &table_name), &table_name)?;
@@ -219,10 +245,13 @@ impl TableMetadata {
             &take_rows(&mut self.checks, &table_name),
             &table_name,
         )?;
-        let foreign_keys = group_pg_foreign_keys(take_rows(&mut self.foreign_keys, &table_name));
+        let foreign_keys = group_pg_foreign_keys(
+            take_rows(&mut self.foreign_keys, &table_name),
+            schema.is_some(),
+        );
 
         Ok(LiveTable {
-            name: table_name,
+            name: TableName::with_schema(schema, table_name),
             columns,
             primary_key,
             indexes,
@@ -236,7 +265,7 @@ impl TableMetadata {
     /// `information_schema.columns` reports view columns alongside table
     /// columns, so the same grouped rows serve both; everything else a
     /// [`LiveTable`] carries is storage a view does not have.
-    fn build_view(&mut self, view_name: String) -> Result<LiveTable> {
+    fn build_view(&mut self, view_name: String, schema: Option<String>) -> Result<LiveTable> {
         let mut columns = build_columns(&take_rows(&mut self.columns, &view_name), &view_name)?;
         for column in &mut columns {
             column.default_value = None;
@@ -247,7 +276,7 @@ impl TableMetadata {
         }
 
         Ok(LiveTable {
-            name: view_name,
+            name: TableName::with_schema(schema, view_name),
             columns,
             primary_key: Vec::new(),
             indexes: Vec::new(),
@@ -259,6 +288,19 @@ impl TableMetadata {
 
 fn take_rows(grouped: &mut HashMap<String, Vec<PgRow>>, table_name: &str) -> Vec<PgRow> {
     grouped.remove(table_name).unwrap_or_default()
+}
+
+async fn load_schemas(pool: &PgPool, live: &mut LiveSchema) -> Result<()> {
+    let rows = pg_query(SCHEMAS_SQL)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| MigrationError::Database(format!("failed to list PostgreSQL schemas: {e}")))?;
+
+    for row in &rows {
+        let name: String = read_column(row, "nspname", || "schema name".to_string())?;
+        live.schemas.insert(name);
+    }
+    Ok(())
 }
 
 async fn fetch_current_schema(pool: &PgPool) -> Result<String> {

@@ -8,6 +8,7 @@ use nautilus_schema::{Lexer, Span, TokenKind};
 
 use crate::ddl::{DatabaseProvider, DdlGenerator};
 use crate::live::{LiveIndex, LiveIndexKind, LiveSchema};
+use nautilus_core::TableName;
 
 /// A single schema change between the live database and the target schema.
 #[derive(Debug, Clone)]
@@ -20,14 +21,14 @@ pub enum Change {
     /// the target schema.
     DroppedTable {
         /// DB table name.
-        name: String,
+        name: TableName,
     },
 
     /// A scalar field exists in the target model but the corresponding column
     /// is missing from the live table.
     AddedColumn {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// Target field IR (contains `db_name`, type info, etc.).
         field: FieldIr,
     },
@@ -36,7 +37,7 @@ pub enum Change {
     /// in the target model.
     DroppedColumn {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// DB column name.
         column: String,
     },
@@ -44,7 +45,7 @@ pub enum Change {
     /// The SQL type of an existing column does not match the target field type.
     TypeChanged {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// DB column name.
         column: String,
         /// Current live SQL type (normalised, lower-cased).
@@ -56,7 +57,7 @@ pub enum Change {
     /// The nullability of an existing column differs from the target field.
     NullabilityChanged {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// DB column name.
         column: String,
         /// `true` when the target requires `NOT NULL` (column is becoming
@@ -71,7 +72,7 @@ pub enum Change {
     /// rejects every insert without an explicit id.
     AutoIncrementChanged {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// DB column name.
         column: String,
         /// `true` when the target wants the database to generate the values.
@@ -81,7 +82,7 @@ pub enum Change {
     /// The DEFAULT expression of an existing column differs from the target.
     DefaultChanged {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// DB column name.
         column: String,
         /// Current live default (lower-cased), or `None`.
@@ -93,14 +94,14 @@ pub enum Change {
     /// The set of primary-key columns has changed.
     PrimaryKeyChanged {
         /// DB table name.
-        table: String,
+        table: TableName,
     },
 
     /// A new index (defined in the target schema) is not present in the live
     /// database.
     IndexAdded {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// Sorted DB column names that form the index key.
         columns: Vec<String>,
         /// Whether the index enforces uniqueness.
@@ -118,7 +119,7 @@ pub enum Change {
     /// schema.
     IndexDropped {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// Sorted DB column names that form the index key.
         columns: Vec<String>,
         /// Whether the index enforces uniqueness.
@@ -130,7 +131,7 @@ pub enum Change {
     /// The generation expression of a computed column has changed.
     ComputedExprChanged {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// DB column name.
         column: String,
         /// Target field IR (needed to regenerate the column definition).
@@ -140,7 +141,7 @@ pub enum Change {
     /// A CHECK constraint was added, removed, or changed.
     CheckChanged {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// DB column name (`None` for table-level checks).
         column: Option<String>,
         /// Old expression, or `None` if being added.
@@ -192,6 +193,16 @@ pub enum Change {
         name: String,
     },
 
+    /// A PostgreSQL schema is declared in the target datasource but does not
+    /// exist in the live database.
+    ///
+    /// Nautilus creates schemas but never drops them: a schema can hold objects
+    /// Nautilus does not manage, and dropping it would take them with it.
+    CreateSchema {
+        /// Schema name, as written in the datasource `schemas` list.
+        name: String,
+    },
+
     /// A PostgreSQL extension is declared in the target datasource but is not
     /// currently installed in the live database.
     CreateExtension {
@@ -225,13 +236,13 @@ pub enum Change {
     /// constraint was already emitted as `ForeignKeyDropped`).
     ForeignKeyAdded {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// Constraint name to create (auto-derived from table + columns).
         constraint_name: String,
         /// Local FK column names, in declaration order.
         columns: Vec<String>,
         /// Referenced table name.
-        referenced_table: String,
+        referenced_table: TableName,
         /// Referenced column names, in declaration order.
         referenced_columns: Vec<String>,
         /// ON DELETE action, or `None` for the database default (NO ACTION).
@@ -245,7 +256,7 @@ pub enum Change {
     /// actions changed and a replacement `ForeignKeyAdded` follows).
     ForeignKeyDropped {
         /// DB table name.
-        table: String,
+        table: TableName,
         /// Live constraint name to drop.
         constraint_name: String,
     },
@@ -322,6 +333,7 @@ impl Change {
 
             Change::CreateEnum { .. }
             | Change::CreateCompositeType { .. }
+            | Change::CreateSchema { .. }
             | Change::CreateExtension { .. } => ChangeRisk::Safe,
 
             Change::AlterEnum {
@@ -360,7 +372,7 @@ impl Change {
             Change::NewTable(model) => ("+", model.db_name.clone(), "CREATE TABLE (safe)".into()),
             Change::DroppedTable { name } => (
                 "-",
-                name.clone(),
+                name.to_string(),
                 "DROP TABLE (destructive — data will be lost)".into(),
             ),
             Change::AddedColumn { table, field } => (
@@ -431,7 +443,7 @@ impl Change {
             ),
             Change::PrimaryKeyChanged { table } => (
                 "~",
-                table.clone(),
+                table.to_string(),
                 "PRIMARY KEY changed (destructive — requires rebuild)".into(),
             ),
             Change::IndexAdded {
@@ -470,7 +482,7 @@ impl Change {
                 "~",
                 match column {
                     Some(col) => format!("{}.{}", table, col),
-                    None => table.clone(),
+                    None => table.to_string(),
                 },
                 format!(
                     "CHECK {} -> {} (safe)",
@@ -532,6 +544,11 @@ impl Change {
                 };
                 ("~", format!("enum:{}", name), annotation)
             }
+            Change::CreateSchema { name } => (
+                "+",
+                format!("schema:{}", name),
+                "CREATE SCHEMA (safe)".into(),
+            ),
             Change::CreateExtension { name, schema } => {
                 let annotation = match schema {
                     Some(s) => format!("CREATE EXTENSION ... WITH SCHEMA \"{}\" (safe)", s),
@@ -562,7 +579,7 @@ impl Change {
                 constraint_name,
             } => (
                 "-",
-                table.clone(),
+                table.to_string(),
                 format!("DROP FOREIGN KEY {} (safe)", constraint_name),
             ),
         };
@@ -589,7 +606,7 @@ pub fn order_changes_for_apply(changes: &[Change], live: &LiveSchema) -> Vec<Cha
     let mut foreign_key_drops = Vec::new();
     let mut main_changes = Vec::new();
     let mut dropped_table_names = Vec::new();
-    let mut dropped_tables: HashMap<String, Change> = HashMap::new();
+    let mut dropped_tables: HashMap<TableName, Change> = HashMap::new();
     let mut index_adds = Vec::new();
     let mut foreign_key_adds = Vec::new();
     let mut post_type_changes = Vec::new();
@@ -598,6 +615,7 @@ pub fn order_changes_for_apply(changes: &[Change], live: &LiveSchema) -> Vec<Cha
         match change {
             Change::CreateCompositeType { .. }
             | Change::CreateEnum { .. }
+            | Change::CreateSchema { .. }
             | Change::CreateExtension { .. } => {
                 pre_type_changes.push(change.clone());
             }
@@ -642,12 +660,12 @@ pub fn order_changes_for_apply(changes: &[Change], live: &LiveSchema) -> Vec<Cha
     ordered.extend(main_changes);
 
     for name in order_dropped_live_tables(live, &dropped_table_names) {
-        if let Some(change) = dropped_tables.remove(name.as_str()) {
+        if let Some(change) = dropped_tables.remove(&name) {
             ordered.push(change);
         }
     }
     for name in &dropped_table_names {
-        if let Some(change) = dropped_tables.remove(name.as_str()) {
+        if let Some(change) = dropped_tables.remove(name) {
             ordered.push(change);
         }
     }
@@ -671,6 +689,7 @@ impl SchemaDiff {
         provider: DatabaseProvider,
     ) -> Vec<Change> {
         let mut acc = DiffAccumulator::new(provider);
+        acc.diff_schemas(live, target);
         acc.diff_extensions(live, target);
         acc.diff_composite_types(live, target);
         acc.diff_enums(live, target);
@@ -713,6 +732,28 @@ impl DiffAccumulator {
         all_changes.append(&mut self.changes);
         all_changes.append(&mut self.post_type);
         all_changes
+    }
+
+    /// Emit a [`Change::CreateSchema`] for every declared PostgreSQL schema
+    /// that the live database does not have yet.
+    ///
+    /// No-op on other providers, and on a single-schema datasource.
+    fn diff_schemas(&mut self, live: &LiveSchema, target: &SchemaIr) {
+        if self.provider != DatabaseProvider::Postgres {
+            return;
+        }
+
+        let Some(datasource) = target.datasource.as_ref() else {
+            return;
+        };
+
+        for schema in &datasource.schemas {
+            if !live.schemas.contains(schema) {
+                self.pre_type.push(Change::CreateSchema {
+                    name: schema.clone(),
+                });
+            }
+        }
     }
 
     /// Diff the declared PostgreSQL extensions against the installed ones.
@@ -925,7 +966,7 @@ impl DiffAccumulator {
     fn diff_new_tables(&mut self, live: &LiveSchema, target: &SchemaIr) {
         let new_models: Vec<&ModelIr> = crate::ddl::managed_models(target)
             .into_iter()
-            .filter(|m| !live.tables.contains_key(&m.db_name))
+            .filter(|m| !live.tables.contains_key(&crate::live::model_table(m)))
             .collect();
 
         for model in topo_sort_models(&new_models) {
@@ -937,7 +978,7 @@ impl DiffAccumulator {
     fn diff_dropped_tables(&mut self, live: &LiveSchema, target: &SchemaIr) {
         let target_by_db = target_models_by_db_name(target);
         for live_table_name in live.tables.keys() {
-            if !target_by_db.contains_key(live_table_name.as_str()) {
+            if !target_by_db.contains_key(live_table_name) {
                 self.changes.push(Change::DroppedTable {
                     name: live_table_name.clone(),
                 });
@@ -950,7 +991,7 @@ impl DiffAccumulator {
         let target_by_db = target_models_by_db_name(target);
 
         for (table_name, live_table) in &live.tables {
-            let Some(model) = target_by_db.get(table_name.as_str()) else {
+            let Some(model) = target_by_db.get(table_name) else {
                 continue; // already emitted DroppedTable
             };
 
@@ -993,7 +1034,7 @@ impl DiffAccumulator {
     /// type, nullability, default, generation-expression and CHECK changes.
     fn diff_columns(
         &mut self,
-        table_name: &str,
+        table_name: &TableName,
         live_table: &crate::live::LiveTable,
         target_scalar_fields: &[&FieldIr],
         unmanaged_columns: &std::collections::HashSet<&str>,
@@ -1012,7 +1053,7 @@ impl DiffAccumulator {
         for field in target_scalar_fields {
             if !live_cols.contains_key(field.db_name.as_str()) {
                 self.changes.push(Change::AddedColumn {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     field: (*field).clone(),
                 });
             }
@@ -1023,7 +1064,7 @@ impl DiffAccumulator {
                 && !unmanaged_columns.contains(*live_col_name)
             {
                 self.changes.push(Change::DroppedColumn {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     column: (*live_col_name).to_string(),
                 });
             }
@@ -1039,7 +1080,7 @@ impl DiffAccumulator {
                 && !column_types_match(self.provider, &live_col.col_type, &target_type)
             {
                 self.changes.push(Change::TypeChanged {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     column: field.db_name.clone(),
                     from: live_col.col_type.clone(),
                     to: target_type,
@@ -1050,7 +1091,7 @@ impl DiffAccumulator {
             let target_nullable = !field.is_required;
             if target_nullable != live_col.nullable {
                 self.changes.push(Change::NullabilityChanged {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     column: field.db_name.clone(),
                     now_required: !target_nullable,
                 });
@@ -1081,7 +1122,7 @@ impl DiffAccumulator {
                 && is_autoincrement != live_col.auto_increment
             {
                 self.changes.push(Change::AutoIncrementChanged {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     column: field.db_name.clone(),
                     enabled: is_autoincrement,
                 });
@@ -1093,7 +1134,7 @@ impl DiffAccumulator {
                 let live_default = live_col.default_value.as_deref().map(normalize_default);
                 if target_default != live_default {
                     self.changes.push(Change::DefaultChanged {
-                        table: table_name.to_string(),
+                        table: table_name.clone(),
                         column: field.db_name.clone(),
                         from: live_col.default_value.clone(),
                         to: target_default_sql,
@@ -1114,7 +1155,7 @@ impl DiffAccumulator {
                 .map(normalize_generated_expr);
             if target_expr != live_expr {
                 self.changes.push(Change::ComputedExprChanged {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     column: field.db_name.clone(),
                     field: (*field).clone(),
                 });
@@ -1137,7 +1178,7 @@ impl DiffAccumulator {
             });
             if target_check != live_check && !check_already_in_table_pool {
                 self.changes.push(Change::CheckChanged {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     column: Some(field.db_name.clone()),
                     from: live_col.check_expr.clone(),
                     to: field.check.clone(),
@@ -1149,7 +1190,7 @@ impl DiffAccumulator {
     /// Diff the table-level CHECK constraints of one table.
     fn diff_table_checks(
         &mut self,
-        table_name: &str,
+        table_name: &TableName,
         live_table: &crate::live::LiveTable,
         model: &ModelIr,
         target_scalar_fields: &[&FieldIr],
@@ -1180,7 +1221,7 @@ impl DiffAccumulator {
         for tc in &target_checks {
             if !live_checks.contains(tc) {
                 self.changes.push(Change::CheckChanged {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     column: None,
                     from: None,
                     to: Some(tc.clone()),
@@ -1195,7 +1236,7 @@ impl DiffAccumulator {
             }
             if !target_checks.contains(lc) && !column_check_exprs.contains(lc.as_str()) {
                 self.changes.push(Change::CheckChanged {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     column: None,
                     from: Some(lc.clone()),
                     to: None,
@@ -1207,7 +1248,7 @@ impl DiffAccumulator {
     /// Compare the live primary key against the target model's.
     fn diff_primary_key(
         &mut self,
-        table_name: &str,
+        table_name: &TableName,
         live_table: &crate::live::LiveTable,
         model: &ModelIr,
     ) {
@@ -1231,7 +1272,7 @@ impl DiffAccumulator {
 
         if target_pk != live_pk {
             self.changes.push(Change::PrimaryKeyChanged {
-                table: table_name.to_string(),
+                table: table_name.clone(),
             });
         }
     }
@@ -1240,7 +1281,7 @@ impl DiffAccumulator {
     /// uniqueness, access method, and — for explicitly named indexes — name.
     fn diff_indexes(
         &mut self,
-        table_name: &str,
+        table_name: &TableName,
         live_table: &crate::live::LiveTable,
         model: &ModelIr,
         unmanaged_columns: &std::collections::HashSet<&str>,
@@ -1270,7 +1311,7 @@ impl DiffAccumulator {
             let found = live_indexes.iter().any(|li| indexes_match(ti, li));
             if !found {
                 self.changes.push(Change::IndexAdded {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     columns: ti.sorted_cols.clone(),
                     unique: ti.unique,
                     kind: ti.kind.clone(),
@@ -1284,7 +1325,7 @@ impl DiffAccumulator {
             let found = target_indexes.iter().any(|ti| indexes_match(ti, li));
             if !found {
                 self.changes.push(Change::IndexDropped {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     columns: li.sorted_cols.clone(),
                     unique: li.unique,
                     index_name: li.live.name.clone(),
@@ -1299,7 +1340,7 @@ impl DiffAccumulator {
     /// as a drop followed by an add of the same constraint.
     fn diff_foreign_keys(
         &mut self,
-        table_name: &str,
+        table_name: &TableName,
         live_table: &crate::live::LiveTable,
         model: &ModelIr,
         target: &SchemaIr,
@@ -1330,7 +1371,7 @@ impl DiffAccumulator {
                     );
                     if actions_differ {
                         self.changes.push(Change::ForeignKeyDropped {
-                            table: table_name.to_string(),
+                            table: table_name.clone(),
                             constraint_name: live_fk.constraint_name.clone(),
                         });
                         self.changes.push(tfk.as_added(table_name));
@@ -1354,7 +1395,7 @@ impl DiffAccumulator {
             });
             if !still_in_target {
                 self.changes.push(Change::ForeignKeyDropped {
-                    table: table_name.to_string(),
+                    table: table_name.clone(),
                     constraint_name: live_fk.constraint_name.clone(),
                 });
             }
@@ -1377,11 +1418,11 @@ fn mentions_any_column(expr: &str, columns: &std::collections::HashSet<&str>) ->
 }
 
 /// Index the target models by their DB table name.
-fn target_models_by_db_name(target: &SchemaIr) -> std::collections::HashMap<&str, &ModelIr> {
+fn target_models_by_db_name(target: &SchemaIr) -> std::collections::HashMap<TableName, &ModelIr> {
     target
         .models
         .values()
-        .map(|m| (m.db_name.as_str(), m))
+        .map(|m| (crate::live::model_table(m), m))
         .collect()
 }
 
@@ -1408,7 +1449,7 @@ struct NormalizedLiveIndex<'a> {
 
 /// Collect the target indexes of `model`, merging `@@index` declarations and
 /// `@@unique` constraints into a single comparable list.
-fn collect_target_indexes(table_name: &str, model: &ModelIr) -> Vec<TargetIndex> {
+fn collect_target_indexes(table_name: &TableName, model: &ModelIr) -> Vec<TargetIndex> {
     let resolve_cols = |fields: &[String]| -> Vec<String> {
         let mut cols: Vec<String> = fields
             .iter()
@@ -1514,7 +1555,7 @@ fn collect_target_foreign_keys(model: &ModelIr, target: &SchemaIr) -> Vec<Target
                 .collect();
             Some(TargetFkDescriptor {
                 columns: fk_cols,
-                referenced_table: target_model.db_name.clone(),
+                referenced_table: crate::live::model_table(target_model),
                 referenced_columns: ref_cols,
                 on_delete: rel.on_delete.as_ref().map(fk_action_to_str),
                 on_update: rel.on_update.as_ref().map(fk_action_to_str),
@@ -1848,7 +1889,7 @@ fn normalize_generated_expr(s: &str) -> String {
 /// Internal descriptor for a foreign-key constraint derived from the target schema IR.
 struct TargetFkDescriptor {
     columns: Vec<String>,
-    referenced_table: String,
+    referenced_table: TableName,
     referenced_columns: Vec<String>,
     on_delete: Option<String>,
     on_update: Option<String>,
@@ -1857,9 +1898,9 @@ struct TargetFkDescriptor {
 impl TargetFkDescriptor {
     /// Build the [`Change::ForeignKeyAdded`] that creates this constraint on
     /// `table`.
-    fn as_added(&self, table: &str) -> Change {
+    fn as_added(&self, table: &TableName) -> Change {
         Change::ForeignKeyAdded {
-            table: table.to_string(),
+            table: table.clone(),
             constraint_name: fk_auto_name(table, &self.columns),
             columns: self.columns.clone(),
             referenced_table: self.referenced_table.clone(),
@@ -1909,18 +1950,18 @@ fn fk_actions_equal(provider: DatabaseProvider, live: Option<&str>, target: Opti
 }
 
 /// Derive a deterministic FK constraint name from table and FK column list.
-fn fk_auto_name(table: &str, columns: &[String]) -> String {
-    format!("fk_{}_{}", table, columns.join("_"))
+fn fk_auto_name(table: &TableName, columns: &[String]) -> String {
+    format!("fk_{}_{}", table.name, columns.join("_"))
 }
 
-fn order_dropped_live_tables(live: &LiveSchema, dropped_tables: &[String]) -> Vec<String> {
+fn order_dropped_live_tables(live: &LiveSchema, dropped_tables: &[TableName]) -> Vec<TableName> {
     use std::collections::{HashMap, HashSet, VecDeque};
 
-    let dropped_set: HashSet<&str> = dropped_tables.iter().map(String::as_str).collect();
-    let mut names: Vec<&str> = dropped_set.iter().copied().collect();
+    let dropped_set: HashSet<&TableName> = dropped_tables.iter().collect();
+    let mut names: Vec<&TableName> = dropped_set.iter().copied().collect();
     names.sort_unstable();
 
-    let name_to_idx: HashMap<&str, usize> = names
+    let name_to_idx: HashMap<&TableName, usize> = names
         .iter()
         .enumerate()
         .map(|(i, name)| (*name, i))
@@ -1933,10 +1974,10 @@ fn order_dropped_live_tables(live: &LiveSchema, dropped_tables: &[String]) -> Ve
             continue;
         };
         let table_idx = name_to_idx[table_name];
-        let mut seen_refs: HashSet<&str> = HashSet::new();
+        let mut seen_refs: HashSet<&TableName> = HashSet::new();
 
         for fk in &table.foreign_keys {
-            let referenced = fk.referenced_table.as_str();
+            let referenced = &fk.referenced_table;
             if referenced == table_name
                 || !dropped_set.contains(referenced)
                 || !seen_refs.insert(referenced)
@@ -1965,8 +2006,8 @@ fn order_dropped_live_tables(live: &LiveSchema, dropped_tables: &[String]) -> Ve
         queue.extend(ready);
     }
 
-    let emitted: HashSet<&str> = create_order.iter().copied().collect();
-    let mut remaining: Vec<&str> = names
+    let emitted: HashSet<&TableName> = create_order.iter().copied().collect();
+    let mut remaining: Vec<&TableName> = names
         .into_iter()
         .filter(|name| !emitted.contains(name))
         .collect();
@@ -1974,7 +2015,7 @@ fn order_dropped_live_tables(live: &LiveSchema, dropped_tables: &[String]) -> Ve
     create_order.extend(remaining);
 
     create_order.reverse();
-    create_order.into_iter().map(str::to_string).collect()
+    create_order.into_iter().cloned().collect()
 }
 
 /// Sort models so that a table is always created *before* any table that holds

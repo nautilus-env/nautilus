@@ -3,13 +3,14 @@
 use crate::column::ColumnMarker;
 use crate::error::{Error, Result};
 use crate::expr::Expr;
+use crate::table::TableName;
 use crate::value::Value;
 
 /// UPDATE query AST node.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Update {
     /// Table name.
-    pub table: String,
+    pub table: TableName,
     /// Column-value assignments (SET clause).
     pub assignments: Vec<(ColumnMarker, Value)>,
     /// WHERE clause.
@@ -20,7 +21,7 @@ pub struct Update {
 
 impl Update {
     /// Creates a new UPDATE query builder for the given table.
-    pub fn table(table: impl Into<String>) -> UpdateBuilder {
+    pub fn table(table: impl Into<TableName>) -> UpdateBuilder {
         UpdateBuilder {
             table: table.into(),
             assignments: Vec::new(),
@@ -42,7 +43,7 @@ pub struct UpdateCapacity {
 /// Builder for UPDATE queries.
 #[derive(Debug, Clone)]
 pub struct UpdateBuilder {
-    table: String,
+    table: TableName,
     assignments: Vec<(ColumnMarker, Value)>,
     filter: Option<Expr>,
     returning: Vec<ColumnMarker>,

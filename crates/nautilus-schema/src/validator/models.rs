@@ -24,6 +24,60 @@ impl SchemaValidator<'_> {
         let models: Vec<_> = self.schema.models().cloned().collect();
         for model in &models {
             self.validate_model(model);
+            self.validate_model_schema(model);
+        }
+    }
+
+    /// `@@schema("...")` must name one of the datasource's declared schemas,
+    /// and in multi-schema mode every block must say which schema owns it.
+    ///
+    /// Requiring the attribute rather than defaulting to the first entry is
+    /// deliberate: `search_path` decides where an unqualified name lands at
+    /// runtime, so a silent default would let the diff and the query planner
+    /// disagree about which table a model means.
+    fn validate_model_schema(&mut self, model: &ModelDecl) {
+        let declared: Vec<String> = self
+            .schema
+            .datasource()
+            .map(Self::datasource_schemas_value)
+            .unwrap_or_default();
+
+        let attribute = model.attributes.iter().find_map(|attr| match attr {
+            ModelAttribute::Schema { name, span } => Some((name.clone(), *span)),
+            _ => None,
+        });
+
+        match (attribute, declared.is_empty()) {
+            (Some((_, span)), true) => self.errors.push_back(SchemaError::Validation(
+                format!(
+                    "{} '{}' declares @@schema but the datasource has no 'schemas' list.                      Add `schemas = [...]` to the datasource block.",
+                    model.keyword(),
+                    model.name.value
+                ),
+                span,
+            )),
+            (Some((name, span)), false) if !declared.contains(&name) => {
+                self.errors.push_back(SchemaError::Validation(
+                    format!(
+                        "Schema '{}' on {} '{}' is not declared in the datasource 'schemas' list ({})",
+                        name,
+                        model.keyword(),
+                        model.name.value,
+                        declared.join(", ")
+                    ),
+                    span,
+                ))
+            }
+            (None, false) => self.errors.push_back(SchemaError::Validation(
+                format!(
+                    "{} '{}' must declare @@schema(\"...\") because the datasource lists                      multiple schemas ({})",
+                    model.keyword(),
+                    model.name.value,
+                    declared.join(", ")
+                ),
+                model.name.span,
+            )),
+            _ => {}
         }
     }
 

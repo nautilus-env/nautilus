@@ -10,6 +10,7 @@ use crate::{
     ddl::DatabaseProvider,
     live::{ComputedKind, LiveCompositeType, LiveForeignKey, LiveSchema, LiveTable},
 };
+use nautilus_core::TableName;
 use nautilus_schema::ir::{BasicIndexType, PgvectorIndexOptions};
 use nautilus_schema::{
     bool_expr::{parse_bool_expr, BoolExpr, Operand},
@@ -47,7 +48,7 @@ struct ForwardRelation {
 
 #[derive(Debug, Clone)]
 struct BackRelation {
-    owning_table: String,
+    owning_table: TableName,
     field_name: String,
     relation_name: Option<String>,
     is_one_to_one: bool,
@@ -56,7 +57,7 @@ struct BackRelation {
 /// One end of an implicit many-to-many recovered from the live database.
 struct ManyToManyEnd {
     /// The live table on the other side of the join.
-    target_table: String,
+    target_table: TableName,
     field_name: String,
     /// Set when the join table's name does not spell the default
     /// `_<A model>To<B model>` for this pair, so the schema has to say which
@@ -109,9 +110,9 @@ pub fn serialize_live_schema_with_options(
         parts.push(render_enum_block(db_name, &live.enums[db_name]));
     }
 
-    let mut table_names: Vec<&String> = live.tables.keys().collect();
+    let mut table_names: Vec<&TableName> = live.tables.keys().collect();
     table_names.sort();
-    let mut view_names: Vec<&String> = live.views.keys().collect();
+    let mut view_names: Vec<&TableName> = live.views.keys().collect();
     view_names.sort();
 
     // A join table is the storage of a relation, not a model: it comes back as
@@ -170,11 +171,11 @@ pub fn serialize_live_schema_with_options(
 
 /// A live table that is the join table of an implicit many-to-many.
 struct JoinTable {
-    name: String,
+    name: TableName,
     /// The table the `A` column points at.
-    a_table: String,
+    a_table: TableName,
     /// The table the `B` column points at.
-    b_table: String,
+    b_table: TableName,
 }
 
 /// Recognise the join tables among the live ones.
@@ -184,12 +185,12 @@ struct JoinTable {
 /// key over the pair, and one foreign key per column. Recovering them is what
 /// makes `db pull` return the schema that produced the database rather than a
 /// second, explicit spelling of it.
-fn find_join_tables(live: &LiveSchema, table_names: &[&String]) -> Vec<JoinTable> {
+fn find_join_tables(live: &LiveSchema, table_names: &[&TableName]) -> Vec<JoinTable> {
     let mut joins: Vec<JoinTable> = table_names
         .iter()
         .filter_map(|name| {
             let table = &live.tables[*name];
-            if !name.starts_with('_') || table.primary_key != ["A", "B"] {
+            if !name.name.starts_with('_') || table.primary_key != ["A", "B"] {
                 return None;
             }
             let columns: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
@@ -226,13 +227,13 @@ fn find_join_tables(live: &LiveSchema, table_names: &[&String]) -> Vec<JoinTable
 /// recovered relation never collides with a column or another relation.
 fn build_many_to_many_ends(
     joins: &[JoinTable],
-    table_naming: &HashMap<String, TableNamingContext>,
-    forward_relations: &HashMap<String, Vec<ForwardRelation>>,
-    back_relations: &HashMap<String, Vec<BackRelation>>,
+    table_naming: &HashMap<TableName, TableNamingContext>,
+    forward_relations: &HashMap<TableName, Vec<ForwardRelation>>,
+    back_relations: &HashMap<TableName, Vec<BackRelation>>,
     options: PullNamingOptions,
-) -> HashMap<String, Vec<ManyToManyEnd>> {
-    let mut used_fields: HashMap<&str, HashSet<String>> = HashMap::new();
-    let mut result: HashMap<String, Vec<ManyToManyEnd>> = HashMap::new();
+) -> HashMap<TableName, Vec<ManyToManyEnd>> {
+    let mut used_fields: HashMap<&TableName, HashSet<String>> = HashMap::new();
+    let mut result: HashMap<TableName, Vec<ManyToManyEnd>> = HashMap::new();
 
     for (table_name, naming) in table_naming {
         let mut used: HashSet<String> = naming.logical_field_order.iter().cloned().collect();
@@ -246,7 +247,7 @@ fn build_many_to_many_ends(
                 .iter()
                 .map(|relation| relation.field_name.clone()),
         );
-        used_fields.insert(table_name.as_str(), used);
+        used_fields.insert(table_name, used);
     }
 
     for join in joins {
@@ -259,14 +260,14 @@ fn build_many_to_many_ends(
 
         let default_name = format!("_{}To{}", a_naming.model_name, b_naming.model_name);
         let relation_name =
-            (join.name != default_name).then(|| join.name.trim_start_matches('_').to_string());
+            (join.name != default_name).then(|| join.name.name.trim_start_matches('_').to_string());
 
         for (owner, target, target_model) in [
             (&join.a_table, &join.b_table, &b_naming.model_name),
             (&join.b_table, &join.a_table, &a_naming.model_name),
         ] {
             let used = used_fields
-                .get_mut(owner.as_str())
+                .get_mut(owner)
                 .expect("every live table has a naming context");
             let base = apply_derived_field_case(
                 &pluralize_name(&to_snake_case_identifier(&singular_name(target_model))),
@@ -288,7 +289,7 @@ fn build_many_to_many_ends(
 }
 
 fn render_many_to_many_lines(
-    table_naming: &HashMap<String, TableNamingContext>,
+    table_naming: &HashMap<TableName, TableNamingContext>,
     ends: &[ManyToManyEnd],
 ) -> Vec<String> {
     ends.iter()
@@ -307,7 +308,7 @@ fn render_many_to_many_lines(
         .collect()
 }
 
-fn slice_for<'a, T>(map: &'a HashMap<String, Vec<T>>, table_name: &str) -> &'a [T] {
+fn slice_for<'a, T>(map: &'a HashMap<TableName, Vec<T>>, table_name: &TableName) -> &'a [T] {
     map.get(table_name).map(Vec::as_slice).unwrap_or(&[])
 }
 
@@ -407,7 +408,7 @@ fn parse_inline_enum_variants(col_type: &str) -> Option<Vec<String>> {
 fn lift_inline_enums(live: &LiveSchema) -> Option<LiveSchema> {
     let mut lifted: Vec<(String, Vec<String>)> = Vec::new();
 
-    let mut table_names: Vec<&String> = live.tables.keys().collect();
+    let mut table_names: Vec<&TableName> = live.tables.keys().collect();
     table_names.sort();
     for table_name in table_names {
         let table = &live.tables[table_name];
@@ -442,8 +443,8 @@ fn render_enum_block(db_name: &str, variants: &[String]) -> String {
 
 fn render_model_block(
     live: &LiveSchema,
-    table_name: &str,
-    table_naming: &HashMap<String, TableNamingContext>,
+    table_name: &TableName,
+    table_naming: &HashMap<TableName, TableNamingContext>,
     forward_relations: &[ForwardRelation],
     back_relations: &[BackRelation],
     many_to_many: &[ManyToManyEnd],
@@ -470,7 +471,10 @@ fn render_model_block(
     }
 
     // Keep @@map explicit so the model/table mapping survives round-trips.
-    lines.push(format!("  @@map(\"{}\")", table_name));
+    lines.push(format!("  @@map(\"{}\")", table_name.name));
+    if let Some(schema) = table_name.schema() {
+        lines.push(format!("  @@schema(\"{}\")", escape_schema_string(schema)));
+    }
     if table_is_unmodellable(live, table) {
         lines.push("  @@ignore".to_string());
     }
@@ -497,15 +501,18 @@ fn render_model_block(
 /// carries its columns and the `@@map` that ties it back to the database name.
 fn render_view_block(
     live: &LiveSchema,
-    view_name: &str,
-    table_naming: &HashMap<String, TableNamingContext>,
+    view_name: &TableName,
+    table_naming: &HashMap<TableName, TableNamingContext>,
 ) -> String {
     let view = &live.views[view_name];
     let naming = &table_naming[view_name];
 
     let mut lines = vec![format!("view {} {{", naming.model_name)];
     lines.extend(render_column_lines(live, view, naming));
-    lines.push(format!("  @@map(\"{}\")", view_name));
+    lines.push(format!("  @@map(\"{}\")", view_name.name));
+    if let Some(schema) = view_name.schema() {
+        lines.push(format!("  @@schema(\"{}\")", escape_schema_string(schema)));
+    }
     if !unmodellable_columns(live, view).is_empty() {
         lines.push("  @@ignore".to_string());
     }
@@ -660,7 +667,7 @@ fn render_column_type(live: &LiveSchema, column: &crate::live::LiveColumn) -> St
 fn render_forward_relation_lines(
     table: &LiveTable,
     naming: &TableNamingContext,
-    table_naming: &HashMap<String, TableNamingContext>,
+    table_naming: &HashMap<TableName, TableNamingContext>,
     forward_relations: &[ForwardRelation],
 ) -> Vec<String> {
     let mut lines = Vec::with_capacity(forward_relations.len());
@@ -708,7 +715,7 @@ fn render_forward_relation_lines(
 }
 
 fn render_back_relation_lines(
-    table_naming: &HashMap<String, TableNamingContext>,
+    table_naming: &HashMap<TableName, TableNamingContext>,
     back_relations: &[BackRelation],
 ) -> Vec<String> {
     back_relations
@@ -743,7 +750,7 @@ fn mentions_unmodellable_column(expr: &str, columns: &HashSet<&str>) -> bool {
 }
 
 fn render_index_lines(
-    table_name: &str,
+    table_name: &TableName,
     table: &LiveTable,
     naming: &TableNamingContext,
     unmodellable_columns: &HashSet<&str>,
@@ -780,7 +787,7 @@ fn render_index_lines(
                     push_pgvector_option_args(&mut args, &p.options);
                 }
             }
-            if idx.name != default_index_name(table_name, &idx.columns) {
+            if idx.name != default_index_name(&table_name.name, &idx.columns) {
                 args.push(format!("map: \"{}\"", idx.name));
             }
             if let Some(predicate) = &idx.predicate {
@@ -820,6 +827,23 @@ fn render_datasource_url(url: &str) -> String {
     format!("\"{}\"", escape_schema_string(url))
 }
 
+/// The schemas the introspected relations live in, in sorted order.
+///
+/// Non-empty only when the inspector was given a schema list: a single-schema
+/// pull leaves every table unqualified, and emitting `schemas = [...]` for it
+/// would force `@@schema` onto a schema that never asked for it.
+fn declared_schemas(live: &LiveSchema) -> Vec<&str> {
+    let mut schemas: Vec<&str> = live
+        .tables
+        .keys()
+        .chain(live.views.keys())
+        .filter_map(TableName::schema)
+        .collect();
+    schemas.sort_unstable();
+    schemas.dedup();
+    schemas
+}
+
 fn render_datasource_block(live: &LiveSchema, provider: DatabaseProvider, url: &str) -> String {
     let mut fields = vec![
         (
@@ -828,6 +852,21 @@ fn render_datasource_block(live: &LiveSchema, provider: DatabaseProvider, url: &
         ),
         ("url".to_string(), render_datasource_url(url)),
     ];
+
+    let schemas = declared_schemas(live);
+    if !schemas.is_empty() {
+        fields.push((
+            "schemas".to_string(),
+            format!(
+                "[{}]",
+                schemas
+                    .iter()
+                    .map(|schema| format!("\"{}\"", escape_schema_string(schema)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ));
+    }
 
     if provider == DatabaseProvider::Postgres && !live.extensions.is_empty() {
         let mut extensions: Vec<(&str, &str)> = live
@@ -1097,10 +1136,10 @@ fn infer_relation_field_name(fk_cols: &[String], ref_table: &str) -> String {
 
 fn build_table_naming_contexts(
     live: &LiveSchema,
-    table_names: &[&String],
-    view_names: &[&String],
+    table_names: &[&TableName],
+    view_names: &[&TableName],
     options: PullNamingOptions,
-) -> HashMap<String, TableNamingContext> {
+) -> HashMap<TableName, TableNamingContext> {
     let mut contexts = HashMap::new();
     let mut used_model_names = HashSet::new();
 
@@ -1110,7 +1149,7 @@ fn build_table_naming_contexts(
             .get(table_name)
             .unwrap_or_else(|| &live.views[table_name]);
         let model_name = choose_unique_field_name(
-            vec![apply_model_case(table_name, options.model_case)],
+            vec![apply_model_case(&table_name.name, options.model_case)],
             &mut used_model_names,
         );
 
@@ -1142,8 +1181,8 @@ fn build_table_naming_contexts(
 
 fn build_relation_pair_counts(
     live: &LiveSchema,
-    table_names: &[&String],
-) -> HashMap<(String, String), usize> {
+    table_names: &[&TableName],
+) -> HashMap<(TableName, TableName), usize> {
     let mut counts = HashMap::new();
     for &table_name in table_names {
         for fk in &live.tables[table_name].foreign_keys {
@@ -1157,8 +1196,8 @@ fn build_relation_pair_counts(
 
 fn build_directional_relation_counts(
     live: &LiveSchema,
-    table_names: &[&String],
-) -> HashMap<(String, String), usize> {
+    table_names: &[&TableName],
+) -> HashMap<(TableName, TableName), usize> {
     let mut counts = HashMap::new();
     for &table_name in table_names {
         for fk in &live.tables[table_name].foreign_keys {
@@ -1172,11 +1211,11 @@ fn build_directional_relation_counts(
 
 fn build_forward_relations(
     live: &LiveSchema,
-    table_names: &[&String],
-    table_naming: &HashMap<String, TableNamingContext>,
-    relation_pair_counts: &HashMap<(String, String), usize>,
+    table_names: &[&TableName],
+    table_naming: &HashMap<TableName, TableNamingContext>,
+    relation_pair_counts: &HashMap<(TableName, TableName), usize>,
     options: PullNamingOptions,
-) -> HashMap<String, Vec<ForwardRelation>> {
+) -> HashMap<TableName, Vec<ForwardRelation>> {
     let mut result = HashMap::new();
 
     for &table_name in table_names {
@@ -1189,9 +1228,9 @@ fn build_forward_relations(
         let mut relations = Vec::new();
 
         for (fk_index, fk) in table.foreign_keys.iter().enumerate() {
-            let base_name = relation_field_name_base(&fk.columns, &fk.referenced_table);
+            let base_name = relation_field_name_base(&fk.columns, &fk.referenced_table.name);
             let fallback_name = apply_derived_field_case(
-                &to_snake_case_identifier(&singular_name(&fk.referenced_table)),
+                &to_snake_case_identifier(&singular_name(&fk.referenced_table.name)),
                 options.field_case,
             );
             let mut candidates = vec![apply_derived_field_case(&base_name, options.field_case)];
@@ -1231,14 +1270,14 @@ fn build_forward_relations(
 
 fn build_back_relations(
     live: &LiveSchema,
-    table_names: &[&String],
-    table_naming: &HashMap<String, TableNamingContext>,
-    forward_relations: &HashMap<String, Vec<ForwardRelation>>,
-    directional_relation_counts: &HashMap<(String, String), usize>,
+    table_names: &[&TableName],
+    table_naming: &HashMap<TableName, TableNamingContext>,
+    forward_relations: &HashMap<TableName, Vec<ForwardRelation>>,
+    directional_relation_counts: &HashMap<(TableName, TableName), usize>,
     options: PullNamingOptions,
-) -> HashMap<String, Vec<BackRelation>> {
-    type IncomingEntry = (String, String, Option<String>, bool);
-    let mut incoming: HashMap<String, Vec<IncomingEntry>> = HashMap::new();
+) -> HashMap<TableName, Vec<BackRelation>> {
+    type IncomingEntry = (TableName, String, Option<String>, bool);
+    let mut incoming: HashMap<TableName, Vec<IncomingEntry>> = HashMap::new();
 
     for &table_name in table_names {
         let table = &live.tables[table_name];
@@ -1277,7 +1316,7 @@ fn build_back_relations(
             for (owning_table, forward_field_name, relation_name, is_one_to_one) in entries {
                 let is_self_relation = owning_table == *table_name;
                 let default_name =
-                    default_back_relation_field_name(&owning_table, is_one_to_one, options);
+                    default_back_relation_field_name(&owning_table.name, is_one_to_one, options);
                 let qualified_name =
                     qualify_back_relation_field_name(&default_name, &forward_field_name, options);
                 let direction_count = directional_relation_counts
@@ -1314,18 +1353,18 @@ fn build_back_relations(
     result
 }
 
-fn relation_pair_key(left: &str, right: &str) -> (String, String) {
+fn relation_pair_key(left: &TableName, right: &TableName) -> (TableName, TableName) {
     if left <= right {
-        (left.to_string(), right.to_string())
+        (left.clone(), right.clone())
     } else {
-        (right.to_string(), left.to_string())
+        (right.clone(), left.clone())
     }
 }
 
 fn needs_explicit_relation_name(
-    owning_table: &str,
-    referenced_table: &str,
-    relation_pair_counts: &HashMap<(String, String), usize>,
+    owning_table: &TableName,
+    referenced_table: &TableName,
+    relation_pair_counts: &HashMap<(TableName, TableName), usize>,
 ) -> bool {
     owning_table == referenced_table
         || relation_pair_counts
@@ -1733,7 +1772,11 @@ fn default_index_name(table_name: &str, columns: &[String]) -> String {
     format!("idx_{}_{}", table_name, sorted_columns.join("_"))
 }
 
-fn is_one_to_one_back_relation(live: &LiveSchema, owning_table: &str, fk: &LiveForeignKey) -> bool {
+fn is_one_to_one_back_relation(
+    live: &LiveSchema,
+    owning_table: &TableName,
+    fk: &LiveForeignKey,
+) -> bool {
     live.tables
         .get(owning_table)
         .is_some_and(|table| columns_form_unique_key(table, &fk.columns))

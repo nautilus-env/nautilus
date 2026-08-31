@@ -1,9 +1,7 @@
 use std::time::Instant;
 
 use anyhow::{bail, Context};
-use nautilus_migrate::{
-    Change, ChangeRisk, DdlGenerator, DiffApplier, SchemaDiff, SchemaInspector,
-};
+use nautilus_migrate::{Change, ChangeRisk, DdlGenerator, DiffApplier, SchemaDiff};
 
 use super::connection::{apply_changes, DbContext};
 use crate::{commands::generate::run_generate, tui};
@@ -29,7 +27,8 @@ pub async fn run(
     let ctx = DbContext::build(schema_arg, db_url_arg).await?;
 
     let sp = tui::spinner("Inspecting live schema…");
-    let live = SchemaInspector::new(ctx.provider, &ctx.database_url)
+    let live = ctx
+        .inspector()
         .inspect()
         .await
         .context("Failed to inspect live schema")?;

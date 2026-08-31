@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use anyhow::{bail, Context};
-use nautilus_migrate::{DdlGenerator, DiffApplier, SchemaDiff, SchemaInspector};
+use nautilus_migrate::{DdlGenerator, DiffApplier, SchemaDiff};
 
 use super::connection::{apply_changes, DbContext};
 use crate::tui;
@@ -45,7 +45,8 @@ pub async fn run(
 
     // Inspect the live DB so we drop every table that actually exists,
     // including those that have already been removed from the schema file.
-    let live_before = SchemaInspector::new(ctx.provider, &ctx.database_url)
+    let live_before = ctx
+        .inspector()
         .inspect()
         .await
         .context("Failed to inspect live schema before drop")?;
@@ -71,7 +72,8 @@ pub async fn run(
 
     // After the drop the database is empty — re-inspect to get a clean baseline
     // for the diff engine (avoids any stale state from live_before).
-    let live = SchemaInspector::new(ctx.provider, &ctx.database_url)
+    let live = ctx
+        .inspector()
         .inspect()
         .await
         .context("Failed to inspect live schema after drop")?;
@@ -131,7 +133,8 @@ async fn run_truncate(ctx: DbContext, force: bool) -> anyhow::Result<()> {
     tui::print_section("Truncating tables");
     let start = Instant::now();
 
-    let live = SchemaInspector::new(ctx.provider, &ctx.database_url)
+    let live = ctx
+        .inspector()
         .inspect()
         .await
         .context("Failed to inspect live schema before truncate")?;

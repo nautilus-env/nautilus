@@ -21,6 +21,8 @@ pub mod insert;
 pub mod protocol_json;
 /// SELECT query AST and builder.
 pub mod select;
+/// Table names, optionally schema-qualified.
+pub mod table;
 /// UPDATE query AST and builder.
 pub mod update;
 /// Database value representation.
@@ -42,5 +44,6 @@ pub use select::{
     JoinClause, JoinType, OrderBy, OrderByItem, OrderDir, PartitionWindow, Select, SelectBuilder,
     SelectCapacity, SelectItem,
 };
+pub use table::TableName;
 pub use update::{Update, UpdateBuilder, UpdateCapacity};
 pub use value::{Geography, Geometry, PlainValueRef, Value};

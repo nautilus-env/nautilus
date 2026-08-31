@@ -36,7 +36,7 @@ impl {{ columns_name }} {
             "{{ relation.references_db | first }}",
             "{{ relation.fields_db | first }}",
             nautilus_core::RelationJoinTable {
-                table: "{{ relation.join.table }}".to_string(),
+                table: "{{ relation.join.table }}".into(),
                 parent_column: "{{ relation.join.parent_column }}".to_string(),
                 child_column: "{{ relation.join.child_column }}".to_string(),
             },

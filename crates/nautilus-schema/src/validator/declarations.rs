@@ -76,6 +76,94 @@ impl SchemaValidator<'_> {
 
         self.validate_datasource_extensions(datasource);
         self.validate_datasource_preserve_extensions(datasource);
+        self.validate_datasource_schemas(datasource);
+    }
+
+    /// `schemas = ["public", "analytics"]` — the PostgreSQL schemas the
+    /// datasource spans.
+    pub(super) fn validate_datasource_schemas(&mut self, datasource: &DatasourceDecl) {
+        let Some(field) = datasource.find_field("schemas") else {
+            return;
+        };
+
+        let provider_is_postgres = Self::datasource_provider_value(datasource)
+            .ok()
+            .and_then(|p| p.parse::<DatabaseProvider>().ok())
+            .is_some_and(|p| p == DatabaseProvider::Postgres);
+
+        if !provider_is_postgres {
+            self.errors.push_back(SchemaError::Validation(
+                "Datasource field 'schemas' is only supported for the 'postgresql' provider"
+                    .to_string(),
+                field.span,
+            ));
+            return;
+        }
+
+        let Expr::Array { elements, .. } = &field.value else {
+            self.errors.push_back(SchemaError::Validation(
+                "Datasource 'schemas' must be an array of string literals".to_string(),
+                field.span,
+            ));
+            return;
+        };
+
+        if elements.is_empty() {
+            self.errors.push_back(SchemaError::Validation(
+                "Datasource 'schemas' must list at least one schema".to_string(),
+                field.span,
+            ));
+            return;
+        }
+
+        let mut seen: HashSet<String> = HashSet::new();
+        for element in elements {
+            let Expr::Literal(Literal::String(name, span)) = element else {
+                self.errors.push_back(SchemaError::Validation(
+                    "Datasource 'schemas' entries must be string literals".to_string(),
+                    element.span(),
+                ));
+                continue;
+            };
+
+            if name.trim().is_empty() {
+                self.errors.push_back(SchemaError::Validation(
+                    "Datasource 'schemas' entries must not be empty".to_string(),
+                    *span,
+                ));
+                continue;
+            }
+
+            if !seen.insert(name.clone()) {
+                self.errors.push_back(SchemaError::Validation(
+                    format!("Duplicate schema '{}' in datasource 'schemas'", name),
+                    *span,
+                ));
+            }
+        }
+    }
+
+    /// The declared schema list, in declaration order and deduplicated.
+    ///
+    /// Assumes [`validate_datasource_schemas`](Self::validate_datasource_schemas)
+    /// has already reported structural problems: malformed entries are skipped.
+    pub(super) fn datasource_schemas_value(datasource: &DatasourceDecl) -> Vec<String> {
+        let Some(field) = datasource.find_field("schemas") else {
+            return Vec::new();
+        };
+        let Expr::Array { elements, .. } = &field.value else {
+            return Vec::new();
+        };
+
+        let mut schemas: Vec<String> = Vec::new();
+        for element in elements {
+            if let Expr::Literal(Literal::String(name, _)) = element {
+                if !name.trim().is_empty() && !schemas.iter().any(|s| s == name) {
+                    schemas.push(name.clone());
+                }
+            }
+        }
+        schemas
     }
 
     pub(super) fn validate_datasource_extensions(&mut self, datasource: &DatasourceDecl) {

@@ -562,6 +562,7 @@ fn format_model_attr(attr: &ModelAttribute) -> String {
 
         ModelAttribute::Check { expr, .. } => format!("@@check({})", expr),
         ModelAttribute::Ignore { .. } => "@@ignore".to_string(),
+        ModelAttribute::Schema { name, .. } => format!("@@schema(\"{}\")", name),
     }
 }
 

@@ -17,6 +17,7 @@ name = "nautilus_migrate"
 
 [dependencies]
 nautilus-schema = { workspace = true }
+nautilus-core = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "any"] }
 serde = { workspace = true }

@@ -5,6 +5,7 @@ use super::{
 };
 use crate::error::{MigrationError, Result};
 use crate::live::{ComputedKind, LiveColumn, LiveIndex, LiveIndexKind, LiveSchema, LiveTable};
+use nautilus_core::TableName;
 use nautilus_schema::ir::BasicIndexType;
 
 impl SchemaInspector {
@@ -235,9 +236,9 @@ impl SchemaInspector {
             }
 
             live.tables.insert(
-                table_name.clone(),
+                TableName::new(table_name.clone()),
                 LiveTable {
-                    name: table_name,
+                    name: TableName::new(table_name),
                     columns,
                     primary_key,
                     indexes,
@@ -258,9 +259,9 @@ impl SchemaInspector {
                 column.auto_increment = false;
             }
             live.views.insert(
-                view_name.clone(),
+                TableName::new(view_name.clone()),
                 LiveTable {
-                    name: view_name,
+                    name: TableName::new(view_name),
                     columns,
                     primary_key: Vec::new(),
                     indexes: Vec::new(),

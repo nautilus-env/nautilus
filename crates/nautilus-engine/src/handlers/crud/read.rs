@@ -181,14 +181,15 @@ fn build_find_many_plan(
         filter.map(|expr| qualify_filter_columns(expr, &model.db_name, logical_to_db));
     let pk_fields = metadata.primary_key_fields();
 
-    let mut builder = Select::from_table(&model.db_name).with_capacity(SelectCapacity {
-        items: metadata.scalar_fields().len(),
-        joins: usize::from(join.is_some()),
-        order_by_columns: order_by.len() + distinct.len() + pk_fields.len(),
-        order_by_exprs: usize::from(nearest.is_some()),
-        distinct: distinct.len(),
-        ..SelectCapacity::default()
-    });
+    let mut builder =
+        Select::from_table(crate::metadata::model_table(model)).with_capacity(SelectCapacity {
+            items: metadata.scalar_fields().len(),
+            joins: usize::from(join.is_some()),
+            order_by_columns: order_by.len() + distinct.len() + pk_fields.len(),
+            order_by_exprs: usize::from(nearest.is_some()),
+            distinct: distinct.len(),
+            ..SelectCapacity::default()
+        });
     let mut row_hints = Vec::new();
 
     for field in metadata.scalar_fields() {
@@ -401,7 +402,7 @@ fn find_many_cache_request(
 
     Some((
         crate::plan_cache::FindManyPlanKey {
-            model_db_name: model.db_name.clone(),
+            model_db_name: crate::metadata::model_table(model).to_string(),
             selected_logical_fields: resolved_projection(metadata, &selected_refs),
             filter_shape,
             order_by: query_args
@@ -503,10 +504,11 @@ pub(super) fn build_find_unique_sql(
     let metadata = state.model_metadata(model);
     let pk_fields = metadata.primary_key_fields();
 
-    let mut builder = Select::from_table(&model.db_name).with_capacity(SelectCapacity {
-        items: metadata.scalar_fields().len(),
-        ..SelectCapacity::default()
-    });
+    let mut builder =
+        Select::from_table(crate::metadata::model_table(model)).with_capacity(SelectCapacity {
+            items: metadata.scalar_fields().len(),
+            ..SelectCapacity::default()
+        });
     let mut row_hints = Vec::new();
 
     for field in metadata.scalar_fields() {
@@ -575,10 +577,11 @@ pub(super) async fn find_rows_by_expr(
 ) -> Result<Vec<Row>, ProtocolError> {
     let metadata = state.model_metadata(model);
 
-    let mut builder = Select::from_table(&model.db_name).with_capacity(SelectCapacity {
-        items: metadata.scalar_fields().len(),
-        ..SelectCapacity::default()
-    });
+    let mut builder =
+        Select::from_table(crate::metadata::model_table(model)).with_capacity(SelectCapacity {
+            items: metadata.scalar_fields().len(),
+            ..SelectCapacity::default()
+        });
     let mut row_hints = Vec::with_capacity(metadata.scalar_fields().len());
     for field in metadata.scalar_fields() {
         builder = builder.item(SelectItem::from(field.marker().clone()));
@@ -667,7 +670,7 @@ fn find_unique_plan_key(
     shape: &crate::plan_cache::EqFilterShape<'_>,
 ) -> crate::plan_cache::FindUniquePlanKey {
     crate::plan_cache::FindUniquePlanKey {
-        model_db_name: model.db_name.clone(),
+        model_db_name: crate::metadata::model_table(model).to_string(),
         selected_logical_fields: resolved_projection(metadata, selected_fields),
         filter_columns: shape.columns.iter().map(|s| s.to_string()).collect(),
     }
@@ -1183,7 +1186,7 @@ async fn execute_count_params(
     let has_pagination = query_args.take.is_some() || query_args.skip.is_some();
 
     let sql: Sql = if has_pagination {
-        let mut inner = Select::from_table(&model.db_name)
+        let mut inner = Select::from_table(crate::metadata::model_table(model))
             .with_capacity(SelectCapacity {
                 items: 1,
                 ..SelectCapacity::default()
@@ -1212,7 +1215,7 @@ async fn execute_count_params(
             params: inner_rendered.params,
         }
     } else {
-        let mut builder = Select::from_table(&model.db_name)
+        let mut builder = Select::from_table(crate::metadata::model_table(model))
             .with_capacity(SelectCapacity {
                 items: 1,
                 ..SelectCapacity::default()

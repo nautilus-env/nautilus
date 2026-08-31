@@ -1,5 +1,7 @@
 use crate::error::{MigrationError, Result};
+use crate::live::model_table;
 use crate::provider::{CreateIndex, ProviderStrategy};
+use nautilus_core::TableName;
 use nautilus_schema::ast::StorageStrategy;
 use nautilus_schema::ir::{
     CompositeFieldIr, CompositeTypeIr, ComputedKind, DefaultValue, EnumIr, FieldIr, ModelIr,
@@ -114,6 +116,12 @@ impl DdlGenerator {
 
         if strategy.supports_user_defined_types() {
             if let Some(ds) = &schema.datasource {
+                for declared in &ds.schemas {
+                    statements.push(format!(
+                        "CREATE SCHEMA IF NOT EXISTS {}",
+                        self.quote_identifier(declared)
+                    ));
+                }
                 for ext in &ds.extensions {
                     statements.push(self.generate_create_extension(ext));
                 }
@@ -147,7 +155,7 @@ impl DdlGenerator {
         let all_models = managed_models(schema);
         let sorted = crate::diff::topo_sort_models(&all_models);
         for model in sorted.into_iter().rev() {
-            statements.push(strategy.drop_table_sql(&model.db_name, true));
+            statements.push(strategy.drop_table_sql(&model_table(model), true));
         }
 
         if strategy.supports_user_defined_types() {
@@ -189,7 +197,7 @@ impl DdlGenerator {
             return statements;
         }
 
-        let mut names: Vec<&str> = live.tables.keys().map(String::as_str).collect();
+        let mut names: Vec<&TableName> = live.tables.keys().collect();
         names.sort_unstable();
 
         match self.provider {
@@ -269,7 +277,7 @@ impl DdlGenerator {
                 for model in &sorted {
                     statements.push(format!(
                         "TRUNCATE TABLE {} RESTART IDENTITY CASCADE",
-                        self.quote_identifier(&model.db_name)
+                        self.quote_table(&model_table(model))
                     ));
                 }
             }
@@ -278,7 +286,7 @@ impl DdlGenerator {
                 for model in &sorted {
                     statements.push(format!(
                         "TRUNCATE TABLE {}",
-                        self.quote_identifier(&model.db_name)
+                        self.quote_table(&model_table(model))
                     ));
                 }
                 statements.push("SET FOREIGN_KEY_CHECKS=1".to_string());
@@ -287,7 +295,7 @@ impl DdlGenerator {
                 for model in &sorted {
                     statements.push(format!(
                         "DELETE FROM {}",
-                        self.quote_identifier(&model.db_name)
+                        self.quote_table(&model_table(model))
                     ));
                     // Reset autoincrement counter if the sqlite_sequence table
                     // tracks this table (only exists when AUTOINCREMENT is used).
@@ -317,7 +325,7 @@ impl DdlGenerator {
                 for table_name in &table_names {
                     statements.push(format!(
                         "TRUNCATE TABLE {} RESTART IDENTITY CASCADE",
-                        self.quote_identifier(table_name)
+                        self.quote_table(table_name)
                     ));
                 }
             }
@@ -325,20 +333,17 @@ impl DdlGenerator {
                 if !table_names.is_empty() {
                     statements.push("SET FOREIGN_KEY_CHECKS=0".to_string());
                     for table_name in &table_names {
-                        statements.push(format!(
-                            "TRUNCATE TABLE {}",
-                            self.quote_identifier(table_name)
-                        ));
+                        statements.push(format!("TRUNCATE TABLE {}", self.quote_table(table_name)));
                     }
                     statements.push("SET FOREIGN_KEY_CHECKS=1".to_string());
                 }
             }
             DatabaseProvider::Sqlite => {
                 for table_name in &table_names {
-                    statements.push(format!("DELETE FROM {}", self.quote_identifier(table_name)));
+                    statements.push(format!("DELETE FROM {}", self.quote_table(table_name)));
                     statements.push(format!(
                         "DELETE FROM sqlite_sequence WHERE name = '{}'",
-                        table_name.replace('\'', "''")
+                        table_name.name.replace('\'', "''")
                     ));
                 }
             }
@@ -530,7 +535,7 @@ impl DdlGenerator {
                     let mut fk_def = format!(
                         "  FOREIGN KEY ({}) REFERENCES {} ({})",
                         fk_columns,
-                        self.quote_identifier(&target_model.db_name),
+                        self.quote_table(&model_table(target_model)),
                         ref_columns
                     );
 
@@ -588,7 +593,7 @@ impl DdlGenerator {
 
         let table_sql = format!(
             "CREATE TABLE IF NOT EXISTS {} (\n{}\n)",
-            self.quote_identifier(&model.db_name),
+            self.quote_table(&model_table(model)),
             lines.join(",\n")
         );
 
@@ -622,7 +627,7 @@ impl DdlGenerator {
                     .clone()
                     .unwrap_or_else(|| format!("idx_{}_{}", model.db_name, name_parts.join("_")));
                 strategy.create_index_sql(CreateIndex {
-                    table: &model.db_name,
+                    table: &model_table(model),
                     name: &index_name,
                     columns: &columns,
                     unique: false,
@@ -1158,6 +1163,12 @@ impl DdlGenerator {
         self.provider.quote_identifier(name)
     }
 
+    /// Quote a table in the statement's table position, qualifying it with its
+    /// schema when it has one.
+    pub(crate) fn quote_table(&self, table: &TableName) -> String {
+        ProviderStrategy::new(self.provider).quote_table(table)
+    }
+
     /// Quote a PostgreSQL type identifier.
     ///
     /// We quote all emitted type names so mixed-case live types like
@@ -1176,11 +1187,11 @@ pub(crate) fn field_is_autoincrement(field: &FieldIr) -> bool {
     )
 }
 
-fn live_table_names_for_truncate(live: &crate::live::LiveSchema) -> Vec<String> {
+fn live_table_names_for_truncate(live: &crate::live::LiveSchema) -> Vec<TableName> {
     use std::collections::{BTreeSet, HashMap};
 
-    let mut remaining: BTreeSet<String> = live.tables.keys().cloned().collect();
-    let mut dependencies: HashMap<String, BTreeSet<String>> = live
+    let mut remaining: BTreeSet<TableName> = live.tables.keys().cloned().collect();
+    let mut dependencies: HashMap<TableName, BTreeSet<TableName>> = live
         .tables
         .iter()
         .map(|(name, table)| {
@@ -1197,7 +1208,7 @@ fn live_table_names_for_truncate(live: &crate::live::LiveSchema) -> Vec<String> 
     let mut ordered = Vec::new();
 
     while !remaining.is_empty() {
-        let ready: Vec<String> = remaining
+        let ready: Vec<TableName> = remaining
             .iter()
             .filter(|name| {
                 dependencies

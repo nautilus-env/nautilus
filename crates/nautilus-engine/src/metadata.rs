@@ -1,13 +1,19 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use nautilus_core::ColumnMarker;
+use nautilus_core::{ColumnMarker, TableName};
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ast::StorageStrategy;
 use nautilus_schema::ir::{CompositeTypeIr, FieldIr, ModelIr, ResolvedFieldType, ScalarType};
 
 use crate::conversion::ValueHint;
 use crate::filter::{FieldTypeMap, RelationMap};
+
+/// The physical table a model reads and writes, schema-qualified when the model
+/// declares `@@schema("...")`.
+pub(crate) fn model_table(model: &ModelIr) -> TableName {
+    TableName::with_schema(model.schema.clone(), model.db_name.clone())
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ScalarFieldMetadata {

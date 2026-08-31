@@ -1,6 +1,6 @@
 use anyhow::Context;
 use chrono::Utc;
-use nautilus_migrate::{SchemaDiff, SchemaInspector};
+use nautilus_migrate::SchemaDiff;
 
 use super::shared::MigrateContext;
 use crate::tui;
@@ -19,7 +19,8 @@ pub async fn run(
     tui::spinner_ok(sp, "Connected");
 
     let sp = tui::spinner("Inspecting live schema…");
-    let live = SchemaInspector::new(ctx.provider, &ctx.database_url)
+    let live = ctx
+        .inspector()
         .inspect()
         .await
         .context("Failed to inspect live schema")?;

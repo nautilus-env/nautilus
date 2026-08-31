@@ -5,6 +5,7 @@ use super::{
 };
 use crate::error::{MigrationError, Result};
 use crate::live::{ComputedKind, LiveColumn, LiveIndex, LiveIndexKind, LiveSchema, LiveTable};
+use nautilus_core::TableName;
 
 impl SchemaInspector {
     pub(super) async fn inspect_sqlite(&self) -> Result<LiveSchema> {
@@ -198,9 +199,9 @@ impl SchemaInspector {
             let foreign_keys = group_sqlite_foreign_keys(&table_name, fk_pragma_rows);
 
             live.tables.insert(
-                table_name.clone(),
+                TableName::new(table_name.clone()),
                 LiveTable {
-                    name: table_name,
+                    name: TableName::new(table_name),
                     columns,
                     primary_key,
                     indexes,
@@ -253,9 +254,9 @@ impl SchemaInspector {
             }
 
             live.views.insert(
-                view_name.clone(),
+                TableName::new(view_name.clone()),
                 LiveTable {
-                    name: view_name,
+                    name: TableName::new(view_name),
                     columns,
                     primary_key: Vec::new(),
                     indexes: Vec::new(),

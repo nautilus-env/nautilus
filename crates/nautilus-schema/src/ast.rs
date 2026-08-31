@@ -324,6 +324,14 @@ impl ModelDecl {
         }
     }
 
+    /// The PostgreSQL schema declared with `@@schema("...")`, if any.
+    pub fn schema_name(&self) -> Option<&str> {
+        self.attributes.iter().find_map(|attr| match attr {
+            ModelAttribute::Schema { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+    }
+
     /// Checks if this model carries `@@ignore`.
     pub fn is_ignored(&self) -> bool {
         self.attributes
@@ -677,6 +685,13 @@ pub enum ModelAttribute {
     /// migration.
     Ignore {
         /// Span covering `@@ignore`.
+        span: Span,
+    },
+    /// @@schema("analytics") — the PostgreSQL schema that owns the table.
+    Schema {
+        /// Schema name, which must appear in the datasource's `schemas` list.
+        name: String,
+        /// Span covering `@@schema(...)`.
         span: Span,
     },
 }

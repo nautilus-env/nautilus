@@ -1,3 +1,4 @@
+use nautilus_core::TableName;
 mod common;
 
 use nautilus_migrate::live::{LiveColumn, LiveTable};
@@ -53,7 +54,7 @@ fn drop_table_sqlite() {
 
     let stmts = applier
         .sql_for(&Change::DroppedTable {
-            name: "OldTable".to_string(),
+            name: TableName::new("OldTable".to_string()),
         })
         .unwrap();
 
@@ -70,7 +71,7 @@ fn drop_table_postgres_uses_cascade() {
 
     let stmts = applier
         .sql_for(&Change::DroppedTable {
-            name: "OldTable".to_string(),
+            name: TableName::new("OldTable".to_string()),
         })
         .unwrap();
 
@@ -102,7 +103,7 @@ fn drop_extension_postgres_is_destructive_and_uses_restrictive_drop() {
 fn add_column_postgres() {
     let ir = common::parse("model User { id Int @id  email String? }").unwrap();
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "integer".to_string(),
@@ -134,7 +135,7 @@ fn add_column_postgres() {
 
     let stmts = applier
         .sql_for(&Change::AddedColumn {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             field: email.clone(),
         })
         .unwrap();
@@ -149,7 +150,7 @@ fn add_column_postgres() {
 fn drop_column_postgres() {
     let ir = common::parse("model User { id Int @id }").unwrap();
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -183,7 +184,7 @@ fn drop_column_postgres() {
 
     let stmts = applier
         .sql_for(&Change::DroppedColumn {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             column: "old".to_string(),
         })
         .unwrap();
@@ -196,7 +197,7 @@ fn drop_column_postgres() {
 fn drop_column_sqlite_triggers_rebuild() {
     let ir = common::parse("model User { id Int @id }").unwrap();
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -230,7 +231,7 @@ fn drop_column_sqlite_triggers_rebuild() {
 
     let stmts = applier
         .sql_for(&Change::DroppedColumn {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             column: "old".to_string(),
         })
         .unwrap();
@@ -255,7 +256,7 @@ fn index_added_and_dropped() {
 
     let add_stmts = applier
         .sql_for(&Change::IndexAdded {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             columns: cols.clone(),
             unique: true,
             kind: nautilus_schema::ir::IndexKind::Default,
@@ -268,7 +269,7 @@ fn index_added_and_dropped() {
 
     let drop_stmts = applier
         .sql_for(&Change::IndexDropped {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             columns: cols,
             unique: false,
             index_name: "idx_User_email".to_string(),
@@ -288,7 +289,7 @@ fn default_changed_set_postgres() {
 
     let stmts = applier
         .sql_for(&Change::DefaultChanged {
-            table: "T".to_string(),
+            table: TableName::new("T".to_string()),
             column: "n".to_string(),
             from: None,
             to: Some("42".to_string()),
@@ -318,7 +319,7 @@ fn add_required_column_no_default_returns_error() {
         .clone();
 
     let result = applier.sql_for(&Change::AddedColumn {
-        table: "User".to_string(),
+        table: TableName::new("User".to_string()),
         field,
     });
 
@@ -336,7 +337,7 @@ fn default_changed_drop_postgres() {
 
     let stmts = applier
         .sql_for(&Change::DefaultChanged {
-            table: "T".to_string(),
+            table: TableName::new("T".to_string()),
             column: "n".to_string(),
             from: Some("42".to_string()),
             to: None,
@@ -356,7 +357,7 @@ fn drop_index_uses_live_physical_name() {
 
     let stmts = applier
         .sql_for(&Change::IndexDropped {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             columns: vec!["email".to_string()],
             unique: false,
             index_name: "my_custom_idx".to_string(),
@@ -377,7 +378,7 @@ fn drop_index_uses_live_physical_name_mysql() {
 
     let stmts = applier
         .sql_for(&Change::IndexDropped {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             columns: vec!["email".to_string()],
             unique: false,
             index_name: "my_custom_idx".to_string(),
@@ -398,7 +399,7 @@ fn index_added_with_custom_map_generates_correct_create() {
 
     let stmts = applier
         .sql_for(&Change::IndexAdded {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             columns: vec!["email".to_string()],
             unique: false,
             kind: nautilus_schema::ir::IndexKind::Default,
@@ -423,7 +424,7 @@ fn index_added_with_hash_type_postgres() {
 
     let stmts = applier
         .sql_for(&Change::IndexAdded {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             columns: vec!["email".to_string()],
             unique: false,
             kind: IndexKind::Basic(BasicIndexType::Hash),
@@ -450,7 +451,7 @@ fn index_added_with_pgvector_hnsw_options_postgres() {
 
     let stmts = applier
         .sql_for(&Change::IndexAdded {
-            table: "Embedding".to_string(),
+            table: TableName::new("Embedding".to_string()),
             columns: vec!["embedding".to_string()],
             unique: false,
             kind: IndexKind::Pgvector(PgvectorIndex {
@@ -482,10 +483,10 @@ fn foreign_key_added_generates_sql_postgres() {
 
     let stmts = applier
         .sql_for(&Change::ForeignKeyAdded {
-            table: "Post".to_string(),
+            table: TableName::new("Post".to_string()),
             constraint_name: "fk_Post_authorId".to_string(),
             columns: vec!["authorId".to_string()],
-            referenced_table: "User".to_string(),
+            referenced_table: TableName::new("User".to_string()),
             referenced_columns: vec!["id".to_string()],
             on_delete: Some("CASCADE".to_string()),
             on_update: Some("RESTRICT".to_string()),
@@ -508,7 +509,7 @@ fn foreign_key_dropped_generates_sql_mysql() {
 
     let stmts = applier
         .sql_for(&Change::ForeignKeyDropped {
-            table: "Post".to_string(),
+            table: TableName::new("Post".to_string()),
             constraint_name: "fk_Post_authorId".to_string(),
         })
         .unwrap();
@@ -556,7 +557,7 @@ fn auto_increment_repair_restates_the_mysql_column() {
 
     let stmts = applier
         .sql_for(&Change::AutoIncrementChanged {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             column: "id".to_string(),
             enabled: true,
         })
@@ -583,7 +584,7 @@ fn dropping_auto_increment_restates_the_column_without_it() {
 
     let stmts = applier
         .sql_for(&Change::AutoIncrementChanged {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             column: "id".to_string(),
             enabled: false,
         })
@@ -613,7 +614,7 @@ fn mysql_column_rewrites_keep_auto_increment_on_the_key() {
     // that forgot AUTO_INCREMENT would silently strip it from the key.
     let stmts = applier
         .sql_for(&Change::TypeChanged {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             column: "id".to_string(),
             from: "int".to_string(),
             to: "bigint".to_string(),

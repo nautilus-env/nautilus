@@ -3,6 +3,7 @@
 use anyhow::{bail, Context};
 use nautilus_migrate::{
     order_changes_for_apply, Change, ChangeRisk, DatabaseProvider, DiffApplier, LiveSchema,
+    SchemaInspector,
 };
 use nautilus_schema::{discover_schema_paths_in_current_dir, ir::SchemaIr, SchemaSet};
 use std::path::{Path, PathBuf};
@@ -225,6 +226,23 @@ pub fn obfuscate_url(url: &str) -> String {
     url.to_string()
 }
 
+/// An inspector that scans exactly the schemas the datasource declares.
+///
+/// Without the list the inspector reads `current_schema()` alone and leaves
+/// every table unqualified, which is what a single-schema datasource wants.
+pub fn inspector_for(
+    provider: DatabaseProvider,
+    database_url: &str,
+    schema_ir: &SchemaIr,
+) -> SchemaInspector {
+    let schemas = schema_ir
+        .datasource
+        .as_ref()
+        .map(|ds| ds.schemas.clone())
+        .unwrap_or_default();
+    SchemaInspector::new(provider, database_url).with_schemas(schemas)
+}
+
 /// Everything a `nautilus db` subcommand typically needs after loading the
 /// schema, resolving the URL, and connecting to the database.
 pub struct DbContext {
@@ -235,6 +253,11 @@ pub struct DbContext {
 }
 
 impl DbContext {
+    /// An inspector scoped to the schemas this datasource declares.
+    pub fn inspector(&self) -> SchemaInspector {
+        inspector_for(self.provider, &self.database_url, &self.schema_ir)
+    }
+
     /// Parse a schema file, resolve the database URL, connect, and inspect the
     /// provider — the shared preamble of `push`, `status`, and `reset`.
     pub async fn build(
@@ -287,7 +310,7 @@ impl DbContext {
 pub fn change_display_name(change: &Change) -> String {
     match change {
         Change::NewTable(m) => m.db_name.clone(),
-        Change::DroppedTable { name } => name.clone(),
+        Change::DroppedTable { name } => name.to_string(),
         Change::AddedColumn { table, field } => format!("{}.{}", table, field.db_name),
         Change::DroppedColumn { table, column }
         | Change::TypeChanged { table, column, .. }
@@ -318,6 +341,7 @@ pub fn change_display_name(change: &Change) -> String {
         Change::CreateExtension { name, .. } | Change::DropExtension { name } => {
             format!("ext:{}", name)
         }
+        Change::CreateSchema { name } => format!("schema:{}", name),
         Change::ForeignKeyAdded { table, columns, .. } => {
             format!("{} (fk:{})", table, columns.join(","))
         }

@@ -2,6 +2,7 @@
 
 use crate::column::ColumnMarker;
 use crate::error::{Error, Result};
+use crate::table::TableName;
 use crate::value::Value;
 
 /// What an INSERT does when a row collides with a unique constraint.
@@ -37,7 +38,7 @@ impl OnConflict {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Insert {
     /// Table name.
-    pub table: String,
+    pub table: TableName,
     /// Columns to insert into.
     pub columns: Vec<ColumnMarker>,
     /// Rows of values to insert (each inner Vec is one row).
@@ -50,7 +51,7 @@ pub struct Insert {
 
 impl Insert {
     /// Creates a new INSERT query builder for the given table.
-    pub fn into_table(table: impl Into<String>) -> InsertBuilder {
+    pub fn into_table(table: impl Into<TableName>) -> InsertBuilder {
         InsertBuilder {
             table: table.into(),
             columns: Vec::new(),
@@ -75,7 +76,7 @@ pub struct InsertCapacity {
 /// Builder for INSERT queries.
 #[derive(Debug, Clone)]
 pub struct InsertBuilder {
-    table: String,
+    table: TableName,
     columns: Vec<ColumnMarker>,
     values: Vec<Vec<Value>>,
     on_conflict: Option<OnConflict>,

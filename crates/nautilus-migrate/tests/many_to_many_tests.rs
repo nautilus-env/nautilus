@@ -1,3 +1,4 @@
+use nautilus_core::TableName;
 mod common;
 
 use nautilus_migrate::live::{LiveColumn, LiveForeignKey, LiveSchema, LiveTable};
@@ -95,7 +96,7 @@ fn key_column(name: &str) -> LiveColumn {
 
 fn model_table(name: &str) -> LiveTable {
     LiveTable {
-        name: name.to_string(),
+        name: TableName::new(name.to_string()),
         columns: vec![key_column("id")],
         primary_key: vec!["id".to_string()],
         indexes: vec![],
@@ -108,7 +109,7 @@ fn link(column: &str, referenced_table: &str) -> LiveForeignKey {
     LiveForeignKey {
         constraint_name: format!("fk_{}_{}", referenced_table, column),
         columns: vec![column.to_string()],
-        referenced_table: referenced_table.to_string(),
+        referenced_table: TableName::new(referenced_table.to_string()),
         referenced_columns: vec!["id".to_string()],
         on_delete: Some("CASCADE".to_string()),
         on_update: Some("CASCADE".to_string()),
@@ -117,7 +118,7 @@ fn link(column: &str, referenced_table: &str) -> LiveForeignKey {
 
 fn join_table(name: &str, a_table: &str, b_table: &str) -> LiveTable {
     LiveTable {
-        name: name.to_string(),
+        name: TableName::new(name.to_string()),
         columns: vec![key_column("A"), key_column("B")],
         primary_key: vec!["A".to_string(), "B".to_string()],
         indexes: vec![],

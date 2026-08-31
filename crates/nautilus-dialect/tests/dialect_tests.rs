@@ -1363,7 +1363,7 @@ fn check_relation_predicate_through_a_join_table(h: &Harness) {
         "id",
         "id",
         nautilus_core::RelationJoinTable {
-            table: "_PostToTag".to_string(),
+            table: "_PostToTag".into(),
             parent_column: "A".to_string(),
             child_column: "B".to_string(),
         },
@@ -1731,5 +1731,147 @@ fn relation_predicate() {
 fn relation_predicate_through_a_join_table() {
     for h in all_harnesses() {
         check_relation_predicate_through_a_join_table(&h);
+    }
+}
+
+mod qualified_table_names {
+    use super::*;
+    use nautilus_core::{RelationFilterOp, TableName};
+
+    #[test]
+    fn select_from_and_join_carry_the_schema() {
+        for h in all_harnesses() {
+            let select = Select::from_table(TableName::qualified("analytics", "events"))
+                .item(SelectItem::from(ColumnMarker::new("events", "id")))
+                .inner_join(
+                    TableName::qualified("public", "users"),
+                    Expr::column("events__user_id").eq(Expr::column("users__id")),
+                    vec![SelectItem::from(ColumnMarker::new("users", "email"))],
+                )
+                .build()
+                .unwrap();
+
+            let sql = h.dialect.render_select(&select).unwrap().text;
+            assert!(
+                sql.contains(&format!("FROM {}.{}", (h.q)("analytics"), (h.q)("events"))),
+                "{}: {sql}",
+                h.name
+            );
+            assert!(
+                sql.contains(&format!("JOIN {}.{}", (h.q)("public"), (h.q)("users"))),
+                "{}: {sql}",
+                h.name
+            );
+            // Column references keep the bare table name: a schema-qualified
+            // table is implicitly aliased to it on every supported provider.
+            assert!(
+                sql.contains(&format!("{}.{}", (h.q)("events"), (h.q)("id"))),
+                "{}: {sql}",
+                h.name
+            );
+            assert!(
+                !sql.contains(&format!("{}.{}", (h.q)("analytics.events"), (h.q)("id"))),
+                "{}: {sql}",
+                h.name
+            );
+        }
+    }
+
+    #[test]
+    fn writes_qualify_the_target_table() {
+        for h in all_harnesses() {
+            let insert = Insert::into_table(TableName::qualified("analytics", "events"))
+                .column(ColumnMarker::new("events", "id"))
+                .values(vec![Value::I64(1)])
+                .build()
+                .unwrap();
+            let sql = h.dialect.render_insert(&insert).unwrap().text;
+            assert!(
+                sql.starts_with(&format!(
+                    "INSERT INTO {}.{}",
+                    (h.q)("analytics"),
+                    (h.q)("events")
+                )),
+                "{}: {sql}",
+                h.name
+            );
+
+            let update = Update::table(TableName::qualified("analytics", "events"))
+                .set(ColumnMarker::new("events", "id"), Value::I64(2))
+                .build()
+                .unwrap();
+            let sql = h.dialect.render_update(&update).unwrap().text;
+            assert!(
+                sql.starts_with(&format!(
+                    "UPDATE {}.{}",
+                    (h.q)("analytics"),
+                    (h.q)("events")
+                )),
+                "{}: {sql}",
+                h.name
+            );
+
+            let delete = Delete::from_table(TableName::qualified("analytics", "events"))
+                .build()
+                .unwrap();
+            let sql = h.dialect.render_delete(&delete).unwrap().text;
+            assert!(
+                sql.starts_with(&format!(
+                    "DELETE FROM {}.{}",
+                    (h.q)("analytics"),
+                    (h.q)("events")
+                )),
+                "{}: {sql}",
+                h.name
+            );
+        }
+    }
+
+    #[test]
+    fn a_relation_subquery_qualifies_the_child_table() {
+        for h in all_harnesses() {
+            let select = Select::from_table(TableName::qualified("public", "users"))
+                .item(SelectItem::from(ColumnMarker::new("users", "id")))
+                .filter(Expr::relation_some(
+                    "events",
+                    "users",
+                    TableName::qualified("analytics", "events"),
+                    "user_id",
+                    "id",
+                    Expr::column("events__kind")
+                        .eq(Expr::param(Value::String("click".to_string()))),
+                ))
+                .build()
+                .unwrap();
+
+            let sql = h.dialect.render_select(&select).unwrap().text;
+            assert!(
+                sql.contains(&format!(
+                    "EXISTS (SELECT * FROM {}.{}",
+                    (h.q)("analytics"),
+                    (h.q)("events")
+                )),
+                "{}: {sql}",
+                h.name
+            );
+            let _ = RelationFilterOp::Some;
+        }
+    }
+
+    #[test]
+    fn an_unqualified_table_renders_exactly_as_before() {
+        for h in all_harnesses() {
+            let select = Select::from_table("users")
+                .item(SelectItem::from(ColumnMarker::new("users", "id")))
+                .build()
+                .unwrap();
+            let sql = h.dialect.render_select(&select).unwrap().text;
+            assert!(
+                sql.contains(&format!("FROM {}", (h.q)("users"))),
+                "{}: {sql}",
+                h.name
+            );
+            assert!(!sql.contains(".."), "{}: {sql}", h.name);
+        }
     }
 }

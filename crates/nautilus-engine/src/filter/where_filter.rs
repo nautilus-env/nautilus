@@ -94,9 +94,9 @@ pub(super) fn parse_relation_filter(
     // subquery starts there and joins the children in; every other relation
     // reads the parent key straight off the child row.
     let join_cond = || match &rel.via {
-        Some(via) => Expr::column(format!("{}__{}", via.table, via.parent_column))
+        Some(via) => Expr::column(format!("{}__{}", via.table.name, via.parent_column))
             .eq(Expr::column(format!("{}__{}", rel.parent_table, rel.pk_db))),
-        None => Expr::column(format!("{}__{}", rel.target_table, rel.fk_db))
+        None => Expr::column(format!("{}__{}", rel.target_table.name, rel.fk_db))
             .eq(Expr::column(format!("{}__{}", rel.parent_table, rel.pk_db))),
     };
 
@@ -104,8 +104,9 @@ pub(super) fn parse_relation_filter(
         let builder = match &rel.via {
             Some(via) => Select::from_table(&via.table).inner_join(
                 rel.target_table.clone(),
-                Expr::column(format!("{}__{}", rel.target_table, rel.fk_db))
-                    .eq(Expr::column(format!("{}__{}", via.table, via.child_column))),
+                Expr::column(format!("{}__{}", rel.target_table.name, rel.fk_db)).eq(Expr::column(
+                    format!("{}__{}", via.table.name, via.child_column),
+                )),
                 Vec::new(),
             ),
             None => Select::from_table(&rel.target_table),
@@ -126,7 +127,7 @@ pub(super) fn parse_relation_filter(
             )?;
             Ok(qualify_filter_columns(
                 parsed,
-                &rel.target_table,
+                rel.target_table.as_str(),
                 child_ctx.logical_to_db.as_ref(),
             ))
         } else {

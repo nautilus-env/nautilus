@@ -4,7 +4,7 @@ use serde_json::Value as JsonValue;
 
 use nautilus_core::{
     BinaryOp, Expr, FindManyArgs, IncludeRelation, JoinClause, OrderBy, OrderDir, PartitionWindow,
-    Select, Value, VectorMetric,
+    Select, TableName, Value, VectorMetric,
 };
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::{ModelIr, ResolvedFieldType, ScalarType};
@@ -37,7 +37,7 @@ pub struct RelationInfo {
     /// Logical model name of the target / child model (key in SchemaIr.models).
     pub target_logical_name: String,
     /// Database table name of the target / child model.
-    pub target_table: String,
+    pub target_table: TableName,
     /// DB-level column name of the FK in the **child** table (e.g. `"user_id"`).
     pub fk_db: String,
     /// DB-level column name of the PK in the **parent** table (e.g. `"id"`).
@@ -56,7 +56,7 @@ pub struct RelationInfo {
 #[derive(Debug, Clone)]
 pub struct JoinTableInfo {
     /// Physical name of the join table.
-    pub table: String,
+    pub table: TableName,
     /// Join-table column holding the parent's key.
     pub parent_column: String,
     /// Join-table column holding the child's key.

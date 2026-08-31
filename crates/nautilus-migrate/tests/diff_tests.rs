@@ -1,3 +1,4 @@
+use nautilus_core::TableName;
 mod common;
 
 use std::collections::HashMap;
@@ -32,7 +33,7 @@ fn detects_dropped_table() {
         composite_types: HashMap::new(),
     };
     let live = common::make_live_schema(vec![LiveTable {
-        name: "OldTable".to_string(),
+        name: TableName::new("OldTable".to_string()),
         columns: vec![],
         primary_key: vec![],
         indexes: vec![],
@@ -51,7 +52,7 @@ fn detects_added_column() {
     let target = common::parse("model User { id Int @id  email String }").unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "integer".to_string(),
@@ -81,7 +82,7 @@ fn detects_dropped_column() {
     let target = common::parse("model User { id Int @id }").unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -124,7 +125,7 @@ fn detects_type_change() {
     let target = common::parse("model User { id Int @id  score Float }").unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -166,7 +167,7 @@ fn detects_nullability_change() {
     let target = common::parse("model User { id Int @id  email String }").unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -211,7 +212,7 @@ fn detects_computed_expr_change() {
             .unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Order".to_string(),
+        name: TableName::new("Order".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -256,7 +257,7 @@ fn no_false_positive_when_computed_expr_unchanged() {
             .unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Order".to_string(),
+        name: TableName::new("Order".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -308,7 +309,7 @@ fn no_false_positive_when_live_check_uses_bracket_syntax() {
     .unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Account".to_string(),
+        name: TableName::new("Account".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -364,7 +365,7 @@ fn detects_check_change_when_string_literal_casing_differs() {
             .unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Account".to_string(),
+        name: TableName::new("Account".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -417,7 +418,7 @@ fn added_required_column_no_default_is_destructive() {
         .clone();
 
     let risk = change_risk(&Change::AddedColumn {
-        table: "User".to_string(),
+        table: TableName::new("User".to_string()),
         field,
     });
     assert_eq!(risk, ChangeRisk::Destructive);
@@ -438,7 +439,7 @@ fn added_optional_column_is_safe() {
         .clone();
 
     let risk = change_risk(&Change::AddedColumn {
-        table: "User".to_string(),
+        table: TableName::new("User".to_string()),
         field,
     });
     assert_eq!(risk, ChangeRisk::Safe);
@@ -459,7 +460,7 @@ fn added_required_column_with_default_is_safe() {
         .clone();
 
     let risk = change_risk(&Change::AddedColumn {
-        table: "User".to_string(),
+        table: TableName::new("User".to_string()),
         field,
     });
     assert_eq!(risk, ChangeRisk::Safe);
@@ -469,7 +470,7 @@ fn added_required_column_with_default_is_safe() {
 fn uuidv7_default_does_not_churn_when_live_matches() {
     let target = common::parse("model User { id Uuid @id @default(uuidv7()) }").unwrap();
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "uuid".to_string(),
@@ -500,7 +501,7 @@ fn uuidv7_default_does_not_churn_when_live_matches() {
 fn uuidv7_default_diff_detects_change_from_uuid_v4_default() {
     let target = common::parse("model User { id Uuid @id @default(uuidv7()) }").unwrap();
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "uuid".to_string(),
@@ -535,7 +536,7 @@ fn uuidv7_default_diff_detects_change_from_uuid_v4_default() {
 
 fn base_user_table(indexes: Vec<LiveIndex>) -> LiveTable {
     LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "integer".to_string(),
@@ -660,7 +661,7 @@ model Embedding {
     )
     .unwrap();
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Embedding".to_string(),
+        name: TableName::new("Embedding".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -762,7 +763,7 @@ fn dropped_index_carries_live_physical_name() {
 fn unique_constraint_name_mismatch_does_not_trigger_index_churn() {
     let target = common::parse("model User { id Int @id  email String @unique }").unwrap();
     let live = common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -828,7 +829,7 @@ model Post {
 
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "User".to_string(),
+            name: TableName::new("User".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "integer".to_string(),
@@ -845,7 +846,7 @@ model Post {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "Post".to_string(),
+            name: TableName::new("Post".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -918,7 +919,7 @@ model Post {
 
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "User".to_string(),
+            name: TableName::new("User".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "integer".to_string(),
@@ -935,7 +936,7 @@ model Post {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "Post".to_string(),
+            name: TableName::new("Post".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -964,7 +965,7 @@ model Post {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "post_author_fk_old".to_string(),
                 columns: vec!["authorId".to_string()],
-                referenced_table: "User".to_string(),
+                referenced_table: TableName::new("User".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: None,
                 on_update: None,
@@ -1012,7 +1013,7 @@ model Post {
 
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "User".to_string(),
+            name: TableName::new("User".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "integer".to_string(),
@@ -1029,7 +1030,7 @@ model Post {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "Post".to_string(),
+            name: TableName::new("Post".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1058,7 +1059,7 @@ model Post {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "fk_Post_authorId".to_string(),
                 columns: vec!["authorId".to_string()],
-                referenced_table: "User".to_string(),
+                referenced_table: TableName::new("User".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: Some("CASCADE".to_string()),
                 on_update: None,
@@ -1097,7 +1098,7 @@ model Post {
 
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "User".to_string(),
+            name: TableName::new("User".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "integer".to_string(),
@@ -1114,7 +1115,7 @@ model Post {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "Post".to_string(),
+            name: TableName::new("Post".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1143,7 +1144,7 @@ model Post {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "fk_Post_authorId".to_string(),
                 columns: vec!["authorId".to_string()],
-                referenced_table: "User".to_string(),
+                referenced_table: TableName::new("User".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: Some("RESTRICT".to_string()),
                 on_update: Some("RESTRICT".to_string()),
@@ -1180,7 +1181,7 @@ model Post {
 
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "User".to_string(),
+            name: TableName::new("User".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "integer".to_string(),
@@ -1197,7 +1198,7 @@ model Post {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "Post".to_string(),
+            name: TableName::new("Post".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1226,7 +1227,7 @@ model Post {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "fk_Post_authorId".to_string(),
                 columns: vec!["authorId".to_string()],
-                referenced_table: "User".to_string(),
+                referenced_table: TableName::new("User".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: None,
                 on_update: None,
@@ -1275,7 +1276,7 @@ model Post {
 
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "User".to_string(),
+            name: TableName::new("User".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "integer".to_string(),
@@ -1292,7 +1293,7 @@ model Post {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "Post".to_string(),
+            name: TableName::new("Post".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1321,7 +1322,7 @@ model Post {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "fk_Post_authorId".to_string(),
                 columns: vec!["authorId".to_string()],
-                referenced_table: "User".to_string(),
+                referenced_table: TableName::new("User".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: None,
                 on_update: None,
@@ -1366,7 +1367,7 @@ fn order_changes_drops_tables_in_reverse_live_dependency_order() {
     };
     let live = common::make_live_schema(vec![
         LiveTable {
-            name: "User".to_string(),
+            name: TableName::new("User".to_string()),
             columns: vec![LiveColumn {
                 name: "id".to_string(),
                 col_type: "integer".to_string(),
@@ -1383,7 +1384,7 @@ fn order_changes_drops_tables_in_reverse_live_dependency_order() {
             foreign_keys: vec![],
         },
         LiveTable {
-            name: "Post".to_string(),
+            name: TableName::new("Post".to_string()),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),
@@ -1412,7 +1413,7 @@ fn order_changes_drops_tables_in_reverse_live_dependency_order() {
             foreign_keys: vec![LiveForeignKey {
                 constraint_name: "fk_Post_authorId".to_string(),
                 columns: vec!["authorId".to_string()],
-                referenced_table: "User".to_string(),
+                referenced_table: TableName::new("User".to_string()),
                 referenced_columns: vec!["id".to_string()],
                 on_delete: None,
                 on_update: None,
@@ -1556,9 +1557,9 @@ model Doc { id Int @id }
     );
     // Stub in the live Doc table so only extension state is compared.
     live.tables.insert(
-        "Doc".to_string(),
+        TableName::new("Doc".to_string()),
         nautilus_migrate::live::LiveTable {
-            name: "Doc".to_string(),
+            name: TableName::new("Doc".to_string()),
             columns: vec![nautilus_migrate::live::LiveColumn {
                 name: "id".to_string(),
                 col_type: "integer".to_string(),
@@ -1600,7 +1601,7 @@ fn cosmetic_type_spellings_do_not_produce_a_type_change() {
     .unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Author".to_string(),
+        name: TableName::new("Author".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1662,7 +1663,7 @@ fn a_genuinely_different_composite_type_is_still_a_type_change() {
     .unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Author".to_string(),
+        name: TableName::new("Author".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1714,7 +1715,7 @@ fn mysql_literal_defaults_and_enum_case_are_not_changes() {
     .unwrap();
 
     let live = common::make_live_schema(vec![LiveTable {
-        name: "Post".to_string(),
+        name: TableName::new("Post".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1774,7 +1775,7 @@ fn mysql_literal_defaults_and_enum_case_are_not_changes() {
 /// carrying MySQL's `AUTO_INCREMENT`.
 fn live_user_with_int_pk(auto_increment: bool) -> LiveSchema {
     common::make_live_schema(vec![LiveTable {
-        name: "User".to_string(),
+        name: TableName::new("User".to_string()),
         columns: vec![LiveColumn {
             name: "id".to_string(),
             col_type: "int".to_string(),
@@ -1865,7 +1866,7 @@ fn auto_increment_is_not_diffed_outside_mysql() {
 fn auto_increment_repair_is_a_safe_change() {
     assert_eq!(
         change_risk(&Change::AutoIncrementChanged {
-            table: "User".to_string(),
+            table: TableName::new("User".to_string()),
             column: "id".to_string(),
             enabled: true,
         }),
@@ -1877,7 +1878,7 @@ fn auto_increment_repair_is_a_safe_change() {
 /// provider reports it.
 fn live_flagged_with_bool_default(int_type: &str, default_value: &str) -> LiveSchema {
     common::make_live_schema(vec![LiveTable {
-        name: "Flagged".to_string(),
+        name: TableName::new("Flagged".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -1954,7 +1955,7 @@ fn a_genuinely_different_boolean_default_is_still_detected() {
 
 fn partial_task_table(indexes: Vec<LiveIndex>) -> LiveTable {
     LiveTable {
-        name: "Task".to_string(),
+        name: TableName::new("Task".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),
@@ -2073,7 +2074,7 @@ fn device_table_with_unmanaged_column(indexes: Vec<LiveIndex>) -> LiveTable {
     };
 
     LiveTable {
-        name: "Device".to_string(),
+        name: TableName::new("Device".to_string()),
         columns: vec![
             column("id", "integer"),
             column("name", "text"),
@@ -2142,7 +2143,7 @@ fn ignored_model_keeps_its_table() {
 #[test]
 fn pulling_and_pushing_back_a_raw_check_is_a_no_op() {
     let live = common::make_live_schema(vec![LiveTable {
-        name: "device".to_string(),
+        name: TableName::new("device".to_string()),
         columns: vec![
             LiveColumn {
                 name: "id".to_string(),

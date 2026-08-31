@@ -1,5 +1,5 @@
 use anyhow::Context;
-use nautilus_migrate::{Change, ChangeRisk, SchemaDiff, SchemaInspector};
+use nautilus_migrate::{Change, ChangeRisk, SchemaDiff};
 
 use super::connection::DbContext;
 use crate::tui;
@@ -11,7 +11,8 @@ pub async fn run(schema_arg: Option<String>, db_url_arg: Option<String>) -> anyh
     let ctx = DbContext::build(schema_arg, db_url_arg).await?;
 
     let sp = tui::spinner("Inspecting live schema…");
-    let live = SchemaInspector::new(ctx.provider, &ctx.database_url)
+    let live = ctx
+        .inspector()
         .inspect()
         .await
         .context("Failed to inspect live schema")?;

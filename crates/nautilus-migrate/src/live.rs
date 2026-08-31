@@ -2,20 +2,28 @@
 
 use std::collections::HashMap;
 
+use nautilus_core::TableName;
 use nautilus_schema::ir::{BasicIndexType, IndexKind, PgvectorIndex};
 pub use nautilus_schema::ComputedKind;
+
+/// The physical table a model owns, qualified by `@@schema("...")` when the
+/// model declares one.
+pub fn model_table(model: &nautilus_schema::ir::ModelIr) -> TableName {
+    TableName::with_schema(model.schema.clone(), model.db_name.clone())
+}
 
 /// A snapshot of the tables currently present in the live database.
 #[derive(Debug, Clone, Default)]
 pub struct LiveSchema {
-    /// Keyed on the *DB* table name (as returned by the database).
-    pub tables: HashMap<String, LiveTable>,
+    /// Keyed on the *DB* table name (as returned by the database), qualified by
+    /// its schema when the datasource spans several.
+    pub tables: HashMap<TableName, LiveTable>,
     /// Read-only relations (SQL views) present in the live database.
     ///
     /// Keyed on the *DB* view name. A view is never created, altered or dropped
     /// by Nautilus, so only its columns are collected: the primary key, index,
     /// CHECK and foreign-key fields of [`LiveTable`] are always empty here.
-    pub views: HashMap<String, LiveTable>,
+    pub views: HashMap<TableName, LiveTable>,
     /// PostgreSQL enum types present in the live database.
     ///
     /// Keyed on the *DB* type name (lower-case), value is the ordered list of
@@ -25,6 +33,12 @@ pub struct LiveSchema {
     ///
     /// Keyed on the *DB* type name (lower-case). Empty for non-Postgres providers.
     pub composite_types: HashMap<String, LiveCompositeType>,
+    /// PostgreSQL schemas (namespaces) that exist in the live database.
+    ///
+    /// Only populated when the datasource declares a `schemas` list, which is
+    /// also the only case where the diff has a schema to create. Empty for
+    /// non-Postgres providers.
+    pub schemas: std::collections::HashSet<String>,
     /// PostgreSQL extensions currently installed in the live database.
     ///
     /// Keyed on the extension name (lower-case). The built-in `plpgsql`
@@ -70,8 +84,8 @@ pub struct LiveCompositeField {
 /// A single table in the live database.
 #[derive(Debug, Clone)]
 pub struct LiveTable {
-    /// DB table name.
-    pub name: String,
+    /// DB table name, qualified by its schema when the datasource spans several.
+    pub name: TableName,
     /// Columns in declaration order.
     pub columns: Vec<LiveColumn>,
     /// Primary-key column names (DB names), in key order.
@@ -92,7 +106,7 @@ pub struct LiveForeignKey {
     /// Local column names (FK side), in constraint key order.
     pub columns: Vec<String>,
     /// Referenced table name.
-    pub referenced_table: String,
+    pub referenced_table: TableName,
     /// Referenced column names, in constraint key order.
     pub referenced_columns: Vec<String>,
     /// ON DELETE action, upper-cased (e.g. `"CASCADE"`, `"SET NULL"`).

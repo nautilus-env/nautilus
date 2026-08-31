@@ -77,11 +77,14 @@ impl SchemaValidator<'_> {
     }
 
     pub(super) fn check_physical_name_collisions(&mut self) {
-        let mut table_names: HashMap<String, (String, Span)> = HashMap::new();
+        // The key carries the owning schema, so `analytics.events` and
+        // `public.events` are two tables rather than a collision.
+        let mut table_names: HashMap<(Option<String>, String), (String, Span)> = HashMap::new();
         for decl in &self.schema.declarations {
             if let Declaration::Model(model) = decl {
                 let table_name = model.table_name().to_string();
-                if let Some((existing_model, existing_span)) = table_names.get(&table_name) {
+                let key = (model.schema_name().map(str::to_string), table_name.clone());
+                if let Some((existing_model, existing_span)) = table_names.get(&key) {
                     self.errors.push_back(SchemaError::Validation(
                         format!(
                             "Physical table name '{}' is used by both model '{}' and '{}' (first defined at {})",
@@ -90,7 +93,7 @@ impl SchemaValidator<'_> {
                         model.span,
                     ));
                 } else {
-                    table_names.insert(table_name, (model.name.value.clone(), model.span));
+                    table_names.insert(key, (model.name.value.clone(), model.span));
                 }
 
                 let mut column_names: HashMap<String, (String, Span)> = HashMap::new();

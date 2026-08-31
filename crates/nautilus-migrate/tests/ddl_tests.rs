@@ -1,3 +1,4 @@
+use nautilus_core::TableName;
 mod common;
 
 use nautilus_migrate::live::{LiveCompositeField, LiveCompositeType, LiveSchema};
@@ -921,9 +922,9 @@ fn test_sqlite_drop_live_tables_defers_foreign_key_checks() {
     let mut live = LiveSchema::default();
     for name in ["post", "user"] {
         live.tables.insert(
-            name.to_string(),
+            TableName::new(name.to_string()),
             nautilus_migrate::live::LiveTable {
-                name: name.to_string(),
+                name: TableName::new(name.to_string()),
                 columns: vec![],
                 primary_key: vec![],
                 indexes: vec![],

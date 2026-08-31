@@ -36,7 +36,7 @@ macro_rules! render_returning_mut {
 macro_rules! render_insert_body_mut {
     ($ctx:expr, $insert:expr, $quote:expr, $supports_returning:expr, $param_cast:expr, $conflict_clause:ident) => {{
         $ctx.sql.push_str("INSERT INTO ");
-        crate::push_quoted_identifier(&mut $ctx.sql, &$insert.table, $quote);
+        crate::push_table_name(&mut $ctx.sql, &$insert.table, $quote);
 
         $ctx.sql.push_str(" (");
         for (i, col) in $insert.columns.iter().enumerate() {
@@ -124,7 +124,7 @@ macro_rules! render_on_conflict_body_mut {
 macro_rules! render_update_body_mut {
     ($ctx:expr, $update:expr, $quote:expr, $render_expr:ident, $supports_returning:expr, $param_cast:expr) => {{
         $ctx.sql.push_str("UPDATE ");
-        crate::push_quoted_identifier(&mut $ctx.sql, &$update.table, $quote);
+        crate::push_table_name(&mut $ctx.sql, &$update.table, $quote);
 
         $ctx.sql.push_str(" SET ");
         for (i, (col, value)) in $update.assignments.iter_mut().enumerate() {
@@ -159,7 +159,7 @@ macro_rules! render_update_body_mut {
 macro_rules! render_delete_body_mut {
     ($ctx:expr, $delete:expr, $quote:expr, $render_expr:ident, $supports_returning:expr) => {{
         $ctx.sql.push_str("DELETE FROM ");
-        crate::push_quoted_identifier(&mut $ctx.sql, &$delete.table, $quote);
+        crate::push_table_name(&mut $ctx.sql, &$delete.table, $quote);
 
         if let Some(filter) = $delete.filter.as_mut() {
             $ctx.sql.push_str(" WHERE ");
@@ -390,14 +390,14 @@ macro_rules! render_select_body_core_mut {
         }
 
         $ctx.sql.push_str(" FROM ");
-        crate::push_quoted_identifier(&mut $ctx.sql, &$select.table, $quote);
+        crate::push_table_name(&mut $ctx.sql, &$select.table, $quote);
 
         for join in $select.joins.iter_mut() {
             match join.join_type {
                 nautilus_core::JoinType::Inner => $ctx.sql.push_str(" INNER JOIN "),
                 nautilus_core::JoinType::Left => $ctx.sql.push_str(" LEFT JOIN "),
             }
-            crate::push_quoted_identifier(&mut $ctx.sql, &join.table, $quote);
+            crate::push_table_name(&mut $ctx.sql, &join.table, $quote);
             $ctx.sql.push_str(" ON ");
             $render_expr($ctx, &mut join.on);
         }
@@ -512,45 +512,37 @@ macro_rules! render_expr_common_mut {
                 // every other relation reads the parent key off the child row.
                 match relation.via.as_ref() {
                     Some(via) => {
-                        crate::push_quoted_identifier(&mut $ctx.sql, &via.table, $quote);
+                        crate::push_table_name(&mut $ctx.sql, &via.table, $quote);
                         $ctx.sql.push_str(" INNER JOIN ");
-                        crate::push_quoted_identifier(
-                            &mut $ctx.sql,
-                            &relation.target_table,
-                            $quote,
-                        );
+                        crate::push_table_name(&mut $ctx.sql, &relation.target_table, $quote);
                         $ctx.sql.push_str(" ON ");
                         crate::push_qualified_identifier(
                             &mut $ctx.sql,
-                            &relation.target_table,
+                            relation.target_table.as_str(),
                             &relation.fk_db,
                             $quote,
                         );
                         $ctx.sql.push_str(" = ");
                         crate::push_qualified_identifier(
                             &mut $ctx.sql,
-                            &via.table,
+                            via.table.as_str(),
                             &via.child_column,
                             $quote,
                         );
                         $ctx.sql.push_str(" WHERE ");
                         crate::push_qualified_identifier(
                             &mut $ctx.sql,
-                            &via.table,
+                            via.table.as_str(),
                             &via.parent_column,
                             $quote,
                         );
                     }
                     None => {
-                        crate::push_quoted_identifier(
-                            &mut $ctx.sql,
-                            &relation.target_table,
-                            $quote,
-                        );
+                        crate::push_table_name(&mut $ctx.sql, &relation.target_table, $quote);
                         $ctx.sql.push_str(" WHERE ");
                         crate::push_qualified_identifier(
                             &mut $ctx.sql,
-                            &relation.target_table,
+                            relation.target_table.as_str(),
                             &relation.fk_db,
                             $quote,
                         );
@@ -741,6 +733,19 @@ pub(crate) fn push_quoted_identifier_segments(sql: &mut String, segments: &[&str
 }
 
 /// Render `table.column` directly into the SQL buffer.
+/// Render a table in the statement's table position, qualifying it with its
+/// schema when it has one.
+///
+/// Column references keep using the bare table name: every supported provider
+/// gives `schema.table` the bare `table` as its implicit alias.
+pub(crate) fn push_table_name(sql: &mut String, table: &nautilus_core::TableName, quote: char) {
+    if let Some(schema) = table.schema() {
+        push_quoted_identifier(sql, schema, quote);
+        sql.push('.');
+    }
+    push_quoted_identifier(sql, &table.name, quote);
+}
+
 pub(crate) fn push_qualified_identifier(sql: &mut String, table: &str, column: &str, quote: char) {
     push_quoted_identifier(sql, table, quote);
     sql.push('.');

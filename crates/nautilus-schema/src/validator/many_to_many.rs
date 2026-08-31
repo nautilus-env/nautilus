@@ -292,6 +292,7 @@ fn build_join_model(
     Ok(ModelIr {
         logical_name: table.to_string(),
         db_name: table.to_string(),
+        schema: expect_model(ir, &pairing.first.model).schema.clone(),
         fields,
         primary_key: PrimaryKeyIr::Composite(vec![
             JOIN_COLUMN_A.to_string(),

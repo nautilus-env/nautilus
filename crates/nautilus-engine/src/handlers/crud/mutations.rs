@@ -232,7 +232,7 @@ async fn insert_row(
 
     let returns_inline = return_data && state.dialect.supports_returning();
 
-    let mut builder = Insert::into_table(&model.db_name)
+    let mut builder = Insert::into_table(crate::metadata::model_table(model))
         .with_capacity(InsertCapacity {
             columns: columns.len(),
             rows: 1,
@@ -399,7 +399,7 @@ async fn execute_create_many(
         all_values.push(row_values);
     }
 
-    let mut builder = Insert::into_table(&model.db_name)
+    let mut builder = Insert::into_table(crate::metadata::model_table(model))
         .with_capacity(InsertCapacity {
             columns: columns.len(),
             rows: all_values.len(),
@@ -467,7 +467,7 @@ async fn update_rows(
 
     let returns_inline = return_data && state.dialect.supports_returning();
 
-    let mut builder = Update::table(&model.db_name)
+    let mut builder = Update::table(crate::metadata::model_table(model))
         .with_capacity(UpdateCapacity {
             assignments: assignments.len(),
             returning: usize::from(returns_inline) * metadata.scalar_markers().len(),
@@ -727,7 +727,7 @@ async fn execute_upsert(
 
     let returns_inline = params.return_data && state.dialect.supports_returning();
 
-    let mut builder = Insert::into_table(&model.db_name)
+    let mut builder = Insert::into_table(crate::metadata::model_table(model))
         .with_capacity(InsertCapacity {
             columns: columns.len(),
             rows: 1,
@@ -940,9 +940,10 @@ pub(super) async fn execute_delete(
 
     let returns_inline = params.return_data && state.dialect.supports_returning();
 
-    let mut builder = Delete::from_table(&model.db_name).with_capacity(DeleteCapacity {
-        returning: usize::from(returns_inline) * metadata.scalar_markers().len(),
-    });
+    let mut builder =
+        Delete::from_table(crate::metadata::model_table(model)).with_capacity(DeleteCapacity {
+            returning: usize::from(returns_inline) * metadata.scalar_markers().len(),
+        });
     if let Some(filter) = qualified_filter.clone() {
         builder = builder.filter(filter);
     }

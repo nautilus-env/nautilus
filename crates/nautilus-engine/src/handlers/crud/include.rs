@@ -49,8 +49,8 @@ fn parent_join_column(rel_info: &RelationInfo) -> String {
 /// the query projects alongside the child's columns.
 fn child_join_column(rel_info: &RelationInfo) -> String {
     match &rel_info.via {
-        Some(via) => format!("{}__{}", via.table, via.parent_column),
-        None => format!("{}__{}", rel_info.target_table, rel_info.fk_db),
+        Some(via) => format!("{}__{}", via.table.name, via.parent_column),
+        None => format!("{}__{}", rel_info.target_table.name, rel_info.fk_db),
     }
 }
 
@@ -67,7 +67,7 @@ fn relation_join(
         return Ok(None);
     };
 
-    let join_model = state.models().get(&via.table).ok_or_else(|| {
+    let join_model = state.models().get(via.table.as_str()).ok_or_else(|| {
         ProtocolError::QueryPlanning(format!("Join table '{}' not found", via.table))
     })?;
     let metadata = state.model_metadata(join_model);
@@ -82,8 +82,8 @@ fn relation_join(
             ))
         })?;
 
-    let on = Expr::column(format!("{}__{}", via.table, via.child_column)).eq(Expr::column(
-        format!("{}__{}", rel_info.target_table, rel_info.fk_db),
+    let on = Expr::column(format!("{}__{}", via.table.name, via.child_column)).eq(Expr::column(
+        format!("{}__{}", rel_info.target_table.name, rel_info.fk_db),
     ));
 
     Ok(Some(RelationJoin {

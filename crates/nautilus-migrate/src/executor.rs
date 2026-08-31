@@ -6,6 +6,7 @@ use crate::live::{LiveIndex, LiveSchema, LiveTable};
 use crate::migration::Migration;
 use crate::provider::{CreateIndex, ProviderStrategy};
 use crate::tracker::MigrationTracker;
+use nautilus_core::TableName;
 use nautilus_schema::ir::SchemaIr;
 use sqlx::AnyPool;
 use std::sync::Arc;
@@ -221,7 +222,7 @@ impl<'a> ChangeReverser<'a> {
 
     fn reverse(&self, change: &Change) -> Vec<String> {
         match change {
-            Change::NewTable(model) => self.reverse_new_table(&model.db_name),
+            Change::NewTable(model) => self.reverse_new_table(&crate::live::model_table(model)),
             Change::DroppedTable { name } => self.reverse_dropped_table(name),
             Change::PrimaryKeyChanged { table } => self.reverse_primary_key_change(table),
 
@@ -307,6 +308,9 @@ impl<'a> ChangeReverser<'a> {
                     name.replace('"', "\"\"")
                 )]
             }),
+            // A schema can hold objects Nautilus does not manage, so rolling a
+            // `CREATE SCHEMA` back by dropping it would take them with it.
+            Change::CreateSchema { .. } => Vec::new(),
             Change::DropExtension { name } => self.reverse_user_type(|| {
                 cannot_reverse(format!("extension drop for '{}'; reinstall manually", name))
             }),
@@ -315,6 +319,12 @@ impl<'a> ChangeReverser<'a> {
 
     fn quote(&self, name: &str) -> String {
         self.provider.quote_identifier(name)
+    }
+
+    /// Quote a table in the statement's table position, qualifying it with its
+    /// schema when it has one.
+    fn quote_table(&self, table: &TableName) -> String {
+        self.strategy.quote_table(table)
     }
 
     /// Run `build` only on providers with user-defined types; elsewhere the
@@ -331,20 +341,20 @@ impl<'a> ChangeReverser<'a> {
         format!("DROP TYPE IF EXISTS {}", self.quote(name))
     }
 
-    fn reverse_new_table(&self, table: &str) -> Vec<String> {
+    fn reverse_new_table(&self, table: &TableName) -> Vec<String> {
         vec![self
             .strategy
             .drop_table_sql(table, self.provider == DatabaseProvider::Postgres)]
     }
 
-    fn reverse_dropped_table(&self, table: &str) -> Vec<String> {
+    fn reverse_dropped_table(&self, table: &TableName) -> Vec<String> {
         match self.live.tables.get(table) {
             Some(live_table) => create_table_sql_from_live(live_table, self.provider),
             None => missing_snapshot(format!("table {} was dropped", table)),
         }
     }
 
-    fn reverse_primary_key_change(&self, table: &str) -> Vec<String> {
+    fn reverse_primary_key_change(&self, table: &TableName) -> Vec<String> {
         let Some(live_table) = self.live.tables.get(table) else {
             return cannot_reverse(format!("PRIMARY KEY change on {}: no live snapshot", table));
         };
@@ -357,18 +367,18 @@ impl<'a> ChangeReverser<'a> {
             DatabaseProvider::Postgres => vec![
                 format!(
                     "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}",
-                    self.quote(table),
-                    self.quote(&format!("{}_pkey", table))
+                    self.quote_table(table),
+                    self.quote(&format!("{}_pkey", table.name))
                 ),
                 format!(
                     "ALTER TABLE {} ADD PRIMARY KEY ({})",
-                    self.quote(table),
+                    self.quote_table(table),
                     pk_cols
                 ),
             ],
             DatabaseProvider::Mysql => vec![format!(
                 "ALTER TABLE {} DROP PRIMARY KEY, ADD PRIMARY KEY ({})",
-                self.quote(table),
+                self.quote_table(table),
                 pk_cols,
             )],
             DatabaseProvider::Sqlite => cannot_reverse(format!(
@@ -378,11 +388,11 @@ impl<'a> ChangeReverser<'a> {
         }
     }
 
-    fn reverse_added_column(&self, table: &str, column: &str) -> Vec<String> {
+    fn reverse_added_column(&self, table: &TableName, column: &str) -> Vec<String> {
         match self.provider {
             DatabaseProvider::Postgres | DatabaseProvider::Mysql => vec![format!(
                 "ALTER TABLE {} DROP COLUMN {}",
-                self.quote(table),
+                self.quote_table(table),
                 self.quote(column),
             )],
             DatabaseProvider::Sqlite => {
@@ -391,7 +401,7 @@ impl<'a> ChangeReverser<'a> {
         }
     }
 
-    fn reverse_dropped_column(&self, table: &str, column: &str) -> Vec<String> {
+    fn reverse_dropped_column(&self, table: &TableName, column: &str) -> Vec<String> {
         let missing = || missing_snapshot(format!("column {}.{} was dropped", table, column));
         let Some(live_column) = self
             .live
@@ -417,7 +427,7 @@ impl<'a> ChangeReverser<'a> {
 
                 vec![format!(
                     "ALTER TABLE {} ADD COLUMN {} {}{}{}",
-                    self.quote(table),
+                    self.quote_table(table),
                     self.quote(column),
                     live_column.col_type.to_uppercase(),
                     not_null,
@@ -432,7 +442,7 @@ impl<'a> ChangeReverser<'a> {
 
     /// Restore the column's `AUTO_INCREMENT` state as the live snapshot recorded
     /// it, by restating the definition MySQL had before the change.
-    fn reverse_auto_increment_change(&self, table: &str, column: &str) -> Vec<String> {
+    fn reverse_auto_increment_change(&self, table: &TableName, column: &str) -> Vec<String> {
         if self.provider != DatabaseProvider::Mysql {
             return cannot_reverse(format!("AUTO_INCREMENT change: {}.{}", table, column));
         }
@@ -459,7 +469,7 @@ impl<'a> ChangeReverser<'a> {
 
         vec![format!(
             "ALTER TABLE {} MODIFY COLUMN {} {}{}{}",
-            self.quote(table),
+            self.quote_table(table),
             self.quote(column),
             live_column.col_type.to_uppercase(),
             not_null,
@@ -467,7 +477,7 @@ impl<'a> ChangeReverser<'a> {
         )]
     }
 
-    fn reverse_type_change(&self, table: &str, column: &str, from: &str) -> Vec<String> {
+    fn reverse_type_change(&self, table: &TableName, column: &str, from: &str) -> Vec<String> {
         self.strategy
             .reverse_column_type_sql(table, column, from)
             .unwrap_or_else(|| {
@@ -480,7 +490,7 @@ impl<'a> ChangeReverser<'a> {
 
     fn reverse_nullability_change(
         &self,
-        table: &str,
+        table: &TableName,
         column: &str,
         now_required: bool,
     ) -> Vec<String> {
@@ -489,7 +499,12 @@ impl<'a> ChangeReverser<'a> {
             .unwrap_or_else(|| cannot_reverse(format!("nullability change: {}.{}", table, column)))
     }
 
-    fn reverse_default_change(&self, table: &str, column: &str, from: Option<&str>) -> Vec<String> {
+    fn reverse_default_change(
+        &self,
+        table: &TableName,
+        column: &str,
+        from: Option<&str>,
+    ) -> Vec<String> {
         self.strategy
             .reverse_default_change_sql(table, column, from)
             .unwrap_or_else(|| cannot_reverse(format!("DEFAULT change: {}.{}", table, column)))
@@ -497,7 +512,7 @@ impl<'a> ChangeReverser<'a> {
 
     fn reverse_index_added(
         &self,
-        table: &str,
+        table: &TableName,
         columns: &[String],
         index_name: Option<&str>,
     ) -> Vec<String> {
@@ -511,14 +526,14 @@ impl<'a> ChangeReverser<'a> {
             DatabaseProvider::Mysql => vec![format!(
                 "DROP INDEX {} ON {}",
                 self.quote(&index_name),
-                self.quote(table),
+                self.quote_table(table),
             )],
         }
     }
 
     fn reverse_index_dropped(
         &self,
-        table: &str,
+        table: &TableName,
         columns: &[String],
         unique: bool,
         index_name: &str,
@@ -539,32 +554,32 @@ impl<'a> ChangeReverser<'a> {
                 "CREATE {}INDEX IF NOT EXISTS {} ON {} ({})",
                 unique_kw,
                 self.quote(index_name),
-                self.quote(table),
+                self.quote_table(table),
                 cols_sql,
             )],
             DatabaseProvider::Mysql => vec![format!(
                 "CREATE {}INDEX {} ON {} ({})",
                 unique_kw,
                 self.quote(index_name),
-                self.quote(table),
+                self.quote_table(table),
                 cols_sql,
             )],
         }
     }
 
-    fn reverse_foreign_key_added(&self, table: &str, constraint_name: &str) -> Vec<String> {
+    fn reverse_foreign_key_added(&self, table: &TableName, constraint_name: &str) -> Vec<String> {
         match self.provider {
             DatabaseProvider::Sqlite => {
                 cannot_reverse(format!("ADD FOREIGN KEY on SQLite: {}", constraint_name))
             }
             DatabaseProvider::Postgres => vec![format!(
                 "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}",
-                self.quote(table),
+                self.quote_table(table),
                 self.quote(constraint_name),
             )],
             DatabaseProvider::Mysql => vec![format!(
                 "ALTER TABLE {} DROP FOREIGN KEY {}",
-                self.quote(table),
+                self.quote_table(table),
                 self.quote(constraint_name),
             )],
         }
@@ -594,6 +609,7 @@ fn missing_snapshot(detail: String) -> Vec<String> {
 /// from a live table snapshot. Used to build down-SQL for `DroppedTable`.
 fn create_table_sql_from_live(table: &LiveTable, provider: DatabaseProvider) -> Vec<String> {
     let q = |name: &str| provider.quote_identifier(name);
+    let strategy = ProviderStrategy::new(provider);
 
     // SQLite: single-column INTEGER PK -> must be inlined as
     // `col INTEGER PRIMARY KEY AUTOINCREMENT` (no separate PRIMARY KEY clause).
@@ -637,7 +653,7 @@ fn create_table_sql_from_live(table: &LiveTable, provider: DatabaseProvider) -> 
 
     let mut stmts = vec![format!(
         "CREATE TABLE IF NOT EXISTS {} (\n{}\n)",
-        q(&table.name),
+        strategy.quote_table(&table.name),
         col_lines.join(",\n"),
     )];
 
@@ -649,7 +665,7 @@ fn create_table_sql_from_live(table: &LiveTable, provider: DatabaseProvider) -> 
 }
 
 fn create_index_sql_from_live(
-    table_name: &str,
+    table_name: &TableName,
     index: &LiveIndex,
     provider: DatabaseProvider,
 ) -> String {
@@ -694,7 +710,7 @@ mod tests {
 
     fn live_table_with_index(table: &str, column: &str, index: LiveIndex) -> LiveTable {
         LiveTable {
-            name: table.to_string(),
+            name: TableName::new(table),
             columns: vec![
                 LiveColumn {
                     name: "id".to_string(),

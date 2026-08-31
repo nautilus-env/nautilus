@@ -36,8 +36,8 @@ pub use executor::MigrationExecutor;
 pub use file_store::MigrationFileStore;
 pub use inspector::SchemaInspector;
 pub use live::{
-    LiveColumn, LiveCompositeField, LiveCompositeType, LiveExtension, LiveIndex, LiveSchema,
-    LiveTable,
+    model_table, LiveColumn, LiveCompositeField, LiveCompositeType, LiveExtension, LiveIndex,
+    LiveSchema, LiveTable,
 };
 pub use migration::{Migration, MigrationDirection, MigrationStatus};
 pub use serializer::{

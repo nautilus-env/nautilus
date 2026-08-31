@@ -53,7 +53,7 @@ pub(super) fn nested_include_context<'a>(
         )?),
         field_types: Cow::Owned(crate::metadata::build_field_type_map(target_model)),
         logical_to_db: Cow::Owned(crate::metadata::build_logical_to_db_map(target_model)),
-        target_table: Cow::Owned(rel_info.target_table.clone()),
+        target_table: Cow::Owned(rel_info.target_table.name.clone()),
     }))
 }
 

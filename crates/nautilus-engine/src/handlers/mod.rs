@@ -105,6 +105,13 @@ fn column_of(model: &ModelIr, logical_name: &str) -> Option<String> {
         .map(|field| field.db_name.clone())
 }
 
+/// The join table of an implicit many-to-many, qualified by the schema of the
+/// synthesised join model.
+fn join_table_name(table: &str, models: &HashMap<String, ModelIr>) -> nautilus_core::TableName {
+    let schema = models.get(table).and_then(|model| model.schema.clone());
+    nautilus_core::TableName::with_schema(schema, table)
+}
+
 /// Build a `RelationMap` for the given model so that the filter parser can resolve
 /// `some` / `none` / `every` predicates and `include` entries at runtime.
 pub(super) fn build_relation_map(
@@ -130,12 +137,12 @@ pub(super) fn build_relation_map(
                         RelationInfo {
                             parent_table: model.db_name.clone(),
                             target_logical_name,
-                            target_table: target_model.db_name.clone(),
+                            target_table: crate::metadata::model_table(target_model),
                             fk_db,
                             pk_db,
                             is_array: true,
                             via: Some(JoinTableInfo {
-                                table: join.table.clone(),
+                                table: join_table_name(&join.table, models),
                                 parent_column: join.self_column.clone(),
                                 child_column: join.target_column.clone(),
                             }),
@@ -261,7 +268,7 @@ pub(super) fn build_relation_map(
                         RelationInfo {
                             parent_table: model.db_name.clone(),
                             target_logical_name,
-                            target_table: target_model.db_name.clone(),
+                            target_table: crate::metadata::model_table(target_model),
                             fk_db,
                             pk_db,
                             is_array: field.is_array,
@@ -732,6 +739,7 @@ mod tests {
         let model = ModelIr {
             logical_name: "User".to_string(),
             db_name: "users".to_string(),
+            schema: None,
             fields: vec![],
             primary_key: PrimaryKeyIr::Single("id".to_string()),
             unique_constraints: vec![],
@@ -802,6 +810,7 @@ model Post {
         let node_model = ModelIr {
             logical_name: "Node".to_string(),
             db_name: "nodes".to_string(),
+            schema: None,
             fields: vec![
                 scalar_field("id", "id"),
                 scalar_field("parentId", "parent_id"),
@@ -841,6 +850,7 @@ model Post {
         let user_model = ModelIr {
             logical_name: "User".to_string(),
             db_name: "users".to_string(),
+            schema: None,
             fields: vec![
                 scalar_field("id", "id"),
                 relation_field("posts", "Post", &[], &[], None, true),
@@ -857,6 +867,7 @@ model Post {
         let post_model = ModelIr {
             logical_name: "Post".to_string(),
             db_name: "posts".to_string(),
+            schema: None,
             fields: vec![
                 scalar_field("id", "id"),
                 scalar_field("authorId", "author_id"),

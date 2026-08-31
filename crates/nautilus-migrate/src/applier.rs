@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 
+use nautilus_core::TableName;
 use nautilus_schema::ir::{
     DefaultValue, FieldIr, ModelIr, PostgresExtensionIr, ResolvedFieldType, SchemaIr,
 };
@@ -24,10 +25,10 @@ use crate::provider::{
 /// Parameters for a `ADD CONSTRAINT ... FOREIGN KEY` statement, mirroring the
 /// fields of [`Change::ForeignKeyAdded`].
 struct AddForeignKey<'a> {
-    table: &'a str,
+    table: &'a TableName,
     constraint_name: &'a str,
     columns: &'a [String],
-    referenced_table: &'a str,
+    referenced_table: &'a TableName,
     referenced_columns: &'a [String],
     /// ON DELETE action, or `None` for the database default.
     on_delete: Option<&'a str>,
@@ -146,6 +147,13 @@ impl<'a> DiffApplier<'a> {
                 constraint_name,
             } => self.sql_drop_foreign_key(table, constraint_name),
 
+            Change::CreateSchema { name } => self.sql_for_user_type(|this| {
+                Ok(vec![format!(
+                    "CREATE SCHEMA IF NOT EXISTS {}",
+                    this.q(name)
+                )])
+            }),
+
             Change::CreateCompositeType { name } => {
                 self.sql_for_user_type(|this| this.sql_create_composite_type(name))
             }
@@ -214,14 +222,14 @@ impl<'a> DiffApplier<'a> {
         Ok(stmts)
     }
 
-    fn sql_drop_table(&self, name: &str) -> Result<Vec<String>> {
+    fn sql_drop_table(&self, name: &TableName) -> Result<Vec<String>> {
         Ok(vec![self.strategy().drop_table_sql(
             name,
             self.provider == DatabaseProvider::Postgres,
         )])
     }
 
-    fn sql_alter_primary_key(&self, table: &str) -> Result<Vec<String>> {
+    fn sql_alter_primary_key(&self, table: &TableName) -> Result<Vec<String>> {
         match self.provider {
             DatabaseProvider::Sqlite => self.sqlite_rebuild(table),
             DatabaseProvider::Postgres | DatabaseProvider::Mysql => {
@@ -230,16 +238,16 @@ impl<'a> DiffApplier<'a> {
                 let drop_stmt = match self.provider {
                     DatabaseProvider::Postgres => format!(
                         "ALTER TABLE {} DROP CONSTRAINT IF EXISTS \"{}_pkey\"",
-                        self.q(table),
-                        table,
+                        self.q_table(table),
+                        table.name,
                     ),
-                    _ => format!("ALTER TABLE {} DROP PRIMARY KEY", self.q(table)),
+                    _ => format!("ALTER TABLE {} DROP PRIMARY KEY", self.q_table(table)),
                 };
                 Ok(vec![
                     drop_stmt,
                     format!(
                         "ALTER TABLE {} ADD PRIMARY KEY ({})",
-                        self.q(table),
+                        self.q_table(table),
                         pk_cols,
                     ),
                 ])
@@ -247,7 +255,7 @@ impl<'a> DiffApplier<'a> {
         }
     }
 
-    fn sql_add_column(&self, table: &str, field: &FieldIr) -> Result<Vec<String>> {
+    fn sql_add_column(&self, table: &TableName, field: &FieldIr) -> Result<Vec<String>> {
         if field.is_required && field.default_value.is_none() && field.computed.is_none() {
             return Err(MigrationError::UnsupportedChange(format!(
                 "Column {}.{} is NOT NULL but has no @default(). \
@@ -259,23 +267,23 @@ impl<'a> DiffApplier<'a> {
         let col_def = self.column_definition(table, field)?;
         Ok(vec![format!(
             "ALTER TABLE {} ADD COLUMN {}",
-            self.q(table),
+            self.q_table(table),
             col_def,
         )])
     }
 
-    fn sql_drop_column(&self, table: &str, column: &str) -> Result<Vec<String>> {
+    fn sql_drop_column(&self, table: &TableName, column: &str) -> Result<Vec<String>> {
         match self.provider {
             DatabaseProvider::Postgres | DatabaseProvider::Mysql => Ok(vec![format!(
                 "ALTER TABLE {} DROP COLUMN {}",
-                self.q(table),
+                self.q_table(table),
                 self.q(column),
             )]),
             DatabaseProvider::Sqlite => self.sqlite_rebuild(table),
         }
     }
 
-    fn sql_alter_column_type(&self, table: &str, column: &str) -> Result<Vec<String>> {
+    fn sql_alter_column_type(&self, table: &TableName, column: &str) -> Result<Vec<String>> {
         let field = self.find_field(table, column)?;
         let type_sql = self.ddl.column_type_sql(field)?;
         let col_def = self.mysql_full_col_def(table, field)?;
@@ -293,7 +301,7 @@ impl<'a> DiffApplier<'a> {
 
     fn sql_alter_column_nullability(
         &self,
-        table: &str,
+        table: &TableName,
         column: &str,
         now_required: bool,
     ) -> Result<Vec<String>> {
@@ -330,7 +338,7 @@ impl<'a> DiffApplier<'a> {
 
     fn sql_alter_column_default(
         &self,
-        table: &str,
+        table: &TableName,
         column: &str,
         new_default: Option<&str>,
     ) -> Result<Vec<String>> {
@@ -372,7 +380,7 @@ impl<'a> DiffApplier<'a> {
     /// MySQL has no dedicated statement for the attribute; it is restated as
     /// part of a full `MODIFY COLUMN`, which [`Self::full_col_def`] already
     /// renders with or without `AUTO_INCREMENT` depending on the target schema.
-    fn sql_alter_auto_increment(&self, table: &str, column: &str) -> Result<Vec<String>> {
+    fn sql_alter_auto_increment(&self, table: &TableName, column: &str) -> Result<Vec<String>> {
         if self.provider != DatabaseProvider::Mysql {
             return Err(MigrationError::UnsupportedChange(format!(
                 "AUTO_INCREMENT is a MySQL column attribute; {}.{} cannot be altered on {:?}",
@@ -383,14 +391,14 @@ impl<'a> DiffApplier<'a> {
         let field = self.find_field(table, column)?;
         Ok(vec![format!(
             "ALTER TABLE {} MODIFY COLUMN {}",
-            self.q(table),
+            self.q_table(table),
             self.full_col_def(table, field)?,
         )])
     }
 
     /// Generated columns cannot be altered in-place on any provider, so the
     /// column is dropped and re-added with the new expression.
-    fn sql_alter_computed_column(&self, table: &str, field: &FieldIr) -> Result<Vec<String>> {
+    fn sql_alter_computed_column(&self, table: &TableName, field: &FieldIr) -> Result<Vec<String>> {
         match self.provider {
             DatabaseProvider::Sqlite => self.sqlite_rebuild(table),
             DatabaseProvider::Postgres | DatabaseProvider::Mysql => {
@@ -398,10 +406,10 @@ impl<'a> DiffApplier<'a> {
                 Ok(vec![
                     format!(
                         "ALTER TABLE {} DROP COLUMN {}",
-                        self.q(table),
+                        self.q_table(table),
                         self.q(&field.db_name),
                     ),
-                    format!("ALTER TABLE {} ADD COLUMN {}", self.q(table), col_def,),
+                    format!("ALTER TABLE {} ADD COLUMN {}", self.q_table(table), col_def,),
                 ])
             }
         }
@@ -409,7 +417,7 @@ impl<'a> DiffApplier<'a> {
 
     fn sql_create_index(
         &self,
-        table: &str,
+        table: &TableName,
         columns: &[String],
         unique: bool,
         kind: &nautilus_schema::ir::IndexKind,
@@ -430,7 +438,7 @@ impl<'a> DiffApplier<'a> {
         })])
     }
 
-    fn sql_drop_index(&self, table: &str, index_name: &str) -> Result<Vec<String>> {
+    fn sql_drop_index(&self, table: &TableName, index_name: &str) -> Result<Vec<String>> {
         match self.provider {
             DatabaseProvider::Postgres | DatabaseProvider::Sqlite => {
                 Ok(vec![format!("DROP INDEX IF EXISTS {}", self.q(index_name))])
@@ -438,14 +446,14 @@ impl<'a> DiffApplier<'a> {
             DatabaseProvider::Mysql => Ok(vec![format!(
                 "DROP INDEX {} ON {}",
                 self.q(index_name),
-                self.q(table),
+                self.q_table(table),
             )]),
         }
     }
 
     fn sql_alter_check(
         &self,
-        table: &str,
+        table: &TableName,
         column: Option<&str>,
         drop_existing: bool,
         new_expr: Option<&str>,
@@ -460,12 +468,12 @@ impl<'a> DiffApplier<'a> {
                     stmts.push(match self.provider {
                         DatabaseProvider::Mysql => format!(
                             "ALTER TABLE {} DROP CHECK {}",
-                            self.q(table),
+                            self.q_table(table),
                             self.q(&constraint_name),
                         ),
                         _ => format!(
                             "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}",
-                            self.q(table),
+                            self.q_table(table),
                             self.q(&constraint_name),
                         ),
                     });
@@ -474,7 +482,7 @@ impl<'a> DiffApplier<'a> {
                 if let Some(expr) = new_expr {
                     stmts.push(format!(
                         "ALTER TABLE {} ADD CONSTRAINT {} CHECK ({})",
-                        self.q(table),
+                        self.q_table(table),
                         self.q(&constraint_name),
                         expr,
                     ));
@@ -491,10 +499,10 @@ impl<'a> DiffApplier<'a> {
             DatabaseProvider::Postgres | DatabaseProvider::Mysql => {
                 let mut sql = format!(
                     "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
-                    self.q(fk.table),
+                    self.q_table(fk.table),
                     self.q(fk.constraint_name),
                     self.quote_join(fk.columns),
-                    self.q(fk.referenced_table),
+                    self.q_table(fk.referenced_table),
                     self.quote_join(fk.referenced_columns),
                 );
                 if let Some(action) = fk.on_delete {
@@ -508,17 +516,21 @@ impl<'a> DiffApplier<'a> {
         }
     }
 
-    fn sql_drop_foreign_key(&self, table: &str, constraint_name: &str) -> Result<Vec<String>> {
+    fn sql_drop_foreign_key(
+        &self,
+        table: &TableName,
+        constraint_name: &str,
+    ) -> Result<Vec<String>> {
         match self.provider {
             DatabaseProvider::Sqlite => self.sqlite_rebuild(table),
             DatabaseProvider::Postgres => Ok(vec![format!(
                 "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}",
-                self.q(table),
+                self.q_table(table),
                 self.q(constraint_name),
             )]),
             DatabaseProvider::Mysql => Ok(vec![format!(
                 "ALTER TABLE {} DROP FOREIGN KEY {}",
-                self.q(table),
+                self.q_table(table),
                 self.q(constraint_name),
             )]),
         }
@@ -671,7 +683,7 @@ impl<'a> DiffApplier<'a> {
     /// freshly created one, preserving its DEFAULT across the cast.
     fn recast_enum_column(
         &self,
-        table_name: &str,
+        table_name: &TableName,
         col: &crate::live::LiveColumn,
         enum_name: &str,
         old_name: &str,
@@ -681,7 +693,7 @@ impl<'a> DiffApplier<'a> {
         if col.default_value.is_some() {
             stmts.push(format!(
                 "ALTER TABLE {} ALTER COLUMN {} DROP DEFAULT",
-                self.q(table_name),
+                self.q_table(table_name),
                 self.q(&col.name),
             ));
         }
@@ -689,7 +701,7 @@ impl<'a> DiffApplier<'a> {
         stmts.push(format!(
             "ALTER TABLE {} ALTER COLUMN {} TYPE {} \
              USING {}::text::{}",
-            self.q(table_name),
+            self.q_table(table_name),
             self.q(&col.name),
             self.type_q(enum_name),
             self.q(&col.name),
@@ -706,7 +718,7 @@ impl<'a> DiffApplier<'a> {
             };
             stmts.push(format!(
                 "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT {}",
-                self.q(table_name),
+                self.q_table(table_name),
                 self.q(&col.name),
                 new_default,
             ));
@@ -717,7 +729,7 @@ impl<'a> DiffApplier<'a> {
 
     /// Whether `field` is the table's single-column `autoincrement()` primary
     /// key, which MySQL and SQLite spell out in the column definition.
-    fn is_autoincrement_pk(&self, table: &str, field: &FieldIr) -> bool {
+    fn is_autoincrement_pk(&self, table: &TableName, field: &FieldIr) -> bool {
         self.find_model(table).is_ok_and(|model| {
             crate::ddl::DdlGenerator::autoincrement_primary_key(model)
                 .is_some_and(|name| name == field.logical_name)
@@ -726,7 +738,7 @@ impl<'a> DiffApplier<'a> {
 
     /// Render the full column definition for `field`, erroring out with the
     /// table/column name when the generator cannot produce one.
-    fn column_definition(&self, table: &str, field: &FieldIr) -> Result<String> {
+    fn column_definition(&self, table: &TableName, field: &FieldIr) -> Result<String> {
         self.ddl
             .generate_column_definition(field, self.schema, self.is_autoincrement_pk(table, field))?
             .ok_or_else(|| {
@@ -739,7 +751,7 @@ impl<'a> DiffApplier<'a> {
 
     /// MySQL `ALTER COLUMN` restates the whole column definition; the other
     /// providers do not need it.
-    fn mysql_full_col_def(&self, table: &str, field: &FieldIr) -> Result<Option<String>> {
+    fn mysql_full_col_def(&self, table: &TableName, field: &FieldIr) -> Result<Option<String>> {
         if self.provider == DatabaseProvider::Mysql {
             Ok(Some(self.full_col_def(table, field)?))
         } else {
@@ -760,7 +772,17 @@ impl<'a> DiffApplier<'a> {
         self.provider.quote_identifier(name)
     }
 
-    fn materialize_provider_plan(&self, table: &str, plan: ProviderSqlPlan) -> Result<Vec<String>> {
+    /// Quote a table in the statement's table position, qualifying it with its
+    /// schema when it has one.
+    fn q_table(&self, table: &TableName) -> String {
+        self.strategy().quote_table(table)
+    }
+
+    fn materialize_provider_plan(
+        &self,
+        table: &TableName,
+        plan: ProviderSqlPlan,
+    ) -> Result<Vec<String>> {
         match plan {
             ProviderSqlPlan::Statements(stmts) => Ok(stmts),
             ProviderSqlPlan::RequiresTableRebuild => self.sqlite_rebuild(table),
@@ -773,7 +795,7 @@ impl<'a> DiffApplier<'a> {
     }
 
     /// Find a [`FieldIr`] by table DB-name and column DB-name.
-    fn find_field(&self, table: &str, column: &str) -> Result<&FieldIr> {
+    fn find_field(&self, table: &TableName, column: &str) -> Result<&FieldIr> {
         let model = self.find_model(table)?;
         model
             .fields
@@ -783,17 +805,17 @@ impl<'a> DiffApplier<'a> {
     }
 
     /// Find a [`ModelIr`] by table DB-name.
-    fn find_model(&self, table: &str) -> Result<&ModelIr> {
+    fn find_model(&self, table: &TableName) -> Result<&ModelIr> {
         self.schema
             .models
             .values()
-            .find(|m| m.db_name == table)
+            .find(|m| crate::live::model_table(m) == *table)
             .ok_or_else(|| MigrationError::Other(format!("Model not found for table: {}", table)))
     }
 
     /// Generate the full column definition string for a field.
     /// Used for MySQL `MODIFY COLUMN` which needs the complete definition.
-    fn full_col_def(&self, table: &str, field: &FieldIr) -> Result<String> {
+    fn full_col_def(&self, table: &TableName, field: &FieldIr) -> Result<String> {
         self.ddl
             .generate_column_definition(field, self.schema, self.is_autoincrement_pk(table, field))?
             .ok_or_else(|| {
@@ -826,7 +848,7 @@ impl<'a> DiffApplier<'a> {
     /// Generate the 4-statement SQLite full-table rebuild for `table`.
     ///
     /// All four statements must be executed inside a single transaction.
-    fn sqlite_rebuild(&self, table: &str) -> Result<Vec<String>> {
+    fn sqlite_rebuild(&self, table: &TableName) -> Result<Vec<String>> {
         let model = self.find_model(table)?;
         let live_table = self
             .live
@@ -834,7 +856,7 @@ impl<'a> DiffApplier<'a> {
             .get(table)
             .ok_or_else(|| MigrationError::Other(format!("Live table not found: {}", table)))?;
 
-        let tmp_name = format!("__tmp_{}", table);
+        let tmp_name = format!("__tmp_{}", table.name);
 
         // Generate CREATE TABLE for the temp name by cloning the model with
         // a different db_name so the DDL generator quotes it correctly.
@@ -867,27 +889,27 @@ impl<'a> DiffApplier<'a> {
                 self.q(&tmp_name),
                 cols_sql,
                 cols_sql,
-                self.q(table),
+                self.q_table(table),
             ),
-            format!("DROP TABLE {}", self.q(table)),
+            format!("DROP TABLE {}", self.q_table(table)),
             format!(
                 "ALTER TABLE {} RENAME TO {}",
                 self.q(&tmp_name),
-                self.q(table),
+                self.q_table(table),
             ),
         ])
     }
 }
 
 /// Derive a deterministic index name from the table and column list.
-fn index_name_auto(table: &str, columns: &[String]) -> String {
-    format!("idx_{}_{}", table, columns.join("_"))
+fn index_name_auto(table: &TableName, columns: &[String]) -> String {
+    format!("idx_{}_{}", table.name, columns.join("_"))
 }
 
 /// Derive a deterministic CHECK constraint name from table and optional column.
-fn check_constraint_name(table: &str, column: Option<&str>) -> String {
+fn check_constraint_name(table: &TableName, column: Option<&str>) -> String {
     match column {
-        Some(col) => format!("chk_{}_{}", table, col),
-        None => format!("chk_{}", table),
+        Some(col) => format!("chk_{}_{}", table.name, col),
+        None => format!("chk_{}", table.name),
     }
 }

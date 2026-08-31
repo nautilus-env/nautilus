@@ -3,12 +3,13 @@
 use crate::column::ColumnMarker;
 use crate::error::{Error, Result};
 use crate::expr::Expr;
+use crate::table::TableName;
 
 /// DELETE query AST node.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Delete {
     /// Table name.
-    pub table: String,
+    pub table: TableName,
     /// WHERE clause.
     pub filter: Option<Expr>,
     /// Columns to return (RETURNING clause). Empty = no RETURNING.
@@ -17,7 +18,7 @@ pub struct Delete {
 
 impl Delete {
     /// Creates a new DELETE query builder for the given table.
-    pub fn from_table(table: impl Into<String>) -> DeleteBuilder {
+    pub fn from_table(table: impl Into<TableName>) -> DeleteBuilder {
         DeleteBuilder {
             table: table.into(),
             filter: None,
@@ -36,7 +37,7 @@ pub struct DeleteCapacity {
 /// Builder for DELETE queries.
 #[derive(Debug, Clone)]
 pub struct DeleteBuilder {
-    table: String,
+    table: TableName,
     filter: Option<Expr>,
     returning: Vec<ColumnMarker>,
 }

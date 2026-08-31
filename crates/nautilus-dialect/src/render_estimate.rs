@@ -41,7 +41,7 @@ impl RenderEstimate {
 
 /// Estimate the render-time capacity for a SELECT query.
 pub(crate) fn estimate_select_render(select: &Select) -> RenderEstimate {
-    let mut estimate = RenderEstimate::new(32 + estimate_identifier_len(&select.table), 0);
+    let mut estimate = RenderEstimate::new(32 + estimate_table_name_len(&select.table), 0);
 
     if select.items.is_empty() && select.joins.iter().all(|join| join.items.is_empty()) {
         estimate.add_sql(1);
@@ -66,7 +66,7 @@ pub(crate) fn estimate_select_render(select: &Select) -> RenderEstimate {
     }
 
     for join in &select.joins {
-        estimate.add_sql(24 + estimate_identifier_len(&join.table));
+        estimate.add_sql(24 + estimate_table_name_len(&join.table));
         estimate.merge(estimate_expr_render(&join.on));
     }
 
@@ -136,7 +136,7 @@ pub(crate) fn estimate_select_render(select: &Select) -> RenderEstimate {
 
 /// Estimate the render-time capacity for an INSERT query.
 pub(crate) fn estimate_insert_render(insert: &Insert) -> RenderEstimate {
-    let mut estimate = RenderEstimate::new(32 + estimate_identifier_len(&insert.table), 0);
+    let mut estimate = RenderEstimate::new(32 + estimate_table_name_len(&insert.table), 0);
 
     for column in &insert.columns {
         estimate.add_sql(estimate_identifier_len(&column.name) + 2);
@@ -186,7 +186,7 @@ pub(crate) fn estimate_insert_render(insert: &Insert) -> RenderEstimate {
 
 /// Estimate the render-time capacity for an UPDATE query.
 pub(crate) fn estimate_update_render(update: &Update) -> RenderEstimate {
-    let mut estimate = RenderEstimate::new(24 + estimate_identifier_len(&update.table), 0);
+    let mut estimate = RenderEstimate::new(24 + estimate_table_name_len(&update.table), 0);
 
     for (column, value) in &update.assignments {
         estimate.add_sql(estimate_identifier_len(&column.name) + 6);
@@ -222,7 +222,7 @@ pub(crate) fn estimate_update_render(update: &Update) -> RenderEstimate {
 
 /// Estimate the render-time capacity for a DELETE query.
 pub(crate) fn estimate_delete_render(delete: &Delete) -> RenderEstimate {
-    let mut estimate = RenderEstimate::new(24 + estimate_identifier_len(&delete.table), 0);
+    let mut estimate = RenderEstimate::new(24 + estimate_table_name_len(&delete.table), 0);
 
     if let Some(filter) = delete.filter.as_ref() {
         estimate.add_sql(7);
@@ -329,9 +329,9 @@ fn estimate_expr_render(expr: &nautilus_core::Expr) -> RenderEstimate {
         }
         Expr::Relation { relation, .. } => {
             let mut estimate =
-                RenderEstimate::new(40 + estimate_identifier_len(&relation.target_table), 0);
+                RenderEstimate::new(40 + estimate_table_name_len(&relation.target_table), 0);
             estimate.add_sql(estimate_qualified_identifier_len(
-                &relation.target_table,
+                relation.target_table.as_str(),
                 &relation.fk_db,
             ));
             estimate.add_sql(estimate_qualified_identifier_len(
@@ -383,6 +383,13 @@ fn estimate_column_alias_len(column: &nautilus_core::ColumnMarker) -> usize {
 
 fn estimate_identifier_len(name: &str) -> usize {
     name.len() + 4
+}
+
+fn estimate_table_name_len(table: &nautilus_core::TableName) -> usize {
+    match table.schema() {
+        Some(schema) => estimate_identifier_len(schema) + 1 + estimate_identifier_len(&table.name),
+        None => estimate_identifier_len(&table.name),
+    }
 }
 
 fn decimal_len_u64(mut value: u64) -> usize {

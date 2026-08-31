@@ -1009,6 +1009,12 @@ fn model_attribute_completions() -> Vec<CompletionItem> {
             CompletionKind::ModelAttribute,
             Some("Leave this table out of the client and of every migration".to_string()),
         ),
+        CompletionItem::with_snippet(
+            "schema(\"\")",
+            "schema(\"${1:public}\")",
+            CompletionKind::ModelAttribute,
+            Some("PostgreSQL schema that owns this table".to_string()),
+        ),
     ]
 }
 
@@ -1038,6 +1044,11 @@ fn datasource_field_completions() -> Vec<CompletionItem> {
             "preserve_extensions",
             CompletionKind::FieldName,
             Some("Preserve live PostgreSQL extensions not listed in the schema".to_string()),
+        ),
+        CompletionItem::new(
+            "schemas",
+            CompletionKind::FieldName,
+            Some("PostgreSQL schemas this datasource spans".to_string()),
         ),
     ]
 }

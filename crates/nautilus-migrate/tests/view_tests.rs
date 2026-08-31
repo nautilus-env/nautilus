@@ -1,3 +1,4 @@
+use nautilus_core::TableName;
 mod common;
 
 use nautilus_migrate::live::{LiveColumn, LiveSchema, LiveTable};
@@ -67,9 +68,9 @@ fn diff_leaves_a_live_view_alone() {
 
     let mut live = LiveSchema::default();
     live.tables.insert(
-        "User".to_string(),
+        TableName::new("User".to_string()),
         LiveTable {
-            name: "User".to_string(),
+            name: TableName::new("User".to_string()),
             columns: vec![
                 column("id", "integer", false),
                 column("email", "text", false),
@@ -81,9 +82,9 @@ fn diff_leaves_a_live_view_alone() {
         },
     );
     live.views.insert(
-        "active_users".to_string(),
+        TableName::new("active_users".to_string()),
         LiveTable {
-            name: "active_users".to_string(),
+            name: TableName::new("active_users".to_string()),
             columns: vec![
                 column("id", "integer", false),
                 column("email", "text", false),
@@ -106,9 +107,9 @@ fn diff_leaves_a_live_view_alone() {
 fn db_pull_renders_a_view_block() {
     let mut live = LiveSchema::default();
     live.tables.insert(
-        "users".to_string(),
+        TableName::new("users".to_string()),
         LiveTable {
-            name: "users".to_string(),
+            name: TableName::new("users".to_string()),
             columns: vec![
                 column("id", "integer", false),
                 column("email", "text", false),
@@ -120,9 +121,9 @@ fn db_pull_renders_a_view_block() {
         },
     );
     live.views.insert(
-        "active_users".to_string(),
+        TableName::new("active_users".to_string()),
         LiveTable {
-            name: "active_users".to_string(),
+            name: TableName::new("active_users".to_string()),
             columns: vec![column("id", "integer", true), column("email", "text", true)],
             primary_key: Vec::new(),
             indexes: Vec::new(),

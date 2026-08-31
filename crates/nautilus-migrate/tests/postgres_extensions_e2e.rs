@@ -1,3 +1,4 @@
+use nautilus_core::TableName;
 mod common;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -143,7 +144,7 @@ model PgExtDoc {{
 
         let table = live
             .tables
-            .get("PgExtDoc")
+            .get(&TableName::new("PgExtDoc"))
             .expect("expected PgExtDoc in inspected schema");
         let column_type = |name: &str| {
             table
@@ -299,7 +300,7 @@ model Embedding {{
 
         let table = live
             .tables
-            .get("Embedding")
+            .get(&TableName::new("Embedding"))
             .expect("expected Embedding in inspected schema");
         let column_type = table
             .columns

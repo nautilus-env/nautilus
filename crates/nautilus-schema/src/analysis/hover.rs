@@ -648,6 +648,7 @@ fn model_hover_content(
             }
             ModelAttribute::Check { expr, .. } => Some(format!("_@@check({})_", expr)),
             ModelAttribute::Ignore { .. } => Some("_@@ignore_".to_string()),
+            ModelAttribute::Schema { name, .. } => Some(format!("_@@schema(\"{}\")_", name)),
         })
         .collect();
 
