@@ -492,28 +492,18 @@ jobs:
             find target/distrib -type f | sort
             exit 1
           fi
-          echo "Publishing $pkg"
+          echo "Using $pkg"
           mkdir -p /tmp/npm-pkg
           tar xf "$pkg" -C /tmp/npm-pkg
           cd /tmp/npm-pkg/package
-          # Fix invalid scoped name (e.g. @y0gm4/nautilus/nautilus-orm -> @y0gm4/nautilus-orm)
-          node -e "
-            const fs = require('fs');
-            const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            if ((p.name.match(/\//g) || []).length > 1) {
-              p.name = '@y0gm4/nautilus-orm';
-            }
-            fs.writeFileSync('package.json', JSON.stringify(p, null, 2));
-            console.log('npm package name:', p.name);
-          "
-          output=$(npm publish --access public 2>&1) && echo "$output" || {
-            if echo "$output" | grep -q "previously published versions\|E403\|already exists"; then
-              echo "Version already published, skipping"
-            else
-              echo "$output"
-              exit 1
-            fi
-          }
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          echo "Publishing $name@$version"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "Version already published, skipping"
+            exit 0
+          fi
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
