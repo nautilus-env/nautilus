@@ -1,0 +1,12 @@
+generator client {
+  provider    = "nautilus-client-java"
+  output      = "./generated-java"
+  package     = "com.acme.db"
+  group_id    = "com.acme"
+  artifact_id = "db-client"
+}
+
+model User {
+  id   Int    @id @default(autoincrement())
+  name String
+}

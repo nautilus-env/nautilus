@@ -3,6 +3,20 @@ use nautilus_core::{BinaryOp, Expr, OrderDir, Value, VectorMetric};
 use nautilus_schema::validate_schema_source;
 use serde_json::json;
 
+/// A pgvector-enabled schema; the tests below are about the filter, not it.
+const VECTOR_USER_SCHEMA: &str = r#"
+datasource db {
+  provider   = "postgresql"
+  url        = "postgres://localhost/test"
+  extensions = [vector]
+}
+
+model User {
+  id        Int @id
+  embedding Vector(3)
+}
+"#;
+
 fn parse_ir(source: &str) -> nautilus_schema::ir::SchemaIr {
     validate_schema_source(source)
         .expect("validation failed")
@@ -61,20 +75,7 @@ fn select_contains_column(select: &nautilus_core::Select, expected: &str) -> boo
 
 #[test]
 fn vector_fields_reject_classic_order_by() {
-    let (relations, field_types, models) = user_query_context(
-        r#"
-datasource db {
-  provider   = "postgresql"
-  url        = "postgres://localhost/test"
-  extensions = [vector]
-}
-
-model User {
-  id        Int @id
-  embedding Vector(3)
-}
-"#,
-    );
+    let (relations, field_types, models) = user_query_context(VECTOR_USER_SCHEMA);
     let args = json!({ "orderBy": [{ "embedding": "asc" }] });
 
     let err = match QueryArgs::parse_with_context(
@@ -93,20 +94,7 @@ model User {
 
 #[test]
 fn vector_fields_reject_range_filters() {
-    let (_, field_types, _) = user_query_context(
-        r#"
-datasource db {
-  provider   = "postgresql"
-  url        = "postgres://localhost/test"
-  extensions = [vector]
-}
-
-model User {
-  id        Int @id
-  embedding Vector(3)
-}
-"#,
-    );
+    let (_, field_types, _) = user_query_context(VECTOR_USER_SCHEMA);
     let filter = json!({ "embedding": { "gt": [0.1, 0.2, 0.3] } });
 
     let err = parse_where_filter(
@@ -121,20 +109,7 @@ model User {
 
 #[test]
 fn vector_nearest_query_parses_with_metric_and_take() {
-    let (relations, field_types, models) = user_query_context(
-        r#"
-datasource db {
-  provider   = "postgresql"
-  url        = "postgres://localhost/test"
-  extensions = [vector]
-}
-
-model User {
-  id        Int @id
-  embedding Vector(3)
-}
-"#,
-    );
+    let (relations, field_types, models) = user_query_context(VECTOR_USER_SCHEMA);
     let args = json!({
         "nearest": {
             "field": "embedding",
@@ -161,20 +136,7 @@ model User {
 
 #[test]
 fn vector_nearest_query_requires_positive_take() {
-    let (relations, field_types, models) = user_query_context(
-        r#"
-datasource db {
-  provider   = "postgresql"
-  url        = "postgres://localhost/test"
-  extensions = [vector]
-}
-
-model User {
-  id        Int @id
-  embedding Vector(3)
-}
-"#,
-    );
+    let (relations, field_types, models) = user_query_context(VECTOR_USER_SCHEMA);
     let args = json!({
         "nearest": {
             "field": "embedding",

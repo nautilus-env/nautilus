@@ -3,16 +3,11 @@
 use nautilus_codegen::parse_schema;
 use nautilus_schema::validate_schema;
 
+const USER_SCHEMA: &str = include_str!("fixtures/schemas/user.nautilus");
+
 #[test]
 fn test_parse_schema_valid_returns_ast() {
-    let result = parse_schema(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let result = parse_schema(USER_SCHEMA);
     assert!(
         result.is_ok(),
         "expected valid schema to parse successfully: {:?}",

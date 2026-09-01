@@ -20,12 +20,8 @@ fn validate(source: &str) -> nautilus_schema::ir::SchemaIr {
         .ir
 }
 
-const SIMPLE_SCHEMA: &str = r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#;
+const USER_POST_SCHEMA: &str = include_str!("fixtures/schemas/user_post.nautilus");
+const USER_SCHEMA: &str = include_str!("fixtures/schemas/user.nautilus");
 
 const ENUM_SCHEMA: &str = r#"
 enum Status {
@@ -96,12 +92,12 @@ model User {
 /// Non-standalone mode creates src/lib.rs and src/<model>.rs but no Cargo.toml.
 #[test]
 fn test_write_rust_code_creates_model_and_lib_files() {
-    let ir = validate(SIMPLE_SCHEMA);
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(path, &models, None, None, &[], SIMPLE_SCHEMA, false)
+    write_rust_code(path, &models, None, None, &[], USER_SCHEMA, false)
         .expect("write_rust_code failed");
 
     assert!(
@@ -129,12 +125,12 @@ fn test_write_rust_code_creates_model_and_lib_files() {
 /// Standalone mode additionally creates a Cargo.toml at the output root.
 #[test]
 fn test_write_rust_code_standalone_creates_cargo_toml() {
-    let ir = validate(SIMPLE_SCHEMA);
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(path, &models, None, None, &[], SIMPLE_SCHEMA, true)
+    write_rust_code(path, &models, None, None, &[], USER_SCHEMA, true)
         .expect("write_rust_code (standalone) failed");
 
     assert!(
@@ -269,12 +265,12 @@ fn test_write_rust_code_lib_rs_contains_template_exports() {
 
 #[test]
 fn test_write_rust_code_writes_event_runtime_and_client_hooks() {
-    let ir = validate(SIMPLE_SCHEMA);
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(path, &models, None, None, &[], SIMPLE_SCHEMA, false)
+    write_rust_code(path, &models, None, None, &[], USER_SCHEMA, false)
         .expect("write_rust_code failed");
 
     let events_content = std::fs::read_to_string(tmp.path().join("src").join("events.rs"))
@@ -316,12 +312,12 @@ fn test_write_rust_code_writes_event_runtime_and_client_hooks() {
 
 #[test]
 fn test_write_rust_code_runtime_exposes_pool_options_for_embedded_and_direct_paths() {
-    let ir = validate(SIMPLE_SCHEMA);
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(path, &models, None, None, &[], SIMPLE_SCHEMA, false)
+    write_rust_code(path, &models, None, None, &[], USER_SCHEMA, false)
         .expect("write_rust_code failed");
 
     let runtime_content = std::fs::read_to_string(tmp.path().join("src").join("runtime.rs"))
@@ -438,12 +434,12 @@ fn test_write_rust_code_auto_engine_mode_keeps_direct_and_engine_paths_separate(
 
 #[test]
 fn test_write_rust_code_uses_execute_fast_paths_in_generated_queries() {
-    let ir = validate(SIMPLE_SCHEMA);
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(path, &models, None, None, &[], SIMPLE_SCHEMA, false)
+    write_rust_code(path, &models, None, None, &[], USER_SCHEMA, false)
         .expect("write_rust_code failed");
 
     let user_content =
@@ -470,41 +466,13 @@ fn test_write_rust_code_uses_execute_fast_paths_in_generated_queries() {
 /// Multiple models each get their own snake_case .rs file.
 #[test]
 fn test_write_rust_code_multiple_models() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-model Post {
-  id    Int    @id @default(autoincrement())
-  title String
-}
-"#,
-    );
+    let ir = validate(USER_POST_SCHEMA);
     let models = generate_all_models(&ir, false).expect("models should generate");
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
     let path = tmp.path().to_str().unwrap();
 
-    write_rust_code(
-        path,
-        &models,
-        None,
-        None,
-        &[],
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-model Post {
-  id    Int    @id @default(autoincrement())
-  title String
-}
-"#,
-        false,
-    )
-    .expect("write_rust_code failed");
+    write_rust_code(path, &models, None, None, &[], USER_POST_SCHEMA, false)
+        .expect("write_rust_code failed");
 
     assert!(
         tmp.path().join("src").join("user.rs").exists(),
@@ -568,7 +536,7 @@ fn test_write_rust_code_standalone_generated_client_compiles() {
 
 #[test]
 fn test_write_rust_code_standalone_event_macro_consumer_compiles() {
-    let ir = validate(SIMPLE_SCHEMA);
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("models should generate");
     let crate_dir = std::env::current_dir().expect("failed to get current directory");
     let workspace_root = crate_dir
@@ -588,7 +556,7 @@ fn test_write_rust_code_standalone_event_macro_consumer_compiles() {
         None,
         None,
         &[],
-        SIMPLE_SCHEMA,
+        USER_SCHEMA,
         true,
     )
     .expect("write_rust_code failed");
@@ -678,7 +646,7 @@ fn main() {}
 /// Verifies the expected Python package directory structure is created.
 #[test]
 fn test_write_python_code_creates_package_structure() {
-    let ir = validate(SIMPLE_SCHEMA);
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_python_models(&ir, false, 0).expect("models should generate");
     let enums_code = None;
     let client_code = Some(
@@ -752,7 +720,7 @@ fn test_write_python_code_with_enums() {
 /// client.py is only created when a client_code is supplied (Some).
 #[test]
 fn test_write_python_code_without_client_no_client_py() {
-    let ir = validate(SIMPLE_SCHEMA);
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_python_models(&ir, false, 0).expect("models should generate");
     let runtime_files = python_runtime_files();
     let tmp = tempfile::TempDir::new().expect("failed to create temp dir");

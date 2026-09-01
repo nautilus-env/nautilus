@@ -27,6 +27,15 @@ use nautilus_codegen::{
 };
 use nautilus_schema::validate_schema_source;
 
+const BLOG_RELATIONS_SCHEMA: &str = include_str!("fixtures/schemas/blog_relations.nautilus");
+const COMPOSITE_ADDRESS_SCHEMA: &str = include_str!("fixtures/schemas/composite_address.nautilus");
+const JAVA_CLIENT_ASYNC_SCHEMA: &str = include_str!("fixtures/schemas/java_client_async.nautilus");
+const JAVA_CLIENT_SCHEMA: &str = include_str!("fixtures/schemas/java_client.nautilus");
+const JAVA_CLIENT_SYNC_SCHEMA: &str = include_str!("fixtures/schemas/java_client_sync.nautilus");
+const USER_MAPPED_SCHEMA: &str = include_str!("fixtures/schemas/user_mapped.nautilus");
+const USER_POST_SCHEMA: &str = include_str!("fixtures/schemas/user_post.nautilus");
+const USER_SCHEMA: &str = include_str!("fixtures/schemas/user.nautilus");
+
 fn local_snapshots_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
 
@@ -107,14 +116,7 @@ fn section_until<'a>(code: &'a str, start_marker: &str, end_marker: &str) -> &'a
 
 #[test]
 fn test_rust_struct_is_generated() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");
     assert_local_snapshot!(code);
@@ -158,14 +160,7 @@ model Post {
 
 #[test]
 fn test_rust_generates_find_many_builder() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");
     assert!(
@@ -286,19 +281,7 @@ model User {
 
 #[test]
 fn test_rust_multiple_models_generated() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-
-model Post {
-  id    Int    @id @default(autoincrement())
-  title String
-}
-"#,
-    );
+    let ir = validate(USER_POST_SCHEMA);
     let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     assert!(models.contains_key("User"), "expected User model");
     assert!(models.contains_key("Post"), "expected Post model");
@@ -306,14 +289,7 @@ model Post {
 
 #[test]
 fn test_rust_async_generates_async_fns() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let sync_models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let async_models = generate_all_models(&ir, true).expect("generate_all_models should succeed");
     let sync_code = sync_models.get("User").unwrap();
@@ -408,14 +384,7 @@ model Post {
 
 #[test]
 fn test_rust_async_delegate_exposes_stream_many() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let async_models = generate_all_models(&ir, true).expect("generate_all_models should succeed");
     let async_code = async_models.get("User").expect("User missing");
 
@@ -571,14 +540,7 @@ model Post {
 
 #[test]
 fn test_python_class_is_generated() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_python_models(&ir, false, 0)
         .expect("generate_all_python_models should succeed");
     let (_, code) = models
@@ -701,14 +663,7 @@ model User {
 
 #[test]
 fn test_python_async_generates_async_defs() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let sync_models = generate_all_python_models(&ir, false, 0)
         .expect("generate_all_python_models should succeed");
     let async_models = generate_all_python_models(&ir, true, 0)
@@ -725,19 +680,7 @@ model User {
 
 #[test]
 fn test_python_multiple_models_generated() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-
-model Post {
-  id    Int    @id @default(autoincrement())
-  title String
-}
-"#,
-    );
+    let ir = validate(USER_POST_SCHEMA);
     let models = generate_all_python_models(&ir, false, 0)
         .expect("generate_all_python_models should succeed");
     let names: Vec<&str> = models.iter().map(|(n, _)| n.as_str()).collect();
@@ -749,19 +692,7 @@ model Post {
 /// `NautilusClient` class and per-model delegate attributes.
 #[test]
 fn test_python_client_generation() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-
-model Post {
-  id    Int    @id @default(autoincrement())
-  title String
-}
-"#,
-    );
+    let ir = validate(USER_POST_SCHEMA);
     let client_sync = generate_python_client(&ir.models, "schema.nautilus", false)
         .expect("generate_python_client should succeed");
     let client_async = generate_python_client(&ir.models, "schema.nautilus", true)
@@ -783,14 +714,7 @@ model Post {
 
 #[test]
 fn test_js_client_exposes_batch_transactions_and_runtime_stays_on_protocol_v1() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let (client_js, client_dts) = generate_js_client(&ir.models, "schema.nautilus")
         .expect("generate_js_client should succeed");
     let runtime = js_runtime_files();
@@ -899,14 +823,7 @@ fn test_python_runtime_stays_on_protocol_v1_and_preserves_error_data() {
 
 #[test]
 fn test_python_runtime_exposes_engine_pool_options() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let client = generate_python_client(&ir.models, "schema.nautilus", false)
         .expect("generate_python_client should succeed");
     let runtime = python_runtime_files();
@@ -933,14 +850,7 @@ model User {
 
 #[test]
 fn test_generated_python_and_js_cud_event_api() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
 
     let py_models = generate_all_python_models(&ir, true, 0)
         .expect("generate_all_python_models should succeed");
@@ -1023,22 +933,7 @@ model User {
 
 #[test]
 fn test_generated_java_cud_event_api() {
-    let ir = validate(
-        r#"
-generator client {
-  provider    = "nautilus-client-java"
-  output      = "./generated-java"
-  package     = "com.acme.db"
-  group_id    = "com.acme"
-  artifact_id = "db-client"
-}
-
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(JAVA_CLIENT_SCHEMA);
 
     let java_files =
         generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
@@ -1134,37 +1029,7 @@ model User {
 
 #[test]
 fn test_python_hydrates_relation_json_payloads_recursively() {
-    let ir = validate(
-        r#"
-model User {
-  id          Int       @id @default(autoincrement())
-  displayName String    @map("display_name")
-  posts       Post[]
-  comments    Comment[]
-
-  @@map("users")
-}
-
-model Post {
-  id       Int       @id @default(autoincrement()) @map("post_id")
-  authorId Int       @map("author_id")
-  author   User      @relation(fields: [authorId], references: [id])
-  comments Comment[]
-
-  @@map("blog_posts")
-}
-
-model Comment {
-  id     Int    @id @default(autoincrement()) @map("comment_id")
-  postId Int    @map("post_id")
-  userId Int    @map("user_id")
-  post   Post   @relation(fields: [postId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
-
-  @@map("comments")
-}
-"#,
-    );
+    let ir = validate(BLOG_RELATIONS_SCHEMA);
     let models = generate_all_python_models(&ir, false, 0)
         .expect("generate_all_python_models should succeed");
     let (_, user_code) = models
@@ -1205,20 +1070,7 @@ model Comment {
 
 #[test]
 fn test_python_composite_write_inputs_use_generated_types() {
-    let ir = validate(
-        r#"
-type Address {
-  street String
-  city   String
-}
-
-model User {
-  id              Int      @id @default(autoincrement())
-  shippingAddress Address?
-  shippingAddresses Address[]
-}
-"#,
-    );
+    let ir = validate(COMPOSITE_ADDRESS_SCHEMA);
     let models = generate_all_python_models(&ir, false, 0)
         .expect("generate_all_python_models should succeed");
     let (_, code) = models
@@ -1250,20 +1102,7 @@ model User {
 
 #[test]
 fn test_js_composite_write_inputs_use_generated_types() {
-    let ir = validate(
-        r#"
-type Address {
-  street String
-  city   String
-}
-
-model User {
-  id              Int      @id @default(autoincrement())
-  shippingAddress Address?
-  shippingAddresses Address[]
-}
-"#,
-    );
+    let ir = validate(COMPOSITE_ADDRESS_SCHEMA);
     let (_js_models, dts_models) =
         generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let (_, code) = dts_models
@@ -1320,37 +1159,7 @@ model User {
 
 #[test]
 fn test_js_hydrates_relation_json_payloads_recursively() {
-    let ir = validate(
-        r#"
-model User {
-  id          Int       @id @default(autoincrement())
-  displayName String    @map("display_name")
-  posts       Post[]
-  comments    Comment[]
-
-  @@map("users")
-}
-
-model Post {
-  id       Int       @id @default(autoincrement()) @map("post_id")
-  authorId Int       @map("author_id")
-  author   User      @relation(fields: [authorId], references: [id])
-  comments Comment[]
-
-  @@map("blog_posts")
-}
-
-model Comment {
-  id     Int    @id @default(autoincrement()) @map("comment_id")
-  postId Int    @map("post_id")
-  userId Int    @map("user_id")
-  post   Post   @relation(fields: [postId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
-
-  @@map("comments")
-}
-"#,
-    );
+    let ir = validate(BLOG_RELATIONS_SCHEMA);
     let (js_models, _dts_models) =
         generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let (_, user_code) = js_models
@@ -1392,16 +1201,7 @@ model Comment {
 
 #[test]
 fn test_python_select_input_supports_projection_safe_models() {
-    let ir = validate(
-        r#"
-model User {
-  id          Int    @id @default(autoincrement()) @map("user_id")
-  displayName String @map("display_name")
-
-  @@map("users")
-}
-"#,
-    );
+    let ir = validate(USER_MAPPED_SCHEMA);
     let models = generate_all_python_models(&ir, false, 0)
         .expect("generate_all_python_models should succeed");
     let (_, code) = models
@@ -1438,14 +1238,7 @@ model User {
 
 #[test]
 fn test_python_find_many_exposes_chunk_size() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_python_models(&ir, false, 0)
         .expect("generate_all_python_models should succeed");
     let (_, code) = models
@@ -1465,14 +1258,7 @@ model User {
 
 #[test]
 fn test_python_async_delegate_exposes_stream_many() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let async_models = generate_all_python_models(&ir, true, 0)
         .expect("generate_all_python_models should succeed");
     let sync_models = generate_all_python_models(&ir, false, 0)
@@ -1506,14 +1292,7 @@ model User {
 
 #[test]
 fn test_python_single_row_finds_use_dedicated_engine_methods() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let py_models = generate_all_python_models(&ir, false, 0)
         .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
@@ -1548,16 +1327,7 @@ model User {
 
 #[test]
 fn test_js_select_input_supports_projection_safe_models() {
-    let ir = validate(
-        r#"
-model User {
-  id          Int    @id @default(autoincrement()) @map("user_id")
-  displayName String @map("display_name")
-
-  @@map("users")
-}
-"#,
-    );
+    let ir = validate(USER_MAPPED_SCHEMA);
     let (js_models, dts_models) =
         generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let (_, dts_code) = dts_models
@@ -1597,14 +1367,7 @@ model User {
 
 #[test]
 fn test_js_find_many_exposes_chunk_size() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let (js_models, dts_models) =
         generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let (_, dts_code) = dts_models
@@ -1628,14 +1391,7 @@ model User {
 
 #[test]
 fn test_js_async_delegate_exposes_stream_many() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let (js_models, dts_models) =
         generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_code = generated_named_file(&js_models, "user.js");
@@ -1667,14 +1423,7 @@ model User {
 
 #[test]
 fn test_js_single_row_finds_use_dedicated_engine_methods() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let (js_models, _dts_models) =
         generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
     let js_model = generated_named_file(&js_models, "user.js");
@@ -1708,14 +1457,7 @@ model User {
 
 #[test]
 fn test_js_runtime_exposes_engine_pool_options() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let (_client_js, client_dts) = generate_js_client(&ir.models, "schema.nautilus")
         .expect("generate_js_client should succeed");
     let runtime = js_runtime_files();
@@ -1849,14 +1591,7 @@ fn test_rust_nested_writes_route_through_the_engine() {
 
 #[test]
 fn test_rust_model_without_relations_has_no_nested_write_types() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let user = models.get("User").expect("User model missing");
 
@@ -1977,23 +1712,7 @@ model User {
 
 #[test]
 fn test_java_async_generation_exposes_completable_future_transaction_api() {
-    let ir = validate(
-        r#"
-generator client {
-  provider    = "nautilus-client-java"
-  output      = "./generated-java"
-  package     = "com.acme.db"
-  group_id    = "com.acme"
-  artifact_id = "db-client"
-  interface   = "async"
-}
-
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(JAVA_CLIENT_ASYNC_SCHEMA);
     let files =
         generate_java_client(&ir, "schema.nautilus", true).expect("generate_java_client failed");
     let delegate = generated_java_file(&files, "client/UserDelegate.java");
@@ -2015,23 +1734,7 @@ model User {
 
 #[test]
 fn test_java_generation_exposes_stream_many_over_chunked_rpc() {
-    let ir = validate(
-        r#"
-generator client {
-  provider    = "nautilus-client-java"
-  output      = "./generated-java"
-  package     = "com.acme.db"
-  group_id    = "com.acme"
-  artifact_id = "db-client"
-  interface   = "async"
-}
-
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(JAVA_CLIENT_ASYNC_SCHEMA);
     let async_files =
         generate_java_client(&ir, "schema.nautilus", true).expect("generate_java_client failed");
     let sync_files =
@@ -2083,23 +1786,7 @@ model User {
 
 #[test]
 fn test_java_runtime_loads_dotenv_before_spawning_engine() {
-    let ir = validate(
-        r#"
-generator client {
-  provider    = "nautilus-client-java"
-  output      = "./generated-java"
-  package     = "com.acme.db"
-  group_id    = "com.acme"
-  artifact_id = "db-client"
-  interface   = "sync"
-}
-
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(JAVA_CLIENT_SYNC_SCHEMA);
     let files =
         generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
     let engine_process = generated_java_file(&files, "internal/EngineProcess.java");
@@ -2124,23 +1811,7 @@ model User {
 
 #[test]
 fn test_java_runtime_exposes_engine_pool_options() {
-    let ir = validate(
-        r#"
-generator client {
-  provider    = "nautilus-client-java"
-  output      = "./generated-java"
-  package     = "com.acme.db"
-  group_id    = "com.acme"
-  artifact_id = "db-client"
-  interface   = "sync"
-}
-
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(JAVA_CLIENT_SYNC_SCHEMA);
     let files =
         generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
     let options = generated_java_file(&files, "client/NautilusOptions.java");
@@ -2630,22 +2301,7 @@ model User {
 
 #[test]
 fn test_java_single_row_finds_use_dedicated_engine_methods() {
-    let ir = validate(
-        r#"
-generator client {
-  provider    = "nautilus-client-java"
-  output      = "./generated-java"
-  package     = "com.acme.db"
-  group_id    = "com.acme"
-  artifact_id = "db-client"
-}
-
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(JAVA_CLIENT_SCHEMA);
     let java_files =
         generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
     let delegate = generated_java_file(&java_files, "client/UserDelegate.java");
@@ -2674,22 +2330,7 @@ model User {
 
 #[test]
 fn test_java_select_uses_projection_api_instead_of_model_records() {
-    let ir = validate(
-        r#"
-generator client {
-  provider    = "nautilus-client-java"
-  output      = "./generated-java"
-  package     = "com.acme.db"
-  group_id    = "com.acme"
-  artifact_id = "db-client"
-}
-
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(JAVA_CLIENT_SCHEMA);
     let sync_files =
         generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
     let async_files =
@@ -2939,14 +2580,7 @@ model Document {
 
 #[test]
 fn test_rust_client_without_vector_fields_rejects_nearest() {
-    let ir = validate(
-        r#"
-model User {
-  id   Int    @id @default(autoincrement())
-  name String
-}
-"#,
-    );
+    let ir = validate(USER_SCHEMA);
 
     let models = generate_all_models(&ir, true).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");

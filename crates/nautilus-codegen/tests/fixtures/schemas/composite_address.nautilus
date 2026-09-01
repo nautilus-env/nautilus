@@ -1,0 +1,10 @@
+type Address {
+  street String
+  city   String
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  shippingAddress Address?
+  shippingAddresses Address[]
+}

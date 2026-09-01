@@ -234,6 +234,20 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
+    /// A datasource that names both a pooled runtime URL and a direct
+    /// admin URL, so the tests can tell which one each resolver picks.
+    const POOLED_AND_DIRECT_SCHEMA: &str = r#"
+datasource db {
+  provider   = "postgresql"
+  url        = "postgres://pooled/runtime"
+  direct_url = "postgres://direct/admin"
+}
+
+model User {
+  id Int @id
+}
+"#;
+
     struct EnvVarGuard {
         key: &'static str,
         old: Option<String>,
@@ -332,19 +346,7 @@ mod tests {
     #[test]
     fn runtime_url_prefers_datasource_url() {
         let _env_guard = EnvVarGuard::unset("DATABASE_URL");
-        let schema_ir = parse_schema_ir(
-            r#"
-datasource db {
-  provider   = "postgresql"
-  url        = "postgres://pooled/runtime"
-  direct_url = "postgres://direct/admin"
-}
-
-model User {
-  id Int @id
-}
-"#,
-        );
+        let schema_ir = parse_schema_ir(POOLED_AND_DIRECT_SCHEMA);
 
         let url = resolve_engine_runtime_url(None, &schema_ir).expect("expected runtime url");
         assert_eq!(url, "postgres://pooled/runtime");
@@ -353,19 +355,7 @@ model User {
     #[test]
     fn migration_url_prefers_direct_url() {
         let _env_guard = EnvVarGuard::unset("DATABASE_URL");
-        let schema_ir = parse_schema_ir(
-            r#"
-datasource db {
-  provider   = "postgresql"
-  url        = "postgres://pooled/runtime"
-  direct_url = "postgres://direct/admin"
-}
-
-model User {
-  id Int @id
-}
-"#,
-        );
+        let schema_ir = parse_schema_ir(POOLED_AND_DIRECT_SCHEMA);
 
         let url = resolve_engine_migration_url(None, &schema_ir).expect("expected migration url");
         assert_eq!(url, "postgres://direct/admin");
@@ -373,19 +363,7 @@ model User {
 
     #[test]
     fn direct_url_plain_string_resolves() {
-        let schema_ir = parse_schema_ir(
-            r#"
-datasource db {
-  provider   = "postgresql"
-  url        = "postgres://pooled/runtime"
-  direct_url = "postgres://direct/admin"
-}
-
-model User {
-  id Int @id
-}
-"#,
-        );
+        let schema_ir = parse_schema_ir(POOLED_AND_DIRECT_SCHEMA);
 
         let direct = schema_ir
             .datasource

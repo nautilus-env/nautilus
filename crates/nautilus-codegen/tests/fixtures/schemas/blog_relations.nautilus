@@ -1,0 +1,27 @@
+model User {
+  id          Int       @id @default(autoincrement())
+  displayName String    @map("display_name")
+  posts       Post[]
+  comments    Comment[]
+
+  @@map("users")
+}
+
+model Post {
+  id       Int       @id @default(autoincrement()) @map("post_id")
+  authorId Int       @map("author_id")
+  author   User      @relation(fields: [authorId], references: [id])
+  comments Comment[]
+
+  @@map("blog_posts")
+}
+
+model Comment {
+  id     Int    @id @default(autoincrement()) @map("comment_id")
+  postId Int    @map("post_id")
+  userId Int    @map("user_id")
+  post   Post   @relation(fields: [postId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("comments")
+}
