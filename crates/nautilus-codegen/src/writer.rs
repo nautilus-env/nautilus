@@ -12,6 +12,7 @@ use crate::python::generator::{
     generate_enums_init, generate_errors_init, generate_events_init, generate_internal_init,
     generate_models_init, generate_package_init, generate_transaction_init,
 };
+use crate::GeneratedFile;
 
 /// Write generated code to files in the output directory.
 ///
@@ -29,7 +30,7 @@ pub fn write_rust_code(
     models: &HashMap<String, String>,
     enums_code: Option<String>,
     composite_types_code: Option<String>,
-    extension_files: &[(String, String)],
+    extension_files: &[GeneratedFile],
     schema_source: &str,
     standalone: bool,
 ) -> Result<()> {
@@ -217,12 +218,12 @@ fn generate_lib_rs(
 /// - `{output}/py.typed` - Marker for mypy
 pub fn write_python_code(
     output_path: &str,
-    models: &[(String, String)],
+    models: &[GeneratedFile],
     enums_code: Option<String>,
     composite_types_code: Option<String>,
-    extension_files: &[(String, String)],
+    extension_files: &[GeneratedFile],
     client_code: Option<String>,
-    runtime_files: &[(String, String)],
+    runtime_files: &[GeneratedFile],
 ) -> Result<()> {
     let output_dir = Path::new(output_path);
 
@@ -386,6 +387,28 @@ pub fn write_python_code(
     Ok(())
 }
 
+/// Everything the JavaScript backend produced, as [`write_js_code`] lays it out.
+///
+/// Each half of the client has its own field because the runtime and the
+/// declarations are generated separately and can be absent independently — a
+/// schema with no enums has neither `enums.js` nor `enums.d.ts`, while
+/// composite types are types only and so have no runtime half at all.
+#[derive(Default)]
+pub struct JsOutput<'a> {
+    pub js_models: &'a [GeneratedFile],
+    pub dts_models: &'a [GeneratedFile],
+    pub js_enums: Option<String>,
+    pub dts_enums: Option<String>,
+    pub dts_composite_types: Option<String>,
+    pub js_extension_files: &'a [GeneratedFile],
+    pub dts_extension_files: &'a [GeneratedFile],
+    pub js_client: Option<String>,
+    pub dts_client: Option<String>,
+    pub js_models_index: Option<String>,
+    pub dts_models_index: Option<String>,
+    pub runtime_files: &'a [GeneratedFile],
+}
+
 /// Write generated JavaScript + TypeScript declaration code to the output directory.
 ///
 /// Creates:
@@ -400,22 +423,22 @@ pub fn write_python_code(
 /// - `{output}/types.d.ts`            — composite type interfaces (if any, declarations only)
 /// - `{output}/_internal/_*.js`       — runtime files (client, engine, protocol, etc.)
 /// - `{output}/_internal/_*.d.ts`     — runtime declaration files
-#[allow(clippy::too_many_arguments)]
-pub fn write_js_code(
-    output_path: &str,
-    js_models: &[(String, String)],
-    dts_models: &[(String, String)],
-    js_enums: Option<String>,
-    dts_enums: Option<String>,
-    dts_composite_types: Option<String>,
-    js_extension_files: &[(String, String)],
-    dts_extension_files: &[(String, String)],
-    js_client: Option<String>,
-    dts_client: Option<String>,
-    js_models_index: Option<String>,
-    dts_models_index: Option<String>,
-    runtime_files: &[(String, String)],
-) -> Result<()> {
+pub fn write_js_code(output_path: &str, output: JsOutput<'_>) -> Result<()> {
+    let JsOutput {
+        js_models,
+        dts_models,
+        js_enums,
+        dts_enums,
+        dts_composite_types,
+        js_extension_files,
+        dts_extension_files,
+        js_client,
+        dts_client,
+        js_models_index,
+        dts_models_index,
+        runtime_files,
+    } = output;
+
     let output_dir = Path::new(output_path);
 
     clear_output_dir(output_path)?;
@@ -510,7 +533,7 @@ pub fn write_js_code(
 
 /// Write generated Java code to the output directory, preserving the relative
 /// file layout produced by the Java generator.
-pub fn write_java_code(output_path: &str, files: &[(String, String)]) -> Result<()> {
+pub fn write_java_code(output_path: &str, files: &[GeneratedFile]) -> Result<()> {
     let output_dir = Path::new(output_path);
 
     clear_output_dir(output_path)?;

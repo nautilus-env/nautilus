@@ -5,8 +5,7 @@ use nautilus_schema::ir::{FieldIr, ResolvedFieldType, ScalarType, SchemaIr};
 use std::collections::{BTreeSet, HashMap};
 use tera::{Context, Tera};
 
-type GeneratedFile = (String, String);
-type GeneratedJsExtensionFiles = (Vec<GeneratedFile>, Vec<GeneratedFile>);
+use crate::{GeneratedFile, GeneratedJsFiles};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtensionWireKind {
@@ -337,9 +336,7 @@ fn render_ext(template: &str, ctx: &Context) -> Result<String> {
     crate::template::render(&EXTENSION_TEMPLATES, template, ctx)
 }
 
-pub fn generate_rust_extension_files(
-    registry: &ExtensionRegistry,
-) -> Result<Vec<(String, String)>> {
+pub fn generate_rust_extension_files(registry: &ExtensionRegistry) -> Result<Vec<GeneratedFile>> {
     let extensions = registry.active_extensions();
     if extensions.is_empty() {
         return Ok(Vec::new());
@@ -410,9 +407,7 @@ fn render_rust_string_wrapper(ty: ExtensionType, value_variant: &str) -> Result<
     render_ext("rust/string_wrapper.tera", &ctx)
 }
 
-pub fn generate_python_extension_files(
-    registry: &ExtensionRegistry,
-) -> Result<Vec<(String, String)>> {
+pub fn generate_python_extension_files(registry: &ExtensionRegistry) -> Result<Vec<GeneratedFile>> {
     registry
         .active_extensions()
         .into_iter()
@@ -489,9 +484,7 @@ fn render_python_string_wrappers(types: &[ExtensionType]) -> Result<String> {
     Ok(code)
 }
 
-pub fn generate_js_extension_files(
-    registry: &ExtensionRegistry,
-) -> Result<GeneratedJsExtensionFiles> {
+pub fn generate_js_extension_files(registry: &ExtensionRegistry) -> Result<GeneratedJsFiles> {
     let mut js_files = Vec::new();
     let mut dts_files = Vec::new();
     for extension in registry.active_extensions() {
@@ -550,7 +543,7 @@ fn render_ts_string_wrapper(ty: ExtensionType) -> Result<String> {
 pub fn generate_java_extension_files(
     registry: &ExtensionRegistry,
     root_package: &str,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
     for extension in registry.active_extensions() {
         for ty in types_for_extension(extension) {
@@ -577,7 +570,7 @@ fn java_extension_file(
     extension: &str,
     type_name: &str,
     code: String,
-) -> (String, String) {
+) -> GeneratedFile {
     let package_path = root_package.replace('.', "/");
     (
         format!("src/main/java/{package_path}/extensions/{extension}/types/{type_name}.java"),

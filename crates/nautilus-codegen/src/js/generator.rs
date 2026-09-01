@@ -15,6 +15,7 @@ use crate::js::type_mapper::{
     scalar_to_ts_type,
 };
 use crate::model_view::ModelView;
+use crate::{GeneratedFile, GeneratedJsFiles};
 
 /// JS/TS template registry — loaded once at first use.
 pub static JS_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
@@ -213,10 +214,7 @@ fn exact_input_ts_type(field: &nautilus_schema::ir::FieldIr, base_type: String) 
 /// Generate JavaScript + declaration code for a single model.
 ///
 /// Returns `((js_filename, js_code), (dts_filename, dts_code))`.
-pub fn generate_js_model(
-    model: &ModelIr,
-    ir: &SchemaIr,
-) -> Result<((String, String), (String, String))> {
+pub fn generate_js_model(model: &ModelIr, ir: &SchemaIr) -> Result<(GeneratedFile, GeneratedFile)> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_js_model_with_registry(model, ir, &extensions)
 }
@@ -225,7 +223,7 @@ fn generate_js_model_with_registry(
     model: &ModelIr,
     ir: &SchemaIr,
     extensions: &ExtensionRegistry,
-) -> Result<((String, String), (String, String))> {
+) -> Result<(GeneratedFile, GeneratedFile)> {
     let view = ModelView::new(model, ir, extensions);
     let mut context = Context::new();
     crate::template::insert_protocol_version(&mut context);
@@ -535,27 +533,23 @@ fn build_extension_imports(view: &ModelView<'_>) -> Vec<JsExtensionImportContext
 /// Generate JavaScript + declaration code for all models in the schema.
 ///
 /// Returns `(js_models, dts_models)`, each sorted by filename.
-#[allow(clippy::type_complexity)]
-pub fn generate_all_js_models(
-    ir: &SchemaIr,
-) -> Result<(Vec<(String, String)>, Vec<(String, String)>)> {
+pub fn generate_all_js_models(ir: &SchemaIr) -> Result<GeneratedJsFiles> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_all_js_models_with_registry(ir, &extensions)
 }
 
-#[allow(clippy::type_complexity)]
 pub(crate) fn generate_all_js_models_with_registry(
     ir: &SchemaIr,
     extensions: &ExtensionRegistry,
-) -> Result<(Vec<(String, String)>, Vec<(String, String)>)> {
-    let pairs: Vec<((String, String), (String, String))> = ir
+) -> Result<GeneratedJsFiles> {
+    let pairs: Vec<(GeneratedFile, GeneratedFile)> = ir
         .models
         .values()
         .map(|model| generate_js_model_with_registry(model, ir, extensions))
         .collect::<Result<Vec<_>>>()?;
 
-    let mut js_models: Vec<(String, String)> = pairs.iter().map(|(js, _)| js.clone()).collect();
-    let mut dts_models: Vec<(String, String)> = pairs.iter().map(|(_, dts)| dts.clone()).collect();
+    let mut js_models: Vec<GeneratedFile> = pairs.iter().map(|(js, _)| js.clone()).collect();
+    let mut dts_models: Vec<GeneratedFile> = pairs.iter().map(|(_, dts)| dts.clone()).collect();
 
     js_models.sort_by(|a, b| a.0.cmp(&b.0));
     dts_models.sort_by(|a, b| a.0.cmp(&b.0));
@@ -689,7 +683,7 @@ pub fn generate_js_client(
 /// Generate `models/index.js` + `models/index.d.ts` — barrel re-exports for all model files.
 ///
 /// `js_models` contains the `.js` model filenames. Returns `(js_code, dts_code)`.
-pub fn generate_js_models_index(js_models: &[(String, String)]) -> Result<(String, String)> {
+pub fn generate_js_models_index(js_models: &[GeneratedFile]) -> Result<(String, String)> {
     let mut modules: Vec<String> = js_models
         .iter()
         .map(|(file_name, _)| file_name.trim_end_matches(".js").to_string())
@@ -705,7 +699,7 @@ pub fn generate_js_models_index(js_models: &[(String, String)]) -> Result<(Strin
 
 /// Static JavaScript + declaration runtime files embedded at compile time.
 /// Returns `Vec<(filename, content)>` containing both `.js` and `.d.ts` pairs.
-pub fn js_runtime_files() -> Vec<(String, String)> {
+pub fn js_runtime_files() -> Vec<GeneratedFile> {
     let protocol_version = nautilus_protocol::PROTOCOL_VERSION.to_string();
     vec![
         (

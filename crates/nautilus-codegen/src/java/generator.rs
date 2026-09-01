@@ -17,6 +17,7 @@ use crate::java::type_mapper::{
     filter_operators_for_field, is_writable_on_create, is_writable_on_update,
 };
 use crate::model_view::ModelView;
+use crate::GeneratedFile;
 
 pub(crate) const JACKSON_VERSION: &str = "2.17.2";
 const DEFAULT_MAVEN_VERSION: &str = "0.1.0-SNAPSHOT";
@@ -397,7 +398,7 @@ pub fn generate_java_client(
     ir: &SchemaIr,
     schema_path: &str,
     is_async: bool,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Vec<GeneratedFile>> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_java_client_with_registry(ir, schema_path, is_async, &extensions)
 }
@@ -407,7 +408,7 @@ pub(crate) fn generate_java_client_with_registry(
     schema_path: &str,
     is_async: bool,
     extensions: &ExtensionRegistry,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Vec<GeneratedFile>> {
     let generator = ir
         .generator
         .as_ref()
@@ -560,7 +561,7 @@ pub(crate) fn generate_java_client_with_registry(
 /// the source content lives in `templates/java/runtime/*.java.tera` and is
 /// embedded at compile time; only `package_name` (and `version`) are substituted
 /// at generation time.
-pub fn java_runtime_files(package_name: &str) -> Result<Vec<(String, String)>> {
+pub fn java_runtime_files(package_name: &str) -> Result<Vec<GeneratedFile>> {
     let mut ctx_pkg = Context::new();
     crate::template::insert_protocol_version(&mut ctx_pkg);
     ctx_pkg.insert("package_name", package_name);
@@ -631,7 +632,7 @@ pub fn java_runtime_files(package_name: &str) -> Result<Vec<(String, String)>> {
     ])
 }
 
-fn java_event_files(package_name: &str) -> Result<Vec<(String, String)>> {
+fn java_event_files(package_name: &str) -> Result<Vec<GeneratedFile>> {
     let pkg = package_name;
     Ok(vec![
         (

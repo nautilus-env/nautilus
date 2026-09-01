@@ -2,7 +2,7 @@ use nautilus_codegen::{
     java::generate_java_client,
     js::{generate_all_js_models, generate_js_client, generate_js_models_index, js_runtime_files},
     python::{generate_all_python_models, generate_python_client, python_runtime_files},
-    writer::{write_java_code, write_js_code, write_python_code},
+    writer::{write_java_code, write_js_code, write_python_code, JsOutput},
 };
 use nautilus_schema::{ir::SchemaIr, validate_schema_source};
 use std::{
@@ -319,18 +319,16 @@ fn generate_js_client_fixture(output_dir: &Path, schema_path: &str) {
 
     write_js_code(
         output_dir.to_str().expect("js output path should be utf-8"),
-        &js_models,
-        &dts_models,
-        None,
-        None,
-        None,
-        &[],
-        &[],
-        Some(js_client),
-        Some(dts_client),
-        Some(js_models_index),
-        Some(dts_models_index),
-        &runtime_files,
+        JsOutput {
+            js_models: &js_models,
+            dts_models: &dts_models,
+            js_client: Some(js_client),
+            dts_client: Some(dts_client),
+            js_models_index: Some(js_models_index),
+            dts_models_index: Some(dts_models_index),
+            runtime_files: &runtime_files,
+            ..JsOutput::default()
+        },
     )
     .expect("failed to write generated js client");
 }

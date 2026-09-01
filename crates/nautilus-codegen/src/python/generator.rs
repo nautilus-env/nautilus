@@ -18,6 +18,7 @@ use crate::python::backend::PythonBackend;
 use crate::python::type_mapper::{
     get_base_python_type, get_default_value, get_filter_operators_for_field, is_auto_generated,
 };
+use crate::GeneratedFile;
 
 /// Python template registry — loaded once at first use.
 pub static PYTHON_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
@@ -276,7 +277,7 @@ pub fn generate_python_model(
     ir: &SchemaIr,
     is_async: bool,
     recursive_type_depth: usize,
-) -> Result<(String, String)> {
+) -> Result<GeneratedFile> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_python_model_with_registry(model, ir, is_async, recursive_type_depth, &extensions)
 }
@@ -287,7 +288,7 @@ fn generate_python_model_with_registry(
     is_async: bool,
     recursive_type_depth: usize,
     extensions: &ExtensionRegistry,
-) -> Result<(String, String)> {
+) -> Result<GeneratedFile> {
     let view = ModelView::new(model, ir, extensions);
     let mut context = Context::new();
     crate::template::insert_protocol_version(&mut context);
@@ -686,7 +687,7 @@ pub fn generate_all_python_models(
     ir: &SchemaIr,
     is_async: bool,
     recursive_type_depth: usize,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Vec<GeneratedFile>> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_all_python_models_with_registry(ir, is_async, recursive_type_depth, &extensions)
 }
@@ -696,7 +697,7 @@ pub(crate) fn generate_all_python_models_with_registry(
     is_async: bool,
     recursive_type_depth: usize,
     extensions: &ExtensionRegistry,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Vec<GeneratedFile>> {
     ir.models
         .values()
         .map(|model| {
@@ -840,7 +841,7 @@ pub fn generate_package_init(has_enums: bool) -> Result<String> {
 }
 
 /// Generate models/__init__.py
-pub fn generate_models_init(models: &[(String, String)]) -> Result<String> {
+pub fn generate_models_init(models: &[GeneratedFile]) -> Result<String> {
     let mut context = Context::new();
 
     let mut model_modules: Vec<String> = models
@@ -896,7 +897,7 @@ pub fn generate_events_init() -> &'static str {
 
 /// Returns static runtime Python files to be written alongside generated code.
 /// These files implement the base client, engine process manager, protocol, and errors.
-pub fn python_runtime_files() -> Vec<(String, String)> {
+pub fn python_runtime_files() -> Vec<GeneratedFile> {
     let protocol_version = nautilus_protocol::PROTOCOL_VERSION.to_string();
     vec![
         (

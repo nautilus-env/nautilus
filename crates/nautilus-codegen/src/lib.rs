@@ -21,6 +21,18 @@ pub mod type_helpers;
 pub mod vector_meta;
 pub mod writer;
 
+/// A file a backend produced: its path relative to the output directory, and
+/// its full contents.
+///
+/// This pair is the only thing the writers learn about generated output, which
+/// is why the same shape carries Rust modules, Python packages, JavaScript
+/// runtime files and Java sources alike.
+pub type GeneratedFile = (String, String);
+
+/// The two file lists a JavaScript backend produces: the `.js` sources and the
+/// `.d.ts` declarations that describe them, each sorted by file name.
+pub type GeneratedJsFiles = (Vec<GeneratedFile>, Vec<GeneratedFile>);
+
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -38,7 +50,7 @@ use crate::js::{
     js_runtime_files,
 };
 use crate::python::{generate_python_composite_types, generate_python_enums, python_runtime_files};
-use crate::writer::{write_java_code, write_js_code, write_python_code, write_rust_code};
+use crate::writer::{write_java_code, write_js_code, write_python_code, write_rust_code, JsOutput};
 use nautilus_schema::ir::{JavaGenerationMode, ResolvedFieldType, SchemaIr};
 use nautilus_schema::{parse_schema_source, SchemaSet};
 
@@ -398,18 +410,20 @@ impl<'a> GenerationContext<'a> {
             |path| {
                 write_js_code(
                     path,
-                    &js_models,
-                    &dts_models,
-                    js_enums.clone(),
-                    dts_enums.clone(),
-                    dts_composite_types.clone(),
-                    &js_extension_files,
-                    &dts_extension_files,
-                    Some(js_client.clone()),
-                    Some(dts_client.clone()),
-                    Some(js_models_index.clone()),
-                    Some(dts_models_index.clone()),
-                    &runtime,
+                    JsOutput {
+                        js_models: &js_models,
+                        dts_models: &dts_models,
+                        js_enums: js_enums.clone(),
+                        dts_enums: dts_enums.clone(),
+                        dts_composite_types: dts_composite_types.clone(),
+                        js_extension_files: &js_extension_files,
+                        dts_extension_files: &dts_extension_files,
+                        js_client: Some(js_client.clone()),
+                        dts_client: Some(dts_client.clone()),
+                        js_models_index: Some(js_models_index.clone()),
+                        dts_models_index: Some(dts_models_index.clone()),
+                        runtime_files: &runtime,
+                    },
                 )
             },
             |path| install_js_package(path, self.schema_path),
