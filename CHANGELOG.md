@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Version 1.4.0
 
 ### ⚠️ Breaking — MySQL enum columns change type
 
@@ -384,6 +384,61 @@ unaffected.
   hstore, ltree) to opt them into array encoding and decoding. The orphan rule
   keeps a generated crate from writing those conversions itself, so they live in
   `nautilus-core` keyed on this marker.
+- Schema tooling now documents the declarations this release adds. Hovering
+  `schemas` in a datasource, `@@schema("...")` on a model or a view, `@ignore`
+  on a field or `@@ignore` on a model explains what each one means, where it
+  applies and what it does to migrations, with an example. The VS Code
+  extension gains snippets for `view` and `type` blocks, a PostgreSQL
+  datasource spanning several schemas, and `@@schema`, `@ignore`, `@@ignore`,
+  `@check`, `@@check`, `@computed` and `@updatedAt`, and highlights `view`
+  blocks and the `schemas` config key the way it already highlighted the rest.
+
+### Changed
+
+- Schema imports now validate their filesystem targets: a path may resolve to
+  a `.nautilus` file or a directory containing `.nautilus` files. Missing paths,
+  files with another extension, and directories without schema files report an
+  error on the `import` declaration. LSP completion inside an import string
+  reads the importing file's directory, offers folders as targets or for path
+  navigation, filters out non-schema files, and inserts the selected relative
+  path; `/` and `\\` also trigger another completion pass while navigating.
+- The workspace now declares `rust-version = "1.92"`, so an older toolchain
+  reports an unsupported-version error instead of failing later with unrelated
+  compilation errors.
+- Template rendering in the code generators now returns an error instead of
+  panicking. A regressed template used to abort `nautilus generate` with a Rust
+  backtrace that did not name the template; the failure is now reported as a
+  CLI error naming it. The generator entry points that render templates —
+  `generate_all_models`, `generate_all_python_models`, `generate_all_js_models`,
+  `generate_java_client`, the enum / composite type / extension file
+  generators and the per-language client and `__init__` generators — return
+  `Result` accordingly.
+- Array includes carrying `take` or `skip` are now loaded by the same single
+  batched query as unpaginated includes, using
+  `ROW_NUMBER() OVER (PARTITION BY <child fk> ORDER BY ...)` to bound each
+  parent's children independently. The previous per-parent fallback issued one
+  query per parent row, so `include: { posts: { take: 3 } }` over 100 parents
+  cost 100 queries and now costs one. To-one relations and a negative `take`
+  still take the per-parent path. Window functions require PostgreSQL >= 8.4,
+  MySQL >= 8.0 or SQLite >= 3.25.
+- The engine read-plan cache now reclaims its least-recently-used entries a
+  batch at a time instead of ranking all 1024 slots on every insert at
+  capacity. The recency scan runs under the write lock with every reader
+  blocked, so a saturated cache now pays for it once per batch rather than on
+  each miss. The cap is unchanged; evictions are logged at `debug`.
+- The four code generation backends now share a single language-neutral
+  `ModelView` of each model instead of each walking the IR on its own. Primary
+  key membership, numeric and orderable classification, enum / composite type /
+  extension imports, relation foreign key resolution and composite order-by
+  paths are computed once and mapped per language, so a new field kind is added
+  in one place rather than four. Generated output is unchanged.
+- The code generation backends now name a generated file with the shared
+  `GeneratedFile` alias — a path relative to the output directory and its
+  contents — instead of repeating `(String, String)` at every boundary, and
+  `write_js_code` takes a single `JsOutput` struct in place of thirteen
+  positional arguments, so the halves of the JavaScript output that may be
+  absent are named at the call site. Generated output is unchanged; a caller of
+  `write_js_code` outside the CLI has to pass the struct.
 
 ### Fixed
 
@@ -487,49 +542,6 @@ unaffected.
   `EngineMode::Auto` as well as `Always`. They have no direct-connector
   equivalent, so they only need to know that an engine may be built, not that
   the mode prefers the engine for simple CRUD.
-
-### Changed
-
-- Schema imports now validate their filesystem targets: a path may resolve to
-  a `.nautilus` file or a directory containing `.nautilus` files. Missing paths,
-  files with another extension, and directories without schema files report an
-  error on the `import` declaration. LSP completion inside an import string
-  reads the importing file's directory, offers folders as targets or for path
-  navigation, filters out non-schema files, and inserts the selected relative
-  path; `/` and `\\` also trigger another completion pass while navigating.
-- The workspace now declares `rust-version = "1.92"`, so an older toolchain
-  reports an unsupported-version error instead of failing later with unrelated
-  compilation errors.
-- Template rendering in the code generators now returns an error instead of
-  panicking. A regressed template used to abort `nautilus generate` with a Rust
-  backtrace that did not name the template; the failure is now reported as a
-  CLI error naming it. The generator entry points that render templates —
-  `generate_all_models`, `generate_all_python_models`, `generate_all_js_models`,
-  `generate_java_client`, the enum / composite type / extension file
-  generators and the per-language client and `__init__` generators — return
-  `Result` accordingly.
-- Array includes carrying `take` or `skip` are now loaded by the same single
-  batched query as unpaginated includes, using
-  `ROW_NUMBER() OVER (PARTITION BY <child fk> ORDER BY ...)` to bound each
-  parent's children independently. The previous per-parent fallback issued one
-  query per parent row, so `include: { posts: { take: 3 } }` over 100 parents
-  cost 100 queries and now costs one. To-one relations and a negative `take`
-  still take the per-parent path. Window functions require PostgreSQL >= 8.4,
-  MySQL >= 8.0 or SQLite >= 3.25.
-- The engine read-plan cache now reclaims its least-recently-used entries a
-  batch at a time instead of ranking all 1024 slots on every insert at
-  capacity. The recency scan runs under the write lock with every reader
-  blocked, so a saturated cache now pays for it once per batch rather than on
-  each miss. The cap is unchanged; evictions are logged at `debug`.
-- The four code generation backends now share a single language-neutral
-  `ModelView` of each model instead of each walking the IR on its own. Primary
-  key membership, numeric and orderable classification, enum / composite type /
-  extension imports, relation foreign key resolution and composite order-by
-  paths are computed once and mapped per language, so a new field kind is added
-  in one place rather than four. Generated output is unchanged.
-
-### Fixed
-
 - Fixed `db push` never converging on MySQL when a model has a `Boolean`
   `@default(...)`. The DDL generator wrote `DEFAULT TRUE`, but MySQL stores
   booleans as `tinyint(1)` and reports the default back as `1`, so every push
@@ -640,6 +652,9 @@ unaffected.
   emitted in a stable order. They were collected in a `HashSet`, so two runs of
   `nautilus generate` over the same schema could produce files that differed
   only in the order of their import lines.
+- The VS Code extension no longer highlights `cuid()` and `dbgenerated()` as
+  built-in functions. The schema language has neither, so a schema using those
+  names as anything else was coloured as if Nautilus knew them.
 
 ## Version 1.3.5
 
