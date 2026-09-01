@@ -14,7 +14,7 @@ use tower_lsp::lsp_types::{
 /// Convert a byte `offset` in `source` to an LSP [`Position`].
 ///
 /// The returned position is 0-indexed (line, character).
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn offset_to_position(source: &str, offset: usize) -> Position {
     let line_index = LineIndex::new(source);
     offset_to_position_with_index(source, &line_index, offset)
@@ -43,7 +43,7 @@ pub fn offset_to_position_with_index(
 /// Convert an LSP [`Position`] to a byte offset in `source`.
 ///
 /// Clamps to `source.len()` if the position is past the end.
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn position_to_offset(source: &str, pos: Position) -> usize {
     let line_index = LineIndex::new(source);
     position_to_offset_with_index(source, &line_index, pos)
@@ -78,23 +78,11 @@ pub fn position_to_offset_with_index(source: &str, line_index: &LineIndex, pos: 
     source.len()
 }
 
-#[allow(dead_code)]
-pub fn span_to_range(source: &str, span: &Span) -> Range {
-    let line_index = LineIndex::new(source);
-    span_to_range_with_index(source, &line_index, span)
-}
-
 pub fn span_to_range_with_index(source: &str, line_index: &LineIndex, span: &Span) -> Range {
     Range {
         start: offset_to_position_with_index(source, line_index, span.start),
         end: offset_to_position_with_index(source, line_index, span.end),
     }
-}
-
-#[allow(dead_code)]
-pub fn nautilus_diagnostic_to_lsp(source: &str, d: &Diagnostic) -> lsp_types::Diagnostic {
-    let line_index = LineIndex::new(source);
-    nautilus_diagnostic_to_lsp_with_index(source, &line_index, d)
 }
 
 pub fn nautilus_diagnostic_to_lsp_with_index(
@@ -115,7 +103,7 @@ pub fn nautilus_diagnostic_to_lsp_with_index(
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn nautilus_completion_to_lsp(
     source: &str,
     tokens: &[Token],
@@ -250,12 +238,6 @@ fn is_completion_word_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
 }
 
-#[allow(dead_code)]
-pub fn hover_info_to_lsp(source: &str, h: &HoverInfo) -> lsp_types::Hover {
-    let line_index = LineIndex::new(source);
-    hover_info_to_lsp_with_index(source, &line_index, h)
-}
-
 pub fn hover_info_to_lsp_with_index(
     source: &str,
     line_index: &LineIndex,
@@ -280,12 +262,6 @@ pub fn hover_info_to_lsp_with_index(
 /// - `0` -> `nautilusModel`        (model reference)
 /// - `1` -> `nautilusEnum`         (enum reference)
 /// - `2` -> `nautilusCompositeType` (composite type reference)
-#[allow(dead_code)]
-pub fn semantic_tokens_to_lsp(source: &str, tokens: &[SemanticToken]) -> Vec<LspSemanticToken> {
-    let line_index = LineIndex::new(source);
-    semantic_tokens_to_lsp_with_index(source, &line_index, tokens)
-}
-
 pub fn semantic_tokens_to_lsp_with_index(
     source: &str,
     line_index: &LineIndex,

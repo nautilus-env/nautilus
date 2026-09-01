@@ -221,9 +221,9 @@ pub fn file_path_from_uri(uri: &Url) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{canonical, file_path_from_uri, Workspace};
+    use super::{canonical, Workspace};
     use std::collections::HashMap;
-    use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
+    use tower_lsp::lsp_types::DiagnosticSeverity;
 
     fn write(dir: &std::path::Path, name: &str, contents: &str) -> std::path::PathBuf {
         let path = dir.join(name);
@@ -242,6 +242,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn vscode_percent_encoded_windows_drive_uri_resolves_to_a_path() {
+        use super::file_path_from_uri;
+        use tower_lsp::lsp_types::Url;
+
         let root = write(
             &temp_dir("encoded-uri"),
             "schema.nautilus",
@@ -320,7 +323,6 @@ mod tests {
 
         let workspace = Workspace::load(&root, &HashMap::new()).expect("workspace");
         let diagnostics = workspace.diagnostics();
-        let post_uri = Url::from_file_path(canonical(&dir).join("post.nautilus")).unwrap();
         let (_, post_diags) = diagnostics
             .iter()
             .find(|(uri, _)| uri.path().ends_with("post.nautilus"))
@@ -328,7 +330,6 @@ mod tests {
         assert_eq!(post_diags.len(), 1, "{:?}", post_diags);
         assert_eq!(post_diags[0].severity, Some(DiagnosticSeverity::ERROR));
         assert_eq!(post_diags[0].range.start.line, 2);
-        let _ = post_uri;
 
         let (_, user_diags) = diagnostics
             .iter()
