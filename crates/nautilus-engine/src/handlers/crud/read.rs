@@ -28,6 +28,52 @@ struct FindManyPlan {
     row_hints: Vec<Option<ValueHint>>,
     backward: bool,
     include: HashMap<String, IncludeNode>,
+    /// Set when `distinct` has to be honoured after the rows come back, because
+    /// the dialect has no `DISTINCT ON`.
+    distinct: Option<DistinctFallback>,
+}
+
+/// Deduplication the engine performs itself, standing in for `DISTINCT ON`.
+///
+/// `SELECT DISTINCT` compares whole rows, and the engine always projects the
+/// primary key, so on SQLite and MySQL nothing would ever collapse. The query
+/// is therefore rendered without `LIMIT`/`OFFSET` and both the deduplication
+/// and the window are applied to the decoded rows, in the order the database
+/// already sorted them.
+struct DistinctFallback {
+    columns: Vec<String>,
+    skip: u32,
+    take: Option<i32>,
+}
+
+impl DistinctFallback {
+    fn apply(&self, rows: Vec<Row>) -> Vec<Row> {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut kept = Vec::new();
+        let mut skipped = 0u32;
+
+        for row in rows {
+            let key = self
+                .columns
+                .iter()
+                .map(|column| format!("{:?}", row.get(column)))
+                .collect::<Vec<_>>()
+                .join("\u{1f}");
+            if !seen.insert(key) {
+                continue;
+            }
+            if skipped < self.skip {
+                skipped += 1;
+                continue;
+            }
+            kept.push(row);
+            if self.take.is_some_and(|take| kept.len() >= take as usize) {
+                break;
+            }
+        }
+
+        kept
+    }
 }
 
 enum ResolvedOrderTarget {
@@ -290,13 +336,33 @@ fn build_find_many_plan(
         }
     }
 
-    if let Some(take) = take {
-        builder = builder.take(take);
+    let distinct_fallback =
+        (!distinct.is_empty() && !state.dialect.supports_distinct_on()).then(|| DistinctFallback {
+            columns: distinct
+                .iter()
+                .map(|column| {
+                    format!(
+                        "{}__{}",
+                        model.db_name,
+                        logical_to_db
+                            .get(column.as_str())
+                            .map_or(column.as_str(), String::as_str)
+                    )
+                })
+                .collect(),
+            skip: skip.unwrap_or(0),
+            take,
+        });
+
+    if distinct_fallback.is_none() {
+        if let Some(take) = take {
+            builder = builder.take(take);
+        }
+        if let Some(skip) = skip {
+            builder = builder.skip(skip);
+        }
     }
-    if let Some(skip) = skip {
-        builder = builder.skip(skip);
-    }
-    if !distinct.is_empty() {
+    if distinct_fallback.is_none() && !distinct.is_empty() {
         let distinct_db: Vec<String> = distinct
             .iter()
             .map(|column| {
@@ -335,6 +401,7 @@ fn build_find_many_plan(
         row_hints,
         backward,
         include,
+        distinct: distinct_fallback,
     })
 }
 
@@ -454,6 +521,10 @@ pub(super) async fn execute_find_many_rows(
         state.execute_query_on(&plan.sql, "Query", tx_id).await?,
         &plan.row_hints,
     )?;
+
+    if let Some(distinct) = plan.distinct.as_ref() {
+        rows = distinct.apply(rows);
+    }
 
     if plan.backward {
         rows.reverse();
@@ -894,12 +965,14 @@ async fn find_many_with_params(
 
     // Streaming path is reserved for plans whose output does not need a global
     // post-fetch transformation: backward pagination flips order in memory,
-    // and include hydration needs every parent row before issuing the batch
-    // child query. Both cases fall back to the buffered path below.
+    // include hydration needs every parent row before issuing the batch child
+    // query, and the `distinct` fallback deduplicates across the whole result
+    // set. All three fall back to the buffered path below.
     let streamable = chunk_size.is_some()
         && sender.is_some()
         && !query_args.backward
-        && query_args.include.is_empty();
+        && query_args.include.is_empty()
+        && (query_args.distinct.is_empty() || state.dialect.supports_distinct_on());
 
     if streamable {
         let plan = build_find_many_plan(state, model, query_args)?;

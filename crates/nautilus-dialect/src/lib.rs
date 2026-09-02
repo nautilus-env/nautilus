@@ -649,6 +649,16 @@ pub trait Dialect {
         true
     }
 
+    /// Whether this dialect can restrict a result set to one row per
+    /// distinct-column combination on its own (PostgreSQL's `DISTINCT ON`).
+    ///
+    /// A dialect that returns `false` renders `SELECT DISTINCT`, which
+    /// deduplicates whole rows and therefore cannot honour `distinct` by
+    /// itself; the engine deduplicates the decoded rows instead.
+    fn supports_distinct_on(&self) -> bool {
+        false
+    }
+
     /// Render an owned SELECT query into SQL, moving bound values out of the AST
     /// instead of cloning them. This is the primary rendering entry point used by
     /// the engine's hot paths; dialects implement this.

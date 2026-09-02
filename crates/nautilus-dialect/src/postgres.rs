@@ -12,6 +12,10 @@ use nautilus_core::{BinaryOp, Delete, Expr, Insert, OnConflict, Result, Select, 
 pub struct PostgresDialect;
 
 impl Dialect for PostgresDialect {
+    fn supports_distinct_on(&self) -> bool {
+        true
+    }
+
     fn render_select_owned(&self, mut select: Select) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_select_render(&select));
         render_select_body_core_mut!(&mut ctx, &mut select, '"', render_expr_owned, true, "");
