@@ -50,7 +50,11 @@ fn main() -> Result<()> {
             nautilus_codegen::generate_command(
                 &path,
                 nautilus_codegen::GenerateOptions {
-                    install: !no_install,
+                    install: if no_install {
+                        nautilus_codegen::InstallMode::Never
+                    } else {
+                        nautilus_codegen::InstallMode::Auto
+                    },
                     verbose,
                     standalone,
                 },

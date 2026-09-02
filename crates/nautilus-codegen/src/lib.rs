@@ -95,15 +95,37 @@ pub fn resolve_schema_path(schema: Option<PathBuf>) -> Result<PathBuf> {
 /// Options controlling code generation behaviour.
 #[derive(Debug, Clone, Default)]
 pub struct GenerateOptions {
-    /// Install the generated package after generation.
-    /// Python: copy to site-packages. Rust: add to workspace `Cargo.toml`.
-    pub install: bool,
+    /// Whether the generated package is also installed after generation.
+    pub install: InstallMode,
     /// Print verbose progress and IR debug output.
     pub verbose: bool,
     /// (Rust only) Also emit a `Cargo.toml` for the generated crate.
     /// Default mode produces bare source files that integrate into an existing
     /// Cargo workspace. Pass `true` when you want a self-contained crate.
     pub standalone: bool,
+}
+
+/// Whether `generate` installs the client on top of writing it to `output`.
+///
+/// Installing copies the Python package into `site-packages/nautilus` and the
+/// JavaScript one into `node_modules/nautilus` — machine-wide locations two
+/// projects on one machine would overwrite for each other. Under [`Auto`] that
+/// only happens when the generator block names no `output` to import from,
+/// which is the only case where it is the sole way to reach the client.
+///
+/// The Rust client is unaffected by the distinction: "installing" it means
+/// adding the generated crate to the nearest Cargo workspace, which is local.
+///
+/// [`Auto`]: InstallMode::Auto
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum InstallMode {
+    /// Install only when there is no `output` path to import from.
+    #[default]
+    Auto,
+    /// Always install (`--install`).
+    Always,
+    /// Never install (`--no-install`).
+    Never,
 }
 
 /// Verify that all type references in the IR resolve to known definitions.
@@ -232,11 +254,19 @@ fn report_loaded_schema(schema_path: &Path, ir: &SchemaIr) {
             .strip_prefix("env(")
             .and_then(|s| s.strip_suffix(')'))
         {
+            // The variable may equally have come from the process environment,
+            // and naming `.env` when no such file exists sends the reader
+            // looking for one.
+            let source = if Path::new(".env").exists() {
+                "from .env"
+            } else {
+                "from the environment"
+            };
             println!(
                 "{} {} {}",
                 console::style("Loaded").dim(),
                 console::style(var_name).bold(),
-                console::style("from .env").dim()
+                console::style(source).dim()
             );
         }
     }
@@ -337,7 +367,7 @@ impl<'a> GenerationContext<'a> {
             self.options.standalone,
         )?;
 
-        if self.options.install {
+        if self.options.install != InstallMode::Never {
             integrate_rust_package(&output_path, self.schema_path)?;
         }
 
@@ -443,7 +473,7 @@ impl<'a> GenerationContext<'a> {
             .and_then(|g| g.java_mode)
             .unwrap_or(JavaGenerationMode::Maven);
 
-        if self.options.install {
+        if self.options.install == InstallMode::Always {
             match java_mode {
                 JavaGenerationMode::Maven => eprint_warning(
                     "install = true is currently ignored for 'nautilus-client-java'; the generated Maven module is written only to the configured output path",
@@ -503,7 +533,7 @@ impl<'a> GenerationContext<'a> {
         install: impl Fn(&str) -> Result<PathBuf>,
     ) -> Result<Option<String>> {
         let Some(output_path) = self.output_path.as_deref() else {
-            if !self.options.install {
+            if self.options.install == InstallMode::Never {
                 eprint_warning("no output path specified and --no-install given; nothing written");
                 return Ok(None);
             }
@@ -517,8 +547,13 @@ impl<'a> GenerationContext<'a> {
         };
 
         write(output_path)?;
-        if self.options.install {
-            Ok(Some(install(output_path)?.display().to_string()))
+        if self.options.install == InstallMode::Always {
+            let installed = install(output_path)?;
+            eprint_warning(&format!(
+                "installed the generated client into {}, which every project on this machine shares",
+                installed.display()
+            ));
+            Ok(Some(installed.display().to_string()))
         } else {
             Ok(Some(output_path.to_string()))
         }

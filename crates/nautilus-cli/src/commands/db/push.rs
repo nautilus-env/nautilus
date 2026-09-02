@@ -134,7 +134,7 @@ async fn maybe_run_post_generate(
 
 async fn run_post_generate(schema_arg: Option<String>) -> anyhow::Result<()> {
     tui::print_section("Generating client code");
-    tokio::task::spawn_blocking(move || run_generate(schema_arg, false, false, false))
+    tokio::task::spawn_blocking(move || run_generate(schema_arg, false, false, false, false))
         .await
         .unwrap_or_else(|e| Err(anyhow::anyhow!("Generate task error: {}", e)))
 }

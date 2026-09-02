@@ -2,16 +2,25 @@ use std::path::PathBuf;
 
 pub fn run_generate(
     schema: Option<String>,
+    install: bool,
     no_install: bool,
     verbose: bool,
     standalone: bool,
 ) -> anyhow::Result<()> {
     let path_buf = schema.map(PathBuf::from);
     let path = nautilus_codegen::resolve_schema_path(path_buf)?;
+    let install = match (install, no_install) {
+        (true, true) => {
+            return Err(anyhow::anyhow!("--install and --no-install conflict"));
+        }
+        (true, false) => nautilus_codegen::InstallMode::Always,
+        (false, true) => nautilus_codegen::InstallMode::Never,
+        (false, false) => nautilus_codegen::InstallMode::Auto,
+    };
     nautilus_codegen::generate_command(
         &path,
         nautilus_codegen::GenerateOptions {
-            install: !no_install,
+            install,
             verbose,
             standalone,
         },

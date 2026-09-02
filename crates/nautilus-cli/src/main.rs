@@ -38,7 +38,11 @@ enum Command {
         /// Path to the schema file (auto-detect the first .nautilus file if not specified)
         #[arg(long)]
         schema: Option<String>,
-        /// Skip automatic package installation after generation
+        /// Also install the generated client into the shared
+        /// `site-packages` / `node_modules` location
+        #[arg(long)]
+        install: bool,
+        /// Skip package installation after generation
         #[arg(long)]
         no_install: bool,
         /// Verbose output
@@ -100,11 +104,12 @@ async fn main() {
         Command::Db { subcommand } => commands::db::run(subcommand).await,
         Command::Generate {
             schema,
+            install,
             no_install,
             verbose,
             standalone,
         } => tokio::task::spawn_blocking(move || {
-            commands::generate::run_generate(schema, no_install, verbose, standalone)
+            commands::generate::run_generate(schema, install, no_install, verbose, standalone)
         })
         .await
         .unwrap_or_else(|e| Err(anyhow::anyhow!("Task error: {}", e))),
