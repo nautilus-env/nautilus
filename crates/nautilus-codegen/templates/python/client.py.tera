@@ -105,6 +105,26 @@ class Nautilus(BaseClient):
         """Synchronous context manager exit — disconnects from the engine."""
         self.disconnect()
 
+    async def __aenter__(self) -> "Nautilus":
+        """Rejected: this client was generated with ``interface = "sync"``.
+
+        The base class awaits ``connect()``, which is synchronous here, so
+        inheriting the async form would fail with an unrelated ``TypeError``.
+        """
+        raise TypeError(
+            "this client was generated with interface = \"sync\"; use "
+            "`with Nautilus() as client:` (or set interface = \"async\" in the "
+            "generator block)"
+        )
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Rejected for the same reason as ``__aenter__``."""
+        raise TypeError(
+            "this client was generated with interface = \"sync\"; use "
+            "`with Nautilus() as client:` (or set interface = \"async\" in the "
+            "generator block)"
+        )
+
     def sync_transaction(
         self,
         callback: Callable[["Nautilus"], T] | None = None,

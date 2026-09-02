@@ -528,8 +528,42 @@ pub fn write_js_code(output_path: &str, output: JsOutput<'_>) -> Result<()> {
             .with_context(|| format!("Failed to write index.d.ts: {}", output_dir.display()))?;
     }
 
+    let package_json_path = output_dir.join("package.json");
+    fs::write(&package_json_path, JS_PACKAGE_JSON).with_context(|| {
+        format!(
+            "Failed to write package.json: {}",
+            package_json_path.display()
+        )
+    })?;
+
     Ok(())
 }
+
+/// The `package.json` that makes the generated directory importable.
+///
+/// The client is pure ESM. Without a manifest of its own Node reads the
+/// consuming project's `type`, so `import { Nautilus } from './db/index.js'`
+/// fails in any project that has not opted into modules — a requirement the
+/// consumer should not have to know about.
+const JS_PACKAGE_JSON: &str = r#"{
+  "name": "nautilus",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./models": {
+      "types": "./models/index.d.ts",
+      "default": "./models/index.js"
+    }
+  }
+}
+"#;
 
 /// Write generated Java code to the output directory, preserving the relative
 /// file layout produced by the Java generator.

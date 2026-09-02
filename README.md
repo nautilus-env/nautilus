@@ -100,8 +100,9 @@ datasource db {
 }
 
 generator client {
-  provider = "nautilus-client-py"  // or "nautilus-client-rs", "nautilus-client-js", "nautilus-client-java"
-  output   = "db"
+  provider  = "nautilus-client-py"  // or "nautilus-client-rs", "nautilus-client-js", "nautilus-client-java"
+  output    = "db"
+  interface = "async"               // "sync" is the default for Python; the examples below are async
 }
 
 enum Role {
@@ -629,7 +630,7 @@ async with Nautilus(auto_register=True) as client:
 #### JavaScript / TypeScript
 
 ```typescript
-import { Nautilus } from './db/client';
+import { Nautilus } from './db/index.js';
 
 async function main() {
     const client = new Nautilus();
@@ -964,7 +965,7 @@ asyncio.run(main())
 #### JavaScript / TypeScript
 
 ```typescript
-import { Nautilus } from './db/client';
+import { Nautilus } from './db/index.js';
 
 async function main() {
     const client = new Nautilus();
