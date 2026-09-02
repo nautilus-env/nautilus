@@ -774,10 +774,7 @@ impl DdlGenerator {
 
         // @updatedAt: emit DEFAULT CURRENT_TIMESTAMP; MySQL also gets ON UPDATE.
         if field.is_updated_at {
-            let now = match self.provider {
-                DatabaseProvider::Mysql => self.mysql_current_timestamp(&field.field_type),
-                _ => "CURRENT_TIMESTAMP".to_string(),
-            };
+            let now = self.updated_at_default_sql(&field.field_type);
             parts.push(format!("DEFAULT {}", now));
             if self.provider == DatabaseProvider::Mysql {
                 parts.push(format!("ON UPDATE {}", now));
@@ -1136,7 +1133,20 @@ impl DdlGenerator {
             // autoincrement is handled at PK level, not as a column DEFAULT
             Some(DefaultValue::Function(f)) if f.name == "autoincrement" => Ok(None),
             Some(d) => self.generate_default_value(d, &field.field_type).map(Some),
+            // `@updatedAt` carries no `@default`, but CREATE TABLE gives the
+            // column a CURRENT_TIMESTAMP default; without reporting it here the
+            // diff would propose dropping that default on every push, and the
+            // first value of an inserted row relies on it.
+            None if field.is_updated_at => Ok(Some(self.updated_at_default_sql(&field.field_type))),
             None => Ok(None),
+        }
+    }
+
+    /// The `DEFAULT` expression an `@updatedAt` column is created with.
+    fn updated_at_default_sql(&self, field_type: &ResolvedFieldType) -> String {
+        match self.provider {
+            DatabaseProvider::Mysql => self.mysql_current_timestamp(field_type),
+            _ => "CURRENT_TIMESTAMP".to_string(),
         }
     }
 

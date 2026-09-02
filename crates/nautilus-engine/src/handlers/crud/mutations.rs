@@ -60,7 +60,14 @@ fn field_input_value(
             Some(json_val) if !json_val.is_null() => {
                 Ok(Some(convert_field_input(state, json_val, field)?))
             }
-            _ => Ok(Some(updated_at_now_value())),
+            // On insert the column's CURRENT_TIMESTAMP default supplies the
+            // value, so it comes from the same clock and the same statement as
+            // a `@default(now())` sibling. Computing it here instead made
+            // `updatedAt` older than `createdAt` on every row.
+            _ => match mode {
+                FieldInputMode::Create => Ok(None),
+                FieldInputMode::Update => Ok(Some(updated_at_now_value())),
+            },
         };
     }
 
@@ -103,8 +110,11 @@ fn convert_field_input(
     json_to_value_field(json_val, &field.field_type)
 }
 
+/// Whether an explicit `null` should leave the column out of the INSERT so the
+/// database's own default fills it.
 fn should_omit_server_default(json_val: &JsonValue, field: &FieldIr) -> bool {
-    json_val.is_null() && matches!(&field.default_value, Some(DefaultValue::Function(_)))
+    json_val.is_null()
+        && (field.is_updated_at || matches!(&field.default_value, Some(DefaultValue::Function(_))))
 }
 
 fn create_many_effective_fields<'a>(
@@ -116,9 +126,6 @@ fn create_many_effective_fields<'a>(
         .iter()
         .filter(|field| !matches!(field.field_type, ResolvedFieldType::Relation(_)))
         .filter(|field| {
-            if field.is_updated_at {
-                return true;
-            }
             row_field_json(data_obj, field)
                 .is_some_and(|json_val| !should_omit_server_default(json_val, field))
         })
