@@ -52,11 +52,35 @@ impl MysqlExecutor {
         );
         let pool = pool_options
             .apply_to_mysql_pool(MySqlPoolOptions::new().max_connections(5))
-            .connect_with(connect_options)
-            .await
-            .map_err(|e| Error::connection(e, "Failed to connect to MySQL"))?;
+            .connect_with(connect_options.clone())
+            .await;
+
+        let pool = match pool {
+            Ok(pool) => pool,
+            Err(error) => return Err(Self::connect_error(error, &connect_options).await),
+        };
 
         Ok(Self { pool })
+    }
+
+    /// Turn a pool-creation failure into an error that names the real cause.
+    ///
+    /// sqlx reports a failure to open the pool's first connection as
+    /// `PoolTimedOut`, which says only that the acquire timeout elapsed and
+    /// hides whatever actually went wrong. Opening one connection directly
+    /// recovers the underlying error.
+    async fn connect_error(error: sqlx::Error, options: &MySqlConnectOptions) -> Error {
+        if !matches!(error, sqlx::Error::PoolTimedOut) {
+            return Error::connection(error, "Failed to connect to MySQL");
+        }
+
+        match <sqlx::MySqlConnection as sqlx::Connection>::connect_with(options).await {
+            Err(cause) => Error::connection(cause, "Failed to connect to MySQL"),
+            Ok(_) => Error::connection(
+                error,
+                "Failed to connect to MySQL within the pool acquire timeout",
+            ),
+        }
     }
 
     /// Get a reference to the underlying connection pool.
