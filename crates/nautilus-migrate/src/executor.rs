@@ -94,12 +94,21 @@ impl MigrationExecutor {
 
         let start = Instant::now();
 
+        let (standalone, transactional): (Vec<&String>, Vec<&String>) = migration
+            .up_sql
+            .iter()
+            .partition(|sql| crate::utils::requires_own_transaction(sql));
+
+        for sql in standalone {
+            self.execute_sql(sql).await?;
+        }
+
         let mut tx =
             self.pool.begin().await.map_err(|e| {
                 MigrationError::Database(format!("Failed to begin transaction: {}", e))
             })?;
 
-        for sql in &migration.up_sql {
+        for sql in transactional {
             self.execute_sql_in_tx(&mut tx, sql).await?;
         }
 
@@ -172,22 +181,12 @@ impl MigrationExecutor {
     }
 
     /// Execute a SQL statement within a transaction.
-    ///
-    /// Statements that consist entirely of SQL comments (`--`) or whitespace
-    /// are silently skipped — they appear in down-migration files when a change
-    /// cannot be automatically reversed.
     async fn execute_sql_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Any>,
         sql: &str,
     ) -> Result<()> {
-        let is_comment_only = sql
-            .lines()
-            .map(|l| l.trim())
-            .filter(|l| !l.is_empty())
-            .all(|l| l.starts_with("--"));
-
-        if is_comment_only {
+        if is_comment_only(sql) {
             return Ok(());
         }
 
@@ -197,6 +196,30 @@ impl MigrationExecutor {
             .await?;
         Ok(())
     }
+
+    /// Execute a SQL statement on its own connection, outside any transaction.
+    async fn execute_sql(&self, sql: &str) -> Result<()> {
+        if is_comment_only(sql) {
+            return Ok(());
+        }
+
+        sqlx::query(sql)
+            .persistent(false)
+            .execute(self.pool.as_ref())
+            .await?;
+        Ok(())
+    }
+}
+
+/// Whether a statement is nothing but SQL comments or whitespace.
+///
+/// Down-migration files carry such statements where a change cannot be
+/// automatically reversed.
+fn is_comment_only(sql: &str) -> bool {
+    sql.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .all(|line| line.starts_with("--"))
 }
 
 /// Builds best-effort down-SQL for a single [`Change`].

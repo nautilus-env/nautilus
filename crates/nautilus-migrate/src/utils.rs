@@ -158,3 +158,40 @@ mod bool_expr_tests {
         );
     }
 }
+
+/// Whether a DDL statement has to run on its own, outside the migration's
+/// transaction.
+///
+/// PostgreSQL refuses to use an enum value that was added by the transaction
+/// still in flight ("unsafe use of new value"), so adding a variant and making
+/// it a column default — one ordinary schema edit — can never be applied in one
+/// go. `ALTER TYPE … ADD VALUE` is therefore committed first and separately.
+/// The check is textual because the migration-file path only ever sees SQL
+/// text; no other provider emits this statement.
+pub fn requires_own_transaction(sql: &str) -> bool {
+    let normalized = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+    let upper = normalized.to_uppercase();
+    upper.starts_with("ALTER TYPE ") && upper.contains(" ADD VALUE ")
+}
+
+#[cfg(test)]
+mod own_transaction_tests {
+    use super::requires_own_transaction;
+
+    #[test]
+    fn enum_add_value_runs_alone() {
+        assert!(requires_own_transaction(
+            "ALTER TYPE \"shade\" ADD VALUE IF NOT EXISTS 'blue'"
+        ));
+    }
+
+    #[test]
+    fn other_statements_stay_in_the_transaction() {
+        assert!(!requires_own_transaction(
+            "ALTER TABLE \"Box\" ALTER COLUMN \"shade\" SET DEFAULT 'blue'"
+        ));
+        assert!(!requires_own_transaction(
+            "ALTER TYPE \"shade\" RENAME TO \"shade_old\""
+        ));
+    }
+}

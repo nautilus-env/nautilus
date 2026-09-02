@@ -168,6 +168,23 @@ impl Connection {
         Ok(())
     }
 
+    /// Execute SQL statements one at a time, each committing on its own.
+    ///
+    /// Used for the statements a transaction cannot carry — see
+    /// [`nautilus_migrate::requires_own_transaction`].
+    pub async fn execute_each(&self, stmts: &[String]) -> anyhow::Result<()> {
+        with_pool!(self, pool => {
+            for sql in stmts {
+                sqlx::query(sql)
+                    .persistent(false)
+                    .execute(pool)
+                    .await
+                    .context("statement error")?;
+            }
+        });
+        Ok(())
+    }
+
     /// Execute a raw SQL script inside a single transaction.
     ///
     /// The script is passed through to the database driver unchanged so the
@@ -380,12 +397,20 @@ pub async fn apply_changes(
         change_stmts.push((label, stmts));
     }
 
-    let all_stmts: Vec<String> = change_stmts
+    let (standalone_stmts, all_stmts): (Vec<String>, Vec<String>) = change_stmts
         .iter()
         .flat_map(|(_, stmts)| stmts.iter().cloned())
-        .collect();
+        .partition(|sql| nautilus_migrate::requires_own_transaction(sql));
 
     let sp = tui::spinner("Applying…");
+    if let Err(e) = conn.execute_each(&standalone_stmts).await {
+        tui::spinner_err(sp, "Failed before the transaction");
+        for sql in &standalone_stmts {
+            eprintln!("  [sql] {}", sql);
+        }
+        tui::print_table_err("Statement", &format!("{:#}", e));
+        return Ok((0, change_stmts.len()));
+    }
     match conn.execute_in_transaction(&all_stmts).await {
         Ok(()) => {
             tui::spinner_ok(sp, "Transaction committed");

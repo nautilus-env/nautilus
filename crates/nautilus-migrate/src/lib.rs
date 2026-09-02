@@ -44,3 +44,4 @@ pub use serializer::{
     serialize_live_schema, serialize_live_schema_with_options, PullNameCase, PullNamingOptions,
 };
 pub use tracker::MigrationTracker;
+pub use utils::requires_own_transaction;
