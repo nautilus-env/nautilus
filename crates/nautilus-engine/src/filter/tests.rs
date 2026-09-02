@@ -390,7 +390,7 @@ model Comment {
         .expect("comments include filter missing")
     {
         Expr::Binary { left, op, right } => {
-            assert_eq!(*op, BinaryOp::Like);
+            assert_eq!(*op, BinaryOp::LikeEscape);
             match (left.as_ref(), right.as_ref()) {
                 (Expr::Column(name), Expr::Param(Value::String(pattern))) => {
                     assert_eq!(name, "comments__body_text");

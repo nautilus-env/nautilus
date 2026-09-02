@@ -870,7 +870,7 @@ pub(crate) fn binary_op_sql(op: &nautilus_core::BinaryOp) -> &'static str {
         nautilus_core::BinaryOp::Ge => ">=",
         nautilus_core::BinaryOp::And => "AND",
         nautilus_core::BinaryOp::Or => "OR",
-        nautilus_core::BinaryOp::Like => "LIKE",
+        nautilus_core::BinaryOp::Like | nautilus_core::BinaryOp::LikeEscape => "LIKE",
         nautilus_core::BinaryOp::ArrayContains
         | nautilus_core::BinaryOp::ArrayContainedBy
         | nautilus_core::BinaryOp::ArrayOverlaps

@@ -97,6 +97,13 @@ pub enum BinaryOp {
     Or,
     /// LIKE pattern matching.
     Like,
+    /// LIKE pattern matching with an explicit `ESCAPE '\'` clause.
+    ///
+    /// Used by the substring operators (`contains` / `startsWith` / `endsWith`),
+    /// whose search term is literal text: the engine escapes `%`, `_` and `\`
+    /// in the term and this operator makes the escape character explicit, which
+    /// SQLite requires and which MySQL and PostgreSQL accept.
+    LikeEscape,
     /// Array contains (`@>` in PostgreSQL).
     ArrayContains,
     /// Array is contained by (`<@` in PostgreSQL).
@@ -350,6 +357,16 @@ impl Expr {
         Expr::Binary {
             left: Box::new(self),
             op: BinaryOp::Like,
+            right: Box::new(pattern),
+        }
+    }
+
+    /// Creates a LIKE pattern match whose pattern uses `\` as escape character.
+    #[must_use]
+    pub fn like_escape(self, pattern: Expr) -> Self {
+        Expr::Binary {
+            left: Box::new(self),
+            op: BinaryOp::LikeEscape,
             right: Box::new(pattern),
         }
     }

@@ -168,6 +168,9 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
                 ctx.sql.push_str(crate::binary_op_sql(op));
                 ctx.sql.push(' ');
                 render_expr_owned(ctx, right.as_mut());
+                if matches!(*op, BinaryOp::LikeEscape) {
+                    ctx.sql.push_str(" ESCAPE '\\'");
+                }
                 ctx.sql.push(')');
             }
         }

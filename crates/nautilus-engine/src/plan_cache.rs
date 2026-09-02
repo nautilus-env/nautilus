@@ -307,6 +307,7 @@ fn slot_safe_op(op: &BinaryOp) -> bool {
             | BinaryOp::Gt
             | BinaryOp::Ge
             | BinaryOp::Like
+            | BinaryOp::LikeEscape
             | BinaryOp::ArrayContains
             | BinaryOp::ArrayContainedBy
             | BinaryOp::ArrayOverlaps

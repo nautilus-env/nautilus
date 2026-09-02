@@ -404,7 +404,8 @@ fn field_predicate_to_json(left: &Expr, op: &BinaryOp, right: &Expr) -> Result<J
         BinaryOp::Le => (Some("lte"), expr_value_to_json(right)?),
         BinaryOp::Gt => (Some("gt"), expr_value_to_json(right)?),
         BinaryOp::Ge => (Some("gte"), expr_value_to_json(right)?),
-        BinaryOp::Like => like_operator_and_value(right)?,
+        BinaryOp::Like => like_operator_and_value(right, false)?,
+        BinaryOp::LikeEscape => like_operator_and_value(right, true)?,
         BinaryOp::In => (Some("in"), list_expr_to_json_array(right)?),
         BinaryOp::NotIn => (Some("notIn"), list_expr_to_json_array(right)?),
         other => {
@@ -449,7 +450,10 @@ fn null_predicate_to_json(inner: &Expr, is_null: bool) -> Result<JsonValue> {
     Ok(JsonValue::Object(result))
 }
 
-fn like_operator_and_value(expr: &Expr) -> Result<(Option<&'static str>, JsonValue)> {
+fn like_operator_and_value(
+    expr: &Expr,
+    escaped: bool,
+) -> Result<(Option<&'static str>, JsonValue)> {
     let value = match expr {
         Expr::Param(value) => value.to_json_plain(),
         other => {
@@ -464,22 +468,43 @@ fn like_operator_and_value(expr: &Expr) -> Result<(Option<&'static str>, JsonVal
         return Ok((Some("like"), value));
     };
 
+    let term = |raw: &str| {
+        JsonValue::String(if escaped {
+            unescape_like_term(raw)
+        } else {
+            raw.to_string()
+        })
+    };
+
     if pattern.starts_with('%') && pattern.ends_with('%') && pattern.len() >= 2 {
-        return Ok((
-            Some("contains"),
-            JsonValue::String(pattern[1..pattern.len() - 1].to_string()),
-        ));
+        return Ok((Some("contains"), term(&pattern[1..pattern.len() - 1])));
     }
 
     if let Some(stripped) = pattern.strip_prefix('%') {
-        return Ok((Some("endsWith"), JsonValue::String(stripped.to_string())));
+        return Ok((Some("endsWith"), term(stripped)));
     }
 
     if let Some(stripped) = pattern.strip_suffix('%') {
-        return Ok((Some("startsWith"), JsonValue::String(stripped.to_string())));
+        return Ok((Some("startsWith"), term(stripped)));
     }
 
     Ok((Some("like"), JsonValue::String(pattern.to_string())))
+}
+
+/// Undo the `\` escaping the engine applies to a literal substring search term.
+fn unescape_like_term(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len());
+    let mut chars = pattern.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                out.push(next);
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn list_expr_to_json_array(expr: &Expr) -> Result<JsonValue> {

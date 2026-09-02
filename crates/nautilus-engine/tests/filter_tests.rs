@@ -116,7 +116,7 @@ fn test_string_contains() {
 
     match filter {
         nautilus_core::Expr::Binary { op, right, .. } => {
-            assert_eq!(op, BinaryOp::Like);
+            assert_eq!(op, BinaryOp::LikeEscape);
             match right.as_ref() {
                 nautilus_core::Expr::Param(Value::String(s)) => assert_eq!(s, "%test%"),
                 _ => panic!("Expected string parameter"),
@@ -141,7 +141,7 @@ fn test_string_starts_with() {
 
     match filter {
         nautilus_core::Expr::Binary { op, right, .. } => {
-            assert_eq!(op, BinaryOp::Like);
+            assert_eq!(op, BinaryOp::LikeEscape);
             match right.as_ref() {
                 nautilus_core::Expr::Param(Value::String(s)) => assert_eq!(s, "admin%"),
                 _ => panic!("Expected string parameter"),
@@ -166,7 +166,7 @@ fn test_string_ends_with() {
 
     match filter {
         nautilus_core::Expr::Binary { op, right, .. } => {
-            assert_eq!(op, BinaryOp::Like);
+            assert_eq!(op, BinaryOp::LikeEscape);
             match right.as_ref() {
                 nautilus_core::Expr::Param(Value::String(s)) => assert_eq!(s, "%@gmail.com"),
                 _ => panic!("Expected string parameter"),

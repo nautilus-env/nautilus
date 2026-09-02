@@ -178,6 +178,8 @@ pub(super) fn parse_field_condition(
 
     if let Some(operator_obj) = value.as_object() {
         parse_field_operators(field_expr, operator_obj, field_type)
+    } else if value.is_null() {
+        Ok(field_expr.is_null())
     } else {
         let converted = match field_type {
             Some(ft) => json_to_value_field(value, ft)?,
@@ -186,6 +188,32 @@ pub(super) fn parse_field_condition(
         let value_expr = Expr::Param(converted);
         Ok(field_expr.eq(value_expr))
     }
+}
+
+/// A predicate with a constant truth value, used where a filter degenerates to
+/// "matches nothing" (an empty `in` list) or "matches everything" (an empty
+/// `notIn` list).
+///
+/// Rendered through bound parameters rather than a SQL literal so every dialect
+/// sees a typed comparison it can plan.
+fn constant_predicate(truth: bool) -> Expr {
+    Expr::Param(Value::I32(1)).eq(Expr::Param(Value::I32(i32::from(truth))))
+}
+
+/// Escape the LIKE metacharacters in a literal substring search term.
+///
+/// `contains` / `startsWith` / `endsWith` take literal text, so a `%` or `_` a
+/// user typed must match itself instead of acting as a wildcard. The escape
+/// character is `\`, made explicit by [`Expr::like_escape`].
+fn escape_like_term(term: &str) -> String {
+    let mut out = String::with_capacity(term.len());
+    for c in term.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 pub(super) fn parse_field_operators(
@@ -221,6 +249,10 @@ pub(super) fn parse_field_operators(
         }
 
         let condition = match op.as_str() {
+            // SQL equality against NULL is never true, so the null operand of
+            // `eq` / `ne` / `not` has to become an IS [NOT] NULL test instead.
+            "eq" if value.is_null() => field_expr.clone().is_null(),
+            "ne" | "not" if value.is_null() => field_expr.clone().is_not_null(),
             "eq" => {
                 let val = Expr::Param(convert(value)?);
                 field_expr.clone().eq(val)
@@ -249,22 +281,28 @@ pub(super) fn parse_field_operators(
                 let s = value.as_str().ok_or_else(|| {
                     ProtocolError::InvalidFilter("contains value must be a string".to_string())
                 })?;
-                let pattern = format!("%{}%", s);
-                field_expr.clone().like(Expr::Param(Value::String(pattern)))
+                let pattern = format!("%{}%", escape_like_term(s));
+                field_expr
+                    .clone()
+                    .like_escape(Expr::Param(Value::String(pattern)))
             }
             "startsWith" => {
                 let s = value.as_str().ok_or_else(|| {
                     ProtocolError::InvalidFilter("startsWith value must be a string".to_string())
                 })?;
-                let pattern = format!("{}%", s);
-                field_expr.clone().like(Expr::Param(Value::String(pattern)))
+                let pattern = format!("{}%", escape_like_term(s));
+                field_expr
+                    .clone()
+                    .like_escape(Expr::Param(Value::String(pattern)))
             }
             "endsWith" => {
                 let s = value.as_str().ok_or_else(|| {
                     ProtocolError::InvalidFilter("endsWith value must be a string".to_string())
                 })?;
-                let pattern = format!("%{}", s);
-                field_expr.clone().like(Expr::Param(Value::String(pattern)))
+                let pattern = format!("%{}", escape_like_term(s));
+                field_expr
+                    .clone()
+                    .like_escape(Expr::Param(Value::String(pattern)))
             }
             "like" => {
                 let pattern = value
@@ -299,17 +337,25 @@ pub(super) fn parse_field_operators(
                 let arr = value.as_array().ok_or_else(|| {
                     ProtocolError::InvalidFilter("in value must be an array".to_string())
                 })?;
-                let exprs: Result<Vec<Expr>, _> =
-                    arr.iter().map(|v| convert(v).map(Expr::Param)).collect();
-                field_expr.clone().in_list(exprs?)
+                if arr.is_empty() {
+                    constant_predicate(false)
+                } else {
+                    let exprs: Result<Vec<Expr>, _> =
+                        arr.iter().map(|v| convert(v).map(Expr::Param)).collect();
+                    field_expr.clone().in_list(exprs?)
+                }
             }
             "notIn" => {
                 let arr = value.as_array().ok_or_else(|| {
                     ProtocolError::InvalidFilter("notIn value must be an array".to_string())
                 })?;
-                let exprs: Result<Vec<Expr>, _> =
-                    arr.iter().map(|v| convert(v).map(Expr::Param)).collect();
-                field_expr.clone().not_in_list(exprs?)
+                if arr.is_empty() {
+                    constant_predicate(true)
+                } else {
+                    let exprs: Result<Vec<Expr>, _> =
+                        arr.iter().map(|v| convert(v).map(Expr::Param)).collect();
+                    field_expr.clone().not_in_list(exprs?)
+                }
             }
             _ => {
                 return Err(ProtocolError::InvalidFilter(format!(
