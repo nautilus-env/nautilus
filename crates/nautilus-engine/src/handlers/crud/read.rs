@@ -950,7 +950,12 @@ async fn find_many_with_params(
     request_id: Option<nautilus_protocol::RpcId>,
     sender: Option<mpsc::Sender<RpcResponse>>,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
-    let chunk_size = params.chunk_size.map(|n| n.max(1));
+    if params.chunk_size == Some(0) {
+        return Err(ProtocolError::InvalidParams(
+            "chunkSize must be at least 1".to_string(),
+        ));
+    }
+    let chunk_size = params.chunk_size;
     check_protocol_version(params.protocol_version)?;
     let tx_id = params.transaction_id;
     let model = get_model_or_error(state, &params.model)?;
