@@ -163,6 +163,43 @@ pub(super) fn parse_order_dir(s: &str) -> Result<OrderDir, ProtocolError> {
     }
 }
 
+fn having_aggregate_fn(key: &str) -> Option<&'static str> {
+    match key {
+        "_count" => Some("COUNT"),
+        "_avg" => Some("AVG"),
+        "_sum" => Some("SUM"),
+        "_min" => Some("MIN"),
+        "_max" => Some("MAX"),
+        _ => None,
+    }
+}
+
+fn having_column(table: &str, logical_to_db: &HashMap<String, String>, field: &str) -> Expr {
+    if field == "_all" {
+        return Expr::Star;
+    }
+    let db_col = logical_to_db
+        .get(field)
+        .cloned()
+        .unwrap_or_else(|| field.to_string());
+    Expr::Column(format!("{}__{}", table, db_col))
+}
+
+fn having_operators<'a>(
+    value: &'a JsonValue,
+    path: &str,
+) -> Result<&'a serde_json::Map<String, JsonValue>, ProtocolError> {
+    value.as_object().ok_or_else(|| {
+        ProtocolError::InvalidFilter(format!("having.{} must be an operator object", path))
+    })
+}
+
+/// Parse a `having` payload in either accepted shape.
+///
+/// Aggregate first (`{"_sum": {"views": {"gt": 10}}}`) is Nautilus's own shape;
+/// field first (`{"views": {"_sum": {"gt": 10}}}`) is the other spelling in
+/// common use. A grouped column may also be filtered directly
+/// (`{"role": {"eq": "ADMIN"}}`), which neither aggregate shape can express.
 pub(crate) fn parse_having(
     having_value: &JsonValue,
     table: &str,
@@ -174,46 +211,41 @@ pub(crate) fn parse_having(
 
     let mut conditions = Vec::new();
 
-    for (agg_key, fields_val) in obj {
-        let agg_fn = match agg_key.as_str() {
-            "_count" => "COUNT",
-            "_avg" => "AVG",
-            "_sum" => "SUM",
-            "_min" => "MIN",
-            "_max" => "MAX",
-            other => {
-                return Err(ProtocolError::InvalidFilter(format!(
-                    "Unknown having aggregate key: {}",
-                    other
-                )));
+    for (key, value) in obj {
+        if let Some(agg_fn) = having_aggregate_fn(key) {
+            let fields_obj = value.as_object().ok_or_else(|| {
+                ProtocolError::InvalidFilter(format!("having.{} must be an object", key))
+            })?;
+            for (field, filter_val) in fields_obj {
+                let agg_expr =
+                    Expr::function_call(agg_fn, vec![having_column(table, logical_to_db, field)]);
+                let operators = having_operators(filter_val, &format!("{}.{}", key, field))?;
+                conditions.push(parse_field_operators(agg_expr, operators, None)?);
             }
-        };
+            continue;
+        }
 
-        let fields_obj = fields_val.as_object().ok_or_else(|| {
-            ProtocolError::InvalidFilter(format!("having.{} must be an object", agg_key))
+        let inner = value.as_object().ok_or_else(|| {
+            ProtocolError::InvalidFilter(format!("having.{} must be an object", key))
         })?;
 
-        for (field, filter_val) in fields_obj {
-            let agg_arg = if field == "_all" {
-                Expr::Star
-            } else {
-                let db_col = logical_to_db
-                    .get(field.as_str())
-                    .cloned()
-                    .unwrap_or_else(|| field.clone());
-                Expr::Column(format!("{}__{}", table, db_col))
-            };
-            let agg_expr = Expr::function_call(agg_fn, vec![agg_arg]);
-
-            let filter_obj = filter_val.as_object().ok_or_else(|| {
-                ProtocolError::InvalidFilter(format!(
-                    "having.{}.{} must be an operator object",
-                    agg_key, field
-                ))
-            })?;
-            let cond = parse_field_operators(agg_expr, filter_obj, None)?;
-            conditions.push(cond);
+        let column = having_column(table, logical_to_db, key);
+        let mut nested = Vec::new();
+        for (inner_key, filter_val) in inner {
+            match having_aggregate_fn(inner_key) {
+                Some(agg_fn) => {
+                    let agg_expr = Expr::function_call(agg_fn, vec![column.clone()]);
+                    let operators =
+                        having_operators(filter_val, &format!("{}.{}", key, inner_key))?;
+                    nested.push(parse_field_operators(agg_expr, operators, None)?);
+                }
+                None => {
+                    nested.push(parse_field_operators(column.clone(), inner, None)?);
+                    break;
+                }
+            }
         }
+        conditions.extend(nested);
     }
 
     combine_conditions(conditions, BinaryOp::And)
