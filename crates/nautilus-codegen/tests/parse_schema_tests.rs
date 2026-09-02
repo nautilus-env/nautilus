@@ -88,10 +88,11 @@ model User {
     );
 }
 
-/// A model with no `@id` field is currently accepted by the validator
-/// (composite PKs or table-less projections may not need a single `@id`).
+/// A model with no `@id` and no `@@id` is rejected: inventing a primary key
+/// from the first declared field imposes a uniqueness constraint the schema
+/// never asked for.
 #[test]
-fn test_validate_schema_model_without_id_is_accepted() {
+fn test_validate_schema_model_without_id_is_rejected() {
     let ast = parse_schema(
         r#"
 model Item {
@@ -101,11 +102,30 @@ model Item {
 "#,
     )
     .expect("parse step should succeed");
-    let result = validate_schema(ast);
+    let error = validate_schema(ast).expect_err("a model with no primary key must be rejected");
     assert!(
-        result.is_ok(),
-        "validator should accept a model with no @id field: {:?}",
-        result
+        format!("{error:?}").contains("has no primary key"),
+        "unexpected error: {error:?}"
+    );
+}
+
+/// A composite `@@id` satisfies the primary-key requirement.
+#[test]
+fn test_validate_schema_model_with_composite_id_is_accepted() {
+    let ast = parse_schema(
+        r#"
+model Item {
+  name  String
+  value Int
+
+  @@id([name, value])
+}
+"#,
+    )
+    .expect("parse step should succeed");
+    assert!(
+        validate_schema(ast).is_ok(),
+        "a model with @@id should validate"
     );
 }
 

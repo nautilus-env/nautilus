@@ -81,7 +81,46 @@ impl SchemaValidator<'_> {
         }
     }
 
+    /// Every model must name its primary key.
+    ///
+    /// Inventing one from the first declared field gives the user a uniqueness
+    /// constraint they never asked for, discovered only when a second row
+    /// collides with it at runtime. A view is exempt: it names a relation the
+    /// database owns, which need not have a key at all, so `db pull` cannot
+    /// produce one either.
+    fn validate_primary_key(&mut self, model: &ModelDecl) {
+        if model.is_view {
+            return;
+        }
+
+        let has_composite_id = model
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, ModelAttribute::Id(fields) if !fields.is_empty()));
+        let has_field_id = model.fields.iter().any(|field| {
+            field
+                .attributes
+                .iter()
+                .any(|attr| matches!(attr, FieldAttribute::Id))
+        });
+
+        if has_composite_id || has_field_id {
+            return;
+        }
+
+        self.errors.push_back(SchemaError::Validation(
+            format!(
+                "{} '{}' has no primary key. Mark a field with @id, or declare @@id([...]) for a composite key.",
+                model.keyword(),
+                model.name.value
+            ),
+            model.name.span,
+        ));
+    }
+
     pub(super) fn validate_model(&mut self, model: &ModelDecl) {
+        self.validate_primary_key(model);
+
         let mut field_names = HashMap::new();
         for field in &model.fields {
             let name = &field.name.value;
