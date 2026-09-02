@@ -46,7 +46,10 @@ futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 rust_decimal = "1.35"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# `preserve_order` keeps a JSON object in the order it was written: without it
+# a multi-key `orderBy` object comes back alphabetised and the caller's primary
+# sort key silently becomes the secondary one.
+serde_json = { version = "1.0", features = ["preserve_order"] }
 sqlx = { version = "0.8.2", features = ["postgres", "sqlite", "mysql"] }
 thiserror = "2.0.18"
 tokio = "1.42"

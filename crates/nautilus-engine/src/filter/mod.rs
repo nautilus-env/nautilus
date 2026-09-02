@@ -409,11 +409,13 @@ impl QueryArgs {
 
         let (take, backward) = if let Some(take_value) = args.get("take") {
             let n = parse_signed_int(take_value, "take")?;
-            if n < 0 {
-                (Some(n.unsigned_abs() as i32), true)
-            } else {
-                (Some(n as i32), false)
-            }
+            let magnitude = i32::try_from(n.unsigned_abs()).map_err(|_| {
+                ProtocolError::InvalidParams(format!(
+                    "take must fit in a 32-bit integer, got {}",
+                    n
+                ))
+            })?;
+            (Some(magnitude), n < 0)
         } else {
             (None, false)
         };

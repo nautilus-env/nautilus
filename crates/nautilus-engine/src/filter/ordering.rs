@@ -32,6 +32,19 @@ pub(super) fn parse_order_by(
                 }
             };
 
+            if let Some(types) = field_types.filter(|types| !types.is_empty()) {
+                let root = field
+                    .split_once("__")
+                    .map_or(field.as_str(), |(_, column)| column);
+                let root = root.split_once('.').map_or(root, |(parent, _)| parent);
+                if !types.contains_key(root) {
+                    return Err(ProtocolError::InvalidFilter(format!(
+                        "Unknown orderBy field '{}'",
+                        field
+                    )));
+                }
+            }
+
             if field_types
                 .and_then(|types| types.get(field))
                 .is_some_and(|field_type| {
