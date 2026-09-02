@@ -317,6 +317,9 @@ fn build_mysql_columns(rows: &[sqlx::mysql::MySqlRow]) -> Result<Vec<LiveColumn>
             computed_kind,
             check_expr: None,
             auto_increment: extra.to_ascii_lowercase().contains("auto_increment"),
+            self_updating: extra
+                .to_ascii_lowercase()
+                .contains("on update current_timestamp"),
         });
     }
     Ok(columns)

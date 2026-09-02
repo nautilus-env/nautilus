@@ -28,6 +28,7 @@ fn serialises_single_table() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "email".to_string(),
@@ -38,6 +39,7 @@ fn serialises_single_table() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -109,6 +111,7 @@ fn serialises_jsonb_columns_without_degrading_to_json() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "payload".to_string(),
@@ -119,6 +122,7 @@ fn serialises_jsonb_columns_without_degrading_to_json() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -163,6 +167,7 @@ fn serialises_pgvector_columns_with_dimension() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "vector".to_string(),
@@ -173,6 +178,7 @@ fn serialises_pgvector_columns_with_dimension() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -217,6 +223,7 @@ fn serialises_postgis_columns() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "geom".to_string(),
@@ -227,6 +234,7 @@ fn serialises_postgis_columns() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "geog".to_string(),
@@ -237,6 +245,7 @@ fn serialises_postgis_columns() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -293,6 +302,7 @@ fn serialises_nullable_column() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "body".to_string(),
@@ -303,6 +313,7 @@ fn serialises_nullable_column() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -330,6 +341,7 @@ fn serialises_nullable_array_without_optional_marker() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "tags".to_string(),
@@ -340,6 +352,7 @@ fn serialises_nullable_array_without_optional_marker() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -368,6 +381,7 @@ fn serialises_composite_pk() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "product_id".to_string(),
@@ -378,6 +392,7 @@ fn serialises_composite_pk() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["order_id".to_string(), "product_id".to_string()],
@@ -410,6 +425,7 @@ fn serialises_indexes() {
             computed_kind: None,
             check_expr: None,
             auto_increment: false,
+            self_updating: false,
         }],
         primary_key: vec!["id".to_string()],
         indexes: vec![
@@ -452,6 +468,7 @@ fn serialises_index_type_and_map() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "created_at".to_string(),
@@ -462,6 +479,7 @@ fn serialises_index_type_and_map() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -495,6 +513,7 @@ fn serialises_pgvector_index_options() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "embedding".to_string(),
@@ -505,6 +524,7 @@ fn serialises_pgvector_index_options() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -552,6 +572,7 @@ fn serialises_default_value() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "active".to_string(),
@@ -562,6 +583,7 @@ fn serialises_default_value() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -588,6 +610,7 @@ fn serialises_autoincrement_default() {
             computed_kind: None,
             check_expr: None,
             auto_increment: false,
+            self_updating: false,
         }],
         primary_key: vec!["id".to_string()],
         indexes: vec![],
@@ -614,6 +637,7 @@ fn serialises_computed_column() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "total".to_string(),
@@ -624,6 +648,7 @@ fn serialises_computed_column() {
                 computed_kind: Some(ComputedKind::Stored),
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -652,6 +677,7 @@ fn serialises_column_check_constraint() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "price".to_string(),
@@ -662,6 +688,7 @@ fn serialises_column_check_constraint() {
                 computed_kind: None,
                 check_expr: Some("price > 0".to_string()),
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -689,6 +716,7 @@ fn serialises_table_check_constraint() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "start_date".to_string(),
@@ -699,6 +727,7 @@ fn serialises_table_check_constraint() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "end_date".to_string(),
@@ -709,6 +738,7 @@ fn serialises_table_check_constraint() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -736,6 +766,7 @@ fn serialises_and_reparses_computed_column_with_sql_string_literal() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "first_name".to_string(),
@@ -746,6 +777,7 @@ fn serialises_and_reparses_computed_column_with_sql_string_literal() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "last_name".to_string(),
@@ -756,6 +788,7 @@ fn serialises_and_reparses_computed_column_with_sql_string_literal() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "display_name".to_string(),
@@ -766,6 +799,7 @@ fn serialises_and_reparses_computed_column_with_sql_string_literal() {
                 computed_kind: Some(ComputedKind::Stored),
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -799,6 +833,7 @@ fn serialises_and_reparses_check_constraints_with_sql_string_literals() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "status".to_string(),
@@ -809,6 +844,7 @@ fn serialises_and_reparses_check_constraints_with_sql_string_literals() {
                 computed_kind: None,
                 check_expr: Some("status IN ['Draft', 'PUBLISHED']".to_string()),
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "role".to_string(),
@@ -819,6 +855,7 @@ fn serialises_and_reparses_check_constraints_with_sql_string_literals() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -884,6 +921,7 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "primary_address".to_string(),
@@ -894,6 +932,7 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "previous_addresses".to_string(),
@@ -904,6 +943,7 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "status_history".to_string(),
@@ -914,6 +954,7 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "lucky_numbers".to_string(),
@@ -924,6 +965,7 @@ fn serialises_and_reparses_postgres_composites_and_arrays() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -988,6 +1030,7 @@ fn serialises_varchar_lengths() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "username".to_string(),
@@ -998,6 +1041,7 @@ fn serialises_varchar_lengths() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1025,6 +1069,7 @@ fn serialises_relation_actions_with_schema_casing() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -1043,6 +1088,7 @@ fn serialises_relation_actions_with_schema_casing() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "user_id".to_string(),
@@ -1053,6 +1099,7 @@ fn serialises_relation_actions_with_schema_casing() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1089,6 +1136,7 @@ fn serialises_one_to_one_back_reference_as_optional_scalar() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -1107,6 +1155,7 @@ fn serialises_one_to_one_back_reference_as_optional_scalar() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "user_id".to_string(),
@@ -1117,6 +1166,7 @@ fn serialises_one_to_one_back_reference_as_optional_scalar() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1170,6 +1220,7 @@ fn serialises_mixed_case_postgres_enum_columns_and_defaults() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "tone".to_string(),
@@ -1180,6 +1231,7 @@ fn serialises_mixed_case_postgres_enum_columns_and_defaults() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1217,6 +1269,7 @@ fn serialises_uuidv7_default() {
             computed_kind: None,
             check_expr: None,
             auto_increment: false,
+            self_updating: false,
         }],
         primary_key: vec!["id".to_string()],
         indexes: vec![],
@@ -1251,6 +1304,7 @@ fn serialises_ambiguous_relations_with_explicit_names() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "current_version_id".to_string(),
@@ -1261,6 +1315,7 @@ fn serialises_ambiguous_relations_with_explicit_names() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1293,6 +1348,7 @@ fn serialises_ambiguous_relations_with_explicit_names() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "app_id".to_string(),
@@ -1303,6 +1359,7 @@ fn serialises_ambiguous_relations_with_explicit_names() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1361,6 +1418,7 @@ fn serialises_self_relations_with_explicit_names() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "parent_id".to_string(),
@@ -1371,6 +1429,7 @@ fn serialises_self_relations_with_explicit_names() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1416,6 +1475,7 @@ fn serialises_custom_model_and_field_case_with_maps() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "created_at".to_string(),
@@ -1426,6 +1486,7 @@ fn serialises_custom_model_and_field_case_with_maps() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1463,6 +1524,7 @@ fn serialises_relations_with_logical_names_under_custom_case() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             }],
             primary_key: vec!["id".to_string()],
             indexes: vec![],
@@ -1481,6 +1543,7 @@ fn serialises_relations_with_logical_names_under_custom_case() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: "author_id".to_string(),
@@ -1491,6 +1554,7 @@ fn serialises_relations_with_logical_names_under_custom_case() {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
             ],
             primary_key: vec!["id".to_string()],
@@ -1538,6 +1602,7 @@ fn serialises_reserved_field_name_with_safe_logical_identifier() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "model".to_string(),
@@ -1548,6 +1613,7 @@ fn serialises_reserved_field_name_with_safe_logical_identifier() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1582,6 +1648,7 @@ fn mysql_inline_enums_are_lifted_into_declarations() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "status".to_string(),
@@ -1592,6 +1659,7 @@ fn mysql_inline_enums_are_lifted_into_declarations() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1658,6 +1726,7 @@ fn pulls_a_mysql_auto_increment_key_back_as_autoincrement() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: true,
+                self_updating: false,
             },
             LiveColumn {
                 name: "active".to_string(),
@@ -1668,6 +1737,7 @@ fn pulls_a_mysql_auto_increment_key_back_as_autoincrement() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1693,6 +1763,71 @@ fn pulls_a_mysql_auto_increment_key_back_as_autoincrement() {
 }
 
 #[test]
+fn pulls_a_mysql_on_update_column_back_as_updated_at() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: TableName::new("Doc".to_string()),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "int".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: true,
+                self_updating: false,
+            },
+            LiveColumn {
+                name: "created_at".to_string(),
+                col_type: "datetime(6)".to_string(),
+                nullable: false,
+                default_value: Some("CURRENT_TIMESTAMP(6)".to_string()),
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+                self_updating: false,
+            },
+            LiveColumn {
+                name: "updated_at".to_string(),
+                col_type: "datetime(6)".to_string(),
+                nullable: false,
+                default_value: Some("CURRENT_TIMESTAMP(6)".to_string()),
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+                self_updating: true,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let schema = serialize_live_schema(&live, DatabaseProvider::Mysql, "DATABASE_URL");
+
+    assert!(
+        schema.contains("updated_at") && schema.contains("@updatedAt"),
+        "an ON UPDATE column must be pulled back as @updatedAt: {schema}"
+    );
+    assert_eq!(
+        schema.matches("@default(now())").count(),
+        1,
+        "only the plain CURRENT_TIMESTAMP column keeps @default(now()): {schema}"
+    );
+    nautilus_schema::validate_schema_source(&schema).unwrap_or_else(|e| {
+        panic!(
+            "pulled schema does not validate: {:?}
+{}",
+            e, schema
+        )
+    });
+}
+
+#[test]
 fn serialises_partial_index_predicate_with_logical_field_names() {
     let live = common::make_live_schema(vec![LiveTable {
         name: TableName::new("tasks".to_string()),
@@ -1706,6 +1841,7 @@ fn serialises_partial_index_predicate_with_logical_field_names() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             LiveColumn {
                 name: "is_done".to_string(),
@@ -1716,6 +1852,7 @@ fn serialises_partial_index_predicate_with_logical_field_names() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1770,6 +1907,7 @@ fn unmodellable_column(name: &str, col_type: &str, nullable: bool) -> LiveColumn
         computed_kind: None,
         check_expr: None,
         auto_increment: false,
+        self_updating: false,
     }
 }
 
@@ -1787,6 +1925,7 @@ fn pull_marks_an_unmodellable_nullable_column_ignored() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             unmodellable_column("name", "text", false),
             unmodellable_column("uptime", "interval", true),
@@ -1840,6 +1979,7 @@ fn pull_marks_a_table_with_a_required_unmodellable_column_ignored() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: false,
+                self_updating: false,
             },
             unmodellable_column("span", "interval", false),
         ],
@@ -1870,6 +2010,7 @@ fn unparseable_checks_are_pulled_as_raw_predicates_that_reparse() {
                 computed_kind: None,
                 check_expr: None,
                 auto_increment: true,
+                self_updating: false,
             },
             LiveColumn {
                 name: "notes".to_string(),
@@ -1880,6 +2021,7 @@ fn unparseable_checks_are_pulled_as_raw_predicates_that_reparse() {
                 computed_kind: None,
                 check_expr: Some("notes IS NULL OR length(notes) > 3".to_string()),
                 auto_increment: false,
+                self_updating: false,
             },
         ],
         primary_key: vec!["id".to_string()],
@@ -1933,6 +2075,7 @@ fn raw_predicates_are_written_back_as_sql_in_lists() {
             computed_kind: None,
             check_expr: None,
             auto_increment: true,
+            self_updating: false,
         }],
         primary_key: vec!["id".to_string()],
         indexes: vec![],

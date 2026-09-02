@@ -145,6 +145,14 @@ pub struct LiveColumn {
     /// default and SQLite in `INTEGER PRIMARY KEY AUTOINCREMENT`, neither of
     /// which is diffed through this flag.
     pub auto_increment: bool,
+    /// `true` when the database refreshes this column on every UPDATE, which is
+    /// what `@updatedAt` asks for.
+    ///
+    /// Only MySQL reports it: `ON UPDATE CURRENT_TIMESTAMP` is a column
+    /// attribute it records in `information_schema`. PostgreSQL and SQLite give
+    /// an `@updatedAt` column a plain `CURRENT_TIMESTAMP` default and nothing
+    /// else, so there they are indistinguishable from `@default(now())`.
+    pub self_updating: bool,
 }
 
 /// A non-PK index on a live table.

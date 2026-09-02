@@ -744,6 +744,7 @@ mod tests {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
                 LiveColumn {
                     name: column.to_string(),
@@ -754,6 +755,7 @@ mod tests {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 },
             ],
             primary_key: vec!["id".to_string()],

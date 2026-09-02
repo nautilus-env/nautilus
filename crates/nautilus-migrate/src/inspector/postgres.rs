@@ -401,6 +401,7 @@ fn build_columns(rows: &[PgRow], table_name: &str) -> Result<Vec<LiveColumn>> {
             generated_expr,
             check_expr: None,
             auto_increment: false,
+            self_updating: false,
         });
     }
     Ok(columns)

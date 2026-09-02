@@ -116,6 +116,7 @@ impl SchemaInspector {
                     computed_kind,
                     check_expr: column_check_map.get(&col_name.to_lowercase()).cloned(),
                     auto_increment: is_pk && has_autoincrement,
+                    self_updating: false,
                 });
             }
 
@@ -255,6 +256,7 @@ impl SchemaInspector {
                     computed_kind: None,
                     check_expr: None,
                     auto_increment: false,
+                    self_updating: false,
                 });
             }
 

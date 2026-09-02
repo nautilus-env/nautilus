@@ -42,6 +42,7 @@ fn column(name: &str, col_type: &str) -> LiveColumn {
         computed_kind: None,
         check_expr: None,
         auto_increment: false,
+        self_updating: false,
     }
 }
 

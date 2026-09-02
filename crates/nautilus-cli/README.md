@@ -55,9 +55,12 @@ embeddings.
 
 `db pull` reconstructs the schema from what the database records, so a
 client-side concept the database cannot represent does not survive the round
-trip. `@updatedAt` is the one to know about: the column it produces is an
-ordinary `DateTime DEFAULT CURRENT_TIMESTAMP`, so a pulled schema spells it
-`@default(now())` and the column stops refreshing itself on write. Re-add
+trip. `@updatedAt` is the one to know about, and it depends on the provider.
+MySQL gives the column an `ON UPDATE CURRENT_TIMESTAMP` attribute and reports it
+in `information_schema`, so a pulled MySQL schema keeps `@updatedAt`. On
+PostgreSQL and SQLite the column is an ordinary `DateTime DEFAULT
+CURRENT_TIMESTAMP`, indistinguishable from `@default(now())`: a pulled schema
+spells it that way and the column stops refreshing itself on write, so re-add
 `@updatedAt` by hand after pulling a schema that had it.
 
 `db pull` writes installed PostgreSQL extensions back to the datasource block.

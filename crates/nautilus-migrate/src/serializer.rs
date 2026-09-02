@@ -613,6 +613,8 @@ fn render_column_lines(
             // empty, so there is no default expression to infer it from the way
             // PostgreSQL's `nextval(...)` allows.
             attrs.push("@default(autoincrement())".to_string());
+        } else if col.self_updating {
+            attrs.push("@updatedAt".to_string());
         } else if let Some(def) = &col.default_value {
             if let Some(attr) = infer_default_attr(def, &col.col_type, &live.enums) {
                 attrs.push(attr);
