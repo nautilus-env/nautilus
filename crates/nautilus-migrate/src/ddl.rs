@@ -1111,14 +1111,18 @@ impl DdlGenerator {
         .map(|s| crate::utils::lowercase_outside_quotes(&s))
     }
 
-    /// Return the canonical SQL default string for a field (used by the diff engine).
+    /// Return the SQL default string for a field (used by the diff engine).
+    ///
+    /// Case is preserved: the diff stores this string in
+    /// `Change::DefaultChanged` and emits it verbatim as `SET DEFAULT`, where a
+    /// lower-cased `'Hello World'` would silently become the wrong default and a
+    /// lower-cased enum literal would not name any variant. Comparison against
+    /// the live default is case-insensitive through `normalize_default`.
     pub fn column_default_sql(&self, field: &FieldIr) -> Result<Option<String>> {
         match &field.default_value {
             // autoincrement is handled at PK level, not as a column DEFAULT
             Some(DefaultValue::Function(f)) if f.name == "autoincrement" => Ok(None),
-            Some(d) => self
-                .generate_default_value(d, &field.field_type)
-                .map(|s| Some(s.to_lowercase())),
+            Some(d) => self.generate_default_value(d, &field.field_type).map(Some),
             None => Ok(None),
         }
     }

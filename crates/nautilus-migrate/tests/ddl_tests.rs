@@ -812,7 +812,7 @@ model Flagged {
     let postgres = DdlGenerator::new(DatabaseProvider::Postgres);
     assert_eq!(
         postgres.column_default_sql(active).unwrap().as_deref(),
-        Some("true")
+        Some("TRUE")
     );
 
     // MySQL stores booleans as tinyint(1) and SQLite as an integer; both report
