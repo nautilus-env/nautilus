@@ -1033,6 +1033,7 @@ fn infer_nautilus_type(
         | "timestamp with time zone"
         | "timestamptz"
         | "datetime" => "DateTime".to_string(),
+        t if t.starts_with("datetime(") || t.starts_with("timestamp(") => "DateTime".to_string(),
         "bytea" | "blob" | "binary" | "varbinary" => "Bytes".to_string(),
         "json" => "Json".to_string(),
         "jsonb" => "Jsonb".to_string(),

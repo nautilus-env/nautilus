@@ -774,9 +774,13 @@ impl DdlGenerator {
 
         // @updatedAt: emit DEFAULT CURRENT_TIMESTAMP; MySQL also gets ON UPDATE.
         if field.is_updated_at {
-            parts.push("DEFAULT CURRENT_TIMESTAMP".to_string());
+            let now = match self.provider {
+                DatabaseProvider::Mysql => self.mysql_current_timestamp(&field.field_type),
+                _ => "CURRENT_TIMESTAMP".to_string(),
+            };
+            parts.push(format!("DEFAULT {}", now));
             if self.provider == DatabaseProvider::Mysql {
-                parts.push("ON UPDATE CURRENT_TIMESTAMP".to_string());
+                parts.push(format!("ON UPDATE {}", now));
             }
         }
 
@@ -877,7 +881,12 @@ impl DdlGenerator {
                     // SQLite stores everything as text; use a descriptive type name
                     // so that `db pull` can reconstruct the correct Nautilus type.
                     DatabaseProvider::Sqlite => "DATETIME",
-                    DatabaseProvider::Mysql => "DATETIME",
+                    // A bare MySQL DATETIME has second precision and silently
+                    // truncates the fractional part, which also makes rows
+                    // written in the same second indistinguishable by
+                    // createdAt / updatedAt. (6) matches what PostgreSQL and
+                    // SQLite already keep.
+                    DatabaseProvider::Mysql => "DATETIME(6)",
                 },
                 ScalarType::Bytes => match self.provider {
                     DatabaseProvider::Postgres => "BYTEA",
@@ -983,9 +992,13 @@ impl DdlGenerator {
                     )),
                 },
                 "now" => match self.provider {
-                    DatabaseProvider::Postgres => Ok("CURRENT_TIMESTAMP".to_string()),
-                    DatabaseProvider::Sqlite => Ok("CURRENT_TIMESTAMP".to_string()),
-                    DatabaseProvider::Mysql => Ok("CURRENT_TIMESTAMP".to_string()),
+                    DatabaseProvider::Postgres | DatabaseProvider::Sqlite => {
+                        Ok("CURRENT_TIMESTAMP".to_string())
+                    }
+                    // MySQL requires the fractional-second precision of the
+                    // default to match the column's, and DateTime columns are
+                    // DATETIME(6); a bare CURRENT_TIMESTAMP is rejected outright.
+                    DatabaseProvider::Mysql => Ok(self.mysql_current_timestamp(field_type)),
                 },
                 _ => Ok(format!("{}()", func.name)),
             },
@@ -1124,6 +1137,14 @@ impl DdlGenerator {
             Some(DefaultValue::Function(f)) if f.name == "autoincrement" => Ok(None),
             Some(d) => self.generate_default_value(d, &field.field_type).map(Some),
             None => Ok(None),
+        }
+    }
+
+    /// MySQL's `CURRENT_TIMESTAMP` at the precision a `DateTime` column carries.
+    fn mysql_current_timestamp(&self, field_type: &ResolvedFieldType) -> String {
+        match field_type {
+            ResolvedFieldType::Scalar(ScalarType::DateTime) => "CURRENT_TIMESTAMP(6)".to_string(),
+            _ => "CURRENT_TIMESTAMP".to_string(),
         }
     }
 
