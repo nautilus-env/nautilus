@@ -283,7 +283,7 @@ macro_rules! render_select_body_core_mut {
     (
         $ctx:expr, $select:expr,
         $quote:expr, $render_expr:ident,
-        $distinct_on:expr, $mysql_limit_hack:expr
+        $distinct_on:expr, $offset_limit_sentinel:expr
     ) => {{
         let partition_window = $select.partition_window.take();
 
@@ -462,8 +462,11 @@ macro_rules! render_select_body_core_mut {
             if let Some(take) = $select.take {
                 $ctx.sql.push_str(" LIMIT ");
                 crate::push_u32(&mut $ctx.sql, take.unsigned_abs());
-            } else if $mysql_limit_hack && $select.skip.is_some() {
-                $ctx.sql.push_str(" LIMIT 18446744073709551615");
+            } else if $select.skip.is_some() && !$offset_limit_sentinel.is_empty() {
+                // MySQL and SQLite both reject a bare OFFSET, so a provider
+                // that needs one supplies the largest limit it accepts.
+                $ctx.sql.push_str(" LIMIT ");
+                $ctx.sql.push_str($offset_limit_sentinel);
             }
 
             if let Some(skip) = $select.skip {

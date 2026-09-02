@@ -14,7 +14,7 @@ pub struct PostgresDialect;
 impl Dialect for PostgresDialect {
     fn render_select_owned(&self, mut select: Select) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_select_render(&select));
-        render_select_body_core_mut!(&mut ctx, &mut select, '"', render_expr_owned, true, false);
+        render_select_body_core_mut!(&mut ctx, &mut select, '"', render_expr_owned, true, "");
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,
@@ -88,7 +88,7 @@ impl RenderContext {
 }
 
 fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select) {
-    render_select_body_core_mut!(ctx, select, '"', render_expr_owned, true, false);
+    render_select_body_core_mut!(ctx, select, '"', render_expr_owned, true, "");
 }
 
 fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {

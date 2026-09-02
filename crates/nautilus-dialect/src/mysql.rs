@@ -18,7 +18,14 @@ impl Dialect for MysqlDialect {
 
     fn render_select_owned(&self, mut select: Select) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_select_render(&select));
-        render_select_body_core_mut!(&mut ctx, &mut select, '`', render_expr_owned, false, true);
+        render_select_body_core_mut!(
+            &mut ctx,
+            &mut select,
+            '`',
+            render_expr_owned,
+            false,
+            "18446744073709551615"
+        );
         ctx.finish()
     }
 
@@ -132,7 +139,14 @@ fn render_on_duplicate_key(ctx: &mut RenderContext, on_conflict: &mut OnConflict
 }
 
 fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select) {
-    render_select_body_core_mut!(ctx, select, '`', render_expr_owned, false, true);
+    render_select_body_core_mut!(
+        ctx,
+        select,
+        '`',
+        render_expr_owned,
+        false,
+        "18446744073709551615"
+    );
 }
 
 fn mysql_function_name(name: &str) -> &str {

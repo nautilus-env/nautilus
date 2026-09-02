@@ -12,7 +12,7 @@ pub struct SqliteDialect;
 impl Dialect for SqliteDialect {
     fn render_select_owned(&self, mut select: Select) -> Result<Sql> {
         let mut ctx = RenderContext::with_estimate(crate::estimate_select_render(&select));
-        render_select_body_core_mut!(&mut ctx, &mut select, '"', render_expr_owned, false, false);
+        render_select_body_core_mut!(&mut ctx, &mut select, '"', render_expr_owned, false, "-1");
         Ok(Sql {
             text: ctx.sql,
             params: ctx.params,
@@ -89,7 +89,7 @@ fn render_on_conflict(ctx: &mut RenderContext, on_conflict: &mut OnConflict) {
 }
 
 fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select) {
-    render_select_body_core_mut!(ctx, select, '"', render_expr_owned, false, false);
+    render_select_body_core_mut!(ctx, select, '"', render_expr_owned, false, "-1");
 }
 
 fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
