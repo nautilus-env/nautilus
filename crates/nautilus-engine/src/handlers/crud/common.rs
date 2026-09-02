@@ -34,6 +34,94 @@ impl MutationResultData {
     }
 }
 
+/// The primary key or unique constraint whose columns are exactly `keys`, or
+/// `None` when no constraint matches.
+///
+/// A partial or mixed key would either fail in the database or silently match a
+/// different index than the caller meant, so the match has to be exact.
+pub(super) fn matching_unique_constraint<'a>(
+    model: &'a ModelIr,
+    keys: &[&str],
+) -> Option<Vec<&'a str>> {
+    let names_field = |name: &str| {
+        model
+            .scalar_fields()
+            .find(|field| field.logical_name == name || field.db_name == name)
+    };
+
+    std::iter::once(model.primary_key.fields())
+        .chain(
+            model
+                .unique_constraints
+                .iter()
+                .map(|constraint| constraint.fields.iter().map(String::as_str).collect()),
+        )
+        .find(|candidate: &Vec<&str>| {
+            candidate.len() == keys.len()
+                && candidate.iter().all(|name| {
+                    keys.iter().any(|key| {
+                        names_field(key).is_some_and(|field| {
+                            field.logical_name == *name || field.db_name == *name
+                        })
+                    })
+                })
+        })
+}
+
+/// Reject an empty filter on a single-record `update` or `delete`.
+///
+/// Those operate on one row, so a filter that matches everything is a mistake
+/// rather than an instruction; the `*Many` variants are where "every row" is
+/// spelled out deliberately.
+pub(super) fn ensure_single_record_filter(
+    operation: &str,
+    filter: &JsonValue,
+) -> Result<(), ProtocolError> {
+    let JsonValue::Object(filter_obj) = protocol_filter_body(filter) else {
+        return Err(ProtocolError::InvalidFilter(format!(
+            "{} where must be an object",
+            operation
+        )));
+    };
+
+    if filter_obj.is_empty() {
+        return Err(ProtocolError::InvalidFilter(format!(
+            "{} needs a where filter; use {}Many to change every row",
+            operation, operation
+        )));
+    }
+
+    Ok(())
+}
+
+/// Reject a `findUnique` filter that cannot identify at most one row.
+///
+/// Without this, a filter on an ordinary column is accepted and the first
+/// matching row of however many is returned, which makes the answer arbitrary.
+pub(super) fn ensure_unique_filter(
+    model: &ModelIr,
+    filter: &JsonValue,
+) -> Result<(), ProtocolError> {
+    let JsonValue::Object(filter_obj) = protocol_filter_body(filter) else {
+        return Err(ProtocolError::InvalidFilter(
+            "findUnique where must be an object".to_string(),
+        ));
+    };
+
+    let keys: Vec<&str> = filter_obj.keys().map(String::as_str).collect();
+    if matching_unique_constraint(model, &keys).is_some() {
+        return Ok(());
+    }
+
+    let mut names = keys;
+    names.sort_unstable();
+    Err(ProtocolError::InvalidFilter(format!(
+        "findUnique where [{}] does not match the primary key or any unique constraint of model '{}'",
+        names.join(", "),
+        model.logical_name
+    )))
+}
+
 pub(super) fn qualify_model_filter(
     model: &ModelIr,
     logical_to_db: &std::collections::HashMap<String, String>,

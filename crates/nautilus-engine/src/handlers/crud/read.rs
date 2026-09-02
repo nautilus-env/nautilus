@@ -1066,6 +1066,7 @@ pub(in crate::handlers) async fn handle_find_unique(
 
     let model = get_model_or_error(state, &params.model)?;
     let metadata = state.model_metadata(model);
+    super::common::ensure_unique_filter(model, &params.filter)?;
     let qualified_filter = parse_and_qualify_model_filter(
         model,
         &params.filter,

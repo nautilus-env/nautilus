@@ -1,7 +1,9 @@
 mod common;
 
 use common::{call_rpc_json, sqlite_state};
-use nautilus_protocol::{PROTOCOL_VERSION, QUERY_CREATE, QUERY_DELETE, QUERY_UPDATE};
+use nautilus_protocol::{
+    PROTOCOL_VERSION, QUERY_CREATE, QUERY_DELETE, QUERY_UPDATE, QUERY_UPDATE_MANY,
+};
 use serde_json::json;
 
 fn schema_source() -> &'static str {
@@ -109,7 +111,7 @@ async fn bulk_update_treats_wrapped_empty_where_as_all_rows() {
 
     let payload = call_rpc_json(
         &state,
-        QUERY_UPDATE,
+        QUERY_UPDATE_MANY,
         json!({
             "protocolVersion": PROTOCOL_VERSION,
             "model": "User",
@@ -118,13 +120,43 @@ async fn bulk_update_treats_wrapped_empty_where_as_all_rows() {
             },
             "data": {
                 "active": false
-            },
-            "returnData": false
+            }
         }),
     )
     .await;
 
     assert_eq!(payload["count"], json!(2));
+
+    drop(state);
+    drop(temp_dir);
+}
+
+#[tokio::test]
+async fn single_record_update_rejects_an_empty_where() {
+    let (state, temp_dir) = sqlite_state("mutation-filter-shape", schema_source()).await;
+    create_user(&state, "alice@example.com").await;
+
+    let response = common::call_rpc_response(
+        &state,
+        QUERY_UPDATE,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "filter": { "where": {} },
+            "data": { "active": false },
+            "returnData": false
+        }),
+    )
+    .await;
+
+    let message = response
+        .error
+        .expect("update with an empty where should fail")
+        .message;
+    assert!(
+        message.contains("needs a where filter"),
+        "unexpected error: {message}"
+    );
 
     drop(state);
     drop(temp_dir);

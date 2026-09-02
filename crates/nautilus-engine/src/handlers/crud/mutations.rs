@@ -1,6 +1,7 @@
 use super::common::{
-    execute_mutation_result, parse_and_qualify_model_filter, parse_optional_model_filter,
-    protocol_filter_body, wrap_count_result, wrap_mutation_result, MutationResultData,
+    ensure_single_record_filter, execute_mutation_result, parse_and_qualify_model_filter,
+    parse_optional_model_filter, protocol_filter_body, wrap_count_result, wrap_mutation_result,
+    MutationResultData,
 };
 use super::read::{build_find_unique_sql, find_rows_by_expr, find_rows_by_filter};
 use super::{nested, *};
@@ -663,23 +664,9 @@ fn unique_conflict_target<'a>(
         filter_fields.push(field);
     }
 
-    let candidates = std::iter::once(model.primary_key.fields())
-        .chain(
-            model
-                .unique_constraints
-                .iter()
-                .map(|constraint| constraint.fields.iter().map(String::as_str).collect()),
-        )
-        .find(|candidate: &Vec<&str>| {
-            candidate.len() == filter_fields.len()
-                && candidate.iter().all(|name| {
-                    filter_fields
-                        .iter()
-                        .any(|field| field.logical_name == *name || field.db_name == *name)
-                })
-        });
+    let keys: Vec<&str> = filter_obj.keys().map(String::as_str).collect();
 
-    let Some(candidate) = candidates else {
+    let Some(candidate) = super::common::matching_unique_constraint(model, &keys) else {
         let mut names: Vec<&str> = filter_obj.keys().map(String::as_str).collect();
         names.sort_unstable();
         return Err(ProtocolError::InvalidFilter(format!(
@@ -932,6 +919,7 @@ pub(in crate::handlers) async fn handle_update(
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: UpdateParams = parse_params(&request, "update")?;
+    ensure_single_record_filter("update", &params.filter)?;
 
     match execute_update(state, params).await? {
         MutationResultData::Rows(rows) => wrap_mutation_result(&rows, "update result"),
@@ -944,6 +932,7 @@ pub(in crate::handlers) async fn handle_update_embedded(
     request: RpcRequest,
 ) -> Result<Vec<Row>, ProtocolError> {
     let params: UpdateParams = parse_params(&request, "update")?;
+    ensure_single_record_filter("update", &params.filter)?;
     execute_update(state, params).await?.into_rows("update")
 }
 
@@ -951,6 +940,7 @@ pub(in crate::handlers) async fn handle_update_typed(
     state: &EngineState,
     params: UpdateParams,
 ) -> Result<Vec<Row>, ProtocolError> {
+    ensure_single_record_filter("update", &params.filter)?;
     execute_update(state, params).await?.into_rows("update")
 }
 
@@ -1020,6 +1010,7 @@ pub(in crate::handlers) async fn handle_delete(
     request: RpcRequest,
 ) -> Result<Box<serde_json::value::RawValue>, ProtocolError> {
     let params: DeleteParams = parse_params(&request, "delete")?;
+    ensure_single_record_filter("delete", &params.filter)?;
 
     match execute_delete(state, params).await? {
         MutationResultData::Rows(rows) => wrap_mutation_result(&rows, "delete result"),
