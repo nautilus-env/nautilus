@@ -118,16 +118,51 @@ pub fn json_to_value_field(
     json: &serde_json::Value,
     field_type: &ResolvedFieldType,
 ) -> Result<Value, ProtocolError> {
-    if let ResolvedFieldType::Enum { enum_name, .. } = field_type {
+    if let ResolvedFieldType::Enum {
+        enum_name,
+        variants,
+    } = field_type
+    {
         match json {
             serde_json::Value::Null => return Ok(Value::Null),
             serde_json::Value::String(s) => {
+                // SQLite stores an enum as plain text and would accept anything;
+                // PostgreSQL and MySQL reject it at the server. Checking here
+                // makes the three backends agree and names the offending value.
+                if !variants.iter().any(|variant| variant == s) {
+                    return Err(ProtocolError::InvalidParams(format!(
+                        "'{}' is not a variant of enum {}; expected one of: {}",
+                        s,
+                        enum_name,
+                        variants.join(", ")
+                    )));
+                }
                 return Ok(Value::Enum {
                     value: s.clone(),
                     type_name: enum_name.to_lowercase(),
                 });
             }
             _ => {} // fall through to the generic converter below
+        }
+    }
+    // A plain `String` field must never be sniffed into `Value::Uuid`: on
+    // PostgreSQL that binds the parameter as `uuid` and a comparison against a
+    // `text` column fails with "operator does not exist: text = uuid".
+    if let ResolvedFieldType::Scalar(ScalarType::String) = field_type {
+        if let serde_json::Value::String(s) = json {
+            return Ok(Value::String(s.clone()));
+        }
+    }
+    // The engine returns a `Decimal` as a JSON string, so a row read back and
+    // written again arrives as one. PostgreSQL rejects text against `numeric`,
+    // hence the explicit parse into `Value::Decimal`.
+    if let ResolvedFieldType::Scalar(ScalarType::Decimal { .. }) = field_type {
+        if let serde_json::Value::String(s) = json {
+            return rust_decimal::Decimal::from_str(s)
+                .map(Value::Decimal)
+                .map_err(|_| {
+                    ProtocolError::InvalidParams(format!("'{}' is not a valid Decimal", s))
+                });
         }
     }
     // For DateTime fields, parse ISO-8601 / RFC-3339 strings into
@@ -170,6 +205,73 @@ pub fn json_to_value_field(
         }
     }
     json_to_value(json)
+}
+
+/// Whether a field stores a value that is legitimately written as a JSON
+/// object or array.
+fn stores_structured_json(field_type: &ResolvedFieldType, is_array: bool) -> bool {
+    if is_array {
+        return true;
+    }
+    match field_type {
+        ResolvedFieldType::Scalar(scalar) => matches!(
+            scalar,
+            ScalarType::Json
+                | ScalarType::Bytes
+                | ScalarType::Hstore
+                | ScalarType::Vector { .. }
+                | ScalarType::Geometry
+                | ScalarType::Geography
+        ),
+        ResolvedFieldType::CompositeType { .. } | ResolvedFieldType::Relation(_) => true,
+        ResolvedFieldType::Enum { .. } => false,
+    }
+}
+
+/// Reject a JSON object or array written to a field that holds a single scalar.
+///
+/// Without this, the structured value is bound verbatim: SQLite's dynamic
+/// typing then stores the JSON text in, say, an `INTEGER` column and every
+/// later read of the table fails to decode. The most common way to hit it is an
+/// atomic update (`{"views": {"increment": 1}}`), which Nautilus does not
+/// implement, so those operator names get their own message.
+pub fn ensure_scalar_input(
+    json: &serde_json::Value,
+    field_type: &ResolvedFieldType,
+    is_array: bool,
+    field_name: &str,
+) -> Result<(), ProtocolError> {
+    if !matches!(
+        json,
+        serde_json::Value::Object(_) | serde_json::Value::Array(_)
+    ) || stores_structured_json(field_type, is_array)
+    {
+        return Ok(());
+    }
+
+    if let serde_json::Value::Object(object) = json {
+        if let Some(op) = object.keys().find(|key| {
+            matches!(
+                key.as_str(),
+                "set" | "increment" | "decrement" | "multiply" | "divide"
+            )
+        }) {
+            return Err(ProtocolError::InvalidParams(format!(
+                "Field '{}' does not support the atomic update operator '{}'; write the resulting value directly",
+                field_name, op
+            )));
+        }
+    }
+
+    let shape = if json.is_array() {
+        "an array"
+    } else {
+        "an object"
+    };
+    Err(ProtocolError::InvalidParams(format!(
+        "Field '{}' holds a single scalar value but received {}",
+        field_name, shape
+    )))
 }
 
 /// Convert a JSON value into a [`Value::Composite`] for a PostgreSQL native

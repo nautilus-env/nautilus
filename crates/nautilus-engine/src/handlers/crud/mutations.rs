@@ -63,6 +63,12 @@ fn convert_field_input(
     json_val: &JsonValue,
     field: &FieldIr,
 ) -> Result<Value, ProtocolError> {
+    crate::conversion::ensure_scalar_input(
+        json_val,
+        &field.field_type,
+        field.is_array,
+        &field.logical_name,
+    )?;
     if let ResolvedFieldType::CompositeType { type_name, .. } = &field.field_type {
         if state.uses_native_composite_types() && !json_val.is_null() {
             if let Some(composite) = state.schema.get_composite_type(type_name) {
