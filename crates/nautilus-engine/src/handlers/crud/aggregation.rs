@@ -106,6 +106,31 @@ fn collect_agg_fields(
     Ok(fields)
 }
 
+/// The `args` keys `groupBy` accepts.
+const GROUP_BY_ARG_KEYS: [&str; 11] = [
+    "by", "where", "having", "take", "skip", "orderBy", "count", "avg", "sum", "min", "max",
+];
+
+/// The `args` keys `aggregate` accepts: the aggregates and the pre-aggregate
+/// filter, with nothing to group or order.
+const AGGREGATE_ARG_KEYS: [&str; 6] = ["where", "count", "avg", "sum", "min", "max"];
+
+fn ensure_aggregate_arg_keys(
+    args: Option<&serde_json::Value>,
+    method: &str,
+    allowed: &[&str],
+) -> Result<(), ProtocolError> {
+    match args {
+        Some(serde_json::Value::Object(map)) => {
+            crate::filter::ensure_known_arg_keys(map, method, allowed)
+        }
+        Some(_) => Err(ProtocolError::InvalidParams(
+            "args must be an object".to_string(),
+        )),
+        None => Ok(()),
+    }
+}
+
 pub(super) async fn execute_group_by_rows(
     state: &EngineState,
     params: GroupByParams,
@@ -118,6 +143,8 @@ pub(super) async fn execute_group_by_rows(
     let logical_to_db = metadata.logical_to_db();
     let relation_map = state.relation_map_for_model(model)?;
     let args = params.args.as_ref();
+
+    ensure_aggregate_arg_keys(args, "groupBy", &GROUP_BY_ARG_KEYS)?;
 
     let by_fields = parse_by_fields(args)?;
 
@@ -495,6 +522,8 @@ async fn execute_aggregate_rows(
     let logical_to_db = metadata.logical_to_db();
     let relation_map = state.relation_map_for_model(model)?;
     let args = params.args.as_ref();
+
+    ensure_aggregate_arg_keys(args, "aggregate", &AGGREGATE_ARG_KEYS)?;
 
     let aggregate_items = build_aggregate_items(model, args, logical_to_db)?;
     if aggregate_items.is_empty() {

@@ -533,3 +533,32 @@ model Report {
         "expected mapped grandchild column qualification in nested relation filter"
     );
 }
+
+#[test]
+fn unknown_top_level_arg_is_rejected() {
+    let (relations, field_types, models) = user_query_context(VECTOR_USER_SCHEMA);
+
+    let err = QueryArgs::parse_with_context(
+        Some(json!({ "nope": 1 })),
+        &relations,
+        &field_types,
+        SchemaContext::with_models(&models),
+    )
+    .expect_err("an unknown args key should fail");
+    assert!(err.to_string().contains("unknown argument 'nope'"));
+    assert!(err.to_string().contains("supported arguments are"));
+}
+
+#[test]
+fn prisma_spelling_of_an_argument_names_the_engine_spelling() {
+    let (relations, field_types, models) = user_query_context(VECTOR_USER_SCHEMA);
+
+    let err = QueryArgs::parse_with_context(
+        Some(json!({ "_take": 1 })),
+        &relations,
+        &field_types,
+        SchemaContext::with_models(&models),
+    )
+    .expect_err("an underscore-prefixed args key should fail");
+    assert!(err.to_string().contains("did you mean 'take'?"));
+}

@@ -131,6 +131,43 @@ pub struct VectorNearestQuery {
     pub metric: VectorMetric,
 }
 
+/// Reject a key in an `args` object that the engine does not act on.
+///
+/// `args` is a free-form JSON value, so an unrecognised key — a typo, or the
+/// Prisma spelling of an argument this protocol names differently — used to be
+/// dropped in silence and the caller got a result that answered a different
+/// question than the one they asked.
+pub(crate) fn ensure_known_arg_keys(
+    args: &serde_json::Map<String, JsonValue>,
+    method: &str,
+    allowed: &[&str],
+) -> Result<(), ProtocolError> {
+    let Some(unknown) = args.keys().find(|key| !allowed.contains(&key.as_str())) else {
+        return Ok(());
+    };
+    let hint = allowed
+        .iter()
+        .find(|candidate| {
+            unknown
+                .trim_start_matches('_')
+                .eq_ignore_ascii_case(candidate)
+        })
+        .map(|candidate| format!(" (did you mean '{}'?)", candidate))
+        .unwrap_or_default();
+    Err(ProtocolError::InvalidParams(format!(
+        "unknown argument '{}' in {} args{}; supported arguments are: {}",
+        unknown,
+        method,
+        hint,
+        allowed.join(", ")
+    )))
+}
+
+/// The `args` keys a read query accepts.
+const FIND_ARG_KEYS: [&str; 9] = [
+    "where", "orderBy", "take", "skip", "cursor", "include", "select", "distinct", "nearest",
+];
+
 /// Parse query arguments from JSON into query components.
 #[derive(Debug)]
 pub struct QueryArgs {
@@ -389,6 +426,8 @@ impl QueryArgs {
                 });
             }
         };
+
+        ensure_known_arg_keys(&args, "query", &FIND_ARG_KEYS)?;
 
         let filter = if let Some(where_value) = args.get("where") {
             Some(parse_where_filter(

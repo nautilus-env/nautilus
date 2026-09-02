@@ -1,6 +1,6 @@
 mod common;
 
-use common::{call_rpc_json, sqlite_state};
+use common::{call_rpc_json, call_rpc_response, sqlite_state};
 use nautilus_engine::EngineState;
 use nautilus_protocol::{PROTOCOL_VERSION, QUERY_CREATE, QUERY_GROUP_BY};
 use serde_json::json;
@@ -154,6 +154,62 @@ async fn group_by_having_filters_on_aggregate_values() {
     assert_eq!(rows[1]["bucket"], json!("silver"));
     assert_eq!(rows[1]["_count"]["_all"], json!(2));
     assert_eq!(rows[1]["_sum"]["points"], json!(40));
+
+    drop(state);
+    drop(temp_dir);
+}
+
+#[tokio::test]
+async fn group_by_rejects_the_prisma_aggregate_spelling() {
+    let (state, temp_dir) = sqlite_state("group-by-prisma-spelling", schema_source()).await;
+    seed_metrics(&state).await;
+
+    let response = call_rpc_response(
+        &state,
+        QUERY_GROUP_BY,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Metric",
+            "args": {
+                "by": ["bucket"],
+                "_count": true
+            }
+        }),
+    )
+    .await;
+
+    let error = response.error.expect("_count should be rejected");
+    assert!(error.message.contains("unknown argument '_count'"));
+    assert!(error.message.contains("did you mean 'count'?"));
+
+    drop(state);
+    drop(temp_dir);
+}
+
+#[tokio::test]
+async fn group_by_rejects_an_unknown_argument() {
+    let (state, temp_dir) = sqlite_state("group-by-unknown-arg", schema_source()).await;
+    seed_metrics(&state).await;
+
+    let response = call_rpc_response(
+        &state,
+        QUERY_GROUP_BY,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Metric",
+            "args": {
+                "by": ["bucket"],
+                "count": true,
+                "nope": 1
+            }
+        }),
+    )
+    .await;
+
+    let error = response
+        .error
+        .expect("an unknown argument should be rejected");
+    assert!(error.message.contains("unknown argument 'nope'"));
 
     drop(state);
     drop(temp_dir);
