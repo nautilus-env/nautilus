@@ -64,7 +64,7 @@ async fn update_accepts_wrapped_where_filter_payloads() {
         payload["data"][0]["User__email"],
         json!("alice@example.com")
     );
-    assert_eq!(payload["data"][0]["User__active"], json!(0));
+    assert_eq!(payload["data"][0]["User__active"], json!(false));
 
     drop(state);
     drop(temp_dir);

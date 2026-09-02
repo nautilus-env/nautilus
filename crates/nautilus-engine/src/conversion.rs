@@ -22,6 +22,19 @@ use nautilus_schema::ir::{CompositeTypeIr, ResolvedFieldType, ScalarType};
 /// text-affinity types).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueHint {
+    /// Coerce a backend integer into [`Value::Bool`].
+    ///
+    /// SQLite has no boolean type and reports a `Boolean` column as `0`/`1`,
+    /// which would make the wire shape of the field depend on the provider.
+    Bool,
+    /// Coerce a backend value into [`Value::I64`].
+    Int,
+    /// Coerce a backend value into [`Value::F64`].
+    ///
+    /// Aggregates make this necessary: `AVG` answers with a numeric string on
+    /// PostgreSQL and MySQL and with a float on SQLite, so without a hint the
+    /// wire type of the same query depends on the provider.
+    Float,
     /// Parse textual / numeric values into [`Value::Decimal`].
     Decimal,
     /// Parse textual values into [`Value::DateTime`].
@@ -464,6 +477,9 @@ fn normalize_value_with_hint(
     }
 
     match hint {
+        ValueHint::Bool => normalize_bool_value(column, index, value),
+        ValueHint::Int => normalize_int_value(column, index, value),
+        ValueHint::Float => normalize_float_value(column, index, value),
         ValueHint::Decimal => normalize_decimal_value(column, index, value),
         ValueHint::DateTime => normalize_datetime_value(column, index, value),
         ValueHint::Json => normalize_json_value(column, index, value),
@@ -473,6 +489,49 @@ fn normalize_value_with_hint(
         ValueHint::Composite(composite) => {
             normalize_composite_value(column, index, value, &composite)
         }
+    }
+}
+
+fn normalize_int_value(column: &str, index: usize, value: Value) -> Result<Value, ProtocolError> {
+    match value {
+        Value::I64(_) => Ok(value),
+        Value::I32(n) => Ok(Value::I64(i64::from(n))),
+        Value::F64(n) => Ok(Value::I64(n as i64)),
+        Value::Decimal(d) => i64::try_from(d)
+            .map(Value::I64)
+            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Int, d.to_string())),
+        Value::String(ref raw) => raw
+            .parse::<i64>()
+            .map(Value::I64)
+            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Int, raw.clone())),
+        other => Err(invalid_hint_value(column, index, ValueHint::Int, other)),
+    }
+}
+
+fn normalize_float_value(column: &str, index: usize, value: Value) -> Result<Value, ProtocolError> {
+    match value {
+        Value::F64(_) => Ok(value),
+        Value::I32(n) => Ok(Value::F64(f64::from(n))),
+        Value::I64(n) => Ok(Value::F64(n as f64)),
+        Value::Decimal(d) => d
+            .to_string()
+            .parse::<f64>()
+            .map(Value::F64)
+            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Float, d.to_string())),
+        Value::String(ref raw) => raw
+            .parse::<f64>()
+            .map(Value::F64)
+            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Float, raw.clone())),
+        other => Err(invalid_hint_value(column, index, ValueHint::Float, other)),
+    }
+}
+
+fn normalize_bool_value(column: &str, index: usize, value: Value) -> Result<Value, ProtocolError> {
+    match value {
+        Value::Bool(_) => Ok(value),
+        Value::I32(n) => Ok(Value::Bool(n != 0)),
+        Value::I64(n) => Ok(Value::Bool(n != 0)),
+        other => Err(invalid_hint_value(column, index, ValueHint::Bool, other)),
     }
 }
 
@@ -733,6 +792,9 @@ fn invalid_hint_value(column: &str, index: usize, hint: ValueHint, value: Value)
 
 fn hint_name(hint: ValueHint) -> &'static str {
     match hint {
+        ValueHint::Bool => "Boolean",
+        ValueHint::Int => "Int",
+        ValueHint::Float => "Float",
         ValueHint::Decimal => "Decimal",
         ValueHint::DateTime => "DateTime",
         ValueHint::Json => "Json",

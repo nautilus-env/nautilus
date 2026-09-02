@@ -1253,7 +1253,13 @@ async fn execute_count_params(
 
     let model = get_model_or_error(state, &params.model)?;
     let metadata = state.model_metadata(model);
-    let query_args = QueryArgs::parse_typed(params.args, metadata.field_types())?;
+    let relation_map = state.relation_map_for_model(model)?;
+    let query_args = QueryArgs::parse_with_context(
+        params.args,
+        relation_map,
+        metadata.field_types(),
+        crate::filter::SchemaContext::with_state(state),
+    )?;
     let qualified_filter = qualify_model_filter(model, metadata.logical_to_db(), query_args.filter);
 
     let has_pagination = query_args.take.is_some() || query_args.skip.is_some();

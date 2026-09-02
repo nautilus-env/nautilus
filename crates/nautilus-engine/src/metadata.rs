@@ -217,6 +217,7 @@ pub(crate) fn field_value_hint(
     }
 
     match &field.field_type {
+        ResolvedFieldType::Scalar(ScalarType::Boolean) if !field.is_array => Some(ValueHint::Bool),
         ResolvedFieldType::Scalar(ScalarType::Decimal { .. }) => Some(ValueHint::Decimal),
         ResolvedFieldType::Scalar(ScalarType::DateTime) => Some(ValueHint::DateTime),
         ResolvedFieldType::Scalar(ScalarType::Json | ScalarType::Jsonb) => Some(ValueHint::Json),

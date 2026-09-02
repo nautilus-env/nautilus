@@ -1,22 +1,109 @@
 use std::collections::HashMap;
 
+use nautilus_schema::ir::ScalarType;
+
 use super::common::wrap_data_result;
 use super::*;
 
-fn collect_agg_fields(model: &ModelIr, value: &serde_json::Value) -> Vec<String> {
-    if value.as_bool() == Some(true) {
-        model
-            .scalar_fields()
-            .map(|field| field.logical_name.clone())
-            .collect()
-    } else if let Some(obj) = value.as_object() {
-        obj.iter()
-            .filter(|(_, flag)| flag.as_bool() == Some(true))
-            .map(|(field, _)| field.clone())
-            .collect()
-    } else {
-        vec![]
+/// Which scalar types an aggregate function accepts.
+///
+/// `AVG` and `SUM` are arithmetic: PostgreSQL and MySQL reject a text column
+/// outright and SQLite quietly answers 0. `MIN` and `MAX` only need an order,
+/// which the structured types (JSON, arrays, vectors, geometry) do not have.
+#[derive(Clone, Copy, PartialEq)]
+enum AggDomain {
+    Numeric,
+    Ordered,
+}
+
+impl AggDomain {
+    fn accepts(self, field: &FieldIr) -> bool {
+        if field.is_array {
+            return false;
+        }
+        match &field.field_type {
+            ResolvedFieldType::Scalar(scalar) => match self {
+                Self::Numeric => matches!(
+                    scalar,
+                    ScalarType::Int
+                        | ScalarType::BigInt
+                        | ScalarType::Float
+                        | ScalarType::Decimal { .. }
+                ),
+                Self::Ordered => matches!(
+                    scalar,
+                    ScalarType::Int
+                        | ScalarType::BigInt
+                        | ScalarType::Float
+                        | ScalarType::Decimal { .. }
+                        | ScalarType::DateTime
+                        | ScalarType::String
+                        | ScalarType::Citext
+                        | ScalarType::Boolean
+                        | ScalarType::Uuid
+                ),
+            },
+            ResolvedFieldType::Enum { .. } => self == Self::Ordered,
+            _ => false,
+        }
     }
+
+    fn describe(self) -> &'static str {
+        match self {
+            Self::Numeric => "numeric",
+            Self::Ordered => "orderable",
+        }
+    }
+}
+
+/// Resolve the fields one aggregate applies to.
+///
+/// `true` means "every field this aggregate can actually be computed over";
+/// a named field that the aggregate cannot handle is an error rather than a
+/// database-level failure the caller cannot act on.
+fn collect_agg_fields(
+    model: &ModelIr,
+    value: &serde_json::Value,
+    agg_key: &str,
+    domain: AggDomain,
+) -> Result<Vec<String>, ProtocolError> {
+    if value.as_bool() == Some(true) {
+        return Ok(model
+            .scalar_fields()
+            .filter(|field| domain.accepts(field))
+            .map(|field| field.logical_name.clone())
+            .collect());
+    }
+
+    let Some(obj) = value.as_object() else {
+        return Ok(vec![]);
+    };
+
+    let mut fields = Vec::new();
+    for (field_name, flag) in obj {
+        if flag.as_bool() != Some(true) {
+            continue;
+        }
+        let field = model
+            .scalar_fields()
+            .find(|field| field.logical_name == *field_name || field.db_name == *field_name)
+            .ok_or_else(|| {
+                ProtocolError::InvalidParams(format!(
+                    "{}: model '{}' has no field '{}'",
+                    agg_key, model.logical_name, field_name
+                ))
+            })?;
+        if !domain.accepts(field) {
+            return Err(ProtocolError::InvalidParams(format!(
+                "{} needs a {} field, and '{}' is not one",
+                agg_key,
+                domain.describe(),
+                field_name
+            )));
+        }
+        fields.push(field_name.clone());
+    }
+    Ok(fields)
 }
 
 pub(super) async fn execute_group_by_rows(
@@ -29,6 +116,7 @@ pub(super) async fn execute_group_by_rows(
     let model = get_model_or_error(state, &params.model)?;
     let metadata = state.model_metadata(model);
     let logical_to_db = metadata.logical_to_db();
+    let relation_map = state.relation_map_for_model(model)?;
     let args = params.args.as_ref();
 
     let by_fields = parse_by_fields(args)?;
@@ -38,9 +126,9 @@ pub(super) async fn execute_group_by_rows(
         .map(|where_val| {
             crate::filter::parse_where_filter(
                 where_val,
-                &crate::filter::RelationMap::new(),
+                relation_map,
                 metadata.field_types(),
-                crate::filter::SchemaContext::none(),
+                crate::filter::SchemaContext::with_state(state),
             )
             .map(|expr| qualify_filter_columns(expr, &model.db_name, logical_to_db))
         })
@@ -57,11 +145,14 @@ pub(super) async fn execute_group_by_rows(
         .transpose()?
         .unwrap_or_default();
 
+    let aggregate_items = build_aggregate_items(model, args, logical_to_db)?;
+    let row_hints = projection_hints(metadata, &by_fields, &aggregate_items);
+
     let select = build_group_by_select(GroupBySelect {
         model,
         logical_to_db,
         by_fields: &by_fields,
-        aggregate_items: build_aggregate_items(model, args, logical_to_db),
+        aggregate_items,
         filter: qualified_filter,
         having: having_expr,
         orders: group_orders,
@@ -79,9 +170,12 @@ pub(super) async fn execute_group_by_rows(
         ProtocolError::QueryPlanning(format!("Failed to render groupBy query: {}", e))
     })?;
 
-    let rows = state
-        .execute_query_on(&sql, "GroupBy", tx_id.as_deref())
-        .await?;
+    let rows = crate::conversion::normalize_rows_with_hints(
+        state
+            .execute_query_on(&sql, "GroupBy", tx_id.as_deref())
+            .await?,
+        &row_hints,
+    )?;
 
     Ok(rows
         .into_iter()
@@ -114,12 +208,43 @@ fn parse_by_fields(args: Option<&serde_json::Value>) -> Result<Vec<String>, Prot
 /// Aliases carry the aggregate kind (`_count__`, `_avg_`, …) so
 /// [`shape_group_row`] can fold the flat result columns back into the nested
 /// `_count` / `_avg` / … objects the clients expect.
+/// The shape an aggregate column should decode to, regardless of what the
+/// backend answers with.
+///
+/// The same query returns a float on SQLite, a numeric string on MySQL and a
+/// numeric string on PostgreSQL; hinting the column makes the wire type of an
+/// aggregate independent of the provider, exactly as it already is for a model
+/// column.
+fn aggregate_hint(model: &ModelIr, agg_key: &str, field_name: &str) -> Option<ValueHint> {
+    if agg_key == "count" {
+        return Some(ValueHint::Int);
+    }
+    if agg_key == "avg" {
+        return Some(ValueHint::Float);
+    }
+
+    let field = model
+        .scalar_fields()
+        .find(|field| field.logical_name == field_name || field.db_name == field_name)?;
+
+    if agg_key != "sum" {
+        return crate::metadata::field_value_hint(field, &HashMap::new(), false);
+    }
+
+    match &field.field_type {
+        ResolvedFieldType::Scalar(ScalarType::Decimal { .. }) => Some(ValueHint::Decimal),
+        ResolvedFieldType::Scalar(ScalarType::Float) => Some(ValueHint::Float),
+        ResolvedFieldType::Scalar(ScalarType::Int | ScalarType::BigInt) => Some(ValueHint::Int),
+        _ => None,
+    }
+}
+
 fn build_aggregate_items(
     model: &ModelIr,
     args: Option<&serde_json::Value>,
     logical_to_db: &HashMap<String, String>,
-) -> Vec<(String, Expr)> {
-    let mut items: Vec<(String, Expr)> = Vec::new();
+) -> Result<Vec<(String, Expr, Option<ValueHint>)>, ProtocolError> {
+    let mut items: Vec<(String, Expr, Option<ValueHint>)> = Vec::new();
 
     if let Some(count_val) = args.and_then(|value| value.get("count")) {
         if count_val.as_bool() == Some(true) {
@@ -138,36 +263,61 @@ fn build_aggregate_items(
                             "COUNT",
                             vec![aggregate_column(model, logical_to_db, field)],
                         ),
+                        Some(ValueHint::Int),
                     ));
                 }
             }
         }
     }
 
-    for (agg_key, agg_fn) in [
-        ("avg", "AVG"),
-        ("sum", "SUM"),
-        ("min", "MIN"),
-        ("max", "MAX"),
+    for (agg_key, agg_fn, domain) in [
+        ("avg", "AVG", AggDomain::Numeric),
+        ("sum", "SUM", AggDomain::Numeric),
+        ("min", "MIN", AggDomain::Ordered),
+        ("max", "MAX", AggDomain::Ordered),
     ] {
         let Some(agg_val) = args.and_then(|value| value.get(agg_key)) else {
             continue;
         };
-        for field in collect_agg_fields(model, agg_val) {
+        for field in collect_agg_fields(model, agg_val, agg_key, domain)? {
             items.push((
                 format!("_{}_{}", agg_key, field),
                 Expr::function_call(agg_fn, vec![aggregate_column(model, logical_to_db, &field)]),
+                aggregate_hint(model, agg_key, &field),
             ));
         }
     }
 
-    items
+    Ok(items)
 }
 
-fn count_all_item() -> (String, Expr) {
+/// Decoding hints for the whole projection, in the order
+/// [`build_group_by_select`] emits it: the grouped columns first, then the
+/// aggregates.
+fn projection_hints(
+    metadata: &crate::metadata::ModelMetadata,
+    by_fields: &[String],
+    aggregate_items: &[(String, Expr, Option<ValueHint>)],
+) -> Vec<Option<ValueHint>> {
+    let mut hints: Vec<Option<ValueHint>> = by_fields
+        .iter()
+        .map(|field_name| {
+            metadata
+                .scalar_fields()
+                .iter()
+                .find(|field| field.logical_name() == field_name || field.db_name() == field_name)
+                .and_then(|field| field.hint())
+        })
+        .collect();
+    hints.extend(aggregate_items.iter().map(|(_, _, hint)| hint.clone()));
+    hints
+}
+
+fn count_all_item() -> (String, Expr, Option<ValueHint>) {
     (
         "_count___all".to_string(),
         Expr::function_call("COUNT", vec![Expr::Star]),
+        Some(ValueHint::Int),
     )
 }
 
@@ -190,7 +340,7 @@ struct GroupBySelect<'a> {
     model: &'a ModelIr,
     logical_to_db: &'a HashMap<String, String>,
     by_fields: &'a [String],
-    aggregate_items: Vec<(String, Expr)>,
+    aggregate_items: Vec<(String, Expr, Option<ValueHint>)>,
     filter: Option<Expr>,
     having: Option<Expr>,
     orders: Vec<crate::filter::GroupByOrderItem>,
@@ -226,7 +376,7 @@ fn build_group_by_select(spec: GroupBySelect<'_>) -> Result<Select, ProtocolErro
         builder = builder.group_by_column(marker);
     }
 
-    for (alias, expr) in spec.aggregate_items {
+    for (alias, expr, _) in spec.aggregate_items {
         builder = builder.item(SelectItem::computed(expr, alias));
     }
 
@@ -343,9 +493,10 @@ async fn execute_aggregate_rows(
     let model = get_model_or_error(state, &params.model)?;
     let metadata = state.model_metadata(model);
     let logical_to_db = metadata.logical_to_db();
+    let relation_map = state.relation_map_for_model(model)?;
     let args = params.args.as_ref();
 
-    let aggregate_items = build_aggregate_items(model, args, logical_to_db);
+    let aggregate_items = build_aggregate_items(model, args, logical_to_db)?;
     if aggregate_items.is_empty() {
         return Err(ProtocolError::InvalidParams(
             "aggregate requires at least one of count, avg, sum, min, max".to_string(),
@@ -357,13 +508,15 @@ async fn execute_aggregate_rows(
         .map(|where_val| {
             crate::filter::parse_where_filter(
                 where_val,
-                &crate::filter::RelationMap::new(),
+                relation_map,
                 metadata.field_types(),
-                crate::filter::SchemaContext::none(),
+                crate::filter::SchemaContext::with_state(state),
             )
             .map(|expr| qualify_filter_columns(expr, &model.db_name, logical_to_db))
         })
         .transpose()?;
+
+    let row_hints = projection_hints(metadata, &[], &aggregate_items);
 
     let select = build_group_by_select(GroupBySelect {
         model,
@@ -381,9 +534,14 @@ async fn execute_aggregate_rows(
         ProtocolError::QueryPlanning(format!("Failed to render aggregate query: {}", e))
     })?;
 
-    Ok(state
-        .execute_query_on(&sql, "Aggregate", tx_id.as_deref())
-        .await?
+    let rows = crate::conversion::normalize_rows_with_hints(
+        state
+            .execute_query_on(&sql, "Aggregate", tx_id.as_deref())
+            .await?,
+        &row_hints,
+    )?;
+
+    Ok(rows
         .into_iter()
         .map(|row| shape_group_row(row, metadata.db_to_logical()))
         .collect())
