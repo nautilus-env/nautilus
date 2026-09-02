@@ -53,6 +53,13 @@ Use `Geometry`/`Geography` fields with the `postgis` extension for PostGIS
 columns, and `Vector(dim)` fields with the `vector` extension for pgvector
 embeddings.
 
+`db pull` reconstructs the schema from what the database records, so a
+client-side concept the database cannot represent does not survive the round
+trip. `@updatedAt` is the one to know about: the column it produces is an
+ordinary `DateTime DEFAULT CURRENT_TIMESTAMP`, so a pulled schema spells it
+`@default(now())` and the column stops refreshing itself on write. Re-add
+`@updatedAt` by hand after pulling a schema that had it.
+
 `db pull` writes installed PostgreSQL extensions back to the datasource block.
 The extension list is declarative: an extension that exists in the live database
 but is absent from the schema is shown as a destructive drop. Nautilus emits the

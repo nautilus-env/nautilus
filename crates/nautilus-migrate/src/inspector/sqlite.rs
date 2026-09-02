@@ -54,6 +54,11 @@ impl SchemaInspector {
                 .await
                 .map_err(|e| MigrationError::Database(e.to_string()))?;
 
+            // SQLite records AUTOINCREMENT only in the table's CREATE statement;
+            // `PRAGMA table_xinfo` does not report it, so `db pull` would drop
+            // the `@default(autoincrement())` the column was created with.
+            let has_autoincrement = create_sql.to_ascii_uppercase().contains("AUTOINCREMENT");
+
             let gen_exprs = parse_sqlite_generated_exprs(&create_sql);
             let (column_check_map, table_check_constraints) =
                 parse_sqlite_check_constraints(&create_sql);
@@ -110,7 +115,7 @@ impl SchemaInspector {
                     generated_expr,
                     computed_kind,
                     check_expr: column_check_map.get(&col_name.to_lowercase()).cloned(),
-                    auto_increment: false,
+                    auto_increment: is_pk && has_autoincrement,
                 });
             }
 
