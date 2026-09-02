@@ -728,6 +728,7 @@ where
         filter,
         data,
         transaction_id: client.transaction_id(),
+        return_data: false,
     };
 
     let count = handlers::handle_update_many_typed(state.as_ref(), params)
@@ -758,6 +759,7 @@ where
         model: model.to_string(),
         filter,
         transaction_id: client.transaction_id(),
+        return_data: false,
     };
 
     let count = handlers::handle_delete_many_typed(state.as_ref(), params)

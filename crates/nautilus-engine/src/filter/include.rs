@@ -3,7 +3,10 @@ use super::ordering::parse_order_by;
 use super::where_filter::{parse_where_filter, qualify_filter_columns};
 use super::*;
 
-pub(super) fn parse_select(select_value: &JsonValue) -> Result<HashSet<String>, ProtocolError> {
+pub(super) fn parse_select(
+    select_value: &JsonValue,
+    field_types: &FieldTypeMap,
+) -> Result<HashSet<String>, ProtocolError> {
     let obj = select_value
         .as_object()
         .ok_or_else(|| ProtocolError::InvalidParams("select must be an object".to_string()))?;
@@ -12,6 +15,12 @@ pub(super) fn parse_select(select_value: &JsonValue) -> Result<HashSet<String>, 
     for (field, flag) in obj {
         match flag {
             JsonValue::Bool(true) => {
+                if !field_types.is_empty() && !field_types.contains_key(field) {
+                    return Err(ProtocolError::InvalidParams(format!(
+                        "select names unknown field '{}'",
+                        field
+                    )));
+                }
                 result.insert(field.clone());
             }
             JsonValue::Bool(false) => {}
@@ -24,6 +33,27 @@ pub(super) fn parse_select(select_value: &JsonValue) -> Result<HashSet<String>, 
         }
     }
     Ok(result)
+}
+
+/// The keys an `include` spec object accepts.
+///
+/// Anything else — a nested `select`, a `_count` projection — describes a
+/// feature the include path does not implement, and silently dropping it hands
+/// the caller a result that does not match what they asked for.
+const INCLUDE_SPEC_KEYS: [&str; 5] = ["where", "include", "take", "skip", "orderBy"];
+
+fn ensure_known_relation(
+    field: &str,
+    relations: &RelationMap,
+    schema_context: SchemaContext<'_>,
+) -> Result<(), ProtocolError> {
+    if schema_context.models().is_none() || relations.contains_key(field) {
+        return Ok(());
+    }
+    Err(ProtocolError::InvalidParams(format!(
+        "include names unknown relation '{}'",
+        field
+    )))
 }
 
 fn insert_path(map: &mut HashMap<String, IncludeNode>, segments: &[&str]) {
@@ -70,6 +100,7 @@ pub(super) fn parse_include(
         for v in arr {
             if let Some(s) = v.as_str() {
                 let segments: Vec<&str> = s.split('.').collect();
+                ensure_known_relation(segments[0], relations, schema_context)?;
                 insert_path(&mut map, &segments);
             }
         }
@@ -82,6 +113,9 @@ pub(super) fn parse_include(
 
     let mut result = HashMap::new();
     for (field, spec) in obj {
+        if !matches!(spec, JsonValue::Bool(false)) {
+            ensure_known_relation(field, relations, schema_context)?;
+        }
         let node = match spec {
             JsonValue::Bool(true) => IncludeNode {
                 filter: None,
@@ -92,6 +126,17 @@ pub(super) fn parse_include(
             },
             JsonValue::Bool(false) => continue,
             JsonValue::Object(child_obj) => {
+                if let Some(unknown) = child_obj
+                    .keys()
+                    .find(|key| !INCLUDE_SPEC_KEYS.contains(&key.as_str()))
+                {
+                    return Err(ProtocolError::InvalidParams(format!(
+                        "include.{} does not support '{}'; supported keys are: {}",
+                        field,
+                        unknown,
+                        INCLUDE_SPEC_KEYS.join(", ")
+                    )));
+                }
                 let child_ctx = nested_include_context(field, relations, schema_context)?;
                 let filter = if let Some(where_val) = child_obj.get("where") {
                     if let Some(child_ctx) = child_ctx.as_ref() {

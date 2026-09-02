@@ -15,6 +15,29 @@ fn row_field_json<'a>(
         .or_else(|| data_obj.get(&field.db_name))
 }
 
+/// Reject a `data` key that matches no field of the model.
+///
+/// A mistyped field name is otherwise dropped without a word, and the row is
+/// written missing that column.
+fn ensure_known_data_keys(
+    model: &ModelIr,
+    data_obj: &JsonMap<String, JsonValue>,
+) -> Result<(), ProtocolError> {
+    for key in data_obj.keys() {
+        if !model
+            .fields
+            .iter()
+            .any(|field| &field.logical_name == key || &field.db_name == key)
+        {
+            return Err(ProtocolError::InvalidParams(format!(
+                "Model '{}' has no field '{}'",
+                model.logical_name, key
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn updated_at_now_value() -> Value {
     Value::DateTime(chrono::Utc::now().naive_utc())
 }
@@ -221,6 +244,7 @@ async fn insert_row(
     let data_obj = data
         .as_object()
         .ok_or_else(|| ProtocolError::InvalidParams("data must be an object".to_string()))?;
+    ensure_known_data_keys(model, data_obj)?;
 
     let scalar_field_capacity = metadata.scalar_fields().len();
     let mut columns = Vec::with_capacity(scalar_field_capacity);
@@ -366,6 +390,7 @@ async fn execute_create_many(
         let data_obj = json_value.as_object().ok_or_else(|| {
             ProtocolError::InvalidParams("data items must be objects".to_string())
         })?;
+        ensure_known_data_keys(model, data_obj)?;
 
         let row_fields = create_many_effective_fields(model, data_obj);
         let row_keys: Vec<&str> = row_fields
@@ -459,6 +484,7 @@ async fn update_rows(
     let data_obj = data
         .as_object()
         .ok_or_else(|| ProtocolError::InvalidParams("data must be an object".to_string()))?;
+    ensure_known_data_keys(model, data_obj)?;
 
     let mut assignments = Vec::with_capacity(metadata.scalar_fields().len());
 

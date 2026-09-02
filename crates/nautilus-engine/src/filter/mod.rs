@@ -446,7 +446,7 @@ impl QueryArgs {
         };
 
         let select = if let Some(select_value) = args.get("select") {
-            parse_select(select_value)?
+            parse_select(select_value, field_types)?
         } else {
             HashSet::new()
         };

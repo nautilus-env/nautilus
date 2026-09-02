@@ -110,7 +110,7 @@ pub struct RequestCancelResult {
 
 /// Find many request parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FindManyParams {
     /// Protocol version (required in all requests).
     pub protocol_version: u32,
@@ -135,7 +135,7 @@ pub struct FindManyParams {
 
 /// Find first request parameters (same shape as FindMany — optional full args).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FindFirstParams {
     pub protocol_version: u32,
     pub model: String,
@@ -148,7 +148,7 @@ pub struct FindFirstParams {
 
 /// Find unique request parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FindUniqueParams {
     pub protocol_version: u32,
     pub model: String,
@@ -166,7 +166,7 @@ pub type FindFirstOrThrowParams = FindFirstParams;
 
 /// Create request parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateParams {
     pub protocol_version: u32,
     pub model: String,
@@ -181,7 +181,7 @@ pub struct CreateParams {
 
 /// Create many request parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateManyParams {
     pub protocol_version: u32,
     pub model: String,
@@ -196,7 +196,7 @@ pub struct CreateManyParams {
 
 /// Update request parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateParams {
     pub protocol_version: u32,
     pub model: String,
@@ -212,7 +212,7 @@ pub struct UpdateParams {
 
 /// Delete request parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DeleteParams {
     pub protocol_version: u32,
     pub model: String,
@@ -231,7 +231,7 @@ pub struct DeleteParams {
 /// primary key) of the model: those columns become the conflict target of the
 /// underlying `INSERT ... ON CONFLICT` / `ON DUPLICATE KEY UPDATE` statement.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpsertParams {
     pub protocol_version: u32,
     pub model: String,
@@ -251,7 +251,7 @@ pub struct UpsertParams {
 
 /// Count request parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CountParams {
     pub protocol_version: u32,
     pub model: String,
@@ -265,7 +265,7 @@ pub struct CountParams {
 
 /// Group-by request parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GroupByParams {
     pub protocol_version: u32,
     pub model: String,
@@ -283,7 +283,7 @@ pub struct GroupByParams {
 /// carries the affected-row count only, so the statement stays a single
 /// round-trip regardless of how many rows it touches.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateManyParams {
     pub protocol_version: u32,
     pub model: String,
@@ -293,13 +293,19 @@ pub struct UpdateManyParams {
     /// Optional transaction ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_id: Option<String>,
+    /// Accepted and ignored: a client that offers one `deleteMany` /
+    /// `updateMany` entry point builds a single payload and picks the RPC by
+    /// this flag, so it reaches the count-only method too. The many-variants
+    /// always answer with a count.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub return_data: bool,
 }
 
 /// Delete-many request parameters.
 ///
 /// Like [`UpdateManyParams`], the result carries the affected-row count only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DeleteManyParams {
     pub protocol_version: u32,
     pub model: String,
@@ -308,6 +314,12 @@ pub struct DeleteManyParams {
     /// Optional transaction ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_id: Option<String>,
+    /// Accepted and ignored: a client that offers one `deleteMany` /
+    /// `updateMany` entry point builds a single payload and picks the RPC by
+    /// this flag, so it reaches the count-only method too. The many-variants
+    /// always answer with a count.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub return_data: bool,
 }
 
 /// Aggregate request parameters.
@@ -316,7 +328,7 @@ pub struct DeleteManyParams {
 /// without a grouping key there is one result row covering the whole filtered
 /// set, so there is nothing to group or filter groups by.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AggregateParams {
     pub protocol_version: u32,
     pub model: String,
