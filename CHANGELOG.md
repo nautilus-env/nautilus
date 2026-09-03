@@ -1,5 +1,131 @@
 # Changelog
 
+## Version 1.4.1
+
+### ⚠️ Breaking — a model must declare its primary key
+
+A model with no `@id` and no `@@id` was silently given its **first field** as
+PRIMARY KEY, handing the schema a uniqueness constraint it never asked for and
+that only showed up when a second row collided with it. Such a model is now a
+validation error. A `view` is exempt: it names a relation the database owns,
+which need not have a key.
+
+### ⚠️ Breaking — stricter query input
+
+Input that used to be accepted and quietly ignored is now rejected:
+
+- an unknown key in `data` (`create`, `createMany`, `update`), an unknown
+  relation in `include`, an unknown field in `select`, an unknown `orderBy`
+  field, and an unknown RPC parameter (`skipDuplicates` among them);
+- a nested `select` or `_count` inside an `include` entry, neither of which the
+  include path implements;
+- `chunkSize: 0`, a `take` outside 32-bit range, an enum value that is not one
+  of the declared variants, and a JSON object or array written to a scalar
+  field, which used to be stored verbatim (an update operator is now applied
+  instead of stored, and is refused with a message that names it wherever it
+  cannot apply);
+- `avg` / `sum` over a non-numeric field, and `min` / `max` over an unordered
+  one; `avg: true` / `sum: true` now expand to the numeric fields only;
+- a `findUnique` filter that matches neither the primary key nor any unique
+  constraint, and an empty `where` on the single-record `update` / `delete`
+  (use `updateMany` / `deleteMany` for "every row");
+- an unknown key in `args` itself, on a read as well as on `aggregate` and
+  `groupBy`. The Prisma spelling of an aggregate (`_count`, `_avg`, `_sum`,
+  `_min`, `_max`) used to leave a `groupBy` result with no aggregates at all;
+  the error now names the argument Nautilus expects.
+
+### Added
+
+- **Atomic update operators.** `update`, `updateMany` and the update half of
+  `upsert` accept `{"views": {"increment": 1}}` in place of a value, which
+  renders as `SET "views" = ("views" + $1)`: the database derives the new value
+  from the row's current one, so two concurrent updates both land where a
+  read-modify-write in the client would lose one. `decrement`, `multiply` and
+  `divide` work the same way, over `Int`, `BigInt`, `Float` and `Decimal`.
+  `set` writes its operand as given and is accepted on `create` too. An
+  arithmetic operator is refused on `create` (no current value to build on), on
+  a primary-key column, and on a field whose type cannot take arithmetic; a
+  field holding structured JSON still stores an operator-shaped object verbatim.
+
+  All four generated clients express them. JavaScript and Python widen the
+  update input's type to admit the operator object they already forwarded
+  unchanged. Java gains one setter per operator beside the plain one
+  (`viewsIncrement(5)`). **Breaking, Rust only:** a numeric column on
+  `{Model}UpdateInput` is now `Option<NumericUpdate<T>>` rather than
+  `Option<T>`, so `views: Some(5)` becomes `views: Some(5.into())` or
+  `Some(NumericUpdate::Set(5))`; non-numeric columns are unchanged.
+- `generate --install` installs the client into the shared
+  `site-packages` / `node_modules` location. Without it, generation now only
+  installs when the generator block names no `output` to import from, so two
+  projects on one machine no longer overwrite each other's global client. The
+  install path is printed as a warning when it happens.
+- The generated JavaScript client ships a `package.json` (`"type": "module"`,
+  `main`, `types`, `exports`), so it imports from a project that has not opted
+  into ES modules.
+- `having` accepts the field-first shape (`{"views": {"_sum": {"gt": 10}}}`)
+  alongside the aggregate-first one, and a grouped column can now be filtered
+  directly (`{"role": {"eq": "ADMIN"}}`).
+
+### Changed
+
+- `db pull` recovers `@default(autoincrement())` on SQLite, which it read out of
+  the table's `CREATE` statement rather than `PRAGMA table_xinfo`.
+- `db pull` recovers `@updatedAt` on MySQL, which records the column's
+  `ON UPDATE CURRENT_TIMESTAMP` in `information_schema`. PostgreSQL and SQLite
+  give the column a plain `CURRENT_TIMESTAMP` default and nothing else, so there
+  it is still indistinguishable from `@default(now())` — see the CLI README.
+- `DateTime` maps to `DATETIME(6)` on MySQL instead of `DATETIME`, which
+  silently truncated sub-second precision. Existing MySQL columns are migrated
+  by the next push.
+- `@updatedAt` takes its first value from the column's `CURRENT_TIMESTAMP`
+  default instead of the engine clock, so it is never older than a
+  `@default(now())` sibling written by the same insert.
+- Aggregate results decode to the same JSON type on every provider: `_count`
+  and `_sum` over an integer are integers, `_avg` is a float, `_sum` over a
+  `Decimal` is a decimal string, and `_min` / `_max` keep the field's own type.
+- A `Boolean` column read from SQLite decodes to `true` / `false` instead of
+  `1` / `0`.
+- A connection failure reports the underlying cause (bad password, unknown
+  database, unreachable host) instead of `pool timed out`.
+- A JSON object written by a client keeps its key order, so a multi-key
+  `orderBy` no longer has its keys alphabetised and its primary sort key
+  silently demoted.
+
+### Fixed
+
+- `where: {field: null}`, `{eq: null}` and `{not: null}` now render
+  `IS [NOT] NULL` instead of a comparison against `NULL` that never matched.
+- `in: []` and `notIn: []` no longer render `IN ()`, which was a syntax error on
+  PostgreSQL and MySQL.
+- `contains` / `startsWith` / `endsWith` escape `%`, `_` and `\` in the search
+  term, so a user-typed `%` matches itself instead of everything.
+- A `String` field holding a UUID-shaped value can be filtered on PostgreSQL;
+  the value is no longer bound as `uuid` against a `text` column.
+- A `Decimal` returned by the engine can be written straight back on
+  PostgreSQL.
+- `distinct` collapses duplicates on SQLite and MySQL, which have no
+  `DISTINCT ON`; the engine deduplicates the decoded rows and applies
+  `take` / `skip` afterwards.
+- `count`, `aggregate` and `groupBy` accept relation filters (`some` / `none` /
+  `every`), which only `findMany` understood.
+- `skip` without `take` no longer emits a bare `OFFSET`, a syntax error on
+  SQLite.
+- PostgreSQL `SET DEFAULT` keeps the case of the default literal, so a string
+  default is no longer lower-cased into a different value and an enum default
+  change no longer produces an unappliable statement. `db status` prints the
+  default as written for the same reason.
+- `ALTER TYPE … ADD VALUE` runs before and outside the migration transaction, so
+  adding an enum variant and making it a column default in one push applies on
+  PostgreSQL instead of failing with "unsafe use of new value".
+- The `@updatedAt` column's `CURRENT_TIMESTAMP` default is reported by the diff,
+  so a push no longer proposes dropping it on every run.
+- A Python client generated with `interface = "sync"` refuses
+  `async with Nautilus()` with a message that names the cause, instead of an
+  unrelated `TypeError`. The README's example schema now sets
+  `interface = "async"` to match its async examples, and its JavaScript import
+  points at the generated `db/index.js`.
+- `Loaded DATABASE_URL from .env` is only printed when a `.env` file exists.
+
 ## Version 1.4.0
 
 ### ⚠️ Breaking — MySQL enum columns change type
