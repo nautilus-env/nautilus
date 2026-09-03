@@ -209,6 +209,12 @@ pub fn json_to_value_field(
 
 /// Whether a field stores a value that is legitimately written as a JSON
 /// object or array.
+/// Whether a field's declared type makes a JSON object or array a legitimate
+/// value rather than a wrapper the engine should interpret.
+pub fn holds_structured_json(field_type: &ResolvedFieldType, is_array: bool) -> bool {
+    stores_structured_json(field_type, is_array)
+}
+
 fn stores_structured_json(field_type: &ResolvedFieldType, is_array: bool) -> bool {
     if is_array {
         return true;
@@ -232,9 +238,10 @@ fn stores_structured_json(field_type: &ResolvedFieldType, is_array: bool) -> boo
 ///
 /// Without this, the structured value is bound verbatim: SQLite's dynamic
 /// typing then stores the JSON text in, say, an `INTEGER` column and every
-/// later read of the table fails to decode. The most common way to hit it is an
-/// atomic update (`{"views": {"increment": 1}}`), which Nautilus does not
-/// implement, so those operator names get their own message.
+/// later read of the table fails to decode. The update operators reach this
+/// point only where they cannot be applied — an operator object survives the
+/// mutation handlers only when the field or the operation refuses it — so they
+/// keep a message that names the operator instead of the shape.
 pub fn ensure_scalar_input(
     json: &serde_json::Value,
     field_type: &ResolvedFieldType,
@@ -257,7 +264,7 @@ pub fn ensure_scalar_input(
             )
         }) {
             return Err(ProtocolError::InvalidParams(format!(
-                "Field '{}' does not support the atomic update operator '{}'; write the resulting value directly",
+                "Field '{}' does not support the update operator '{}'",
                 field_name, op
             )));
         }

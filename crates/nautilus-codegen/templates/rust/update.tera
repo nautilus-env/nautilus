@@ -4,7 +4,7 @@ pub(crate) struct {{ update_name }}<E: crate::Executor> {
     filter: Option<nautilus_core::Expr>,
     require_filter: bool,
     /// Column-value assignments collected from `set_data`.
-    assignments: Vec<(nautilus_core::ColumnMarker, nautilus_core::Value)>,
+    assignments: Vec<(nautilus_core::ColumnMarker, nautilus_core::Assignment)>,
 }
 
 impl<E> {{ update_name }}<E>
@@ -54,7 +54,7 @@ where
 {%- endif %}
             self.assignments.push((
                 nautilus_core::ColumnMarker::from_static("{{ table_name }}", "{{ field.db_name }}"),
-                val,
+                nautilus_core::Assignment::Value(val),
             ));
         }
 {%- endfor %}

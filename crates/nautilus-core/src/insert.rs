@@ -3,6 +3,7 @@
 use crate::column::ColumnMarker;
 use crate::error::{Error, Result};
 use crate::table::TableName;
+use crate::update::Assignment;
 use crate::value::Value;
 
 /// What an INSERT does when a row collides with a unique constraint.
@@ -16,7 +17,7 @@ pub struct OnConflict {
     /// Columns forming the unique constraint the insert may violate.
     pub target: Vec<ColumnMarker>,
     /// Assignments applied to the conflicting row. Empty means "do nothing".
-    pub update: Vec<(ColumnMarker, Value)>,
+    pub update: Vec<(ColumnMarker, Assignment)>,
 }
 
 impl OnConflict {
@@ -29,7 +30,7 @@ impl OnConflict {
     }
 
     /// Conflict clause that overwrites the listed columns on the existing row.
-    pub fn do_update(target: Vec<ColumnMarker>, update: Vec<(ColumnMarker, Value)>) -> Self {
+    pub fn do_update(target: Vec<ColumnMarker>, update: Vec<(ColumnMarker, Assignment)>) -> Self {
         Self { target, update }
     }
 }
@@ -277,7 +278,7 @@ mod tests {
                 vec![ColumnMarker::new("users", "email")],
                 vec![(
                     ColumnMarker::new("users", "name"),
-                    Value::String("Alice".to_string()),
+                    Assignment::Value(Value::String("Alice".to_string())),
                 )],
             ))
             .build()

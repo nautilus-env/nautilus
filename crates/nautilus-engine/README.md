@@ -38,6 +38,18 @@ in the current directory.
 - `transactionId` is supported on request types that can run inside an open transaction.
 - `query.findMany` also supports protocol-level chunking via `chunkSize`; partial responses are emitted before the final response when the client opts in.
 - `query.upsert` runs as one atomic statement. Its `where` must name exactly the columns of one unique constraint (or the primary key), and `create` must supply a value for each of them.
+- `query.update`, `query.updateMany` and the update half of `query.upsert`
+  accept **atomic operators** in place of a value: `{"views": {"increment": 1}}`
+  renders as `SET "views" = ("views" + $1)`, so the database derives the new
+  value from the row's current one and two concurrent updates both land.
+  `decrement`, `multiply` and `divide` work the same way and take `Int`,
+  `BigInt`, `Float` and `Decimal` columns. `set` writes its operand as given and
+  is accepted on `create` too. An arithmetic operator is refused on `create`
+  (there is no current value), on a primary-key column (the new key is unknown
+  until the statement has run, and the read-back on a backend without
+  `RETURNING` looks for the key captured before it), and on a field whose type
+  cannot take arithmetic. A field that holds structured JSON — `Json`, `Bytes`,
+  a composite, any list — is never read this way: there the object is the value.
 - `query.create` and `query.update` accept **nested writes**: a relation field in
   `data` carries an object of operations instead of a column value. The side of
   the relation that holds the foreign key takes `create`, `connect` and

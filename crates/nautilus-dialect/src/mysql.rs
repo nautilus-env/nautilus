@@ -124,17 +124,13 @@ fn render_on_duplicate_key(ctx: &mut RenderContext, on_conflict: &mut OnConflict
         return;
     }
 
-    for (i, (col, value)) in on_conflict.update.iter_mut().enumerate() {
+    for (i, (col, assignment)) in on_conflict.update.iter_mut().enumerate() {
         if i > 0 {
             ctx.sql.push_str(", ");
         }
         crate::push_quoted_identifier(&mut ctx.sql, &col.name, '`');
         ctx.sql.push_str(" = ");
-        if matches!(value, Value::Null) {
-            ctx.sql.push_str("NULL");
-        } else {
-            ctx.take_param(value);
-        }
+        render_assignment_mut!(ctx, assignment, render_expr_owned, crate::no_param_cast);
     }
 }
 
@@ -377,7 +373,7 @@ mod tests {
                 vec![nautilus_core::ColumnMarker::new("users", "email")],
                 vec![(
                     nautilus_core::ColumnMarker::new("users", "name"),
-                    Value::String("Alice II".to_string()),
+                    nautilus_core::Assignment::Value(Value::String("Alice II".to_string())),
                 )],
             ))
             .build()

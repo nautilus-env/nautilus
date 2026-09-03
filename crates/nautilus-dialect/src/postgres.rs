@@ -218,7 +218,13 @@ impl ParamCast {
 /// The rendered `::type` suffix a bound parameter needs in an INSERT or UPDATE,
 /// or `None` when the parameter binds as its own type already.
 fn render_on_conflict(ctx: &mut RenderContext, on_conflict: &mut OnConflict) {
-    render_on_conflict_body_mut!(ctx, on_conflict, '"', postgres_assignment_cast);
+    render_on_conflict_body_mut!(
+        ctx,
+        on_conflict,
+        '"',
+        render_expr_owned,
+        postgres_assignment_cast
+    );
 }
 
 fn postgres_assignment_cast(value: &Value) -> Option<String> {
@@ -292,7 +298,7 @@ mod tests {
                 vec![nautilus_core::ColumnMarker::new("users", "email")],
                 vec![(
                     nautilus_core::ColumnMarker::new("users", "name"),
-                    Value::String("Alice II".to_string()),
+                    nautilus_core::Assignment::Value(Value::String("Alice II".to_string())),
                 )],
             ))
             .returning(vec![nautilus_core::ColumnMarker::new("users", "id")])
@@ -314,6 +320,36 @@ mod tests {
                 Value::String("Alice".to_string()),
                 Value::String("Alice II".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn an_expression_assignment_reads_the_column_it_writes() {
+        let update = nautilus_core::Update::table("posts")
+            .set(
+                nautilus_core::ColumnMarker::new("posts", "views"),
+                Expr::Binary {
+                    left: Box::new(Expr::column("views")),
+                    op: BinaryOp::Add,
+                    right: Box::new(Expr::param(Value::I32(5))),
+                },
+            )
+            .set(
+                nautilus_core::ColumnMarker::new("posts", "title"),
+                Value::String("kept".to_string()),
+            )
+            .build()
+            .unwrap();
+
+        let sql = PostgresDialect.render_update(&update).unwrap();
+
+        assert_eq!(
+            sql.text,
+            "UPDATE \"posts\" SET \"views\" = (\"views\" + $1), \"title\" = $2"
+        );
+        assert_eq!(
+            sql.params,
+            vec![Value::I32(5), Value::String("kept".to_string())]
         );
     }
 

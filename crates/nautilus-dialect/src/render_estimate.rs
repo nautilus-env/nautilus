@@ -9,7 +9,7 @@
 //! remains correct even when the estimate is imperfect, because the underlying
 //! buffers can still grow normally if needed.
 
-use nautilus_core::{Delete, Insert, Select, Update, Value};
+use nautilus_core::{Assignment, Delete, Insert, Select, Update, Value};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct RenderEstimate {
@@ -162,11 +162,9 @@ pub(crate) fn estimate_insert_render(insert: &Insert) -> RenderEstimate {
         for column in &on_conflict.target {
             estimate.add_sql(estimate_identifier_len(&column.name) + 2);
         }
-        for (column, value) in &on_conflict.update {
+        for (column, assignment) in &on_conflict.update {
             estimate.add_sql(estimate_identifier_len(&column.name) + 11);
-            if !matches!(value, Value::Null) {
-                estimate.add_param(true);
-            }
+            estimate.merge(estimate_assignment_render(assignment));
         }
     }
 
@@ -184,21 +182,29 @@ pub(crate) fn estimate_insert_render(insert: &Insert) -> RenderEstimate {
     estimate
 }
 
-/// Estimate the render-time capacity for an UPDATE query.
-pub(crate) fn estimate_update_render(update: &Update) -> RenderEstimate {
-    let mut estimate = RenderEstimate::new(24 + estimate_table_name_len(&update.table), 0);
-
-    for (column, value) in &update.assignments {
-        estimate.add_sql(estimate_identifier_len(&column.name) + 6);
-        if matches!(value, Value::Null) {
-            estimate.add_sql(4);
-        } else {
-            estimate.add_sql(8);
+/// Estimate the render-time capacity of one `SET` right-hand side.
+fn estimate_assignment_render(assignment: &Assignment) -> RenderEstimate {
+    match assignment {
+        Assignment::Value(Value::Null) => RenderEstimate::new(4, 0),
+        Assignment::Value(value) => {
+            let mut estimate = RenderEstimate::new(8, 0);
             estimate.add_param(true);
             if let Value::Enum { type_name, .. } = value {
                 estimate.add_sql(2 + type_name.len());
             }
+            estimate
         }
+        Assignment::Expr(expr) => estimate_expr_render(expr),
+    }
+}
+
+/// Estimate the render-time capacity for an UPDATE query.
+pub(crate) fn estimate_update_render(update: &Update) -> RenderEstimate {
+    let mut estimate = RenderEstimate::new(24 + estimate_table_name_len(&update.table), 0);
+
+    for (column, assignment) in &update.assignments {
+        estimate.add_sql(estimate_identifier_len(&column.name) + 6);
+        estimate.merge(estimate_assignment_render(assignment));
     }
 
     if let Some(filter) = update.filter.as_ref() {

@@ -85,7 +85,13 @@ impl RenderContext {
 }
 
 fn render_on_conflict(ctx: &mut RenderContext, on_conflict: &mut OnConflict) {
-    render_on_conflict_body_mut!(ctx, on_conflict, '"', crate::no_param_cast);
+    render_on_conflict_body_mut!(
+        ctx,
+        on_conflict,
+        '"',
+        render_expr_owned,
+        crate::no_param_cast
+    );
 }
 
 fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select) {
@@ -232,7 +238,7 @@ mod tests {
                 vec![nautilus_core::ColumnMarker::new("users", "email")],
                 vec![(
                     nautilus_core::ColumnMarker::new("users", "name"),
-                    Value::String("Alice II".to_string()),
+                    nautilus_core::Assignment::Value(Value::String("Alice II".to_string())),
                 )],
             ))
             .build()

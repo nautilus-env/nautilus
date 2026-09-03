@@ -45,5 +45,5 @@ pub use select::{
     SelectCapacity, SelectItem,
 };
 pub use table::TableName;
-pub use update::{Update, UpdateBuilder, UpdateCapacity};
+pub use update::{Assignment, Update, UpdateBuilder, UpdateCapacity};
 pub use value::{Geography, Geometry, PlainValueRef, Value};

@@ -6,13 +6,39 @@ use crate::expr::Expr;
 use crate::table::TableName;
 use crate::value::Value;
 
+/// The right-hand side of one `SET` entry.
+///
+/// Almost every assignment binds a value the caller supplied. An atomic update
+/// — `increment`, `decrement`, `multiply`, `divide` — derives the new value
+/// from the column's current one, which only an expression can say.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Assignment {
+    /// A value bound as a statement parameter.
+    Value(Value),
+    /// An expression evaluated by the database, free to read the row being
+    /// updated (`views = (views + $1)`).
+    Expr(Expr),
+}
+
+impl From<Value> for Assignment {
+    fn from(value: Value) -> Self {
+        Self::Value(value)
+    }
+}
+
+impl From<Expr> for Assignment {
+    fn from(expr: Expr) -> Self {
+        Self::Expr(expr)
+    }
+}
+
 /// UPDATE query AST node.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Update {
     /// Table name.
     pub table: TableName,
     /// Column-value assignments (SET clause).
-    pub assignments: Vec<(ColumnMarker, Value)>,
+    pub assignments: Vec<(ColumnMarker, Assignment)>,
     /// WHERE clause.
     pub filter: Option<Expr>,
     /// Columns to return (RETURNING clause). Empty = no RETURNING.
@@ -44,7 +70,7 @@ pub struct UpdateCapacity {
 #[derive(Debug, Clone)]
 pub struct UpdateBuilder {
     table: TableName,
-    assignments: Vec<(ColumnMarker, Value)>,
+    assignments: Vec<(ColumnMarker, Assignment)>,
     filter: Option<Expr>,
     returning: Vec<ColumnMarker>,
 }
@@ -60,14 +86,14 @@ impl UpdateBuilder {
 
     /// Adds a column-value assignment to the SET clause.
     #[must_use]
-    pub fn set(mut self, column: ColumnMarker, value: Value) -> Self {
-        self.assignments.push((column, value));
+    pub fn set(mut self, column: ColumnMarker, value: impl Into<Assignment>) -> Self {
+        self.assignments.push((column, value.into()));
         self
     }
 
     /// Sets all column-value assignments in one call.
     #[must_use]
-    pub fn assignments(mut self, assignments: Vec<(ColumnMarker, Value)>) -> Self {
+    pub fn assignments(mut self, assignments: Vec<(ColumnMarker, Assignment)>) -> Self {
         self.assignments = assignments;
         self
     }
@@ -191,7 +217,7 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(update.assignments[0].1, Value::Null);
+        assert_eq!(update.assignments[0].1, Assignment::Value(Value::Null));
     }
 
     #[test]

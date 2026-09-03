@@ -114,6 +114,14 @@ pub enum BinaryOp {
     In,
     /// NOT IN list membership.
     NotIn,
+    /// Arithmetic addition (`+`), as an atomic `increment` renders to.
+    Add,
+    /// Arithmetic subtraction (`-`), as an atomic `decrement` renders to.
+    Sub,
+    /// Arithmetic multiplication (`*`), as an atomic `multiply` renders to.
+    Mul,
+    /// Arithmetic division (`/`), as an atomic `divide` renders to.
+    Div,
 }
 
 /// A SQL fragment emitted verbatim into the query text, **not** bound as a

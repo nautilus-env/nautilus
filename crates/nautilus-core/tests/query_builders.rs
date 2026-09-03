@@ -5,8 +5,8 @@
 //! and pagination.
 
 use nautilus_core::{
-    ColumnMarker, Delete, DeleteCapacity, Expr, Insert, InsertCapacity, JoinClause, JoinType,
-    OrderDir, Select, SelectCapacity, SelectItem, Update, UpdateCapacity, Value,
+    Assignment, ColumnMarker, Delete, DeleteCapacity, Expr, Insert, InsertCapacity, JoinClause,
+    JoinType, OrderDir, Select, SelectCapacity, SelectItem, Update, UpdateCapacity, Value,
 };
 
 #[test]
@@ -142,7 +142,7 @@ fn update_with_filter_and_returning() {
         })
         .assignments(vec![(
             ColumnMarker::new("users", "email"),
-            Value::String("new@example.com".into()),
+            Assignment::Value(Value::String("new@example.com".into())),
         )])
         .filter(filter.clone())
         .returning(vec![ColumnMarker::new("users", "id")])
@@ -154,7 +154,7 @@ fn update_with_filter_and_returning() {
     assert_eq!(upd.assignments[0].0.name, "email");
     assert_eq!(
         upd.assignments[0].1,
-        Value::String("new@example.com".into())
+        Assignment::Value(Value::String("new@example.com".into()))
     );
     assert_eq!(upd.filter, Some(filter));
     assert_eq!(upd.returning.len(), 1);

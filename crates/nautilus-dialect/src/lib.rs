@@ -85,8 +85,32 @@ macro_rules! render_insert_body_mut {
 ///
 /// MySQL spells the same idea `ON DUPLICATE KEY UPDATE` and has no conflict
 /// target, so it renders its own clause instead of calling this.
+/// Render the right-hand side of one `SET` entry.
+///
+/// A bound value keeps the NULL-literal and cast handling every dialect needs;
+/// an expression goes through the dialect's own expression renderer, which is
+/// what lets `views = (views + $1)` reference the row being updated.
+macro_rules! render_assignment_mut {
+    ($ctx:expr, $assignment:expr, $render_expr:ident, $param_cast:expr) => {{
+        match $assignment {
+            nautilus_core::Assignment::Value(value) => {
+                if matches!(value, nautilus_core::Value::Null) {
+                    $ctx.sql.push_str("NULL");
+                } else {
+                    let cast = $param_cast(&*value);
+                    $ctx.take_param(value);
+                    if let Some(cast) = cast.as_deref() {
+                        $ctx.sql.push_str(cast);
+                    }
+                }
+            }
+            nautilus_core::Assignment::Expr(expr) => $render_expr($ctx, expr),
+        }
+    }};
+}
+
 macro_rules! render_on_conflict_body_mut {
-    ($ctx:expr, $on_conflict:expr, $quote:expr, $param_cast:expr) => {{
+    ($ctx:expr, $on_conflict:expr, $quote:expr, $render_expr:ident, $param_cast:expr) => {{
         $ctx.sql.push_str(" ON CONFLICT (");
         for (i, col) in $on_conflict.target.iter().enumerate() {
             if i > 0 {
@@ -100,21 +124,13 @@ macro_rules! render_on_conflict_body_mut {
             $ctx.sql.push_str(" DO NOTHING");
         } else {
             $ctx.sql.push_str(" DO UPDATE SET ");
-            for (i, (col, value)) in $on_conflict.update.iter_mut().enumerate() {
+            for (i, (col, assignment)) in $on_conflict.update.iter_mut().enumerate() {
                 if i > 0 {
                     $ctx.sql.push_str(", ");
                 }
                 crate::push_quoted_identifier(&mut $ctx.sql, &col.name, $quote);
                 $ctx.sql.push_str(" = ");
-                if matches!(value, nautilus_core::Value::Null) {
-                    $ctx.sql.push_str("NULL");
-                } else {
-                    let cast = $param_cast(&*value);
-                    $ctx.take_param(value);
-                    if let Some(cast) = cast.as_deref() {
-                        $ctx.sql.push_str(cast);
-                    }
-                }
+                render_assignment_mut!($ctx, assignment, $render_expr, $param_cast);
             }
         }
     }};
@@ -127,21 +143,13 @@ macro_rules! render_update_body_mut {
         crate::push_table_name(&mut $ctx.sql, &$update.table, $quote);
 
         $ctx.sql.push_str(" SET ");
-        for (i, (col, value)) in $update.assignments.iter_mut().enumerate() {
+        for (i, (col, assignment)) in $update.assignments.iter_mut().enumerate() {
             if i > 0 {
                 $ctx.sql.push_str(", ");
             }
             crate::push_quoted_identifier(&mut $ctx.sql, &col.name, $quote);
             $ctx.sql.push_str(" = ");
-            if matches!(value, nautilus_core::Value::Null) {
-                $ctx.sql.push_str("NULL");
-            } else {
-                let cast = $param_cast(&*value);
-                $ctx.take_param(value);
-                if let Some(cast) = cast.as_deref() {
-                    $ctx.sql.push_str(cast);
-                }
-            }
+            render_assignment_mut!($ctx, assignment, $render_expr, $param_cast);
         }
 
         if let Some(filter) = $update.filter.as_mut() {
@@ -884,6 +892,10 @@ pub(crate) fn binary_op_sql(op: &nautilus_core::BinaryOp) -> &'static str {
         nautilus_core::BinaryOp::And => "AND",
         nautilus_core::BinaryOp::Or => "OR",
         nautilus_core::BinaryOp::Like | nautilus_core::BinaryOp::LikeEscape => "LIKE",
+        nautilus_core::BinaryOp::Add => "+",
+        nautilus_core::BinaryOp::Sub => "-",
+        nautilus_core::BinaryOp::Mul => "*",
+        nautilus_core::BinaryOp::Div => "/",
         nautilus_core::BinaryOp::ArrayContains
         | nautilus_core::BinaryOp::ArrayContainedBy
         | nautilus_core::BinaryOp::ArrayOverlaps
