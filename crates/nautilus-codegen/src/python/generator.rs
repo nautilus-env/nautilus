@@ -147,10 +147,26 @@ struct CreateInputFieldContext {
     is_required: bool,
 }
 
+/// The operator `TypedDict` that accompanies a numeric column's own type.
+///
+/// One per operand type rather than a generic alias: a generic `TypedDict`
+/// needs Python 3.11, and the generated clients target older interpreters too.
+fn numeric_operator_type_name(base_python_type: &str) -> String {
+    match base_python_type {
+        "int" => "IntFieldUpdate".to_string(),
+        "float" => "FloatFieldUpdate".to_string(),
+        "Decimal" => "DecimalFieldUpdate".to_string(),
+        _ => String::new(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct UpdateInputFieldContext {
     name: String,
     python_type: String,
+    /// Name of the operator `TypedDict` a numeric column also accepts, empty
+    /// for a column whose type cannot take arithmetic.
+    operator_type: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -440,9 +456,14 @@ fn build_scalar_fields(
         // the update input.
         let is_auto_pk = is_auto_generated(field) && scalar.is_pk;
         if !is_auto_pk {
+            let operator_type = match scalar.numeric_scalar() {
+                Some(_) => numeric_operator_type_name(&base_python_type),
+                None => String::new(),
+            };
             sets.update_input.push(UpdateInputFieldContext {
                 name: field.logical_name.clone(),
                 python_type: input_python_type,
+                operator_type,
             });
         }
 

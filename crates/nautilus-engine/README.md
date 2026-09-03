@@ -50,6 +50,9 @@ in the current directory.
   `RETURNING` looks for the key captured before it), and on a field whose type
   cannot take arithmetic. A field that holds structured JSON — `Json`, `Bytes`,
   a composite, any list — is never read this way: there the object is the value.
+  All four generated clients express them: JavaScript and Python pass the
+  operator object, Java gains a setter per operator (`viewsIncrement(5)`), and
+  Rust carries the operator in the update input's type.
 - `query.create` and `query.update` accept **nested writes**: a relation field in
   `data` carries an object of operations instead of a column value. The side of
   the relation that holds the foreign key takes `create`, `connect` and

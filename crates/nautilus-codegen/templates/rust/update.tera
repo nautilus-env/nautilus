@@ -44,17 +44,19 @@ where
     pub(crate) fn set_data(mut self, data: {{ model_name }}UpdateInput) -> Self {
 {%- for field in create_fields %}
         if let Some(outer) = data.{{ field.name }} {
-{%- if field.is_optional %}
-            let val = match outer {
+{%- if field.accepts_arithmetic %}
+            let assignment = outer.to_assignment("{{ field.db_name }}");
+{%- elif field.is_optional %}
+            let assignment = nautilus_core::Assignment::Value(match outer {
                 Some(v) => nautilus_core::Value::from(v),
                 None => nautilus_core::Value::Null,
-            };
+            });
 {%- else %}
-            let val = nautilus_core::Value::from(outer);
+            let assignment = nautilus_core::Assignment::Value(nautilus_core::Value::from(outer));
 {%- endif %}
             self.assignments.push((
                 nautilus_core::ColumnMarker::from_static("{{ table_name }}", "{{ field.db_name }}"),
-                nautilus_core::Assignment::Value(val),
+                assignment,
             ));
         }
 {%- endfor %}

@@ -13,7 +13,7 @@ pub use nautilus_connector::TransactionExecutor;
 pub(crate) const SCHEMA_SOURCE: &str = {{ schema_source_literal }};
 
 mod runtime;
-pub use runtime::{Client, EngineMode};
+pub use runtime::{Client, EngineMode, NumericUpdate};
 pub use runtime::nested::{ConnectOrCreate, NestedInput, NestedUpdate};
 pub mod events;
 pub use events::{

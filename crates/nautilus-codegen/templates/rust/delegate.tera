@@ -295,8 +295,14 @@ impl crate::runtime::nested::NestedInput for {{ model_name }}CreateInput {
 #[derive(Debug, Default, Clone)]
 pub struct {{ model_name }}UpdateInput {
 {%- for field in create_fields %}
+{%- if field.accepts_arithmetic %}
+    /// {{ field.name }} column: a value to write, or arithmetic the database
+    /// applies to the row's current one.
+    pub {{ field.name }}: Option<crate::NumericUpdate<{{ field.rust_type }}, {{ field.base_rust_type }}>>,
+{%- else %}
     /// {{ field.name }} column.
     pub {{ field.name }}: Option<{{ field.rust_type }}>,
+{%- endif %}
 {%- endfor %}
 {%- for nested in nested_writes %}
     /// Nested writes on the `{{ nested.field_name }}` relation.
@@ -323,7 +329,9 @@ impl {{ model_name }}UpdateInput {
         if let Some(value) = &self.{{ field.name }} {
             data.insert(
                 "{{ field.db_name }}".to_string(),
-{%- if field.is_optional %}
+{%- if field.accepts_arithmetic %}
+                value.to_engine_json(),
+{%- elif field.is_optional %}
                 match value {
                     Some(inner) => nautilus_core::Value::from(inner.clone()).to_json_plain(),
                     None => serde_json::Value::Null,

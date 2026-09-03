@@ -531,6 +531,24 @@ public final class {{ name }} {
         }
 
 {%- endif %}
+{%- if field.accepts_arithmetic %}
+{%- for operator in ["increment", "decrement", "multiply", "divide"] %}
+        /**
+         * Let the database {{ operator }} the current {{ field.name }} by {@code value}.
+         *
+         * <p>The arithmetic is applied to whatever the row holds when the
+         * statement runs, so two concurrent updates both land where a
+         * read-modify-write in the client would lose one.
+         */
+        public UpdateInput {{ field.name }}{{ operator | capitalize }}({{ field.java_type }} value) {
+            ObjectNode operation = JsonSupport.object();
+            operation.set("{{ operator }}", JsonSupport.toJsonNode(value));
+            this.node.set("{{ field.db_name }}", operation);
+            return this;
+        }
+
+{%- endfor %}
+{%- endif %}
 {%- endfor %}
 {%- for nested in nested_writes %}
         /** Nested writes on the {{ nested.wire_name }} relation. */

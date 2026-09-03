@@ -1,4 +1,36 @@
 {% if needs_typeddict %}
+class IntFieldUpdate(TypedDict, total=False):
+    """Atomic update operators for an integer column.
+
+    ``set`` writes the operand as given; the others let the database derive the
+    new value from the row's current one, so concurrent updates do not overwrite
+    each other. Name one operator at a time.
+    """
+    set: NotRequired[int]
+    increment: NotRequired[int]
+    decrement: NotRequired[int]
+    multiply: NotRequired[int]
+    divide: NotRequired[int]
+
+
+class FloatFieldUpdate(TypedDict, total=False):
+    """Atomic update operators for a float column. See :class:`IntFieldUpdate`."""
+    set: NotRequired[float]
+    increment: NotRequired[float]
+    decrement: NotRequired[float]
+    multiply: NotRequired[float]
+    divide: NotRequired[float]
+
+
+class DecimalFieldUpdate(TypedDict, total=False):
+    """Atomic update operators for a decimal column. See :class:`IntFieldUpdate`."""
+    set: NotRequired[Decimal]
+    increment: NotRequired[Decimal]
+    decrement: NotRequired[Decimal]
+    multiply: NotRequired[Decimal]
+    divide: NotRequired[Decimal]
+
+
 class StringFilter(TypedDict, total=False):
     """String field filter operations."""
     equals: NotRequired[str]
@@ -160,7 +192,11 @@ class {{ model_name }}CreateInput(TypedDict{% if create_input_fields %}, total=F
 class {{ model_name }}UpdateInput(TypedDict, total=False):
     """Input data for updating a {{ model_name }}."""
     {% for field in update_input_fields %}
+    {% if field.operator_type %}
+    {{ field.name }}: NotRequired[Union[{{ field.python_type }}, {{ field.operator_type }}]]
+    {% else %}
     {{ field.name }}: NotRequired[{{ field.python_type }}]
+    {% endif %}
     {% endfor %}
 
 

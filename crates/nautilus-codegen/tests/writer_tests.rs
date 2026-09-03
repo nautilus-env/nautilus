@@ -223,8 +223,8 @@ fn test_write_rust_code_lib_rs_contains_template_exports() {
         "lib.rs should re-export ConnectorPoolOptions for runtime tuning:\n{lib_content}"
     );
     assert!(
-        lib_content.contains("pub use runtime::{Client, EngineMode};"),
-        "lib.rs should re-export EngineMode alongside Client:\n{lib_content}"
+        lib_content.contains("pub use runtime::{Client, EngineMode, NumericUpdate};"),
+        "lib.rs should re-export EngineMode and NumericUpdate alongside Client:\n{lib_content}"
     );
     assert!(
         lib_content

@@ -97,6 +97,10 @@ struct FieldContext {
     is_updated_at: bool,
     /// `true` when the field is a `@computed` generated column (read-only from client side).
     is_computed: bool,
+    /// `true` when the column's type lets an update derive the new value from
+    /// the current one, which is what the `increment` / `decrement` /
+    /// `multiply` / `divide` operators need. Mirrors the engine's own rule.
+    accepts_arithmetic: bool,
     doc_comment: String,
 }
 
@@ -544,6 +548,7 @@ fn scalar_field_context(scalar: &FieldView<'_>, extensions: &ExtensionRegistry) 
         is_optional: !field.is_required && !field.is_array,
         is_updated_at: field.is_updated_at,
         is_computed: field.computed.is_some(),
+        accepts_arithmetic: !field.is_array && scalar.numeric_scalar().is_some(),
         doc_comment: scalar.doc_comment.clone(),
     }
 }
@@ -573,6 +578,7 @@ fn build_relation_fields(
                 is_optional: true,
                 is_updated_at: false,
                 is_computed: false,
+                accepts_arithmetic: false,
                 doc_comment: crate::schema_docs::field_modifier_doc(view.model, field),
             }
         })

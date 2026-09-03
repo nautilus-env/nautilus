@@ -136,7 +136,11 @@ export interface {{ model_name }}CreateInput {
 
 export interface {{ model_name }}UpdateInput {
 {%- for field in update_input_fields %}
+{%- if field.operator_ts_type %}
+  {{ field.name }}?: {{ field.ts_type }} | {{ field.operator_ts_type }};
+{%- else %}
   {{ field.name }}?: {{ field.ts_type }};
+{%- endif %}
 {%- endfor %}
 }
 

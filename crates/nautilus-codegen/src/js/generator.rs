@@ -121,6 +121,9 @@ struct JsCreateInputFieldContext {
 struct JsUpdateInputFieldContext {
     name: String,
     ts_type: String,
+    /// The `T | { increment: T, … }` union a numeric column accepts, empty for
+    /// a column whose type cannot take arithmetic.
+    operator_ts_type: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -364,9 +367,19 @@ fn build_scalar_fields(
                 ResolvedFieldType::Scalar(ScalarType::Int | ScalarType::BigInt)
             );
         if !is_auto_pk {
+            let operator_ts_type = scalar
+                .numeric_scalar()
+                .map(|scalar_type| {
+                    let operand = scalar_to_ts_type(scalar_type);
+                    format!(
+                        "{{ set?: {operand}; increment?: {operand}; decrement?: {operand};                          multiply?: {operand}; divide?: {operand} }}"
+                    )
+                })
+                .unwrap_or_default();
             sets.update_input.push(JsUpdateInputFieldContext {
                 name: field.logical_name.clone(),
                 ts_type: input_ts_type,
+                operator_ts_type,
             });
         }
 

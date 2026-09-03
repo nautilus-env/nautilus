@@ -20,6 +20,82 @@ use tokio::sync::OnceCell;
 
 static GENERATED_SCHEMA_IR: OnceLock<Arc<nautilus_schema::ir::SchemaIr>> = OnceLock::new();
 
+/// One field's value in an update, or arithmetic the database applies to it.
+///
+/// `Set` writes the operand as given. The other four leave the arithmetic to
+/// the database — `views = (views + $1)` — so the new value is derived from
+/// whatever the row holds when the statement runs and two concurrent updates
+/// both land, where a read-modify-write in the client would lose one.
+///
+/// `T` is the field's own type, so a nullable column can still be set to NULL;
+/// `N` is the operand the arithmetic takes, which is never null.
+#[derive(Debug, Clone, PartialEq)]
+pub enum NumericUpdate<T, N = T> {
+    /// Write this value.
+    Set(T),
+    /// Add to the row's current value.
+    Increment(N),
+    /// Subtract from the row's current value.
+    Decrement(N),
+    /// Multiply the row's current value.
+    Multiply(N),
+    /// Divide the row's current value.
+    Divide(N),
+}
+
+impl<T, N> From<T> for NumericUpdate<T, N> {
+    fn from(value: T) -> Self {
+        Self::Set(value)
+    }
+}
+
+impl<T, N> NumericUpdate<T, N>
+where
+    T: Clone + Into<nautilus_core::Value>,
+    N: Clone + Into<nautilus_core::Value>,
+{
+    /// The operator name the engine matches, and its operand.
+    fn parts(&self) -> (&'static str, nautilus_core::Value) {
+        match self {
+            Self::Set(value) => ("set", value.clone().into()),
+            Self::Increment(value) => ("increment", value.clone().into()),
+            Self::Decrement(value) => ("decrement", value.clone().into()),
+            Self::Multiply(value) => ("multiply", value.clone().into()),
+            Self::Divide(value) => ("divide", value.clone().into()),
+        }
+    }
+
+    /// The JSON the engine reads: a bare value for `Set`, an operator object
+    /// otherwise.
+    pub fn to_engine_json(&self) -> JsonValue {
+        let (operator, operand) = self.parts();
+        if operator == "set" {
+            return operand.to_json_plain();
+        }
+        let mut object = serde_json::Map::with_capacity(1);
+        object.insert(operator.to_string(), operand.to_json_plain());
+        JsonValue::Object(object)
+    }
+
+    /// The same operation as a `SET` right-hand side, for the direct-connector
+    /// path that builds its own statement instead of calling the engine.
+    pub fn to_assignment(&self, column: &str) -> nautilus_core::Assignment {
+        let (operator, operand) = self.parts();
+        let op = match operator {
+            "increment" => nautilus_core::BinaryOp::Add,
+            "decrement" => nautilus_core::BinaryOp::Sub,
+            "multiply" => nautilus_core::BinaryOp::Mul,
+            "divide" => nautilus_core::BinaryOp::Div,
+            _ => return nautilus_core::Assignment::Value(operand),
+        };
+        nautilus_core::Assignment::Expr(nautilus_core::Expr::Binary {
+            left: Box::new(nautilus_core::Expr::column(column)),
+            op,
+            right: Box::new(nautilus_core::Expr::param(operand)),
+        })
+    }
+}
+
 /// Controls when the generated Rust client routes queries through the embedded engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineMode {

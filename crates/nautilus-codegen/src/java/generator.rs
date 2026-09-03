@@ -300,6 +300,11 @@ struct DslWritableFieldCtx {
     java_type: String,
     /// Raw compatibility type when `java_type` is a generated extension wrapper.
     raw_java_type: String,
+    /// PascalCase form of `name`, used to build the operator method names.
+    method_suffix: String,
+    /// `true` when the column's type lets an update derive the new value from
+    /// the current one. Mirrors the engine's own rule.
+    accepts_arithmetic: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -1050,6 +1055,8 @@ fn generate_dsl_file(
                 db_name: field.db_name.clone(),
                 java_type: ty,
                 raw_java_type: raw_java_type.clone(),
+                method_suffix: field.logical_name.to_upper_camel_case(),
+                accepts_arithmetic: false,
             });
         }
 
@@ -1060,6 +1067,8 @@ fn generate_dsl_file(
                 db_name: field.db_name.clone(),
                 java_type: ty,
                 raw_java_type: raw_java_type.clone(),
+                method_suffix: field.logical_name.to_upper_camel_case(),
+                accepts_arithmetic: !field.is_array && scalar.numeric_scalar().is_some(),
             });
         }
     }
