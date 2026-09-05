@@ -318,7 +318,7 @@ Migration directories are sorted lexicographically — the timestamp prefix guar
 
 ### Migration tracking
 
-When a migration is applied, `MigrationExecutor` wraps all its statements in a **single transaction** and records the result in the `_nautilus_migrations` tracking table:
+When a migration is applied, `MigrationExecutor` runs its statements in order, grouping them into as few transactions as the provider allows, and records the result in the `_nautilus_migrations` tracking table once every statement succeeded:
 
 ```sql
 CREATE TABLE IF NOT EXISTS _nautilus_migrations (
@@ -329,6 +329,14 @@ CREATE TABLE IF NOT EXISTS _nautilus_migrations (
   execution_time_ms BIGINT NOT NULL
 );
 ```
+
+A migration is **not** one atomic unit. `ALTER TYPE ... ADD VALUE` cannot run inside a
+transaction block on PostgreSQL, and MySQL commits implicitly before and after most DDL, so
+a statement that fails rolls back at most the phase it belongs to. When that happens the
+migration is left unrecorded while its committed statements stay in the database, and
+`apply_migration` returns `MigrationError::PartiallyApplied` naming the failing statement and
+how many statements are durable. `apply_migration_reporting` returns the same run as an
+`ApplyOutcome` for callers that want the counts rather than an error.
 
 After applying the example migration above the table contains:
 

@@ -1,4 +1,5 @@
 use crate::applier::DiffApplier;
+use crate::apply::{plan_apply_phases, ApplyFailure, ApplyOutcome, ApplyPhase};
 use crate::ddl::{DatabaseProvider, DdlGenerator};
 use crate::diff::{order_changes_for_apply, Change};
 use crate::error::{MigrationError, Result};
@@ -81,7 +82,36 @@ impl MigrationExecutor {
     }
 
     /// Apply a migration (run "up" direction).
+    ///
+    /// A failure part-way through leaves the earlier phases committed, so the
+    /// error is [`MigrationError::PartiallyApplied`] rather than a plain
+    /// database error. Use [`Self::apply_migration_reporting`] to inspect the
+    /// same run as an [`ApplyOutcome`].
     pub async fn apply_migration(&self, migration: &Migration) -> Result<()> {
+        let outcome = self.apply_migration_reporting(migration).await?;
+        match outcome.failure {
+            None => Ok(()),
+            Some(failure) => Err(MigrationError::PartiallyApplied {
+                name: migration.name.clone(),
+                statement: failure.statement,
+                message: failure.message,
+                committed: outcome.committed,
+                total: migration.up_sql.len(),
+            }),
+        }
+    }
+
+    /// Apply a migration and report what the database kept.
+    ///
+    /// The statements run in the order the migration lists them, grouped into
+    /// as few transactions as the provider allows: a statement that cannot run
+    /// inside a transaction block commits on its own, and on MySQL DDL commits
+    /// implicitly whatever the transaction says. The migration is recorded only
+    /// once every statement succeeded, so a stopped run stays unrecorded while
+    /// its committed statements remain in the database.
+    ///
+    /// `Err` is reserved for the checks that run before any statement does.
+    pub async fn apply_migration_reporting(&self, migration: &Migration) -> Result<ApplyOutcome> {
         if self.tracker.is_applied(&migration.name).await? {
             return Err(MigrationError::AlreadyApplied(migration.name.clone()));
         }
@@ -93,39 +123,25 @@ impl MigrationExecutor {
         }
 
         let start = Instant::now();
-
-        let (standalone, transactional): (Vec<&String>, Vec<&String>) = migration
-            .up_sql
-            .iter()
-            .partition(|sql| crate::utils::requires_own_transaction(sql));
-
-        for sql in standalone {
-            self.execute_sql(sql).await?;
-        }
-
-        let mut tx =
-            self.pool.begin().await.map_err(|e| {
-                MigrationError::Database(format!("Failed to begin transaction: {}", e))
-            })?;
-
-        for sql in transactional {
-            self.execute_sql_in_tx(&mut tx, sql).await?;
+        let outcome = self.run_phases(&migration.up_sql).await?;
+        if !outcome.succeeded() {
+            return Ok(outcome);
         }
 
         let execution_time = start.elapsed().as_millis() as i64;
-
+        let mut tx = self.begin().await?;
         self.tracker
             .record_migration_in_tx(&mut tx, migration, execution_time)
             .await?;
+        commit(tx).await?;
 
-        tx.commit().await.map_err(|e| {
-            MigrationError::Database(format!("Failed to commit transaction: {}", e))
-        })?;
-
-        Ok(())
+        Ok(outcome)
     }
 
-    /// Rollback a migration (run "down" direction)
+    /// Rollback a migration (run "down" direction).
+    ///
+    /// Down statements are phased like up statements, so a failure part-way
+    /// leaves the earlier phases committed and the migration still recorded.
     pub async fn rollback_migration(&self, migration: &Migration) -> Result<()> {
         if !self.tracker.is_applied(&migration.name).await? {
             return Err(MigrationError::NotFound(format!(
@@ -134,24 +150,79 @@ impl MigrationExecutor {
             )));
         }
 
-        let mut tx =
-            self.pool.begin().await.map_err(|e| {
-                MigrationError::Database(format!("Failed to begin transaction: {}", e))
-            })?;
-
-        for sql in &migration.down_sql {
-            self.execute_sql_in_tx(&mut tx, sql).await?;
+        let outcome = self.run_phases(&migration.down_sql).await?;
+        if let Some(failure) = outcome.failure {
+            return Err(MigrationError::PartiallyApplied {
+                name: migration.name.clone(),
+                statement: failure.statement,
+                message: failure.message,
+                committed: outcome.committed,
+                total: migration.down_sql.len(),
+            });
         }
 
+        let mut tx = self.begin().await?;
         self.tracker
             .remove_migration_in_tx(&mut tx, &migration.name)
             .await?;
-
-        tx.commit().await.map_err(|e| {
-            MigrationError::Database(format!("Failed to commit transaction: {}", e))
-        })?;
+        commit(tx).await?;
 
         Ok(())
+    }
+
+    /// Run `statements` phase by phase, stopping at the first failure.
+    async fn run_phases(&self, statements: &[String]) -> Result<ApplyOutcome> {
+        let provider = self.generator.provider();
+        let total = statements.len();
+        let mut committed = 0;
+
+        for phase in plan_apply_phases(statements) {
+            match phase {
+                ApplyPhase::Standalone(sql) => {
+                    if let Err(e) = self.execute_sql(&sql).await {
+                        return Ok(ApplyOutcome::stopped(
+                            total,
+                            committed,
+                            0,
+                            provider,
+                            ApplyFailure {
+                                statement: sql,
+                                message: e.to_string(),
+                            },
+                        ));
+                    }
+                    committed += 1;
+                }
+                ApplyPhase::Transaction(stmts) => {
+                    let mut tx = self.begin().await?;
+                    for (attempted, sql) in stmts.iter().enumerate() {
+                        if let Err(e) = self.execute_sql_in_tx(&mut tx, sql).await {
+                            return Ok(ApplyOutcome::stopped(
+                                total,
+                                committed,
+                                attempted,
+                                provider,
+                                ApplyFailure {
+                                    statement: sql.clone(),
+                                    message: e.to_string(),
+                                },
+                            ));
+                        }
+                    }
+                    commit(tx).await?;
+                    committed += stmts.len();
+                }
+            }
+        }
+
+        Ok(ApplyOutcome::committed_all(total))
+    }
+
+    async fn begin(&self) -> Result<sqlx::Transaction<'_, sqlx::Any>> {
+        self.pool
+            .begin()
+            .await
+            .map_err(|e| MigrationError::Database(format!("Failed to begin transaction: {}", e)))
     }
 
     /// Apply all pending migrations
@@ -209,6 +280,13 @@ impl MigrationExecutor {
             .await?;
         Ok(())
     }
+}
+
+/// Commit `tx`, turning a driver failure into a [`MigrationError`].
+async fn commit(tx: sqlx::Transaction<'_, sqlx::Any>) -> Result<()> {
+    tx.commit()
+        .await
+        .map_err(|e| MigrationError::Database(format!("Failed to commit transaction: {}", e)))
 }
 
 /// Whether a statement is nothing but SQL comments or whitespace.

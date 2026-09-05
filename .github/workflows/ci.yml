@@ -328,3 +328,12 @@ jobs:
         run: |
           cargo test --locked -p nautilus-orm-connector --lib --test transaction_mysql -- --ignored --test-threads=1
           cargo test --locked -p nautilus-orm-engine --test mysql_transaction_tests -- --ignored --test-threads=1
+
+      # A migration that stops part-way must be reported as such; each provider
+      # reaches that state differently.
+      - name: Run migration apply-phase tests
+        env:
+          NAUTILUS_REQUIRE_E2E: '1'
+          NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
+          NAUTILUS_TEST_MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
+        run: cargo test --locked -p nautilus-orm-migrate --test apply_phases_e2e -- --ignored --test-threads=1 --nocapture

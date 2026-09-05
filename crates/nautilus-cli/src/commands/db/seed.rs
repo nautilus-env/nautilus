@@ -7,9 +7,10 @@ use crate::tui;
 
 /// Execute `nautilus db seed <file>` — run a SQL seed script against the database.
 ///
-/// The file is executed as a raw SQL script inside a single transaction
-/// (all-or-nothing), so statement boundaries are determined by the database
-/// parser rather than by client-side string splitting.
+/// The file is executed as a raw SQL script inside a single transaction, so
+/// statement boundaries are determined by the database parser rather than by
+/// client-side string splitting. That makes a seed of pure DML all-or-nothing;
+/// DDL in a MySQL seed still commits implicitly and survives a later failure.
 pub async fn run(file: String, db_url_arg: Option<String>) -> anyhow::Result<()> {
     tui::print_header("db seed");
 

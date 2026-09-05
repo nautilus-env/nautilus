@@ -52,6 +52,24 @@ pub enum MigrationError {
     /// A change cannot be applied with the current provider/schema combination.
     #[error("Unsupported change: {0}")]
     UnsupportedChange(String),
+
+    /// A migration stopped part-way and the database kept some of its
+    /// statements, so it is neither the old schema nor the new one.
+    #[error(
+        "Migration '{name}' stopped on `{statement}`: {message}.          {committed} of {total} statement(s) are committed and were not rolled back,          and the migration is not recorded; reconcile the database before retrying"
+    )]
+    PartiallyApplied {
+        /// Migration that stopped.
+        name: String,
+        /// Statement the database rejected.
+        statement: String,
+        /// Error the database reported.
+        message: String,
+        /// Statements whose effect the database kept.
+        committed: usize,
+        /// Statements the migration carries.
+        total: usize,
+    },
 }
 
 impl From<sqlx::Error> for MigrationError {

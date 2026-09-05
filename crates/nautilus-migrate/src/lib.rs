@@ -12,6 +12,7 @@
 #![warn(missing_docs)]
 
 mod applier;
+mod apply;
 mod ddl;
 mod error;
 mod executor;
@@ -27,6 +28,7 @@ pub mod inspector;
 pub mod live;
 
 pub use applier::DiffApplier;
+pub use apply::{plan_apply_phases, ApplyFailure, ApplyOutcome, ApplyPhase, GroupStatus};
 pub use ddl::{DatabaseProvider, DdlGenerator};
 pub use diff::{
     change_risk, order_changes_for_apply, Change, ChangeDescription, ChangeRisk, SchemaDiff,

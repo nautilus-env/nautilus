@@ -84,6 +84,15 @@ impl DatabaseProvider {
         nautilus_core::ident::quote_ident(name, self.identifier_quote())
     }
 
+    /// Whether a rollback undoes the DDL a transaction has already run.
+    ///
+    /// PostgreSQL and SQLite keep DDL transactional. MySQL commits implicitly
+    /// before and after most DDL, so a statement that succeeded there stays in
+    /// place even when a later one in the same transaction fails.
+    pub fn ddl_rolls_back(self) -> bool {
+        !matches!(self, Self::Mysql)
+    }
+
     /// Render the positional bind placeholder for the 1-based argument `index`
     /// in this provider's dialect.
     pub fn placeholder(self, index: usize) -> String {

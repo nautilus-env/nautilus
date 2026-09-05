@@ -2,8 +2,8 @@
 
 use anyhow::{bail, Context};
 use nautilus_migrate::{
-    order_changes_for_apply, Change, ChangeRisk, DatabaseProvider, DiffApplier, LiveSchema,
-    SchemaInspector,
+    order_changes_for_apply, plan_apply_phases, ApplyFailure, ApplyOutcome, ApplyPhase, Change,
+    ChangeRisk, DatabaseProvider, DiffApplier, GroupStatus, LiveSchema, SchemaInspector,
 };
 use nautilus_schema::{discover_schema_paths_in_current_dir, ir::SchemaIr, SchemaSet};
 use std::path::{Path, PathBuf};
@@ -93,6 +93,16 @@ pub fn resolve_db_url(db_url_arg: Option<String>, schema_ir: &SchemaIr) -> anyho
     )
 }
 
+/// How far one transaction phase got before it stopped.
+struct PhaseFailure {
+    /// Statements of the phase that had already run.
+    attempted: usize,
+    /// The statement blamed for the failure.
+    statement: String,
+    /// The error as the database or driver reported it.
+    message: String,
+}
+
 /// Tri-variant connection wrapper around sqlx pool types.
 ///
 /// Each `nautilus db` subcommand resolves a database URL and uses this enum to
@@ -152,7 +162,10 @@ impl Connection {
 
     /// Execute multiple SQL statements inside a single transaction.
     ///
-    /// On any error the transaction is rolled back and the error is returned.
+    /// On any error the transaction is rolled back and the error is returned —
+    /// as far as the provider allows, since MySQL commits implicitly around most
+    /// DDL. Batches of generated DDL go through [`Self::apply_statements`],
+    /// which phases them and reports what survived.
     pub async fn execute_in_transaction(&self, stmts: &[String]) -> anyhow::Result<()> {
         with_pool!(self, pool => {
             let mut tx = pool.begin().await.context("begin transaction")?;
@@ -183,6 +196,88 @@ impl Connection {
             }
         });
         Ok(())
+    }
+
+    /// Execute `stmts` in a single transaction, reporting how far it got.
+    ///
+    /// The index tells the caller how many statements had already run when the
+    /// transaction stopped, which is what decides whether their effect is still
+    /// in the database.
+    async fn execute_transaction_phase(&self, stmts: &[String]) -> Result<(), PhaseFailure> {
+        with_pool!(self, pool => {
+            let mut tx = pool.begin().await.map_err(|e| PhaseFailure {
+                attempted: 0,
+                statement: stmts.first().cloned().unwrap_or_default(),
+                message: format!("begin transaction: {e}"),
+            })?;
+            for (index, sql) in stmts.iter().enumerate() {
+                sqlx::query(sql)
+                    .persistent(false)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| PhaseFailure {
+                        attempted: index,
+                        statement: sql.clone(),
+                        message: e.to_string(),
+                    })?;
+            }
+            tx.commit().await.map_err(|e| PhaseFailure {
+                attempted: stmts.len(),
+                statement: stmts.last().cloned().unwrap_or_default(),
+                message: format!("commit transaction: {e}"),
+            })?;
+        });
+        Ok(())
+    }
+
+    /// Run `statements` in the order given, opening a transaction around each
+    /// run of statements that can share one.
+    ///
+    /// A statement listed by [`nautilus_migrate::requires_own_transaction`]
+    /// commits on its own and splits the run it sits in, rather than being
+    /// hoisted ahead of the statements it depends on. On MySQL most DDL commits
+    /// implicitly, so a phase there is a transaction in name only; the returned
+    /// [`ApplyOutcome`] accounts for both.
+    pub async fn apply_statements(
+        &self,
+        statements: &[String],
+        provider: DatabaseProvider,
+    ) -> ApplyOutcome {
+        let total = statements.len();
+        let mut committed = 0;
+
+        for phase in plan_apply_phases(statements) {
+            let failure = match &phase {
+                ApplyPhase::Standalone(sql) => self
+                    .execute_each(std::slice::from_ref(sql))
+                    .await
+                    .err()
+                    .map(|e| PhaseFailure {
+                        attempted: 0,
+                        statement: sql.clone(),
+                        message: format!("{e:#}"),
+                    }),
+                ApplyPhase::Transaction(stmts) => self.execute_transaction_phase(stmts).await.err(),
+            };
+
+            match failure {
+                None => committed += phase.len(),
+                Some(failure) => {
+                    return ApplyOutcome::stopped(
+                        total,
+                        committed,
+                        failure.attempted,
+                        provider,
+                        ApplyFailure {
+                            statement: failure.statement,
+                            message: failure.message,
+                        },
+                    )
+                }
+            }
+        }
+
+        ApplyOutcome::committed_all(total)
     }
 
     /// Execute a raw SQL script inside a single transaction.
@@ -369,18 +464,31 @@ pub fn change_display_name(change: &Change) -> String {
     }
 }
 
-/// Apply a list of classified changes through the given [`DiffApplier`],
-/// executing **all** generated SQL inside a single transaction so that a
-/// failure causes a full rollback with no partial state left in the database.
+/// What applying a set of changes left in the database.
+pub struct AppliedChanges {
+    /// Changes whose statements are all committed.
+    pub applied: usize,
+    /// Changes that did not survive: rolled back, stopped on, or never reached.
+    pub failed: usize,
+    /// Whether the database kept part of a batch that then failed, so it
+    /// matches neither the previous schema nor the requested one.
+    pub partial: bool,
+}
+
+/// Apply a list of classified changes through the given [`DiffApplier`].
 ///
-/// Returns `(ok, failed)` counts where `ok` is the number of changes applied
-/// and `failed` is 0 on success or the total number of changes on failure.
+/// The generated SQL runs in dependency order, in as few transactions as the
+/// provider allows. It is **not** one atomic unit: `ALTER TYPE ... ADD VALUE`
+/// has to commit on its own, and MySQL commits implicitly around most DDL. A
+/// failure therefore rolls back at most the phase it happened in, and the
+/// report says which changes the database kept.
 pub async fn apply_changes(
     classified: &[(Change, ChangeRisk)],
     applier: &DiffApplier<'_>,
     live: &LiveSchema,
     conn: &Connection,
-) -> anyhow::Result<(usize, usize)> {
+    provider: DatabaseProvider,
+) -> anyhow::Result<AppliedChanges> {
     let ordered_changes = order_changes_for_apply(
         &classified
             .iter()
@@ -397,39 +505,76 @@ pub async fn apply_changes(
         change_stmts.push((label, stmts));
     }
 
-    let (standalone_stmts, all_stmts): (Vec<String>, Vec<String>) = change_stmts
+    let all_stmts: Vec<String> = change_stmts
         .iter()
         .flat_map(|(_, stmts)| stmts.iter().cloned())
-        .partition(|sql| nautilus_migrate::requires_own_transaction(sql));
+        .collect();
+    let group_sizes: Vec<usize> = change_stmts.iter().map(|(_, s)| s.len()).collect();
 
     let sp = tui::spinner("Applying…");
-    if let Err(e) = conn.execute_each(&standalone_stmts).await {
-        tui::spinner_err(sp, "Failed before the transaction");
-        for sql in &standalone_stmts {
-            eprintln!("  [sql] {}", sql);
+    let outcome = conn.apply_statements(&all_stmts, provider).await;
+    let statuses = outcome.classify_groups(&group_sizes);
+
+    let Some(failure) = &outcome.failure else {
+        tui::spinner_ok(sp, "All changes committed");
+        for (label, _) in &change_stmts {
+            tui::print_ok(label);
         }
-        tui::print_table_err("Statement", &format!("{:#}", e));
-        return Ok((0, change_stmts.len()));
-    }
-    match conn.execute_in_transaction(&all_stmts).await {
-        Ok(()) => {
-            tui::spinner_ok(sp, "Transaction committed");
-            for (label, _) in &change_stmts {
+        return Ok(AppliedChanges {
+            applied: change_stmts.len(),
+            failed: 0,
+            partial: false,
+        });
+    };
+
+    tui::spinner_err(sp, phase_summary(&outcome));
+
+    let mut applied = 0;
+    for ((label, stmts), status) in change_stmts.iter().zip(&statuses) {
+        match status {
+            GroupStatus::Applied => {
+                applied += 1;
                 tui::print_ok(label);
             }
-            Ok((change_stmts.len(), 0))
-        }
-        Err(e) => {
-            tui::spinner_err(sp, "Transaction failed — rolled back");
-            for (label, stmts) in &change_stmts {
-                tui::print_err_line(label);
+            GroupStatus::RolledBack => tui::print_err_line(&format!("{label} (rolled back)")),
+            GroupStatus::NotAttempted => tui::print_err_line(&format!("{label} (not attempted)")),
+            GroupStatus::Failed { committed } => {
+                tui::print_err_line(&format!("{label} ({})", failed_change_note(*committed)));
                 for sql in stmts {
-                    eprintln!("  [sql] {}", sql);
+                    if *sql == failure.statement {
+                        eprintln!("  [sql] {}   <- stopped here", sql);
+                    } else {
+                        eprintln!("  [sql] {}", sql);
+                    }
                 }
             }
-            tui::print_table_err("Transaction", &format!("{:#}", e));
-            Ok((0, change_stmts.len()))
         }
+    }
+
+    tui::print_table_err("Statement", &failure.message);
+
+    Ok(AppliedChanges {
+        applied,
+        failed: change_stmts.len() - applied,
+        partial: outcome.left_partial_state(),
+    })
+}
+
+/// One line describing how much of the batch the database kept.
+fn phase_summary(outcome: &nautilus_migrate::ApplyOutcome) -> &'static str {
+    if outcome.left_partial_state() {
+        "Stopped part-way — earlier statements are committed"
+    } else {
+        "Stopped — the failed transaction rolled back"
+    }
+}
+
+/// How to describe the change the apply stopped on.
+fn failed_change_note(committed: usize) -> String {
+    if committed == 0 {
+        "failed".to_string()
+    } else {
+        format!("failed after {committed} committed statement(s)")
     }
 }
 

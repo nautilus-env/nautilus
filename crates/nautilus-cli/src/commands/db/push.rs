@@ -91,9 +91,10 @@ pub async fn run(
     let generator = DdlGenerator::new(ctx.provider);
     let applier = DiffApplier::new(ctx.provider, &generator, &ctx.schema_ir, &live);
 
-    let (ok, failed) = apply_changes(&classified, &applier, &live, &ctx.conn).await?;
+    let result = apply_changes(&classified, &applier, &live, &ctx.conn, ctx.provider).await?;
 
     let elapsed = start.elapsed();
+    let (ok, failed) = (result.applied, result.failed);
 
     if failed == 0 {
         tui::print_summary_ok(
@@ -108,13 +109,20 @@ pub async fn run(
         .await
     } else {
         tui::print_summary_err(
-            "Completed with errors",
+            if result.partial {
+                "Stopped with the schema part-way"
+            } else {
+                "Completed with errors"
+            },
             &format!(
-                "{ok} ok, {failed} failed  {:.0}ms",
+                "{ok} applied, {failed} not applied  {:.0}ms",
                 elapsed.as_secs_f64() * 1000.0,
             ),
         );
-        bail!("{failed} statement(s) failed");
+        if result.partial {
+            bail!("{failed} change(s) not applied; {ok} already committed and not rolled back");
+        }
+        bail!("{failed} change(s) not applied");
     }
 }
 
