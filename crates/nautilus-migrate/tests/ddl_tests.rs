@@ -1025,3 +1025,45 @@ model Event {
     );
     assert!(!sql.contains("\"first\".\"last\""), "{sql}");
 }
+
+#[test]
+fn required_computed_column_is_not_null_on_every_provider() {
+    let ir = common::parse(
+        r#"model Item {
+  id       Int            @id
+  price    Decimal(10, 2)
+  quantity Int
+  total    Decimal(12, 2) @computed(price * quantity, Stored)
+  discount Decimal(12, 2)? @computed(price - quantity, Stored)
+}"#,
+    )
+    .unwrap();
+
+    for provider in [
+        DatabaseProvider::Postgres,
+        DatabaseProvider::Mysql,
+        DatabaseProvider::Sqlite,
+    ] {
+        let sql = DdlGenerator::new(provider)
+            .generate_create_tables(&ir)
+            .unwrap()
+            .join("\n");
+        let total = sql
+            .lines()
+            .find(|line| line.contains("total"))
+            .unwrap_or_else(|| panic!("no total column for {provider:?}: {sql}"));
+        let discount = sql
+            .lines()
+            .find(|line| line.contains("discount"))
+            .unwrap_or_else(|| panic!("no discount column for {provider:?}: {sql}"));
+
+        assert!(
+            total.contains("NOT NULL"),
+            "a required computed column must be NOT NULL on {provider:?}: {total}"
+        );
+        assert!(
+            !discount.contains("NOT NULL"),
+            "an optional computed column must stay nullable on {provider:?}: {discount}"
+        );
+    }
+}

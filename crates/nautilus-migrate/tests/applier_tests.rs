@@ -631,3 +631,95 @@ fn mysql_column_rewrites_keep_auto_increment_on_the_key() {
         "expected the rewritten column to keep AUTO_INCREMENT: {stmts:?}"
     );
 }
+
+#[test]
+fn sqlite_rebuild_does_not_insert_into_a_generated_column() {
+    let ir = common::parse(
+        r#"model Item {
+  id       Int            @id
+  price    Decimal(10, 2)
+  quantity Int
+  total    Decimal(12, 2) @computed(price * quantity, Stored)
+}"#,
+    )
+    .unwrap();
+    let live = common::make_live_schema(vec![LiveTable {
+        name: TableName::new("Item".to_string()),
+        columns: vec![
+            LiveColumn {
+                name: "id".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+                self_updating: false,
+            },
+            LiveColumn {
+                name: "price".to_string(),
+                col_type: "text".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+                self_updating: false,
+            },
+            LiveColumn {
+                name: "quantity".to_string(),
+                col_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                generated_expr: None,
+                computed_kind: None,
+                check_expr: None,
+                auto_increment: false,
+                self_updating: false,
+            },
+            LiveColumn {
+                name: "total".to_string(),
+                col_type: "decimal(12, 2)".to_string(),
+                nullable: true,
+                default_value: None,
+                generated_expr: Some("price * quantity".to_string()),
+                computed_kind: Some(nautilus_migrate::live::ComputedKind::Stored),
+                check_expr: None,
+                auto_increment: false,
+                self_updating: false,
+            },
+        ],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let ddl = DdlGenerator::new(DatabaseProvider::Sqlite);
+    let applier = DiffApplier::new(DatabaseProvider::Sqlite, &ddl, &ir, &live);
+
+    let stmts = applier
+        .sql_for(&Change::NullabilityChanged {
+            table: TableName::new("Item".to_string()),
+            column: "total".to_string(),
+            now_required: true,
+        })
+        .unwrap();
+
+    let insert = stmts
+        .iter()
+        .find(|s| s.starts_with("INSERT INTO"))
+        .unwrap_or_else(|| panic!("the rebuild must copy the rows: {stmts:?}"));
+    assert!(
+        !insert.contains("\"total\""),
+        "SQLite refuses an INSERT naming a generated column: {insert}"
+    );
+    for column in ["\"id\"", "\"price\"", "\"quantity\""] {
+        assert!(
+            insert.contains(column),
+            "the rebuild must still copy {column}: {insert}"
+        );
+    }
+}

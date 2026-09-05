@@ -877,10 +877,14 @@ impl<'a> DiffApplier<'a> {
         tmp_model.db_name = tmp_name.clone();
         let create_tmp = self.ddl.generate_create_table(&tmp_model, self.schema)?;
 
+        // SQLite refuses an INSERT that names a generated column, so the copy
+        // lists only the columns the rebuilt table lets it write; the database
+        // recomputes the rest.
         let target_cols: HashSet<&str> = model
             .fields
             .iter()
             .filter(|f| !matches!(f.field_type, ResolvedFieldType::Relation(_)))
+            .filter(|f| f.computed.is_none())
             .map(|f| f.db_name.as_str())
             .collect();
 

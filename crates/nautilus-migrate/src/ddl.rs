@@ -757,6 +757,12 @@ impl DdlGenerator {
                     format!("{} {} AS ({}) {}", col_name, col_type, expr, kind_str)
                 }
             };
+            // A required computed field still needs the constraint: without it
+            // the column is nullable in the database while the schema says it
+            // is not, and every later diff proposes the same nullability change.
+            if field.is_required {
+                return Ok(Some(format!("{} NOT NULL", sql)));
+            }
             return Ok(Some(sql));
         }
 
