@@ -1749,6 +1749,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sonic-rs",
+ "sqlx",
  "tempfile",
  "tokio",
  "tracing",

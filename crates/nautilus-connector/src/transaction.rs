@@ -15,6 +15,9 @@
 //! whichever backend's transaction is live, while presenting a uniform public
 //! API to all callers.
 
+mod mysql;
+
+use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,6 +31,7 @@ use crate::error::{ConnectorError as Error, Result};
 use crate::row_stream::RowStream;
 use crate::single_row::{fetch_single_row, SingleRowExpectation};
 use crate::{Executor, Row};
+use mysql::MysqlTransaction;
 
 /// Options for starting a transaction.
 #[derive(Debug, Clone)]
@@ -49,8 +53,7 @@ impl Default for TransactionOptions {
 
 /// Transaction isolation level.
 ///
-/// Re-exported from `nautilus-protocol` for convenience; the connector uses
-/// the same enum so callers don't need to depend on the protocol crate.
+/// Independent of the wire protocol; adapters convert levels at the boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IsolationLevel {
     /// Read uncommitted — allows dirty reads.
@@ -81,11 +84,11 @@ impl IsolationLevel {
 /// outer [`TransactionExecutor`] type.
 enum TransactionInner {
     Postgres(Arc<Mutex<Option<sqlx::Transaction<'static, sqlx::Postgres>>>>),
-    Mysql(Arc<Mutex<Option<sqlx::Transaction<'static, sqlx::MySql>>>>),
+    Mysql(TxHandle<MysqlTransaction>),
     Sqlite(Arc<Mutex<Option<sqlx::Transaction<'static, sqlx::Sqlite>>>>),
 }
 
-type TxHandle<DB> = Arc<Mutex<Option<sqlx::Transaction<'static, DB>>>>;
+type TxHandle<T> = Arc<Mutex<Option<T>>>;
 
 /// An executor that runs queries inside a live database transaction.
 ///
@@ -94,7 +97,7 @@ type TxHandle<DB> = Arc<Mutex<Option<sqlx::Transaction<'static, DB>>>>;
 /// trio.  Internally it holds a [`TransactionInner`] enum; callers see one
 /// consistent API regardless of the backend in use.
 ///
-/// The underlying sqlx transaction is stored behind an
+/// The underlying transaction is stored behind an
 /// `Arc<Mutex<Option<…>>>` so the executor can be shared cheaply through
 /// [`crate::client::Client`]'s `Arc<E>` wrapping.
 ///
@@ -126,8 +129,22 @@ impl TransactionExecutor {
     /// Wrap an already-begun MySQL transaction.
     pub fn mysql(tx: sqlx::Transaction<'static, sqlx::MySql>) -> Self {
         Self {
-            inner: TransactionInner::Mysql(Arc::new(Mutex::new(Some(tx)))),
+            inner: TransactionInner::Mysql(Arc::new(Mutex::new(Some(MysqlTransaction::Sqlx(tx))))),
         }
+    }
+
+    /// Begin a MySQL transaction with an optional override for this transaction only.
+    ///
+    /// Isolation is set before BEGIN on the same connection. Errors or cancellation
+    /// during preparation discard that connection; completed transactions reuse it.
+    pub async fn begin_mysql(
+        pool: &sqlx::MySqlPool,
+        isolation_level: Option<IsolationLevel>,
+    ) -> Result<Self> {
+        let tx = MysqlTransaction::begin(pool, isolation_level).await?;
+        Ok(Self {
+            inner: TransactionInner::Mysql(Arc::new(Mutex::new(Some(tx)))),
+        })
     }
 
     /// Wrap an already-begun SQLite transaction.
@@ -137,10 +154,7 @@ impl TransactionExecutor {
         }
     }
 
-    async fn take_transaction<DB>(tx_arc: &TxHandle<DB>) -> Result<sqlx::Transaction<'static, DB>>
-    where
-        DB: sqlx::Database,
-    {
+    async fn take_transaction<T>(tx_arc: &TxHandle<T>) -> Result<T> {
         tx_arc
             .lock()
             .await
@@ -148,10 +162,7 @@ impl TransactionExecutor {
             .ok_or_else(|| Error::database_msg("Transaction already closed"))
     }
 
-    async fn transaction_is_open<DB>(tx_arc: &TxHandle<DB>) -> bool
-    where
-        DB: sqlx::Database,
-    {
+    async fn transaction_is_open<T>(tx_arc: &TxHandle<T>) -> bool {
         tx_arc.lock().await.is_some()
     }
 
@@ -177,8 +188,8 @@ impl TransactionExecutor {
         Ok(query)
     }
 
-    fn execute_affected_on<DB, Bind, RowsAffected>(
-        tx_arc: TxHandle<DB>,
+    fn execute_affected_on<DB, Tx, Bind, RowsAffected>(
+        tx_arc: TxHandle<Tx>,
         sql_text: String,
         params: Vec<Value>,
         persistent: bool,
@@ -186,6 +197,7 @@ impl TransactionExecutor {
         rows_affected: RowsAffected,
     ) -> BoxFuture<'static, Result<usize>>
     where
+        Tx: DerefMut<Target = DB::Connection> + Send + 'static,
         DB: sqlx::Database + sqlx::database::HasStatementCache + Send + 'static,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
         for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
@@ -215,8 +227,8 @@ impl TransactionExecutor {
         })
     }
 
-    fn execute_collect_on<DB, Bind, Decode>(
-        tx_arc: TxHandle<DB>,
+    fn execute_collect_on<DB, Tx, Bind, Decode>(
+        tx_arc: TxHandle<Tx>,
         sql_text: String,
         params: Vec<Value>,
         persistent: bool,
@@ -225,6 +237,7 @@ impl TransactionExecutor {
         query_context: &'static str,
     ) -> BoxFuture<'static, Result<Vec<Row>>>
     where
+        Tx: DerefMut<Target = DB::Connection> + Send + 'static,
         DB: sqlx::Database + sqlx::database::HasStatementCache + Send + 'static,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
         for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
@@ -256,8 +269,8 @@ impl TransactionExecutor {
         })
     }
 
-    fn execute_and_fetch_collect_on<DB, Bind, Decode>(
-        tx_arc: TxHandle<DB>,
+    fn execute_and_fetch_collect_on<DB, Tx, Bind, Decode>(
+        tx_arc: TxHandle<Tx>,
         mutation_text: String,
         mutation_params: Vec<Value>,
         fetch_text: String,
@@ -266,6 +279,7 @@ impl TransactionExecutor {
         decode: Decode,
     ) -> BoxFuture<'static, Result<Vec<Row>>>
     where
+        Tx: DerefMut<Target = DB::Connection> + Send + 'static,
         DB: sqlx::Database + sqlx::database::HasStatementCache + Send + 'static,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
         for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
@@ -304,8 +318,8 @@ impl TransactionExecutor {
         })
     }
 
-    fn execute_single_on<DB, Bind, Decode>(
-        tx_arc: TxHandle<DB>,
+    fn execute_single_on<DB, Tx, Bind, Decode>(
+        tx_arc: TxHandle<Tx>,
         sql_text: String,
         params: Vec<Value>,
         bind: Bind,
@@ -314,6 +328,7 @@ impl TransactionExecutor {
         expectation: SingleRowExpectation,
     ) -> BoxFuture<'static, Result<Option<Row>>>
     where
+        Tx: DerefMut<Target = DB::Connection> + Send + 'static,
         DB: sqlx::Database + Send + 'static,
         for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
         for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,

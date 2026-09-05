@@ -275,6 +275,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: nautilus_root
+          MYSQL_ROOT_HOST: '%'
           MYSQL_DATABASE: nautilus_test
           MYSQL_USER: nautilus
           MYSQL_PASSWORD: nautilus
@@ -319,3 +320,11 @@ jobs:
         env:
           MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
         run: cargo test --locked -p nautilus-orm-connector --test integration_mysql -- --ignored --test-threads=1
+
+      # Inspect effective transaction isolation through performance_schema.
+      - name: Run MySQL transaction isolation tests
+        env:
+          MYSQL_URL: mysql://root:nautilus_root@localhost:3306/nautilus_test
+        run: |
+          cargo test --locked -p nautilus-orm-connector --lib --test transaction_mysql -- --ignored --test-threads=1
+          cargo test --locked -p nautilus-orm-engine --test mysql_transaction_tests -- --ignored --test-threads=1

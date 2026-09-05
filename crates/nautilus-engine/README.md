@@ -36,6 +36,11 @@ in the current directory.
 ## Runtime notes
 
 - `transactionId` is supported on request types that can run inside an open transaction.
+- MySQL isolation overrides apply only to the requested transaction. The engine
+  uses the connector's shared transaction opener to set isolation before `BEGIN`
+  and discard connections whose preparation fails or is cancelled. See the
+  [connector integration tests](../nautilus-connector/README.md#integration-test-strategy)
+  for the real MySQL isolation and connection reuse checks.
 - `query.findMany` also supports protocol-level chunking via `chunkSize`; partial responses are emitted before the final response when the client opts in.
 - `query.upsert` runs as one atomic statement. Its `where` must name exactly the columns of one unique constraint (or the primary key), and `create` must supply a value for each of them.
 - `query.update`, `query.updateMany` and the update half of `query.upsert`

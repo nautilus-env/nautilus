@@ -106,7 +106,7 @@ async fn drive_transaction<F, Fut, T, D>(
     tx_executor: crate::transaction::TransactionExecutor,
     dialect: D,
     opts: TransactionOptions,
-    supports_isolation_level: bool,
+    set_isolation_after_begin: bool,
     f: F,
 ) -> Result<T>
 where
@@ -120,7 +120,7 @@ where
         isolation_level,
     } = opts;
 
-    if supports_isolation_level {
+    if set_isolation_after_begin {
         set_transaction_isolation(&tx_executor, isolation_level).await?;
     }
 
@@ -273,15 +273,13 @@ impl Client<crate::mysql::MysqlExecutor> {
         Fut: Future<Output = Result<T>> + Send,
         T: Send + 'static,
     {
-        let sqlx_tx = self
-            .executor()
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| Error::connection(e, "Failed to begin transaction"))?;
-        let tx_executor = crate::transaction::TransactionExecutor::mysql(sqlx_tx);
+        let tx_executor = crate::transaction::TransactionExecutor::begin_mysql(
+            self.executor().pool(),
+            opts.isolation_level,
+        )
+        .await?;
 
-        drive_transaction(tx_executor, nautilus_dialect::MysqlDialect, opts, true, f).await
+        drive_transaction(tx_executor, nautilus_dialect::MysqlDialect, opts, false, f).await
     }
 }
 
