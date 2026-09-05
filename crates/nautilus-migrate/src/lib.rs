@@ -13,6 +13,7 @@
 
 mod applier;
 mod apply;
+mod change;
 mod ddl;
 mod error;
 mod executor;
