@@ -64,7 +64,10 @@ pub(super) fn infer_default_attr(
         if is_enum {
             return Some(format!("@default({})", inner));
         }
-        return Some(format!("@default(\"{}\")", inner));
+        return Some(format!(
+            "@default(\"{}\")",
+            escape_schema_string(&unescape_sql_string_literal(inner))
+        ));
     }
 
     if t == "now()" || t == "current_timestamp" || t.starts_with("current_timestamp") {
@@ -80,6 +83,15 @@ pub(super) fn infer_default_attr(
     }
 
     None
+}
+
+/// Undo SQL's doubling of the quote that delimits a string literal.
+///
+/// `'It''s fine'` reaches the serializer with its body still SQL-escaped, and a
+/// schema string uses its own escaping. Writing the body through unchanged
+/// doubles the quote again on every `pull` and `push` round trip.
+fn unescape_sql_string_literal(body: &str) -> String {
+    body.replace("''", "'")
 }
 
 pub(super) fn remap_sql_expr_identifiers(
@@ -265,6 +277,24 @@ fn render_bool_operand_with_field_map(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_string_unescapes_the_sql_quote() {
+        let no_enums: HashMap<String, Vec<String>> = HashMap::new();
+        assert_eq!(
+            infer_default_attr("'It''s fine'", "text", &no_enums),
+            Some("@default(\"It's fine\")".into())
+        );
+    }
+
+    #[test]
+    fn default_string_escapes_a_double_quote_for_the_schema() {
+        let no_enums: HashMap<String, Vec<String>> = HashMap::new();
+        assert_eq!(
+            infer_default_attr(r#"'say "hi"'"#, "text", &no_enums),
+            Some(r#"@default("say \"hi\"")"#.into())
+        );
+    }
 
     #[test]
     fn default_boolean() {
