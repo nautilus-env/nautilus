@@ -143,6 +143,13 @@ fn test_write_rust_code_standalone_creates_cargo_toml() {
         "Cargo.toml missing [package] section:\n{cargo_content}"
     );
     assert!(
+        cargo_content.contains(&format!(
+            "rust-version = \"{}\"",
+            env!("CARGO_PKG_RUST_VERSION")
+        )),
+        "Cargo.toml must declare the generator's MSRV:\n{cargo_content}"
+    );
+    assert!(
         cargo_content.contains("nautilus-events-macros = { path = "),
         "Cargo.toml missing generated events proc-macro dependency:\n{cargo_content}"
     );

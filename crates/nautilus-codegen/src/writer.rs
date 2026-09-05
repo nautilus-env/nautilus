@@ -173,6 +173,7 @@ pub fn write_rust_code(
 fn generate_rust_cargo_toml(workspace_root_path: &str) -> String {
     include_str!("../templates/rust/Cargo.toml.tpl")
         .replace("{{ workspace_root_path }}", workspace_root_path)
+        .replace("{{ rust_version }}", env!("CARGO_PKG_RUST_VERSION"))
 }
 
 /// Generate the lib.rs file content with module declarations and re-exports.

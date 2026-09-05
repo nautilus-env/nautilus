@@ -3,6 +3,7 @@ name = "nautilus-events-macros"
 description = "Proc macros for Nautilus generated client CRUD events"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true

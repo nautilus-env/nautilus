@@ -3,6 +3,7 @@ name = "nautilus-orm-lsp"
 description = "LSP server for .nautilus schema files"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true

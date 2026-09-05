@@ -2,6 +2,7 @@
 name = "nautilus-client"
 version = "0.1.0"
 edition = "2021"
+rust-version = "{{ rust_version }}"
 
 [workspace]
 
