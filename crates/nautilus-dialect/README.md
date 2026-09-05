@@ -35,10 +35,21 @@ let sql = PostgresDialect.render_select(&select)?;
 
 The crate is organized as follows:
 
-- **`lib.rs`** — Public API: `Dialect` trait, `Sql` struct, shared rendering
-  macros (`render_insert_body!`, `render_update_body!`, `render_delete_body!`,
-  `render_select_body_core!`, `render_returning!`), and shared render helpers
-  for identifier writing and placeholder formatting.
+- **`lib.rs`** — Facade: the modules below and the public `Dialect`, `Sql`,
+  `PostgresDialect`, `MysqlDialect` and `SqliteDialect`.
+
+- **`dialect.rs`** — The `Dialect` trait and the `Sql` struct it returns.
+
+- **`macros/`** — The shared rendering macros, grouped by what they render:
+  `write.rs` for INSERT, UPDATE and DELETE with their RETURNING, assignment and
+  ON CONFLICT clauses, `select.rs` for SELECT with its ORDER BY and window
+  projection, and `expressions.rs` for the expression forms every dialect
+  spells the same way.
+
+- **`ident.rs`** — Text written straight into a statement rather than bound:
+  identifiers, column aliases, JSON path keys, string literals and integers.
+
+- **`expr.rs`** — Operator spellings and the default parameter cast.
 
 - **`render_estimate.rs`** — Conservative SQL/params capacity estimation used
   by the dialect renderers to preallocate `String` and `Vec<Value>` buffers.

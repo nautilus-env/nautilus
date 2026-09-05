@@ -1,6 +1,12 @@
 //! SQLite SQL dialect renderer.
 
-use crate::{Dialect, Sql};
+use crate::dialect::{Dialect, Sql};
+use crate::macros::expressions::render_expr_common_mut;
+use crate::macros::select::render_select_body_core_mut;
+use crate::macros::write::{
+    render_delete_body_mut, render_insert_body_mut, render_on_conflict_body_mut,
+    render_update_body_mut,
+};
 use nautilus_core::{BinaryOp, Delete, Expr, Insert, OnConflict, Result, Select, Update, Value};
 
 /// SQLite SQL dialect renderer.
@@ -11,7 +17,8 @@ pub struct SqliteDialect;
 /// and double-quoted identifiers.
 impl Dialect for SqliteDialect {
     fn render_select_owned(&self, mut select: Select) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_select_render(&select));
+        let mut ctx =
+            RenderContext::with_estimate(crate::render_estimate::estimate_select_render(&select));
         render_select_body_core_mut!(&mut ctx, &mut select, '"', render_expr_owned, false, "-1");
         Ok(Sql {
             text: ctx.sql,
@@ -20,13 +27,14 @@ impl Dialect for SqliteDialect {
     }
 
     fn render_insert_owned(&self, mut insert: Insert) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_insert_render(&insert));
+        let mut ctx =
+            RenderContext::with_estimate(crate::render_estimate::estimate_insert_render(&insert));
         render_insert_body_mut!(
             &mut ctx,
             &mut insert,
             '"',
             true,
-            crate::no_param_cast,
+            crate::expr::no_param_cast,
             render_on_conflict
         );
         Ok(Sql {
@@ -36,14 +44,15 @@ impl Dialect for SqliteDialect {
     }
 
     fn render_update_owned(&self, mut update: Update) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_update_render(&update));
+        let mut ctx =
+            RenderContext::with_estimate(crate::render_estimate::estimate_update_render(&update));
         render_update_body_mut!(
             &mut ctx,
             &mut update,
             '"',
             render_expr_owned,
             true,
-            crate::no_param_cast
+            crate::expr::no_param_cast
         );
         Ok(Sql {
             text: ctx.sql,
@@ -52,7 +61,8 @@ impl Dialect for SqliteDialect {
     }
 
     fn render_delete_owned(&self, mut delete: Delete) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_delete_render(&delete));
+        let mut ctx =
+            RenderContext::with_estimate(crate::render_estimate::estimate_delete_render(&delete));
         render_delete_body_mut!(&mut ctx, &mut delete, '"', render_expr_owned, true);
         Ok(Sql {
             text: ctx.sql,
@@ -67,7 +77,7 @@ struct RenderContext {
 }
 
 impl RenderContext {
-    fn with_estimate(estimate: crate::RenderEstimate) -> Self {
+    fn with_estimate(estimate: crate::render_estimate::RenderEstimate) -> Self {
         Self {
             sql: String::with_capacity(estimate.sql_capacity),
             params: Vec::with_capacity(estimate.params_capacity),
@@ -90,11 +100,11 @@ fn render_on_conflict(ctx: &mut RenderContext, on_conflict: &mut OnConflict) {
         on_conflict,
         '"',
         render_expr_owned,
-        crate::no_param_cast
+        crate::expr::no_param_cast
     );
 }
 
-fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select) {
+fn render_select_body_owned(ctx: &mut RenderContext, select: &mut nautilus_core::Select) {
     render_select_body_core_mut!(ctx, select, '"', render_expr_owned, false, "-1");
 }
 
@@ -107,9 +117,9 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
             ..
         } => {
             ctx.sql.push_str("json_extract(");
-            crate::push_qualified_identifier(&mut ctx.sql, table, column, '"');
+            crate::ident::push_qualified_identifier(&mut ctx.sql, table, column, '"');
             ctx.sql.push_str(", ");
-            crate::push_json_object_path_literal(&mut ctx.sql, json_key);
+            crate::ident::push_json_object_path_literal(&mut ctx.sql, json_key);
             ctx.sql.push(')');
         }
         Expr::Param(value) => {
@@ -171,7 +181,7 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
                 ctx.sql.push('(');
                 render_expr_owned(ctx, left.as_mut());
                 ctx.sql.push(' ');
-                ctx.sql.push_str(crate::binary_op_sql(op));
+                ctx.sql.push_str(crate::expr::binary_op_sql(op));
                 ctx.sql.push(' ');
                 render_expr_owned(ctx, right.as_mut());
                 if matches!(*op, BinaryOp::LikeEscape) {

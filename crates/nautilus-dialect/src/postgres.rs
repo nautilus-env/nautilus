@@ -1,6 +1,12 @@
 //! PostgreSQL SQL dialect renderer.
 
-use crate::{Dialect, Sql};
+use crate::dialect::{Dialect, Sql};
+use crate::macros::expressions::render_expr_common_mut;
+use crate::macros::select::render_select_body_core_mut;
+use crate::macros::write::{
+    render_delete_body_mut, render_insert_body_mut, render_on_conflict_body_mut,
+    render_update_body_mut,
+};
 use nautilus_core::{BinaryOp, Delete, Expr, Insert, OnConflict, Result, Select, Update, Value};
 
 /// PostgreSQL SQL dialect renderer.
@@ -17,7 +23,8 @@ impl Dialect for PostgresDialect {
     }
 
     fn render_select_owned(&self, mut select: Select) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_select_render(&select));
+        let mut ctx =
+            RenderContext::with_estimate(crate::render_estimate::estimate_select_render(&select));
         render_select_body_core_mut!(&mut ctx, &mut select, '"', render_expr_owned, true, "");
         Ok(Sql {
             text: ctx.sql,
@@ -26,7 +33,8 @@ impl Dialect for PostgresDialect {
     }
 
     fn render_insert_owned(&self, mut insert: Insert) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_insert_render(&insert));
+        let mut ctx =
+            RenderContext::with_estimate(crate::render_estimate::estimate_insert_render(&insert));
         render_insert_body_mut!(
             &mut ctx,
             &mut insert,
@@ -42,7 +50,8 @@ impl Dialect for PostgresDialect {
     }
 
     fn render_update_owned(&self, mut update: Update) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_update_render(&update));
+        let mut ctx =
+            RenderContext::with_estimate(crate::render_estimate::estimate_update_render(&update));
         render_update_body_mut!(
             &mut ctx,
             &mut update,
@@ -58,7 +67,8 @@ impl Dialect for PostgresDialect {
     }
 
     fn render_delete_owned(&self, mut delete: Delete) -> Result<Sql> {
-        let mut ctx = RenderContext::with_estimate(crate::estimate_delete_render(&delete));
+        let mut ctx =
+            RenderContext::with_estimate(crate::render_estimate::estimate_delete_render(&delete));
         render_delete_body_mut!(&mut ctx, &mut delete, '"', render_expr_owned, true);
         Ok(Sql {
             text: ctx.sql,
@@ -73,7 +83,7 @@ struct RenderContext {
 }
 
 impl RenderContext {
-    fn with_estimate(estimate: crate::RenderEstimate) -> Self {
+    fn with_estimate(estimate: crate::render_estimate::RenderEstimate) -> Self {
         Self {
             sql: String::with_capacity(estimate.sql_capacity),
             params: Vec::with_capacity(estimate.params_capacity),
@@ -83,7 +93,7 @@ impl RenderContext {
     fn push_param(&mut self, value: Value) {
         self.params.push(value);
         self.sql.push('$');
-        crate::push_usize(&mut self.sql, self.params.len());
+        crate::ident::push_usize(&mut self.sql, self.params.len());
     }
 
     fn take_param(&mut self, value: &mut Value) {
@@ -91,7 +101,7 @@ impl RenderContext {
     }
 }
 
-fn render_select_body_owned(ctx: &mut RenderContext, select: &mut crate::Select) {
+fn render_select_body_owned(ctx: &mut RenderContext, select: &mut nautilus_core::Select) {
     render_select_body_core_mut!(ctx, select, '"', render_expr_owned, true, "");
 }
 
@@ -103,7 +113,7 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
             field,
             ..
         } => {
-            crate::push_composite_field_reference(&mut ctx.sql, table, column, field, '"');
+            crate::ident::push_composite_field_reference(&mut ctx.sql, table, column, field, '"');
         }
         Expr::Param(value) => {
             // NULL is emitted literally; PostgreSQL cannot implicitly resolve a
@@ -146,7 +156,7 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
                     BinaryOp::ArrayContains => "@>",
                     BinaryOp::ArrayContainedBy => "<@",
                     BinaryOp::ArrayOverlaps => "&&",
-                    _ => crate::binary_op_sql(op),
+                    _ => crate::expr::binary_op_sql(op),
                 });
                 ctx.sql.push(' ');
                 render_expr_owned(ctx, right.as_mut());
@@ -209,7 +219,7 @@ impl ParamCast {
             }
             Self::Enum(type_name) | Self::Composite(type_name) => {
                 sql.push_str("::");
-                crate::push_quoted_identifier(sql, type_name, '"');
+                crate::ident::push_quoted_identifier(sql, type_name, '"');
             }
         }
     }
