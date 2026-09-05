@@ -1,3 +1,9 @@
+//! Verify MySQL isolation through the engine's transaction registry.
+//!
+//! Each protocol isolation level is checked on the server for both commit and
+//! rollback. Reusing one pooled connection verifies that subsequent transactions
+//! return to default isolation while preserving only committed writes.
+
 #[path = "../../nautilus-connector/tests/common/mysql_isolation.rs"]
 mod mysql_isolation;
 

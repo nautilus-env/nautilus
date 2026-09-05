@@ -1,3 +1,8 @@
+//! Verify cleanup after isolation is set but before `BEGIN` consumes the override.
+//!
+//! Real MySQL connections make pending isolation and connection replacement
+//! observable after cancellation or an error during preparation.
+
 #[path = "../../../tests/common/mysql_isolation.rs"]
 mod mysql_isolation;
 
@@ -5,6 +10,9 @@ use super::{MysqlTransaction, PooledMysqlTransaction};
 use crate::IsolationLevel;
 use sqlx::mysql::MySqlPoolOptions;
 
+/// Verify that preparation discarded the old connection and its pending override.
+///
+/// A successful transaction must reuse the replacement with default isolation.
 async fn assert_clean_replacement(pool: &sqlx::MySqlPool, observer: &sqlx::MySqlPool, old_id: u64) {
     let new_id = mysql_isolation::connection_id(pool).await;
     assert_ne!(

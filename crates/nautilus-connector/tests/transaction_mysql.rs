@@ -1,3 +1,9 @@
+//! Exercise MySQL isolation through the connector's transaction callback API.
+//!
+//! Single-connection pools expose isolation leaks between callers. Transaction
+//! instrumentation checks the effective level; table contents verify commit and
+//! rollback after callback errors, timeout, and cancellation.
+
 #[path = "common/mysql_isolation.rs"]
 mod mysql_isolation;
 
@@ -9,6 +15,7 @@ use nautilus_connector::{
 };
 use nautilus_dialect::Sql;
 
+/// Write a marker in the transaction so later assertions can observe its outcome.
 async fn insert_probe(tx: &TransactionExecutor) -> ConnectorResult<()> {
     execute_all(
         tx,
@@ -80,6 +87,7 @@ async fn isolation_override_is_effective_and_does_not_leak_on_connection_reuse()
     }
 }
 
+/// Verify rollback of the marker and default isolation on the reused connection.
 async fn assert_rolled_back(client: &Client<MysqlExecutor>, observer: &sqlx::MySqlPool, id: u64) {
     let pool = client.executor().pool();
     assert_eq!(mysql_isolation::connection_id(pool).await, id);

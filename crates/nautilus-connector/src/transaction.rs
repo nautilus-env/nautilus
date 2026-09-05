@@ -137,6 +137,12 @@ impl TransactionExecutor {
     ///
     /// Isolation is set before BEGIN on the same connection. Errors or cancellation
     /// during preparation discard that connection; completed transactions reuse it.
+    /// With no override, MySQL uses the session's default isolation level.
+    ///
+    /// # Errors
+    ///
+    /// Returns a connection error if acquisition or `BEGIN` fails, or a database
+    /// error if MySQL rejects the isolation statement.
     pub async fn begin_mysql(
         pool: &sqlx::MySqlPool,
         isolation_level: Option<IsolationLevel>,
