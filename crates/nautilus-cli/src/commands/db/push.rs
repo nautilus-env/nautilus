@@ -304,7 +304,7 @@ generator client {
         );
         let error_chain = format!("{err:#}");
         assert!(
-            error_chain.contains("Failed to clean output directory"),
+            error_chain.contains("exists and is not a directory"),
             "unexpected error chain: {error_chain}"
         );
     }

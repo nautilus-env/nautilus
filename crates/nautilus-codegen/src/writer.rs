@@ -8,6 +8,7 @@ use std::path::Path;
 use tera::Context as TeraContext;
 
 use crate::generator::TEMPLATES;
+use crate::publish::publish_into;
 use crate::python::generator::{
     generate_enums_init, generate_errors_init, generate_events_init, generate_internal_init,
     generate_models_init, generate_package_init, generate_transaction_init,
@@ -34,10 +35,28 @@ pub fn write_rust_code(
     schema_source: &str,
     standalone: bool,
 ) -> Result<()> {
-    let output_dir = Path::new(output_path);
+    publish_into(output_path, |output_dir| {
+        write_rust_code_into(
+            output_dir,
+            models,
+            enums_code,
+            composite_types_code,
+            extension_files,
+            schema_source,
+            standalone,
+        )
+    })
+}
 
-    clear_output_dir(output_path)?;
-
+fn write_rust_code_into(
+    output_dir: &Path,
+    models: &HashMap<String, String>,
+    enums_code: Option<String>,
+    composite_types_code: Option<String>,
+    extension_files: &[GeneratedFile],
+    schema_source: &str,
+    standalone: bool,
+) -> Result<()> {
     fs::create_dir_all(output_dir)
         .with_context(|| format!("Failed to create directory: {}", output_dir.display()))?;
 
@@ -226,10 +245,28 @@ pub fn write_python_code(
     client_code: Option<String>,
     runtime_files: &[GeneratedFile],
 ) -> Result<()> {
-    let output_dir = Path::new(output_path);
+    publish_into(output_path, |output_dir| {
+        write_python_code_into(
+            output_dir,
+            models,
+            enums_code,
+            composite_types_code,
+            extension_files,
+            client_code,
+            runtime_files,
+        )
+    })
+}
 
-    clear_output_dir(output_path)?;
-
+fn write_python_code_into(
+    output_dir: &Path,
+    models: &[GeneratedFile],
+    enums_code: Option<String>,
+    composite_types_code: Option<String>,
+    extension_files: &[GeneratedFile],
+    client_code: Option<String>,
+    runtime_files: &[GeneratedFile],
+) -> Result<()> {
     fs::create_dir_all(output_dir)
         .with_context(|| format!("Failed to create directory: {}", output_dir.display()))?;
 
@@ -425,6 +462,12 @@ pub struct JsOutput<'a> {
 /// - `{output}/_internal/_*.js`       — runtime files (client, engine, protocol, etc.)
 /// - `{output}/_internal/_*.d.ts`     — runtime declaration files
 pub fn write_js_code(output_path: &str, output: JsOutput<'_>) -> Result<()> {
+    publish_into(output_path, |output_dir| {
+        write_js_code_into(output_dir, output)
+    })
+}
+
+fn write_js_code_into(output_dir: &Path, output: JsOutput<'_>) -> Result<()> {
     let JsOutput {
         js_models,
         dts_models,
@@ -439,10 +482,6 @@ pub fn write_js_code(output_path: &str, output: JsOutput<'_>) -> Result<()> {
         dts_models_index,
         runtime_files,
     } = output;
-
-    let output_dir = Path::new(output_path);
-
-    clear_output_dir(output_path)?;
 
     fs::create_dir_all(output_dir)
         .with_context(|| format!("Failed to create directory: {}", output_dir.display()))?;
@@ -569,10 +608,12 @@ const JS_PACKAGE_JSON: &str = r#"{
 /// Write generated Java code to the output directory, preserving the relative
 /// file layout produced by the Java generator.
 pub fn write_java_code(output_path: &str, files: &[GeneratedFile]) -> Result<()> {
-    let output_dir = Path::new(output_path);
+    publish_into(output_path, |output_dir| {
+        write_java_code_into(output_dir, files)
+    })
+}
 
-    clear_output_dir(output_path)?;
-
+fn write_java_code_into(output_dir: &Path, files: &[GeneratedFile]) -> Result<()> {
     fs::create_dir_all(output_dir)
         .with_context(|| format!("Failed to create directory: {}", output_dir.display()))?;
 
@@ -587,15 +628,5 @@ pub fn write_java_code(output_path: &str, files: &[GeneratedFile]) -> Result<()>
             .with_context(|| format!("Failed to write file: {}", file_path.display()))?;
     }
 
-    Ok(())
-}
-
-fn clear_output_dir(output_path: &str) -> Result<()> {
-    let output_dir = Path::new(output_path);
-    if output_dir.exists() {
-        fs::remove_dir_all(output_dir).with_context(|| {
-            format!("Failed to clean output directory: {}", output_dir.display())
-        })?;
-    }
     Ok(())
 }

@@ -14,6 +14,7 @@ pub mod generator;
 pub mod java;
 pub mod js;
 pub(crate) mod model_view;
+pub(crate) mod publish;
 pub mod python;
 pub(crate) mod schema_docs;
 pub(crate) mod template;
@@ -526,6 +527,12 @@ impl<'a> GenerationContext<'a> {
     /// Without a configured output path the package is only materialised in a
     /// temporary directory long enough to install it; `Ok(None)` means there
     /// was nowhere to write it and the user has been warned.
+    /// Write the package and, when asked, install it.
+    ///
+    /// Without a configured output path the package is built under a staging
+    /// directory of its own in the system temp directory, so two generations
+    /// running at once never share one, and the directory is removed whether or
+    /// not the install succeeded.
     fn emit_package(
         &self,
         tmp_dir_name: &str,
@@ -538,12 +545,11 @@ impl<'a> GenerationContext<'a> {
                 return Ok(None);
             }
 
-            let tmp_dir = std::env::temp_dir().join(tmp_dir_name);
+            let tmp_dir = crate::publish::unique_dir(&std::env::temp_dir(), tmp_dir_name)?;
             let tmp_path = tmp_dir.to_string_lossy().to_string();
-            write(&tmp_path)?;
-            let installed = install(&tmp_path)?;
+            let installed = write(&tmp_path).and_then(|()| install(&tmp_path));
             let _ = fs::remove_dir_all(&tmp_dir);
-            return Ok(Some(installed.display().to_string()));
+            return Ok(Some(installed?.display().to_string()));
         };
 
         write(output_path)?;

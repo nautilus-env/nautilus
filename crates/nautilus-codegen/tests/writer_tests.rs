@@ -797,3 +797,63 @@ fn test_write_java_code_creates_maven_module_structure() {
         "pom.xml should include Jackson databind:\n{pom}"
     );
 }
+
+#[test]
+fn a_failed_write_keeps_the_previously_generated_client() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let out = tmp.path().join("client");
+    let path = out.to_string_lossy().to_string();
+
+    write_java_code(
+        &path,
+        &[("src/Ok.java".to_string(), "class Ok {}".to_string())],
+    )
+    .expect("first generation");
+
+    // `src/Ok.java` cannot be both a file and the parent directory of another,
+    // so the second file fails after the first has been staged.
+    let err = write_java_code(
+        &path,
+        &[
+            ("src/Ok.java".to_string(), "class Broken {}".to_string()),
+            (
+                "src/Ok.java/Nested.java".to_string(),
+                "class Nested {}".to_string(),
+            ),
+        ],
+    )
+    .expect_err("the conflicting layout must fail");
+    assert!(format!("{err:#}").contains("src"), "{err:#}");
+
+    assert_eq!(
+        std::fs::read_to_string(out.join("src").join("Ok.java")).expect("previous client"),
+        "class Ok {}",
+        "a write that fails part-way must leave the published client alone"
+    );
+    assert!(!out.join("src").join("Ok.java").is_dir());
+}
+
+#[test]
+fn generating_twice_removes_files_the_new_run_does_not_produce() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let out = tmp.path().join("client");
+    let path = out.to_string_lossy().to_string();
+
+    write_java_code(
+        &path,
+        &[("src/Gone.java".to_string(), "class Gone {}".to_string())],
+    )
+    .expect("first generation");
+
+    write_java_code(
+        &path,
+        &[("src/Kept.java".to_string(), "class Kept {}".to_string())],
+    )
+    .expect("second generation");
+
+    assert!(out.join("src").join("Kept.java").exists());
+    assert!(
+        !out.join("src").join("Gone.java").exists(),
+        "the output directory belongs to the generator"
+    );
+}

@@ -26,6 +26,24 @@ install target above when `install = true`.
 | `validate_command` | Read -> parse -> validate without writing output |
 | `GenerateOptions` | Controls install, verbosity, and Rust standalone generation |
 
+## The output directory
+
+The generator owns the configured `output` path outright. Every generation
+writes the complete tree into a staging directory beside it and then swaps the
+two, so:
+
+- a template that fails to render, or a write that fails part-way, leaves the
+  previously generated client exactly as it was;
+- files a previous generation produced but the current one does not are gone
+  after the swap, and so is anything else placed in that directory by hand —
+  keep hand-written code outside `output`;
+- two generations running at once never share a staging directory, including
+  the temporary one used when no `output` is configured and the package is only
+  built to be installed.
+
+An `output` path that is empty, names a filesystem root, or names an existing
+file is refused rather than replaced.
+
 ## Current target notes
 
 - The generator target is chosen entirely from the schema's `generator` block.
