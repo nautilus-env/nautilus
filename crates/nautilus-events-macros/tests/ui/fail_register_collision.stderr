@@ -1,0 +1,5 @@
+error: #[events] appends its own `register` to the module, so the module cannot define one
+ --> tests/ui/fail_register_collision.rs:5:5
+  |
+5 |     pub fn register() {}
+  |     ^^^^^^^^^^^^^^^^^^^^

@@ -106,3 +106,6 @@ examples/
 **/*.snap
 !crates/nautilus-codegen/tests/snapshots/*.snap
 **/*.snap.new
+
+# trybuild writes rejected diagnostics here when a snapshot does not match.
+wip/

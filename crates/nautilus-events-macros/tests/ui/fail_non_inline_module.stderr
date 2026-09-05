@@ -1,0 +1,13 @@
+error[E0658]: file modules in proc macro input are unstable
+ --> tests/ui/fail_non_inline_module.rs:4:1
+  |
+4 | mod hooks;
+  | ^^^^^^^^^^
+  |
+  = note: see issue #54727 <https://github.com/rust-lang/rust/issues/54727> for more information
+
+error: #[events] requires an inline module
+ --> tests/ui/fail_non_inline_module.rs:4:1
+  |
+4 | mod hooks;
+  | ^^^^^^^^^^

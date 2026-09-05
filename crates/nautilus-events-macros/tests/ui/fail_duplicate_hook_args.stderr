@@ -1,0 +1,23 @@
+error: `phase` is given more than once
+  --> tests/ui/fail_duplicate_hook_args.rs:10:66
+   |
+10 |     #[nautilus_events_macros::on_create(User, phase = A::Before, phase = A::After)]
+   |                                                                  ^^^^^
+
+error: `priority` is given more than once
+  --> tests/ui/fail_duplicate_hook_args.rs:18:61
+   |
+18 |     #[nautilus_events_macros::on_create(User, priority = 1, priority = 2)]
+   |                                                             ^^^^^^^^
+
+error: an event attribute takes one model, plus optional `phase` and `priority`
+  --> tests/ui/fail_duplicate_hook_args.rs:26:47
+   |
+26 |     #[nautilus_events_macros::on_create(User, Post)]
+   |                                               ^^^^
+
+error: event attributes require a model, e.g. #[on_create(User)]
+  --> tests/ui/fail_duplicate_hook_args.rs:34:5
+   |
+34 |     #[nautilus_events_macros::on_create(priority = 1)]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,17 @@
+error: event handlers must accept a context argument
+ --> tests/ui/fail_handler_signature.rs:9:5
+  |
+9 |     fn handler() {}
+  |     ^^^^^^^^^^^^
+
+error: event handlers take the context argument and nothing else
+  --> tests/ui/fail_handler_signature.rs:17:32
+   |
+17 |     fn handler(_ctx: &mut Ctx, _extra: u8) {}
+   |                                ^^^^^^^^^^
+
+error: event handlers cannot use a self receiver
+  --> tests/ui/fail_handler_signature.rs:23:16
+   |
+23 |     fn handler(self) {}
+   |                ^^^^

@@ -1,0 +1,13 @@
+error: `#[on_create]` registers a handler only inside an `#[events]` module, which consumes the attribute; move the function into one
+ --> tests/ui/fail_hook_outside_events.rs:6:1
+  |
+6 | #[nautilus_events_macros::on_create(User)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `nautilus_events_macros::on_create` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: #[events] cannot see a hook inside `cfg_attr`, so the handler would never be registered; put the hook attribute on the function and gate the function itself with `#[cfg(...)]`
+  --> tests/ui/fail_hook_outside_events.rs:13:23
+   |
+13 |     #[cfg_attr(all(), nautilus_events_macros::on_update(User))]
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
