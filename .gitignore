@@ -100,8 +100,9 @@ Desktop.ini
 
 benchmark/
 examples/
-# Insta snapshots — generated baselines stay local, never committed.
+# Keep unrelated local snapshots ignored; codegen baselines are reviewed in Git.
 **/snapshots/*
 !**/snapshots/.gitkeep
 **/*.snap
+!crates/nautilus-codegen/tests/snapshots/*.snap
 **/*.snap.new

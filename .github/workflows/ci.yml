@@ -53,6 +53,8 @@ jobs:
       # shells out to Python, Node and the JDK. Every other test file in the crate
       # is pure Rust and belongs in the fast job.
       - name: Test codegen (no external toolchains)
+        env:
+          INSTA_UPDATE: 'no'
         run: |
           cargo test --locked -p nautilus-orm-codegen \
             --test snapshot_tests \
@@ -115,7 +117,9 @@ jobs:
         run: cargo check --locked --workspace --all-targets
 
       - name: Test codegen portability
-        run: cargo test --locked -p nautilus-orm-codegen --test writer_tests
+        env:
+          INSTA_UPDATE: 'no'
+        run: cargo test --locked -p nautilus-orm-codegen --test snapshot_tests --test writer_tests
 
   codegen-e2e:
     name: Codegen runtime end-to-end

@@ -1,0 +1,54 @@
+---
+source: crates/nautilus-codegen/tests/snapshot_tests.rs
+expression: snapshot_value
+---
+package com.acme.db.model;
+import com.acme.db.client.Nautilus;
+import com.acme.db.client.UserDelegate;
+import com.acme.db.enums.Role;
+import com.acme.db.internal.GlobalNautilusRegistry;
+import com.acme.db.internal.JsonSupport;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+public record User(
+    /** @id @default(autoincrement()) */
+    Integer id,
+    String name,
+    Role role
+) implements NautilusModel {
+    public static UserDelegate nautilus() {
+        Object client = GlobalNautilusRegistry.require();
+        return ((Nautilus) client).user();
+    }
+    public static User fromJsonNode(JsonNode row) {
+        if (row == null || row.isNull()) {
+            return null;
+        }
+        Integer id = JsonSupport.asInteger(JsonSupport.firstPresent(row, "User__id", "id"));
+
+        String name = JsonSupport.asString(JsonSupport.firstPresent(row, "User__name", "name"));
+
+        Role role = JsonSupport.asEnum(JsonSupport.firstPresent(row, "User__role", "role"), Role.class);
+
+        return new User(id, name, role);
+    }
+
+    @Override
+    public JsonNode toJsonNode() {
+        ObjectNode node = JsonSupport.object();
+        if (this.id != null) {
+            node.set("id", JsonSupport.toJsonNode(this.id));
+        }
+
+        if (this.name != null) {
+            node.set("name", JsonSupport.toJsonNode(this.name));
+        }
+
+        if (this.role != null) {
+            node.set("role", JsonSupport.toJsonNode(this.role));
+        }
+
+        return node;
+    }
+}

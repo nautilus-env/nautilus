@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Snapshot content preserves generated whitespace and has portable line endings.
+crates/nautilus-codegen/tests/snapshots/*.snap text eol=lf whitespace=-blank-at-eol

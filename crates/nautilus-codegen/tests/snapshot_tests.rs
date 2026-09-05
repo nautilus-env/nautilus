@@ -1,15 +1,10 @@
 //! Snapshot tests for the code generator: parse a schema, generate code, and
-//! optionally assert the full rendered output against local-only snapshots.
+//! compare representative output against versioned baselines on every run.
 //!
-//! Snapshot baselines live in `tests/snapshots/`, which is gitignored on
-//! purpose. Regular test runs ignore those local `.snap` files so stale
-//! baselines do not break unrelated codegen work. To force snapshot assertions
-//! or generate fresh local baselines, run with `NAUTILUS_LOCAL_SNAPSHOTS=1`
-//! (typically alongside `INSTA_UPDATE=always`). To skip snapshot assertions
-//! explicitly even when that env var is set, run with
-//! `NAUTILUS_SKIP_LOCAL_SNAPSHOTS=1`.
-
-use std::sync::OnceLock;
+//! Baselines live in `tests/snapshots/`. Use `INSTA_UPDATE=no` to verify without
+//! writing files, or `INSTA_UPDATE=always` to update after reviewing an intended
+//! change. CRLF is normalized to LF; files are selected by logical name and
+//! fixture paths are fixed, so machine paths and map iteration order stay out.
 
 use nautilus_codegen::{
     enum_gen::generate_all_enums,
@@ -36,42 +31,22 @@ const USER_MAPPED_SCHEMA: &str = include_str!("fixtures/schemas/user_mapped.naut
 const USER_POST_SCHEMA: &str = include_str!("fixtures/schemas/user_post.nautilus");
 const USER_SCHEMA: &str = include_str!("fixtures/schemas/user.nautilus");
 
-fn local_snapshots_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-
-    *ENABLED.get_or_init(|| {
-        if std::env::var_os("NAUTILUS_SKIP_LOCAL_SNAPSHOTS").is_some() {
-            return false;
-        }
-
-        if std::env::var_os("NAUTILUS_LOCAL_SNAPSHOTS").is_some() {
-            return true;
-        }
-
-        false
-    })
-}
-
-macro_rules! assert_local_snapshot {
+macro_rules! assert_codegen_snapshot {
     ($value:expr $(,)?) => {{
-        let snapshot_value = &$value;
+        let snapshot_value = $value.replace("\r\n", "\n");
         assert!(
             !snapshot_value.is_empty(),
             "generated snapshot content should not be empty"
         );
-        if local_snapshots_enabled() {
-            insta::assert_snapshot!(snapshot_value);
-        }
+        insta::assert_snapshot!(snapshot_value);
     }};
     ($name:expr, $value:expr $(,)?) => {{
-        let snapshot_value = &$value;
+        let snapshot_value = $value.replace("\r\n", "\n");
         assert!(
             !snapshot_value.is_empty(),
             "generated snapshot content should not be empty"
         );
-        if local_snapshots_enabled() {
-            insta::assert_snapshot!($name, snapshot_value);
-        }
+        insta::assert_snapshot!($name, snapshot_value);
     }};
 }
 
@@ -119,7 +94,7 @@ fn test_rust_struct_is_generated() {
     let ir = validate(USER_SCHEMA);
     let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");
-    assert_local_snapshot!(code);
+    assert_codegen_snapshot!(code);
 }
 
 #[test]
@@ -155,7 +130,7 @@ model Post {
             && code.contains("select returns partial rows and cannot be decoded as a full Post"),
         "expected Rust delegates to expose typed projection APIs and reject model-returning select:\n{code}"
     );
-    assert_local_snapshot!(code);
+    assert_codegen_snapshot!(code);
 }
 
 #[test]
@@ -167,7 +142,7 @@ fn test_rust_generates_find_many_builder() {
         code.contains("FindMany"),
         "expected FindMany builder:\n{code}"
     );
-    assert_local_snapshot!(code);
+    assert_codegen_snapshot!(code);
 }
 
 #[test]
@@ -230,7 +205,7 @@ model User {
     );
     let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("User").expect("User model missing");
-    assert_local_snapshot!(code);
+    assert_codegen_snapshot!(code);
 }
 
 #[test]
@@ -276,7 +251,7 @@ model User {
 "#,
     );
     let enums_code = generate_all_enums(&ir.enums).expect("generate_all_enums should succeed");
-    assert_local_snapshot!(enums_code);
+    assert_codegen_snapshot!(enums_code);
 }
 
 #[test]
@@ -299,7 +274,7 @@ fn test_rust_async_generates_async_fns() {
         "expected async in async mode:\n{async_code}"
     );
     assert_ne!(sync_code, async_code, "sync and async should differ");
-    assert_local_snapshot!("rust_user_async", async_code);
+    assert_codegen_snapshot!("rust_user_async", async_code);
 }
 
 #[test]
@@ -315,7 +290,7 @@ model Product {
     );
     let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let code = models.get("Product").expect("Product missing");
-    assert_local_snapshot!(code);
+    assert_codegen_snapshot!(code);
 }
 
 #[test]
@@ -378,8 +353,8 @@ model Post {
     let models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
     let user_code = models.get("User").expect("User missing");
     let post_code = models.get("Post").expect("Post missing");
-    assert_local_snapshot!("rust_user_with_posts_relation", user_code);
-    assert_local_snapshot!("rust_post_with_author_relation", post_code);
+    assert_codegen_snapshot!("rust_user_with_posts_relation", user_code);
+    assert_codegen_snapshot!("rust_post_with_author_relation", post_code);
 }
 
 #[test]
@@ -547,7 +522,7 @@ fn test_python_class_is_generated() {
         .iter()
         .find(|(name, _)| name == "user.py")
         .expect("user model missing");
-    assert_local_snapshot!(code);
+    assert_codegen_snapshot!(code);
 }
 
 #[test]
@@ -583,7 +558,7 @@ model Post {
         code.contains("title: Required[str]"),
         "expected required create input fields to stay required inside total=False TypedDicts:\n{code}"
     );
-    assert_local_snapshot!(code);
+    assert_codegen_snapshot!(code);
 }
 
 #[test]
@@ -658,7 +633,7 @@ model User {
     );
     let enums_code =
         generate_python_enums(&ir.enums).expect("generate_python_enums should succeed");
-    assert_local_snapshot!(enums_code);
+    assert_codegen_snapshot!(enums_code);
 }
 
 #[test]
@@ -675,7 +650,7 @@ fn test_python_async_generates_async_defs() {
         "expected async def:\n{async_code}"
     );
     assert_ne!(sync_code, async_code, "sync and async should differ");
-    assert_local_snapshot!("python_user_async", async_code);
+    assert_codegen_snapshot!("python_user_async", async_code);
 }
 
 #[test]
@@ -709,7 +684,7 @@ fn test_python_client_generation() {
         client_sync, client_async,
         "sync and async clients should differ"
     );
-    assert_local_snapshot!("python_client_sync", &client_sync);
+    assert_codegen_snapshot!("python_client_sync", &client_sync);
 }
 
 #[test]
@@ -717,6 +692,8 @@ fn test_js_client_exposes_batch_transactions_and_runtime_stays_on_protocol_v1() 
     let ir = validate(USER_SCHEMA);
     let (client_js, client_dts) = generate_js_client(&ir.models, "schema.nautilus")
         .expect("generate_js_client should succeed");
+    assert_codegen_snapshot!("js_client", client_js);
+    assert_codegen_snapshot!("js_client_declarations", client_dts);
     let runtime = js_runtime_files();
     let client_runtime = runtime
         .iter()
@@ -1338,6 +1315,8 @@ fn test_js_select_input_supports_projection_safe_models() {
         .iter()
         .find(|(name, _)| name == "user.js")
         .expect("user runtime missing");
+    assert_codegen_snapshot!("js_user_mapped", js_code);
+    assert_codegen_snapshot!("js_user_mapped_declarations", dts_code);
 
     assert!(
         dts_code.contains("displayName: string;"),
@@ -1707,7 +1686,7 @@ model User {
         "expected generated Java client to auto-register itself when configured:\n{nautilus_client}"
     );
 
-    assert_local_snapshot!("java_user_model_sync", user_model);
+    assert_codegen_snapshot!("java_user_model_sync", user_model);
 }
 
 #[test]
@@ -1729,7 +1708,7 @@ fn test_java_async_generation_exposes_completable_future_transaction_api() {
         "expected generated Java async client to expose CompletableFuture transaction API:\n{nautilus_client}"
     );
 
-    assert_local_snapshot!("java_nautilus_async", nautilus_client);
+    assert_codegen_snapshot!("java_nautilus_async", nautilus_client);
 }
 
 #[test]

@@ -100,4 +100,20 @@ java -cp ".;db\dist\nautilus-client.jar;db\dist\lib\*" Main
 cargo test -p nautilus-orm-codegen
 ```
 
-The current test suite is mostly snapshot-driven and also includes compile/write smoke tests for generated Rust output.
+`snapshot_tests` compares representative Rust, Python, Java and JS output
+(including JS declarations) with the checked-in files in `tests/snapshots/` on
+every run. Line endings are normalized to LF, file selection uses logical names,
+and fixtures use fixed paths. The suite also checks individual API contracts;
+`writer_tests` compiles a generated Rust client and an events macro consumer.
+
+Verify baselines without writing files (also used in CI):
+
+```bash
+INSTA_UPDATE=no cargo test --locked -p nautilus-orm-codegen --test snapshot_tests
+```
+
+For an intentional output change, run the affected test with `INSTA_UPDATE=always`,
+review the `.snap` diff, then rerun with `INSTA_UPDATE=no`. On PowerShell, set
+`$env:INSTA_UPDATE = 'always'` or `'no'` before running Cargo. Without an explicit
+update mode, mismatches fail and leave ignored `.snap.new` candidates for review;
+accepted baselines are never updated by CI.

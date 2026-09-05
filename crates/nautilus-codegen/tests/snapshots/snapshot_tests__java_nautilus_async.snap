@@ -1,0 +1,89 @@
+---
+source: crates/nautilus-codegen/tests/snapshot_tests.rs
+expression: snapshot_value
+---
+package com.acme.db.client;
+import com.acme.db.client.UserDelegate;
+import com.acme.db.internal.BaseNautilusClient;
+import com.acme.db.internal.GlobalNautilusRegistry;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.function.Function;
+
+public final class Nautilus extends BaseNautilusClient {
+    private static final String SCHEMA_PATH = "schema.nautilus";
+    private final UserDelegate user;
+
+    private final boolean autoRegistered;
+
+    public Nautilus() {
+        this(new NautilusOptions());
+    }
+
+    public Nautilus(NautilusOptions options) {
+        super(SCHEMA_PATH, options == null ? new NautilusOptions() : options);
+        this.user = new UserDelegate(this);
+        this.autoRegistered = options != null && options.autoRegister();
+        if (this.autoRegistered) {
+            GlobalNautilusRegistry.register(this);
+        }
+        eventRegistry().registerAnnotatedPackages(options().eventPackages().toArray(String[]::new));
+        connect();
+    }
+    public UserDelegate user() {
+        return this.user;
+    }
+
+    public <T> CompletableFuture<T> transaction(Function<TransactionClient, CompletableFuture<T>> callback) {
+        return transaction(callback, new TransactionOptions());
+    }
+
+    public <T> CompletableFuture<T> transaction(
+        Function<TransactionClient, CompletableFuture<T>> callback,
+        TransactionOptions options
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            String transactionId = startTransaction(options);
+            TransactionClient tx = new TransactionClient(this, transactionId);
+            try {
+                T result = callback.apply(tx).join();
+                commitTransaction(transactionId);
+                return result;
+            } catch (CompletionException e) {
+                rollbackTransaction(transactionId);
+                throw e;
+            } catch (RuntimeException e) {
+                rollbackTransaction(transactionId);
+                throw e;
+            }
+        }, executor());
+    }
+
+    public CompletableFuture<List<JsonNode>> transactionBatch(List<TransactionBatchOperation> operations) {
+        return transactionBatch(operations, new TransactionOptions());
+    }
+
+    public CompletableFuture<List<JsonNode>> transactionBatch(
+        List<TransactionBatchOperation> operations,
+        TransactionOptions options
+    ) {
+        return CompletableFuture.supplyAsync(() -> runTransactionBatch(operations, options), executor());
+    }
+
+    public void disconnect() {
+        close();
+    }
+
+    @Override
+    public void close() {
+        try {
+            super.close();
+        } finally {
+            if (this.autoRegistered) {
+                GlobalNautilusRegistry.unregister(this);
+            }
+        }
+    }
+}

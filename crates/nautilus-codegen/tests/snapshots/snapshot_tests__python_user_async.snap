@@ -1,0 +1,2185 @@
+---
+source: crates/nautilus-codegen/tests/snapshot_tests.rs
+expression: snapshot_value
+---
+"""User model and related types."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, is_dataclass
+from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, NotRequired, Optional, Required, ClassVar, TypedDict, Union, overload
+from datetime import datetime
+from uuid import UUID
+from decimal import Decimal
+from enum import Enum
+from .._internal.descriptors import classproperty
+from .._internal.events import (
+    CrudEventContext,
+    EventPhase,
+    default_cud_result,
+    model_event_decorator,
+    resolve_stop_result,
+    run_crud_event,
+    run_crud_event_sync,
+)
+from .._internal.protocol import PROTOCOL_VERSION
+
+
+if TYPE_CHECKING:
+    from .._internal.client import NautilusClient
+
+JsonPrimitive = Union[str, int, float, bool, None]
+JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]
+JsonScalarOrArray = Union[JsonPrimitive, List[Any]]
+HstoreValue = Dict[str, Optional[str]]
+
+
+class User(BaseModel):
+    """User model mapped to 'User' table."""
+    __nautilus_model_name__: ClassVar[str] = "User"
+    # @id @default(autoincrement())
+    id: int
+    name: str
+
+    nautilus: ClassVar["UserDelegate"]
+
+    if TYPE_CHECKING:
+        # Type hint for IDE autocomplete - at runtime this is a classproperty descriptor
+        nautilus: "UserDelegate"
+    else:
+        @classproperty
+        def nautilus(cls) -> "UserDelegate":
+            """Access the auto-registered client delegate for User.
+            
+            This property allows calling model operations directly on the class:
+                users = await User.nautilus.find_many(where={"role": "ADMIN"}, take=10)
+                user  = await User.nautilus.create({"email": "alice@example.com"})
+             
+            Requires a Nautilus instance with auto_register=True:
+                async with Nautilus(auto_register=True):
+                    await User.nautilus.find_many()
+            
+            Returns:
+                The delegate instance for this model.
+                
+            Raises:
+                RuntimeError: If no auto-registered Nautilus instance exists.
+            """
+            from .._internal.client import NautilusClient
+            client = NautilusClient.get_global_instance()
+            if client is None:
+                raise RuntimeError(
+                    f"No Nautilus instance with auto_register=True found. "
+                    f"Create one with: Nautilus(auto_register=True)"
+                )
+            return client.get_delegate("user")
+
+    @classmethod
+    @overload
+    def onCreate(
+        cls,
+        handler: Callable[["UserCreateEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["UserCreateEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onCreate(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["UserCreateEventContext"], Any]],
+        Callable[["UserCreateEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onCreate(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "create", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onCreateMany(
+        cls,
+        handler: Callable[["UserCreateManyEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["UserCreateManyEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onCreateMany(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["UserCreateManyEventContext"], Any]],
+        Callable[["UserCreateManyEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onCreateMany(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "createMany", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onUpdate(
+        cls,
+        handler: Callable[["UserUpdateEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["UserUpdateEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onUpdate(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["UserUpdateEventContext"], Any]],
+        Callable[["UserUpdateEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onUpdate(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "update", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onUpdateMany(
+        cls,
+        handler: Callable[["UserUpdateManyEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["UserUpdateManyEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onUpdateMany(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["UserUpdateManyEventContext"], Any]],
+        Callable[["UserUpdateManyEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onUpdateMany(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "updateMany", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onDelete(
+        cls,
+        handler: Callable[["UserDeleteEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["UserDeleteEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onDelete(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["UserDeleteEventContext"], Any]],
+        Callable[["UserDeleteEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onDelete(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "delete", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onDeleteMany(
+        cls,
+        handler: Callable[["UserDeleteManyEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["UserDeleteManyEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onDeleteMany(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["UserDeleteManyEventContext"], Any]],
+        Callable[["UserDeleteManyEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onDeleteMany(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "deleteMany", phase_or_handler, priority=priority)
+
+
+class UserProjection(TypedDict, total=False):
+    """Partial User payload returned when ``select`` is used."""
+    # @id @default(autoincrement())
+    id: Required[int]
+    name: NotRequired[str]
+
+
+# Engine response key mapping: "table__db_column" -> Python field name
+_User_row_map: Dict[str, str] = {
+    "User__id": "id",
+    "User__name": "name",
+}
+_User_fields: frozenset = frozenset({
+    "id",
+    "name",
+})
+
+
+def _coerce_boolean_value(value: Any) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.lower()
+        if lowered in ("true", "1"):
+            return True
+        if lowered in ("false", "0"):
+            return False
+    return value
+
+
+_User_scalar_coercers: Dict[str, Any] = {
+}
+# Python field name -> DB column name mapping (handles @map renames)
+_User_py_to_db: Dict[str, str] = {
+    "id": "id",
+    "name": "name",
+}
+_User_py_to_logical: Dict[str, str] = {
+    "id": "id",
+    "name": "name",
+}
+_User_object_value_db_fields: frozenset = frozenset({
+})
+_User_extension_input_serializers: Dict[str, Any] = {
+}
+_FILTER_OPERATOR_KEYS: frozenset = frozenset({
+    "contains",
+    "endsWith",
+    "endswith",
+    "eq",
+    "equals",
+    "gt",
+    "gte",
+    "in",
+    "in_",
+    "isNull",
+    "isNotNull",
+    "is_not_null",
+    "is_null",
+    "like",
+    "lt",
+    "lte",
+    "not",
+    "notIn",
+    "not_",
+    "not_in",
+    "startsWith",
+    "startswith",
+})
+_MISSING = object()
+
+
+
+class IntFieldUpdate(TypedDict, total=False):
+    """Atomic update operators for an integer column.
+
+    ``set`` writes the operand as given; the others let the database derive the
+    new value from the row's current one, so concurrent updates do not overwrite
+    each other. Name one operator at a time.
+    """
+    set: NotRequired[int]
+    increment: NotRequired[int]
+    decrement: NotRequired[int]
+    multiply: NotRequired[int]
+    divide: NotRequired[int]
+
+
+class FloatFieldUpdate(TypedDict, total=False):
+    """Atomic update operators for a float column. See :class:`IntFieldUpdate`."""
+    set: NotRequired[float]
+    increment: NotRequired[float]
+    decrement: NotRequired[float]
+    multiply: NotRequired[float]
+    divide: NotRequired[float]
+
+
+class DecimalFieldUpdate(TypedDict, total=False):
+    """Atomic update operators for a decimal column. See :class:`IntFieldUpdate`."""
+    set: NotRequired[Decimal]
+    increment: NotRequired[Decimal]
+    decrement: NotRequired[Decimal]
+    multiply: NotRequired[Decimal]
+    divide: NotRequired[Decimal]
+
+
+class StringFilter(TypedDict, total=False):
+    """String field filter operations."""
+    equals: NotRequired[str]
+    not_: NotRequired[str]
+    contains: NotRequired[str]
+    startswith: NotRequired[str]
+    endswith: NotRequired[str]
+    in_: NotRequired[List[str]]
+    not_in: NotRequired[List[str]]
+    is_null: NotRequired[bool]
+
+
+class IntFilter(TypedDict, total=False):
+    """Integer field filter operations."""
+    equals: NotRequired[int]
+    not_: NotRequired[int]
+    lt: NotRequired[int]
+    lte: NotRequired[int]
+    gt: NotRequired[int]
+    gte: NotRequired[int]
+    in_: NotRequired[List[int]]
+    not_in: NotRequired[List[int]]
+    is_null: NotRequired[bool]
+
+
+class FloatFilter(TypedDict, total=False):
+    """Float field filter operations."""
+    equals: NotRequired[float]
+    not_: NotRequired[float]
+    lt: NotRequired[float]
+    lte: NotRequired[float]
+    gt: NotRequired[float]
+    gte: NotRequired[float]
+    in_: NotRequired[List[float]]
+    not_in: NotRequired[List[float]]
+    is_null: NotRequired[bool]
+
+
+class DecimalFilter(TypedDict, total=False):
+    """Decimal field filter operations."""
+    equals: NotRequired[Decimal]
+    not_: NotRequired[Decimal]
+    lt: NotRequired[Decimal]
+    lte: NotRequired[Decimal]
+    gt: NotRequired[Decimal]
+    gte: NotRequired[Decimal]
+    in_: NotRequired[List[Decimal]]
+    not_in: NotRequired[List[Decimal]]
+    is_null: NotRequired[bool]
+
+
+class DateTimeFilter(TypedDict, total=False):
+    """DateTime field filter operations."""
+    equals: NotRequired[datetime]
+    not_: NotRequired[datetime]
+    lt: NotRequired[datetime]
+    lte: NotRequired[datetime]
+    gt: NotRequired[datetime]
+    gte: NotRequired[datetime]
+    in_: NotRequired[List[datetime]]
+    not_in: NotRequired[List[datetime]]
+    is_null: NotRequired[bool]
+
+
+class UuidFilter(TypedDict, total=False):
+    """UUID field filter operations."""
+    equals: NotRequired[UUID]
+    not_: NotRequired[UUID]
+    in_: NotRequired[List[UUID]]
+    not_in: NotRequired[List[UUID]]
+    is_null: NotRequired[bool]
+
+
+class BoolFilter(TypedDict, total=False):
+    """Boolean field filter operations."""
+    equals: NotRequired[bool]
+    not_: NotRequired[bool]
+    is_null: NotRequired[bool]
+
+
+class JsonFilter(TypedDict, total=False):
+    """JSON / JSONB field filter operations."""
+    equals: NotRequired[JsonValue]
+    not_: NotRequired[JsonValue]
+    is_null: NotRequired[bool]
+
+
+class HstoreFilter(TypedDict, total=False):
+    """Hstore field filter operations."""
+    equals: NotRequired[HstoreValue]
+    not_: NotRequired[HstoreValue]
+    is_null: NotRequired[bool]
+
+
+class VectorFilter(TypedDict, total=False):
+    """Vector field filter operations."""
+    equals: NotRequired[List[float]]
+    not_: NotRequired[List[float]]
+    is_null: NotRequired[bool]
+
+
+class UserWhereInput(TypedDict, total=False):
+    """Filter conditions for User queries."""
+    
+    
+    id: NotRequired[Union[int, IntFilter]]
+    
+    
+    
+    name: NotRequired[Union[str, StringFilter]]
+    
+    
+    AND: NotRequired[Union[UserWhereInput, List[UserWhereInput]]]
+    OR: NotRequired[Union[UserWhereInput, List[UserWhereInput]]]
+    NOT: NotRequired[Union[UserWhereInput, List[UserWhereInput]]]
+
+
+class UserCreateInput(TypedDict, total=False):
+    """Input data for creating a User."""
+    
+    
+    id: NotRequired[int]
+    
+    
+    
+    name: Required[str]
+    
+    
+
+
+class UserUpdateInput(TypedDict, total=False):
+    """Input data for updating a User."""
+    
+    
+    name: NotRequired[str]
+    
+    
+
+
+
+class UserOrderByInput(TypedDict, total=False):
+    """Ordering options for User queries."""
+    
+    id: NotRequired[Literal["asc", "desc"]]
+    
+    name: NotRequired[Literal["asc", "desc"]]
+    
+
+
+
+class UserSelectInput(TypedDict, total=False):
+    """Scalar field projection for User queries."""
+    
+    id: NotRequired[bool]
+    
+    name: NotRequired[bool]
+    
+
+
+
+
+class UserUpsertInput(TypedDict, total=False):
+    """Input data for upserting a User.
+
+    Contains both ``create`` (used when no matching record exists) and
+    ``update`` (applied when a matching record is found).
+    """
+    create: NotRequired[UserCreateInput]
+    update: NotRequired[UserUpdateInput]
+
+
+UserScalarFieldKeys = Literal["id", "name"]
+
+SortOrder = Literal["asc", "desc"]
+
+
+class UserCountAggregateInput(TypedDict, total=False):
+    """Select which fields to include in COUNT aggregation."""
+    _all: NotRequired[bool]
+    
+    id: NotRequired[bool]
+    
+    name: NotRequired[bool]
+    
+
+
+
+class UserAvgAggregateInput(TypedDict, total=False):
+    """Select which numeric fields to include in AVG aggregation."""
+    
+    id: NotRequired[bool]
+    
+
+
+class UserSumAggregateInput(TypedDict, total=False):
+    """Select which numeric fields to include in SUM aggregation."""
+    
+    id: NotRequired[bool]
+    
+
+
+
+class UserMinAggregateInput(TypedDict, total=False):
+    """Select which fields to include in MIN aggregation."""
+    
+    id: NotRequired[bool]
+    
+    name: NotRequired[bool]
+    
+
+
+class UserMaxAggregateInput(TypedDict, total=False):
+    """Select which fields to include in MAX aggregation."""
+    
+    id: NotRequired[bool]
+    
+    name: NotRequired[bool]
+    
+
+
+class UserAggregateOutput(TypedDict, total=False):
+    """Result row from an aggregate query on User."""
+    _count: NotRequired[Dict[str, int]]
+    _avg: NotRequired[Dict[str, Optional[float]]]
+    _sum: NotRequired[Dict[str, Any]]
+    _min: NotRequired[Dict[str, Any]]
+    _max: NotRequired[Dict[str, Any]]
+
+
+class UserExplainOutput(TypedDict):
+    """Rendered statement and database plan returned by ``explain``."""
+    sql: str
+    params: List[Any]
+    plan: List[Dict[str, Any]]
+
+
+class UserGroupByOutput(TypedDict, total=False):
+    """Result row from a group_by query on User."""
+    
+    id: NotRequired[int]
+    
+    name: NotRequired[str]
+    
+    _count: NotRequired[Dict[str, int]]
+    _avg: NotRequired[Dict[str, float]]
+    _sum: NotRequired[Dict[str, Any]]
+    _min: NotRequired[Dict[str, Any]]
+    _max: NotRequired[Dict[str, Any]]
+
+
+
+
+
+
+class UserCreateEventArgs(TypedDict):
+    data: UserCreateInput
+    return_data: bool
+
+
+class UserCreateManyEventArgs(TypedDict):
+    data: List[UserCreateInput]
+    return_data: bool
+
+
+class UserUpdateEventArgs(TypedDict):
+    where: Optional[UserWhereInput]
+    data: UserUpdateInput
+    return_data: bool
+
+
+class UserUpdateManyEventArgs(TypedDict):
+    where: Optional[UserWhereInput]
+    data: UserUpdateInput
+
+
+class UserDeleteEventArgs(TypedDict):
+    where: UserWhereInput
+    return_data: bool
+
+
+class UserDeleteManyEventArgs(TypedDict):
+    where: Optional[UserWhereInput]
+    return_data: bool
+
+
+class UserCreateEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["User"]
+    data: Dict[str, Any]
+    returnData: bool
+
+
+class UserCreateManyEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["User"]
+    data: List[Dict[str, Any]]
+    returnData: bool
+
+
+class UserUpdateEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["User"]
+    filter: Dict[str, Any]
+    data: Dict[str, Any]
+    returnData: bool
+
+
+class UserUpdateManyEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["User"]
+    filter: Dict[str, Any]
+    data: Dict[str, Any]
+
+
+class UserDeleteEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["User"]
+    filter: Dict[str, Any]
+    returnData: bool
+
+
+UserDeleteManyEventPayload = UserDeleteEventPayload
+UserCreateEventContext = CrudEventContext[
+    type[User],
+    Literal["create"],
+    UserCreateEventArgs,
+    UserCreateEventPayload,
+    Optional[User],
+    BaseException,
+    Dict[str, Any],
+]
+UserCreateManyEventContext = CrudEventContext[
+    type[User],
+    Literal["createMany"],
+    UserCreateManyEventArgs,
+    UserCreateManyEventPayload,
+    Optional[List[User]],
+    BaseException,
+    Dict[str, Any],
+]
+UserUpdateEventContext = CrudEventContext[
+    type[User],
+    Literal["update"],
+    UserUpdateEventArgs,
+    UserUpdateEventPayload,
+    Optional[Union[List[User], int]],
+    BaseException,
+    Dict[str, Any],
+]
+UserUpdateManyEventContext = CrudEventContext[
+    type[User],
+    Literal["updateMany"],
+    UserUpdateManyEventArgs,
+    UserUpdateManyEventPayload,
+    Optional[int],
+    BaseException,
+    Dict[str, Any],
+]
+UserDeleteEventContext = CrudEventContext[
+    type[User],
+    Literal["delete"],
+    UserDeleteEventArgs,
+    UserDeleteEventPayload,
+    Optional[User],
+    BaseException,
+    Dict[str, Any],
+]
+UserDeleteManyEventContext = CrudEventContext[
+    type[User],
+    Literal["deleteMany"],
+    UserDeleteManyEventArgs,
+    UserDeleteManyEventPayload,
+    Optional[Union[List[User], int]],
+    BaseException,
+    Dict[str, Any],
+]
+UserEventContext = Union[
+    UserCreateEventContext,
+    UserCreateManyEventContext,
+    UserUpdateEventContext,
+    UserUpdateManyEventContext,
+    UserDeleteEventContext,
+    UserDeleteManyEventContext,
+]
+
+
+def _serialize_wire_value(value: Any) -> Any:
+    """Convert generated client values into JSON-RPC-safe payloads."""
+    if isinstance(value, Enum):
+        return value.value
+    to_wire = getattr(value, "to_wire", None)
+    if callable(to_wire):
+        return _serialize_wire_value(to_wire())
+    if is_dataclass(value):
+        return {k: _serialize_wire_value(v) for k, v in asdict(value).items()}
+    if isinstance(value, list):
+        return [_serialize_wire_value(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _serialize_wire_value(v) for k, v in value.items()}
+    return value
+
+
+def _looks_like_filter_operator_dict(value: Dict[str, Any]) -> bool:
+    return bool(value) and all(key in _FILTER_OPERATOR_KEYS for key in value)
+
+
+def _object_equality_requires_explicit_equals(field_name: str) -> None:
+    raise TypeError(
+        f"Field '{field_name}' stores object-like JSON/HSTORE values. "
+        "Use {'equals': ...} for object equality filters."
+    )
+
+
+def _serialize_scalar_input(field_name: str, value: Any) -> Any:
+    serializer = _User_extension_input_serializers.get(field_name)
+    if value is None or serializer is None:
+        return _serialize_wire_value(value)
+    return _serialize_wire_value(serializer(value))
+
+
+def _serialize_filter_input(field_name: str, operator: str, value: Any) -> Any:
+    serializer = _User_extension_input_serializers.get(field_name)
+    if value is None or serializer is None:
+        return _serialize_wire_value(value)
+    if operator in ("in", "notIn") and isinstance(value, list):
+        return [
+            _serialize_wire_value(item if item is None else serializer(item))
+            for item in value
+        ]
+    return _serialize_wire_value(serializer(value))
+
+
+def _serialize_nearest_input(nearest: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(nearest)
+    field_name = result.get("field")
+    if isinstance(field_name, str) and "query" in result:
+        result["query"] = _serialize_scalar_input(field_name, result["query"])
+    return result
+
+
+def _first_data_row(result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    data = result.get("data")
+    if not isinstance(data, list) or not data:
+        return None
+    row = data[0]
+    if not isinstance(row, dict):
+        return None
+    return row
+
+
+def _user_event_context(
+    client: Any,
+    operation: str,
+    phase: EventPhase,
+    args: Dict[str, Any],
+    payload: Dict[str, Any],
+    state: Dict[str, Any],
+    *,
+    result: Any = None,
+    error: Optional[BaseException] = None,
+) -> CrudEventContext:
+    return CrudEventContext(
+        db=client,
+        model=User,
+        model_name="User",
+        operation=operation,
+        phase=phase,
+        args=args,
+        payload=payload,
+        result=result,
+        error=error,
+        state=state,
+    )
+
+
+def _process_create_data(data: Dict[str, Any], py_to_db: Dict[str, str]) -> Dict[str, Any]:
+    """Convert CreateInput/UpdateInput dict to DB column names."""
+    result = {}
+    for key, value in data.items():
+        db_key = py_to_db.get(key, key)
+        result[db_key] = _serialize_scalar_input(key, value)
+    return result
+
+
+def _process_where_filters(where: Dict[str, Any], py_to_db: Dict[str, str]) -> Dict[str, Any]:
+    """Convert WhereInput format to internal filter format."""
+    result = {}
+    for key, value in where.items():
+        if key in ('AND', 'OR', 'NOT'):
+            if isinstance(value, list):
+                result[key] = [_process_where_filters(item, py_to_db) for item in value]
+            else:
+                result[key] = _process_where_filters(value, py_to_db)
+        else:
+            db_key = py_to_db.get(key, key)
+            if isinstance(value, dict):
+                if (
+                    key in _User_extension_input_serializers
+                    and db_key not in _User_object_value_db_fields
+                    and not _looks_like_filter_operator_dict(value)
+                ):
+                    result[db_key] = _serialize_scalar_input(key, value)
+                    continue
+                if (
+                    db_key in _User_object_value_db_fields
+                    and not _looks_like_filter_operator_dict(value)
+                ):
+                    _object_equality_requires_explicit_equals(key)
+                # Filter object with operators – keep nested {field: {op: value}} format
+                # so the engine's parse_field_condition receives {"id": {"in": [...]}}.
+                ops = {}
+                for op, op_value in value.items():
+                    # Convert Python-safe names back to the engine protocol.
+                    actual_op = {
+                        "equals": "eq",
+                        "eq": "eq",
+                        "in_": "in",
+                        "not_": "not",
+                        "notIn": "notIn",
+                        "not_in": "notIn",
+                        "startsWith": "startsWith",
+                        "startswith": "startsWith",
+                        "endsWith": "endsWith",
+                        "endswith": "endsWith",
+                        "isNull": "isNull",
+                        "isNotNull": "isNotNull",
+                        "is_not_null": "isNotNull",
+                        "is_null": "isNull",
+                    }.get(op, op)
+                    coerced = _serialize_filter_input(key, actual_op, op_value)
+                    ops[actual_op] = coerced
+                if ops:
+                    result[db_key] = ops
+            else:
+                result[db_key] = _serialize_scalar_input(key, value)
+    return result
+
+
+def _process_select_fields(select: Dict[str, bool], py_to_logical: Dict[str, str]) -> Dict[str, bool]:
+    """Convert Python field names to logical field names for query projection."""
+    result = {}
+    for key, value in select.items():
+        logical_key = py_to_logical.get(key, key)
+        result[logical_key] = value
+    return result
+
+
+def _serialize_user_include_args(spec: Any) -> Any:
+    """Prepare one include node, which loads User under a parent.
+
+    The node has the shape of a read's arguments and gets the same
+    preparation: its ``where`` is a User filter, so it goes through
+    this model's own serializers rather than the parent's, and ``order_by``
+    becomes the ``orderBy`` list the engine expects.
+    """
+    if spec is None or isinstance(spec, bool):
+        return spec
+    if not isinstance(spec, dict):
+        return spec
+    node: Dict[str, Any] = {}
+    for key, value in spec.items():
+        if value is None:
+            # An entry set to None is one the caller left out, not an empty
+            # filter or an empty ordering, which the engine would reject.
+            continue
+        if key in ("order_by", "orderBy"):
+            if isinstance(value, dict):
+                node["orderBy"] = [{fk: fv} for fk, fv in value.items()]
+            else:
+                node["orderBy"] = value
+        elif key == "where":
+            node["where"] = (
+                _process_where_filters(value, _User_py_to_db)
+                if isinstance(value, dict)
+                else value
+            )
+        elif key == "include":
+            node["include"] = _serialize_user_include(value)
+        else:
+            node[key] = value
+    return node
+
+
+def _serialize_user_include(include: Any) -> Any:
+    """Prepare the relations User eager-loads, each against its own model."""
+    if include is None or isinstance(include, bool):
+        return include
+    if not isinstance(include, dict):
+        return include
+    result: Dict[str, Any] = {}
+    for field, spec in include.items():
+        result[field] = spec
+    return result
+
+
+def _get_wire_value(row: Dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in row:
+            return row[key]
+    return _MISSING
+
+
+def _coerce_user_scalar(py_key: str, value: Any) -> Any:
+    if py_key in _User_scalar_coercers:
+        return _User_scalar_coercers[py_key](value)
+    return value
+
+
+def _hydrate_user_relation(field_name: str, value: Any) -> Any:
+    return value
+
+
+def _user_from_wire(row: Dict[str, Any]) -> "User":
+    """Convert engine rows and nested include payloads to User."""
+    kwargs: Dict[str, Any] = {}
+    value = _get_wire_value(row, "User__id", "id")
+    if value is not _MISSING:
+        if value is not None:
+            kwargs["id"] = _coerce_user_scalar("id", value)
+    value = _get_wire_value(row, "User__name", "name")
+    if value is not _MISSING:
+        if value is not None:
+            kwargs["name"] = _coerce_user_scalar("name", value)
+    return User(**kwargs)
+
+
+def _user_projection_from_wire(row: Dict[str, Any]) -> "UserProjection":
+    """Convert engine rows to a partial User projection."""
+    payload: Any = {}
+    value = _get_wire_value(row, "User__id", "id")
+    if value is not _MISSING:
+        payload["id"] = (
+            _coerce_user_scalar("id", value)
+            if value is not None
+            else None
+        )
+    value = _get_wire_value(row, "User__name", "name")
+    if value is not _MISSING:
+        payload["name"] = (
+            _coerce_user_scalar("name", value)
+            if value is not None
+            else None
+        )
+    return payload
+
+
+def _User_from_row(row: Dict[str, Any]) -> "User":
+    """Convert engine row (table__column keys) to User dataclass."""
+    return _user_from_wire(row)
+
+
+def _user_from_row(row: Dict[str, Any]) -> "User":
+    """Compatibility wrapper keyed by model snake_case."""
+    return _user_from_wire(row)
+
+
+class UserDelegate:
+    """Operations for User.
+    Every method executes immediately when awaited — no extra ``.exec()`` call
+    is needed::
+
+        users = await client.User.find_many(where={"role": "ADMIN"}, take=10)
+        user  = await client.User.create({"email": "alice@example.com"})
+    """
+
+    def __init__(self, client: NautilusClient) -> None:
+        self._client = client
+
+    @overload
+    async def find_many(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: None = None,
+        include: Optional[Dict[str, Any]] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: Optional[int] = None,
+    ) -> List[User]: ...
+
+    @overload
+    async def find_many(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: UserSelectInput,
+        include: Optional[Dict[str, Any]] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: Optional[int] = None,
+    ) -> List[UserProjection]: ...
+
+    async def find_many(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: Optional[UserSelectInput] = None,
+        include: Optional[Dict[str, Any]] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: Optional[int] = None,
+    ) -> Union[List[User], List[UserProjection]]:
+        """Find all User records matching the given filters.
+
+        Args:
+            where: Filter conditions (optional).
+            order_by: Sorting directions, e.g. ``{"created_at": "desc"}``.
+            take: Maximum number of rows to return (LIMIT).
+                  Positive values paginate **forward**; negative values
+                  paginate **backward** from the cursor position.
+            skip: Number of rows to skip (OFFSET).
+            select: Scalar field projection, e.g. ``{"id": True, "display_name": True}``.
+                    Primary-key fields are always returned by the engine.
+            include: Relations to eager-load, e.g. ``{"posts": True}``.
+            cursor: Stable keyset cursor — a dict of primary-key field name
+                    to value.  All PK fields of the model must be present.
+                    The cursor record is included in the result (inclusive).
+            distinct: List of field names to deduplicate on.
+                      Postgres: ``SELECT DISTINCT ON (col, ...)`` with the
+                      distinct columns auto-prepended to ORDER BY.
+                      SQLite / MySQL: plain ``SELECT DISTINCT`` (full-row
+                      dedup — most effective combined with ``select``).
+            chunk_size: Optional protocol-level row chunk size for large result
+                        sets. The client still returns one fully merged list.
+
+        Returns:
+            A list of matching ``User`` instances. Prefer this API
+            when the caller naturally wants the whole result set in memory.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _User_py_to_db)
+        if order_by is not None:
+            if isinstance(order_by, list):
+                args["orderBy"] = order_by
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if select is not None:
+            args["select"] = _process_select_fields(select, _User_py_to_logical)
+        if include is not None:
+            args["include"] = _serialize_user_include(include)
+        if cursor is not None:
+            args["cursor"] = cursor
+        if distinct is not None:
+            args["distinct"] = distinct
+        payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "args": args,
+        }
+        if chunk_size is not None:
+            payload["chunkSize"] = chunk_size
+
+        result = await self._client._rpc("query.findMany", payload)
+        decoder = _user_projection_from_wire if select is not None else _User_from_row
+        return [decoder(row) for row in result.get("data", [])]
+
+    
+    @overload
+    def stream_many(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: None = None,
+        include: Optional[Dict[str, Any]] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: int = 128,
+    ) -> AsyncIterator[User]: ...
+
+    @overload
+    def stream_many(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: UserSelectInput,
+        include: Optional[Dict[str, Any]] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: int = 128,
+    ) -> AsyncIterator[UserProjection]: ...
+
+    async def stream_many(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: Optional[UserSelectInput] = None,
+        include: Optional[Dict[str, Any]] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: int = 128,
+    ) -> AsyncIterator[Union[User, UserProjection]]:
+        """Stream User records as they arrive from the engine.
+
+        Unlike :meth:`find_many`, this API does not merge every partial frame
+        into one final list before returning. Each matching row is yielded as
+        soon as the engine emits the next chunk.
+
+        Prefer :meth:`find_many` for small pages or any path that already wants
+        a final ``list[User]``. Prefer :meth:`stream_many` for
+        exports, scans, or early-exit consumers that should not accumulate all
+        rows client-side.
+
+        Args:
+            chunk_size: Protocol-level chunk size used by the engine for this
+                        streamed request. Must be greater than zero.
+
+        Yields:
+            Matching ``User`` instances, one by one.
+        """
+        if chunk_size < 1:
+            raise ValueError("chunk_size must be greater than zero")
+
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _User_py_to_db)
+        if order_by is not None:
+            if isinstance(order_by, list):
+                args["orderBy"] = order_by
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if select is not None:
+            args["select"] = _process_select_fields(select, _User_py_to_logical)
+        if include is not None:
+            args["include"] = _serialize_user_include(include)
+        if cursor is not None:
+            args["cursor"] = cursor
+        if distinct is not None:
+            args["distinct"] = distinct
+
+        payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "args": args,
+            "chunkSize": chunk_size,
+        }
+
+        async for chunk in self._client._stream_rpc("query.findMany", payload):
+            decoder = _user_projection_from_wire if select is not None else _User_from_row
+            for row in chunk.get("data", []):
+                yield decoder(row)
+    
+
+    @overload
+    async def find_first(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        select: None = None,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> Optional[User]: ...
+
+    @overload
+    async def find_first(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        select: UserSelectInput,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> Optional[UserProjection]: ...
+
+    async def find_first(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        select: Optional[UserSelectInput] = None,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> Union[User, UserProjection, None]:
+        """Find the first User record matching the given filters.
+
+        Returns:
+            The first matching ``User`` instance, or ``None``.
+        """
+        args: Dict[str, Any] = {"take": 1}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _User_py_to_db)
+        if order_by is not None:
+            if isinstance(order_by, list):
+                args["orderBy"] = order_by
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
+        if select is not None:
+            args["select"] = _process_select_fields(select, _User_py_to_logical)
+        if include is not None:
+            args["include"] = _serialize_user_include(include)
+
+        payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "args": args,
+        }
+        result = await self._client._rpc("query.findFirst", payload)
+        row = _first_data_row(result)
+        if row is None:
+            return None
+        decoder = _user_projection_from_wire if select is not None else _User_from_row
+        return decoder(row)
+
+    @overload
+    async def find_unique(
+        self,
+        *,
+        where: UserWhereInput,
+        select: None = None,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> Optional[User]: ...
+
+    @overload
+    async def find_unique(
+        self,
+        *,
+        where: UserWhereInput,
+        select: UserSelectInput,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> Optional[UserProjection]: ...
+
+    async def find_unique(
+        self,
+        *,
+        where: UserWhereInput,
+        select: Optional[UserSelectInput] = None,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> Union[User, UserProjection, None]:
+        """Find a single User record by a unique filter.
+
+        Returns:
+            The matching ``User`` instance, or ``None``.
+        """
+        if select is not None or include is not None:
+            return await self.find_first(where=where, select=select, include=include)
+
+        payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "filter": _process_where_filters(where, _User_py_to_db),
+        }
+        result = await self._client._rpc("query.findUnique", payload)
+        row = _first_data_row(result)
+        return _User_from_row(row) if row is not None else None
+
+    @overload
+    async def find_unique_or_throw(
+        self,
+        *,
+        where: UserWhereInput,
+        select: None = None,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> User: ...
+
+    @overload
+    async def find_unique_or_throw(
+        self,
+        *,
+        where: UserWhereInput,
+        select: UserSelectInput,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> UserProjection: ...
+
+    async def find_unique_or_throw(
+        self,
+        *,
+        where: UserWhereInput,
+        select: Optional[UserSelectInput] = None,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> Union[User, UserProjection]:
+        """Find a single User record by a unique filter, or raise if not found.
+
+        Returns:
+            The matching ``User`` instance.
+
+        Raises:
+            NotFoundError: If no record matches the given filter.
+        """
+        from ..errors import NotFoundError
+        record = await self.find_unique(where=where, select=select, include=include)
+        if record is None:
+            raise NotFoundError(
+                f"findUniqueOrThrow: no User record found matching the given filter"
+            )
+        return record
+
+    @overload
+    async def find_first_or_throw(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        select: None = None,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> User: ...
+
+    @overload
+    async def find_first_or_throw(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        select: UserSelectInput,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> UserProjection: ...
+
+    async def find_first_or_throw(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        select: Optional[UserSelectInput] = None,
+        include: Optional[Dict[str, Any]] = None,
+    ) -> Union[User, UserProjection]:
+        """Find the first User record matching ``where``, or raise if not found.
+
+        Returns:
+            The first matching ``User`` instance.
+
+        Raises:
+            NotFoundError: If no record matches the given filters.
+        """
+        from ..errors import NotFoundError
+        record = await self.find_first(where=where, order_by=order_by, select=select, include=include)
+        if record is None:
+            raise NotFoundError(
+                f"findFirstOrThrow: no User record found matching the given filter"
+            )
+        return record
+    async def create(self, data: UserCreateInput, *, return_data: bool = True) -> Optional[User]:
+        """Create a new User record.
+
+        Args:
+            data: Field values for the new record.
+            return_data: When ``True`` (default) the created record is returned.
+                Set to ``False`` for fire-and-forget inserts to avoid the
+                round-trip overhead of ``RETURNING``.
+
+        Returns:
+            The newly created ``User`` instance, or ``None`` when
+            ``return_data=False``.
+        """
+        _args: Dict[str, Any] = {"data": data, "return_data": return_data}
+        _payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "data": _process_create_data(data, _User_py_to_db),
+            "returnData": return_data,
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _user_event_context(
+                self._client, "create", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = await run_crud_event(_before_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("create", return_data))
+
+            result = await self._client._rpc("query.create", _payload)
+            if not return_data:
+                _decoded = None
+            else:
+                data_rows = result.get("data", [])
+                if not data_rows:
+                    raise RuntimeError("Create operation returned no data")
+                _decoded = _User_from_row(data_rows[0])
+
+            _after_ctx = _user_event_context(
+                self._client,
+                "create",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = await run_crud_event(_after_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("create", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _user_event_context(
+                self._client,
+                "create",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            await run_crud_event(_error_ctx, handle_stop_propagation=False)
+            raise
+
+    async def create_many(
+        self,
+        data: List[UserCreateInput],
+        *,
+        return_data: bool = True,
+    ) -> List[User]:
+        """Create multiple User records in a single batch.
+
+        Args:
+            data: List of field-value dicts for the records to create.
+            return_data: When ``True`` (default) the created records are returned.
+                Set to ``False`` for bulk inserts to skip ``RETURNING`` overhead.
+
+        Returns:
+            The list of newly created ``User`` instances, or an empty
+            list when ``return_data=False``.
+        """
+        _args: Dict[str, Any] = {"data": data, "return_data": return_data}
+        _payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "data": [_process_create_data(_entry, _User_py_to_db) for _entry in data],
+            "returnData": return_data,
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _user_event_context(
+                self._client, "createMany", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = await run_crud_event(_before_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("createMany", return_data))
+
+            result = await self._client._rpc("query.createMany", _payload)
+            _decoded = [] if not return_data else [
+                _User_from_row(row) for row in result.get("data", [])
+            ]
+
+            _after_ctx = _user_event_context(
+                self._client,
+                "createMany",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = await run_crud_event(_after_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("createMany", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _user_event_context(
+                self._client,
+                "createMany",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            await run_crud_event(_error_ctx, handle_stop_propagation=False)
+            raise
+
+    async def update(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        data: UserUpdateInput,
+        return_data: bool = True,
+    ):
+        """Update User records matching ``where``.
+
+        Args:
+            where: Filter conditions. If ``None``, all records are updated.
+            data: Fields to update.
+            return_data: When ``True`` (default) returns the updated records.
+                Set to ``False`` for bulk updates to skip ``RETURNING`` overhead;
+                the affected-row count is returned instead.
+
+        Returns:
+            ``List[User]`` when ``return_data=True``, or ``int``
+            (affected-row count) when ``return_data=False``.
+        """
+        _args: Dict[str, Any] = {
+            "where": where,
+            "data": data,
+            "return_data": return_data,
+        }
+        _payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "filter": _process_where_filters(where or {}, _User_py_to_db),
+            "data": _process_create_data(data, _User_py_to_db),
+            "returnData": return_data,
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _user_event_context(
+                self._client, "update", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = await run_crud_event(_before_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("update", return_data))
+
+            result = await self._client._rpc("query.update", _payload)
+            if not return_data:
+                _decoded = result.get("count", 0)
+            else:
+                _decoded = [_User_from_row(row) for row in result.get("data", [])]
+
+            _after_ctx = _user_event_context(
+                self._client,
+                "update",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = await run_crud_event(_after_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("update", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _user_event_context(
+                self._client,
+                "update",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            await run_crud_event(_error_ctx, handle_stop_propagation=False)
+            raise
+
+    async def delete(
+        self,
+        *,
+        where: UserWhereInput,
+        return_data: bool = True,
+    ) -> Optional["User"]:
+        """Delete the first User record matching ``where``.
+
+        Finds the first matching record and deletes it by its primary key.
+
+        Args:
+            where: Filter conditions. Required.
+            return_data: When ``True`` (default) returns the deleted record.
+                Set to ``False`` to skip ``RETURNING`` overhead; ``None`` is
+                returned in that case.
+
+        Returns:
+            The deleted ``User`` instance when ``return_data=True``,
+            or ``None`` when ``return_data=False``.
+
+        Raises:
+            NotFoundError: If no record matches the given filter.
+        """
+        from ..errors import NotFoundError
+        record = await self.find_first(where=where)
+        if record is None:
+            raise NotFoundError(
+                f"delete: no User record found matching the given filter"
+            )
+        pk_filter = {
+            "id": getattr(record, "id"),
+        }
+        _args: Dict[str, Any] = {"where": where, "return_data": return_data}
+        _payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "filter": _process_where_filters(pk_filter, _User_py_to_db),
+            "returnData": return_data,
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _user_event_context(
+                self._client, "delete", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = await run_crud_event(_before_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("delete", return_data))
+
+            result = await self._client._rpc("query.delete", _payload)
+            if return_data:
+                data_rows = result.get("data", [])
+                if data_rows:
+                    _decoded = _User_from_row(data_rows[0])
+                else:
+                    _decoded = record
+            else:
+                _decoded = None
+
+            _after_ctx = _user_event_context(
+                self._client,
+                "delete",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = await run_crud_event(_after_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("delete", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _user_event_context(
+                self._client,
+                "delete",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            await run_crud_event(_error_ctx, handle_stop_propagation=False)
+            raise
+
+    async def delete_many(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        return_data: bool = False,
+    ):
+        """Delete all User records matching ``where``.
+
+        Args:
+            where: Filter conditions. If ``None``, all records are deleted.
+            return_data: When ``True`` returns the deleted records (uses
+                ``RETURNING``). Defaults to ``False`` for efficiency.
+
+        Returns:
+            ``int`` (affected-row count) when ``return_data=False`` (default),
+            or ``List[User]`` when ``return_data=True``.
+        """
+        _args: Dict[str, Any] = {"where": where, "return_data": return_data}
+        _payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "filter": _process_where_filters(where or {}, _User_py_to_db),
+            "returnData": return_data,
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _user_event_context(
+                self._client, "deleteMany", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = await run_crud_event(_before_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("deleteMany", return_data))
+
+            _method = "query.delete" if return_data else "query.deleteMany"
+            result = await self._client._rpc(_method, _payload)
+            if return_data:
+                _decoded = [_User_from_row(row) for row in result.get("data", [])]
+            else:
+                _decoded = result.get("count", 0)
+
+            _after_ctx = _user_event_context(
+                self._client,
+                "deleteMany",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = await run_crud_event(_after_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("deleteMany", return_data))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _user_event_context(
+                self._client,
+                "deleteMany",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            await run_crud_event(_error_ctx, handle_stop_propagation=False)
+            raise
+
+    async def update_many(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        data: UserUpdateInput,
+    ) -> int:
+        """Update every User record matching ``where``.
+
+        Unlike :meth:`update`, no rows are returned: the engine runs one
+        statement without a ``RETURNING`` clause however many rows it touches.
+
+        Args:
+            where: Filter conditions. If ``None``, all records are updated.
+            data: Fields to update.
+
+        Returns:
+            The affected-row count.
+        """
+        _args: Dict[str, Any] = {"where": where, "data": data}
+        _payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "filter": _process_where_filters(where or {}, _User_py_to_db),
+            "data": _process_create_data(data, _User_py_to_db),
+        }
+        _state: Dict[str, Any] = {}
+        try:
+            _before_ctx = _user_event_context(
+                self._client, "updateMany", EventPhase.BEFORE, _args, _payload, _state
+            )
+            _stop = await run_crud_event(_before_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("updateMany"))
+
+            result = await self._client._rpc("query.updateMany", _payload)
+            _decoded = result.get("count", 0)
+
+            _after_ctx = _user_event_context(
+                self._client,
+                "updateMany",
+                EventPhase.AFTER,
+                _args,
+                _payload,
+                _state,
+                result=_decoded,
+            )
+            _stop = await run_crud_event(_after_ctx)
+            if _stop is not None:
+                return resolve_stop_result(_stop, default_cud_result("updateMany"))
+            return _decoded
+        except Exception as _error:
+            _error_ctx = _user_event_context(
+                self._client,
+                "updateMany",
+                EventPhase.ERROR,
+                _args,
+                _payload,
+                _state,
+                error=_error,
+            )
+            await run_crud_event(_error_ctx, handle_stop_propagation=False)
+            raise
+
+
+    async def aggregate(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        count: Optional[Union[bool, UserCountAggregateInput]] = None,
+
+        avg: Optional[UserAvgAggregateInput] = None,
+        sum: Optional[UserSumAggregateInput] = None,
+
+        min: Optional[UserMinAggregateInput] = None,
+        max: Optional[UserMaxAggregateInput] = None,
+    ) -> UserAggregateOutput:
+        """Aggregate over every User record matching ``where``.
+
+        Same aggregates as :meth:`group_by` without a grouping key, so the
+        result is a single row covering the whole filtered set. A filter that
+        matches nothing still yields a row: counts are ``0`` and the other
+        aggregates ``None``.
+
+        Args:
+            where: Filter conditions (optional).
+            count: Compute COUNT. Pass ``True`` for ``COUNT(*)`` or a
+                ``UserCountAggregateInput`` dict to count specific fields.
+
+            avg: Compute AVG for the specified numeric fields.
+            sum: Compute SUM for the specified numeric fields.
+
+            min: Compute MIN for the specified fields.
+            max: Compute MAX for the specified fields.
+
+        Returns:
+            One ``UserAggregateOutput`` dict.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _User_py_to_db)
+        if count is not None:
+            args["count"] = count
+        if avg is not None:
+            args["avg"] = avg
+        if sum is not None:
+            args["sum"] = sum
+        if min is not None:
+            args["min"] = min
+        if max is not None:
+            args["max"] = max
+
+        result = await self._client._rpc("query.aggregate", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "args": args,
+        })
+        rows = result.get("data", [])
+        return rows[0] if rows else {}
+
+    async def explain(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        order_by: Optional[Union[UserOrderByInput, List[UserOrderByInput]]] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: Optional[UserSelectInput] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        analyze: bool = False,
+    ) -> UserExplainOutput:
+        """Ask the database to explain the statement :meth:`find_many` would run.
+
+        Args:
+            where: Filter conditions (optional).
+            order_by: Sorting directions.
+            take: Row limit (LIMIT).
+            skip: Rows to skip (OFFSET).
+            select: Scalar field projection.
+            cursor: Keyset cursor.
+            distinct: Field names to deduplicate on.
+            analyze: Execute the statement to collect real timings. PostgreSQL
+                and MySQL support this; SQLite's plan is static and ignores it.
+
+        Returns:
+            A ``UserExplainOutput`` with the rendered SQL, its bound
+            parameters in placeholder order, and the plan rows.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _User_py_to_db)
+        if order_by is not None:
+            if isinstance(order_by, list):
+                args["orderBy"] = order_by
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if select is not None:
+            args["select"] = _process_select_fields(select, _User_py_to_logical)
+        if cursor is not None:
+            args["cursor"] = cursor
+        if distinct is not None:
+            args["distinct"] = distinct
+
+        return await self._client._rpc("query.explain", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "args": args,
+            "analyze": analyze,
+        })
+
+    async def count(
+        self,
+        *,
+        where: Optional[UserWhereInput] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Count the number of User records matching the given filters.
+
+        Args:
+            where: Filter conditions (optional).
+            take: Limit the count to a forward-pagination window of at most this
+                  many rows.  When combined with ``skip``, counts only the rows
+                  in that slice (mirrors ``findMany`` semantics).
+            skip: Number of rows to skip before counting.
+            cursor: Keyset cursor — combined with ``take``/``skip`` to count
+                    within a paginated window.
+
+        Returns:
+            The integer count of matching records.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _User_py_to_db)
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if cursor is not None:
+            args["cursor"] = cursor
+
+        result = await self._client._rpc("query.count", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "args": args if args else None,
+        })
+        return result.get("count", 0)
+
+    async def group_by(
+        self,
+        by: List[UserScalarFieldKeys],
+        *,
+        where: Optional[UserWhereInput] = None,
+        having: Optional[Dict[str, Any]] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        count: Optional[Union[bool, UserCountAggregateInput]] = None,
+
+        avg: Optional[UserAvgAggregateInput] = None,
+        sum: Optional[UserSumAggregateInput] = None,
+
+        min: Optional[UserMinAggregateInput] = None,
+        max: Optional[UserMaxAggregateInput] = None,
+        order: Optional[Union[
+            Dict[UserScalarFieldKeys, SortOrder],
+            List[Dict[UserScalarFieldKeys, SortOrder]],
+        ]] = None,
+    ) -> List[UserGroupByOutput]:
+        """Group User records and compute aggregates.
+
+        Args:
+            by: List of field names to group by. Required.
+            where: Pre-group filter (applied before grouping).
+            having: Post-group filter (applied after grouping), e.g.
+                ``{"_count": {"_all": {"gt": 5}}}``.
+            take: Maximum number of groups to return.
+            skip: Number of groups to skip.
+            count: Compute COUNT. Pass ``True`` for ``COUNT(*)`` or a
+                ``UserCountAggregateInput`` dict to count specific fields.
+
+            avg: Compute AVG for the specified numeric fields.
+            sum: Compute SUM for the specified numeric fields.
+
+            min: Compute MIN for the specified fields.
+            max: Compute MAX for the specified fields.
+            order: Sort order — a mapping or list of mappings from field name
+                to ``"asc"``/``"desc"``. Aggregate keys like ``_count``,
+                ``_sum``, etc. are also accepted.
+
+        Returns:
+            A list of ``UserGroupByOutput`` dicts, one per group.
+        """
+        args: Dict[str, Any] = {"by": list(by)}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _User_py_to_db)
+        if having is not None:
+            args["having"] = having
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if count is not None:
+            args["count"] = count
+
+        if avg is not None:
+            args["avg"] = avg
+        if sum is not None:
+            args["sum"] = sum
+
+        if min is not None:
+            args["min"] = min
+        if max is not None:
+            args["max"] = max
+        if order is not None:
+            if isinstance(order, list):
+                args["orderBy"] = order
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order.items()]
+
+        result = await self._client._rpc("query.groupBy", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "args": args,
+        })
+        return result.get("data", [])
+
+    async def raw_query(
+        self,
+        sql: str,
+    ) -> List[Dict[str, Any]]:
+        """Execute a raw SQL string and return the result rows as dicts.
+
+        The SQL is sent to the database as-is with no parameter binding.
+        Prefer :meth:`raw_stmt_query` when user-supplied values are involved to
+        avoid SQL injection.
+
+        Args:
+            sql: Raw SQL string to execute.
+
+        Returns:
+            A list of dicts mapping column name to value for each result row.
+        """
+        result = await self._client._rpc("query.rawQuery", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "sql": sql,
+        })
+        return result.get("data", [])
+
+    async def raw_stmt_query(
+        self,
+        sql: str,
+        params: Optional[List[Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Execute a raw prepared-statement query with bound parameters.
+
+        Use ``$1``, ``$2``, … (PostgreSQL) or ``?`` (MySQL / SQLite) as
+        placeholders. Parameters are bound in the order they appear in *params*.
+
+        Args:
+            sql: SQL string containing parameter placeholders.
+            params: Ordered list of values to bind to the placeholders.
+
+        Returns:
+            A list of dicts mapping column name to value for each result row.
+        """
+        result = await self._client._rpc("query.rawStmtQuery", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "sql": sql,
+            "params": params or [],
+        })
+        return result.get("data", [])
+    async def upsert(
+        self,
+        *,
+        where: UserWhereInput,
+        data: UserUpsertInput,
+        include: Optional[Dict[str, Any]] = None,
+        return_data: bool = True,
+    ) -> Optional[User]:
+        """Create or update a User record in one atomic statement.
+
+        Runs as a single ``INSERT ... ON CONFLICT`` (``ON DUPLICATE KEY UPDATE``
+        on MySQL), so no other writer can slip between the lookup and the write:
+        ``data["create"]`` is inserted, and ``data["update"]`` is applied instead
+        when the row already exists.
+
+        Args:
+            where: Filter naming exactly one unique constraint (or the primary
+                   key); those columns become the conflict target, and
+                   ``data["create"]`` must supply a value for each of them.
+            data: Dict with ``create`` and ``update`` keys, each holding the
+                  respective field values.
+            include: Relations to eager-load on the returned record.
+            return_data: When ``True`` (default) returns the record.
+                Set to ``False`` to skip ``RETURNING`` overhead; ``None`` is
+                returned in that case.
+
+        Returns:
+            The created or updated ``User`` instance, or ``None`` when
+            ``return_data=False``.
+        """
+        create_data: UserCreateInput = data.get("create", {})  # type: ignore[assignment]
+        update_data: UserUpdateInput = data.get("update", {})  # type: ignore[assignment]
+        _payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "User",
+            "filter": _process_where_filters(where or {}, _User_py_to_db),
+            "create": _process_create_data(create_data, _User_py_to_db),
+            "update": _process_create_data(update_data, _User_py_to_db),
+            "returnData": return_data,
+        }
+        result = await self._client._rpc("query.upsert", _payload)
+        if not return_data:
+            return None
+        data_rows = result.get("data", [])
+        if not data_rows:
+            raise RuntimeError("upsert: engine returned no data")
+        record = _User_from_row(data_rows[0])
+        if include:
+            rows = await self.find_many(where=where, take=1, include=include)
+            return rows[0] if rows else record
+        return record
+
+
+
+
+
+__all__ = [
+    "User",
+    "UserProjection",
+    "UserDelegate",
+    "JsonPrimitive",
+    "JsonValue",
+    "JsonScalarOrArray",
+    "HstoreValue",
+    "UserWhereInput",
+    "UserCreateInput",
+    "UserUpdateInput",
+    "UserUpsertInput",
+    "UserCreateEventArgs",
+    "UserCreateManyEventArgs",
+    "UserUpdateEventArgs",
+    "UserUpdateManyEventArgs",
+    "UserDeleteEventArgs",
+    "UserDeleteManyEventArgs",
+    "UserCreateEventPayload",
+    "UserCreateManyEventPayload",
+    "UserUpdateEventPayload",
+    "UserUpdateManyEventPayload",
+    "UserDeleteEventPayload",
+    "UserDeleteManyEventPayload",
+    "UserCreateEventContext",
+    "UserCreateManyEventContext",
+    "UserUpdateEventContext",
+    "UserUpdateManyEventContext",
+    "UserDeleteEventContext",
+    "UserDeleteManyEventContext",
+    "UserEventContext",
+    "UserOrderByInput",
+    "UserSelectInput",
+    "UserScalarFieldKeys",
+    "UserCountAggregateInput",
+    "UserAvgAggregateInput",
+    "UserSumAggregateInput",
+    "UserMinAggregateInput",
+    "UserMaxAggregateInput",
+    "UserGroupByOutput",
+    "UserAggregateOutput",
+    "UserExplainOutput",
+    "SortOrder",
+    "StringFilter",
+    "IntFilter",
+    "FloatFilter",
+    "DecimalFilter",
+    "DateTimeFilter",
+    "UuidFilter",
+    "BoolFilter",
+    "JsonFilter",
+    "HstoreFilter",
+    "VectorFilter",
+]

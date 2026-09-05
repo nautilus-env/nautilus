@@ -1,0 +1,3356 @@
+---
+source: crates/nautilus-codegen/tests/snapshot_tests.rs
+expression: snapshot_value
+---
+//! Post model and associated builders.
+use crate::Row;
+use futures::stream::StreamExt;
+fn all_scalar_value_hints() -> &'static [Option<crate::ValueHint>] {
+    &[
+        None,
+        None,
+    ]
+}
+
+fn all_scalar_decode_slots() -> &'static [usize] {
+    &[
+        0,
+        1,
+    ]
+}
+
+
+fn projected_scalar_value_hints(
+    fields: &std::collections::HashSet<String>,
+) -> Vec<Option<crate::ValueHint>> {
+    let mut hints = Vec::with_capacity(2);
+    hints.push(None);
+    if fields.is_empty() || fields.contains("content") {
+        hints.push(None);
+    }
+    hints
+}
+
+fn projected_scalar_decode_slots(fields: &std::collections::HashSet<String>) -> Vec<usize> {
+    let mut slots = Vec::with_capacity(2);
+    slots.push(0);
+    if fields.is_empty() || fields.contains("content") {
+        slots.push(1);
+    }
+    slots
+}
+
+#[allow(dead_code)]
+fn decode_relation_json_ref<T>(value: &nautilus_core::Value) -> Option<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    match value {
+        nautilus_core::Value::Json(json) => serde::Deserialize::deserialize(json).ok(),
+        _ => None,
+    }
+}
+
+#[allow(dead_code)]
+fn decode_relation_json_owned<T>(value: nautilus_core::Value) -> Option<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    match value {
+        nautilus_core::Value::Json(json) => serde_json::from_value(json).ok(),
+        _ => None,
+    }
+}
+
+fn decode_model_row_with_hints(
+    row: crate::Row,
+    decode_slots: &[usize],
+    hints: &[Option<crate::ValueHint>],
+) -> nautilus_core::Result<Post> {
+    if decode_slots.len() != hints.len() {
+        return Err(nautilus_core::Error::Other(format!(
+            "Failed to decode Post row: projection slot count {} does not match hint count {}",
+            decode_slots.len(),
+            hints.len(),
+        )));
+    }
+
+    if row.len() < decode_slots.len() {
+        return Err(nautilus_core::Error::TypeError(format!(
+            "expected at least {} projected scalar columns for Post, got {}",
+            decode_slots.len(),
+            row.len(),
+        )));
+    }
+    let mut id: Option<i32> = None;
+    let mut content: Option<String> = None;
+    let mut content_seen = false;
+
+    for (column_idx, (column_name, value)) in row.into_columns_iter().enumerate() {
+        if column_idx >= decode_slots.len() {
+            continue;
+        }
+
+        let value = match hints[column_idx] {
+            Some(hint) => crate::normalize_value_with_hint(&column_name, column_idx, value, hint)
+                .map_err(|e| {
+                    nautilus_core::Error::Other(format!(
+                        "Failed to normalize Post row: {}",
+                        e
+                    ))
+                })?,
+            None => value,
+        };
+
+        match decode_slots[column_idx] {
+            0 => {
+                id = Some(nautilus_core::FromValue::from_value_owned(value)?);
+            }
+            1 => {
+                content_seen = true;
+                content = match value {
+                    nautilus_core::Value::Null => None,
+                    other => Some(nautilus_core::FromValue::from_value_owned(other)?),
+                };
+            }
+            other => {
+                return Err(nautilus_core::Error::TypeError(format!(
+                    "unknown scalar projection slot {} while decoding Post",
+                    other
+                )));
+            }
+        }
+    }
+
+    Ok(Post {
+        id: id.ok_or_else(|| nautilus_core::Error::TypeError(
+            "missing required column 'id' (id) while decoding full Post".to_string()
+        ))?,
+        content: {
+            if !content_seen {
+                return Err(nautilus_core::Error::TypeError(
+                    "missing required column 'content' (content) while decoding full Post".to_string()
+                ));
+            }
+            content
+        },
+    })
+}
+
+fn projection_value_hint_for_column(
+    column: &nautilus_core::ColumnMarker,
+) -> Option<crate::ValueHint> {
+    if column.table.as_ref() != "Post" {
+        return None;
+    }
+
+    match column.name.as_ref() {
+        "id" => None,
+        "content" => None,
+        _ => None,
+    }
+}
+
+fn normalize_projection_row(
+    row: crate::Row,
+    hints: &[Option<crate::ValueHint>],
+) -> nautilus_core::Result<crate::Row> {
+    let mut normalized = crate::Row::with_capacity(row.len());
+    for (idx, (column_name, value)) in row.into_columns_iter().enumerate() {
+        let value = match hints.get(idx).and_then(|hint| *hint) {
+            Some(hint) => crate::normalize_value_with_hint(&column_name, idx, value, hint)
+                .map_err(|e| {
+                    nautilus_core::Error::Other(format!(
+                        "Failed to normalize Post projection row: {}",
+                        e
+                    ))
+                })?,
+            None => value,
+        };
+        normalized.push_column(column_name, value);
+    }
+    Ok(normalized)
+}
+
+/// Post model.
+///
+/// Scalar fields mirror the schema exactly. Partial `select` results use the
+/// delegate projection APIs instead of this full model type.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Post {
+    /// @id @default(autoincrement())
+    pub id: i32,
+    pub content: Option<String>,
+}
+
+
+impl Post {
+    /// Column accessor for id.
+    pub fn id() -> nautilus_core::Column<i32> {
+        nautilus_core::Column::new("Post", "id")
+    }
+    /// Column accessor for content.
+    pub fn content() -> nautilus_core::Column<String> {
+        nautilus_core::Column::new("Post", "content")
+    }
+    /// Create a delegate for Post queries.
+    pub fn nautilus<E>(client: &crate::Client<E>) -> PostDelegate<E>
+    where
+        E: crate::Executor,
+        for<'a> E::Row<'a>: Into<crate::Row>,
+    {
+        PostDelegate::new(client.clone())
+    }
+}
+
+
+impl crate::FromRow for Post {
+    fn from_row(row: &crate::Row) -> nautilus_core::Result<Self> {
+        let id = row
+            .get("id")
+            .or_else(|| row.get("Post__id"))
+            .ok_or_else(|| nautilus_core::Error::TypeError(
+                "missing required column 'id' (id) while decoding full Post".to_string()
+            ))
+            .and_then(nautilus_core::FromValue::from_value)?;
+        let content = row
+            .get("content")
+            .or_else(|| row.get("Post__content"))
+            .ok_or_else(|| nautilus_core::Error::TypeError(
+                "missing required column 'content' (content) while decoding full Post".to_string()
+            ))
+            .and_then(nautilus_core::FromValue::from_value)?;
+
+        // Decode relation fields from JSON (if included via .include()).
+
+        Ok(Post {
+            id,
+            content,
+        })
+    }
+}
+
+
+/// Column accessors for Post selections.
+#[derive(Debug, Clone, Copy)]
+pub struct PostColumns;
+
+impl PostColumns {
+    pub fn id(&self) -> nautilus_core::Column<i32> {
+        nautilus_core::Column::new("Post", "id")
+    }
+    pub fn content(&self) -> nautilus_core::Column<Option<String>> {
+        nautilus_core::Column::new("Post", "content")
+    }
+}
+
+
+
+/// Structured input for creating a Post record.
+///
+/// All fields are optional; unset fields are omitted from the INSERT.
+#[derive(Debug, Default, Clone)]
+pub struct PostCreateInput {
+    /// id column.
+    pub id: Option<i32>,
+    /// content column.
+    pub content: Option<Option<String>>,
+}
+
+impl PostCreateInput {
+    /// Whether the input names a relation, which only the engine can write.
+    pub(crate) fn has_nested_writes(&self) -> bool {
+        false
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut data = serde_json::Map::new();
+        if let Some(value) = &self.id {
+            data.insert(
+                "id".to_string(),
+                nautilus_core::Value::from(value.clone()).to_json_plain(),
+            );
+        }
+        if let Some(value) = &self.content {
+            data.insert(
+                "content".to_string(),
+                match value {
+                    Some(inner) => nautilus_core::Value::from(inner.clone()).to_json_plain(),
+                    None => serde_json::Value::Null,
+                },
+            );
+        }
+        Ok(serde_json::Value::Object(data))
+    }
+}
+
+impl crate::runtime::nested::NestedInput for PostCreateInput {
+    fn to_nested_json(&self) -> nautilus_core::Result<serde_json::Value> {
+        self.to_engine_data()
+    }
+}
+
+/// Structured input for updating Post records.
+///
+/// All fields are optional; only set fields are included in the UPDATE.
+#[derive(Debug, Default, Clone)]
+pub struct PostUpdateInput {
+    /// id column: a value to write, or arithmetic the database
+    /// applies to the row's current one.
+    pub id: Option<crate::NumericUpdate<i32, i32>>,
+    /// content column.
+    pub content: Option<Option<String>>,
+}
+
+impl PostUpdateInput {
+    /// Whether the input names a relation, which only the engine can write.
+    pub(crate) fn has_nested_writes(&self) -> bool {
+        false
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut data = serde_json::Map::new();
+        if let Some(value) = &self.id {
+            data.insert(
+                "id".to_string(),
+                value.to_engine_json(),
+            );
+        }
+        if let Some(value) = &self.content {
+            data.insert(
+                "content".to_string(),
+                match value {
+                    Some(inner) => nautilus_core::Value::from(inner.clone()).to_json_plain(),
+                    None => serde_json::Value::Null,
+                },
+            );
+        }
+        Ok(serde_json::Value::Object(data))
+    }
+
+    fn has_assignments(&self) -> bool {
+        self.id.is_some() ||
+        self.content.is_some() ||
+        self.has_nested_writes()
+    }
+}
+
+impl crate::runtime::nested::NestedInput for PostUpdateInput {
+    fn to_nested_json(&self) -> nautilus_core::Result<serde_json::Value> {
+        self.to_engine_data()
+    }
+}
+
+/// Structured arguments for updating Post records.
+#[derive(Debug, Default, Clone)]
+pub struct PostUpdateArgs {
+    /// Optional WHERE filter — if `None`, all rows are updated.
+    pub where_: Option<nautilus_core::Expr>,
+    /// Fields to update.
+    pub data: PostUpdateInput,
+}
+
+/// Structured arguments for deleting Post records.
+#[derive(Debug, Default, Clone)]
+pub struct PostDeleteArgs {
+    /// Optional WHERE filter — if `None`, all rows are deleted.
+    pub where_: Option<nautilus_core::Expr>,
+}
+
+/// Structured arguments for upserting a Post record.
+#[derive(Debug, Default, Clone)]
+pub struct PostUpsertArgs {
+    /// WHERE filter used to look up the existing record (should target a unique field).
+    pub where_: Option<nautilus_core::Expr>,
+    /// Fields used when creating a new record (record not found).
+    pub create: PostCreateInput,
+    /// Fields applied when updating an existing record.
+    pub update: PostUpdateInput,
+    /// Whether to return the created/updated record (default: true).
+    pub return_data: bool,
+}
+
+pub type PostCreateEventContext =
+    crate::CrudEventContext<PostCreateInput, Post>;
+pub type PostCreateManyEventContext =
+    crate::CrudEventContext<Vec<PostCreateEntry>, Vec<Post>>;
+pub type PostUpdateEventContext =
+    crate::CrudEventContext<PostUpdateArgs, Vec<Post>>;
+pub type PostUpdateManyEventContext =
+    crate::CrudEventContext<PostUpdateArgs, u64>;
+pub type PostDeleteEventContext =
+    crate::CrudEventContext<PostDeleteArgs, Option<Post>>;
+pub type PostDeleteManyEventContext =
+    crate::CrudEventContext<PostDeleteArgs, Vec<Post>>;
+
+
+/// Scalar fields on Post that can be referenced in generated aggregate APIs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PostScalarField {
+    Id,
+    Content,
+}
+
+impl PostScalarField {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Id => "id",
+            Self::Content => "content",
+        }
+    }
+}
+
+/// Sort direction used by Post `group_by()` ordering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PostSortOrder {
+    Asc,
+    Desc,
+}
+
+impl PostSortOrder {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        }
+    }
+}
+
+/// Structured arguments for counting Post records.
+#[derive(Debug, Default, Clone)]
+pub struct PostCountArgs {
+    /// Optional WHERE filter.
+    pub where_: Option<nautilus_core::Expr>,
+    /// Limit the counted window.
+    pub take: Option<i32>,
+    /// Offset the counted window.
+    pub skip: Option<u32>,
+    /// Optional keyset cursor for paginated counts.
+    pub cursor: Option<std::collections::HashMap<String, nautilus_core::Value>>,
+}
+
+impl PostCountArgs {
+    fn to_engine_args(&self) -> nautilus_core::Result<Option<serde_json::Value>> {
+        let mut args = serde_json::Map::new();
+
+        if let Some(filter) = self.where_.as_ref() {
+            args.insert(
+                "where".to_string(),
+                nautilus_core::where_expr_to_protocol_json(filter)?,
+            );
+        }
+        if let Some(take) = self.take {
+            args.insert("take".to_string(), serde_json::Value::from(take));
+        }
+        if let Some(skip) = self.skip {
+            args.insert("skip".to_string(), serde_json::Value::from(skip));
+        }
+        if let Some(cursor) = self.cursor.as_ref() {
+            args.insert("cursor".to_string(), serialize_cursor_for_engine(cursor));
+        }
+
+        Ok((!args.is_empty()).then_some(serde_json::Value::Object(args)))
+    }
+}
+
+/// Select which COUNT aggregates to return from `PostDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct PostCountAggregateInput {
+    pub _all: bool,
+    pub id: bool,
+    pub content: bool,
+}
+
+impl PostCountAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self._all {
+            obj.insert("_all".to_string(), serde_json::Value::Bool(true));
+        }
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        if self.content {
+            obj.insert("content".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+/// Select which AVG aggregates to return from `PostDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct PostAvgAggregateInput {
+    pub id: bool,
+}
+
+impl PostAvgAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// Select which SUM aggregates to return from `PostDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct PostSumAggregateInput {
+    pub id: bool,
+}
+
+impl PostSumAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// Select which MIN aggregates to return from `PostDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct PostMinAggregateInput {
+    pub id: bool,
+    pub content: bool,
+}
+
+impl PostMinAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        if self.content {
+            obj.insert("content".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// Select which MAX aggregates to return from `PostDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct PostMaxAggregateInput {
+    pub id: bool,
+    pub content: bool,
+}
+
+impl PostMaxAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        if self.content {
+            obj.insert("content".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// One ORDER BY item for `PostDelegate::group_by()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostGroupByOrderBy {
+    Field {
+        field: PostScalarField,
+        direction: PostSortOrder,
+    },
+    CountAll(PostSortOrder),
+    Count {
+        field: PostScalarField,
+        direction: PostSortOrder,
+    },
+    Avg {
+        field: PostScalarField,
+        direction: PostSortOrder,
+    },
+    Sum {
+        field: PostScalarField,
+        direction: PostSortOrder,
+    },
+    Min {
+        field: PostScalarField,
+        direction: PostSortOrder,
+    },
+    Max {
+        field: PostScalarField,
+        direction: PostSortOrder,
+    },
+}
+
+impl PostGroupByOrderBy {
+    fn to_json(&self) -> serde_json::Value {
+        match self {
+            Self::Field { field, direction } => {
+                let mut obj = serde_json::Map::new();
+                obj.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                serde_json::Value::Object(obj)
+            }
+            Self::CountAll(direction) => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    "_all".to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_count".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Count { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_count".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Avg { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_avg".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Sum { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_sum".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Min { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_min".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Max { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_max".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+        }
+    }
+}
+
+/// Structured arguments for grouping Post rows and computing aggregates.
+#[derive(Debug, Default, Clone)]
+pub struct PostGroupByArgs {
+    /// Logical field names to group by.
+    pub by: Vec<PostScalarField>,
+    /// Optional pre-group WHERE filter.
+    pub where_: Option<nautilus_core::Expr>,
+    /// Optional HAVING JSON object using the protocol aggregate shape.
+    pub having: Option<serde_json::Value>,
+    /// Limit the number of returned groups.
+    pub take: Option<i32>,
+    /// Offset the returned groups.
+    pub skip: Option<u32>,
+    /// COUNT aggregation selection.
+    pub count: Option<PostCountAggregateInput>,
+    /// AVG aggregation selection.
+    pub avg: Option<PostAvgAggregateInput>,
+    /// SUM aggregation selection.
+    pub sum: Option<PostSumAggregateInput>,
+    /// MIN aggregation selection.
+    pub min: Option<PostMinAggregateInput>,
+    /// MAX aggregation selection.
+    pub max: Option<PostMaxAggregateInput>,
+    /// ORDER BY items applied after grouping.
+    pub order_by: Vec<PostGroupByOrderBy>,
+}
+
+impl PostGroupByArgs {
+    fn to_engine_args(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut args = serde_json::Map::new();
+        args.insert(
+            "by".to_string(),
+            serde_json::Value::Array(
+                self.by
+                    .iter()
+                    .map(|field| serde_json::Value::String(field.as_str().to_string()))
+                    .collect(),
+            ),
+        );
+
+        if let Some(filter) = self.where_.as_ref() {
+            args.insert(
+                "where".to_string(),
+                nautilus_core::where_expr_to_protocol_json(filter)?,
+            );
+        }
+        if let Some(having) = self.having.as_ref() {
+            args.insert("having".to_string(), having.clone());
+        }
+        if let Some(take) = self.take {
+            args.insert("take".to_string(), serde_json::Value::from(take));
+        }
+        if let Some(skip) = self.skip {
+            args.insert("skip".to_string(), serde_json::Value::from(skip));
+        }
+        if let Some(count) = self.count.as_ref().and_then(PostCountAggregateInput::to_json) {
+            args.insert("count".to_string(), count);
+        }
+        if let Some(avg) = self.avg.as_ref().and_then(PostAvgAggregateInput::to_json) {
+            args.insert("avg".to_string(), avg);
+        }
+        if let Some(sum) = self.sum.as_ref().and_then(PostSumAggregateInput::to_json) {
+            args.insert("sum".to_string(), sum);
+        }
+        if let Some(min) = self.min.as_ref().and_then(PostMinAggregateInput::to_json) {
+            args.insert("min".to_string(), min);
+        }
+        if let Some(max) = self.max.as_ref().and_then(PostMaxAggregateInput::to_json) {
+            args.insert("max".to_string(), max);
+        }
+        if !self.order_by.is_empty() {
+            args.insert(
+                "orderBy".to_string(),
+                serde_json::Value::Array(
+                    self.order_by
+                        .iter()
+                        .map(PostGroupByOrderBy::to_json)
+                        .collect(),
+                ),
+            );
+        }
+
+        Ok(serde_json::Value::Object(args))
+    }
+}
+
+/// Typed COUNT aggregates returned by `PostDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PostCountAggregateOutput {
+    pub _all: Option<i64>,
+    pub id: Option<i64>,
+    pub content: Option<i64>,
+}
+
+impl PostCountAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            _all: decode_optional_group_by_json_value(obj, "_all")?,
+            id: decode_optional_group_by_json_value(obj, "id")?,
+            content: decode_optional_group_by_json_value(obj, "content")?,
+        })
+    }
+}
+/// Typed AVG aggregates returned by `PostDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PostAvgAggregateOutput {
+    pub id: Option<f64>,
+}
+
+impl PostAvgAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_numeric_aggregate(obj, "id")?,
+        })
+    }
+}
+
+/// Typed SUM aggregates returned by `PostDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PostSumAggregateOutput {
+    pub id: Option<i64>,
+}
+
+impl PostSumAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_numeric_aggregate(obj, "id")?,
+        })
+    }
+}
+
+/// Typed MIN aggregates returned by `PostDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PostMinAggregateOutput {
+    pub id: Option<i32>,
+    pub content: Option<String>,
+}
+
+impl PostMinAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_group_by_json_value(obj, "id")?,
+            content: decode_optional_group_by_json_value(obj, "content")?,
+        })
+    }
+}
+
+/// Typed MAX aggregates returned by `PostDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PostMaxAggregateOutput {
+    pub id: Option<i32>,
+    pub content: Option<String>,
+}
+
+impl PostMaxAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_group_by_json_value(obj, "id")?,
+            content: decode_optional_group_by_json_value(obj, "content")?,
+        })
+    }
+}
+
+/// Structured arguments for aggregating Post rows without grouping.
+#[derive(Debug, Default, Clone)]
+pub struct PostAggregateArgs {
+    /// Optional WHERE filter.
+    pub where_: Option<nautilus_core::Expr>,
+    /// COUNT aggregation selection.
+    pub count: Option<PostCountAggregateInput>,
+    /// AVG aggregation selection.
+    pub avg: Option<PostAvgAggregateInput>,
+    /// SUM aggregation selection.
+    pub sum: Option<PostSumAggregateInput>,
+    /// MIN aggregation selection.
+    pub min: Option<PostMinAggregateInput>,
+    /// MAX aggregation selection.
+    pub max: Option<PostMaxAggregateInput>,
+}
+
+impl PostAggregateArgs {
+    fn to_engine_args(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut args = serde_json::Map::new();
+
+        if let Some(filter) = self.where_.as_ref() {
+            args.insert(
+                "where".to_string(),
+                nautilus_core::where_expr_to_protocol_json(filter)?,
+            );
+        }
+        if let Some(count) = self.count.as_ref().and_then(PostCountAggregateInput::to_json) {
+            args.insert("count".to_string(), count);
+        }
+        if let Some(avg) = self.avg.as_ref().and_then(PostAvgAggregateInput::to_json) {
+            args.insert("avg".to_string(), avg);
+        }
+        if let Some(sum) = self.sum.as_ref().and_then(PostSumAggregateInput::to_json) {
+            args.insert("sum".to_string(), sum);
+        }
+        if let Some(min) = self.min.as_ref().and_then(PostMinAggregateInput::to_json) {
+            args.insert("min".to_string(), min);
+        }
+        if let Some(max) = self.max.as_ref().and_then(PostMaxAggregateInput::to_json) {
+            args.insert("max".to_string(), max);
+        }
+
+        Ok(serde_json::Value::Object(args))
+    }
+}
+
+/// Aggregates over the whole filtered set, returned by `PostDelegate::aggregate()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PostAggregateOutput {
+    pub _count: Option<PostCountAggregateOutput>,
+    pub _avg: Option<PostAvgAggregateOutput>,
+    pub _sum: Option<PostSumAggregateOutput>,
+    pub _min: Option<PostMinAggregateOutput>,
+    pub _max: Option<PostMaxAggregateOutput>,
+}
+
+impl PostAggregateOutput {
+    fn from_row(row: &crate::Row) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            _count: decode_optional_group_by_object(row, "_count")?
+                .map(PostCountAggregateOutput::from_json_object)
+                .transpose()?,
+            _avg: decode_optional_group_by_object(row, "_avg")?
+                .map(PostAvgAggregateOutput::from_json_object)
+                .transpose()?,
+            _sum: decode_optional_group_by_object(row, "_sum")?
+                .map(PostSumAggregateOutput::from_json_object)
+                .transpose()?,
+            _min: decode_optional_group_by_object(row, "_min")?
+                .map(PostMinAggregateOutput::from_json_object)
+                .transpose()?,
+            _max: decode_optional_group_by_object(row, "_max")?
+                .map(PostMaxAggregateOutput::from_json_object)
+                .transpose()?,
+        })
+    }
+}
+
+/// One typed row returned by `PostDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PostGroupByOutput {
+    pub id: Option<i32>,
+    pub content: Option<String>,
+    pub _count: Option<PostCountAggregateOutput>,
+    pub _avg: Option<PostAvgAggregateOutput>,
+    pub _sum: Option<PostSumAggregateOutput>,
+    pub _min: Option<PostMinAggregateOutput>,
+    pub _max: Option<PostMaxAggregateOutput>,
+}
+
+impl PostGroupByOutput {
+    fn from_row(row: &crate::Row) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_group_by_row_value(row, "id")?,
+            content: decode_optional_group_by_row_value(row, "content")?,
+            _count: decode_optional_group_by_object(row, "_count")?
+                .map(PostCountAggregateOutput::from_json_object)
+                .transpose()?,
+            _avg: decode_optional_group_by_object(row, "_avg")?
+                .map(PostAvgAggregateOutput::from_json_object)
+                .transpose()?,
+            _sum: decode_optional_group_by_object(row, "_sum")?
+                .map(PostSumAggregateOutput::from_json_object)
+                .transpose()?,
+            _min: decode_optional_group_by_object(row, "_min")?
+                .map(PostMinAggregateOutput::from_json_object)
+                .transpose()?,
+            _max: decode_optional_group_by_object(row, "_max")?
+                .map(PostMaxAggregateOutput::from_json_object)
+                .transpose()?,
+        })
+    }
+}
+
+fn serialize_cursor_for_engine(
+    cursor: &std::collections::HashMap<String, nautilus_core::Value>,
+) -> serde_json::Value {
+    serde_json::Value::Object(
+        cursor
+            .iter()
+            .map(|(key, value)| (key.clone(), value.to_json_plain()))
+            .collect(),
+    )
+}
+
+fn decode_optional_group_by_row_value<T>(
+    row: &crate::Row,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue,
+{
+    match row.get(key) {
+        Some(nautilus_core::Value::Null) | None => Ok(None),
+        Some(value) => <T as nautilus_core::FromValue>::from_value(value).map(Some),
+    }
+}
+
+fn decode_optional_group_by_object<'a>(
+    row: &'a crate::Row,
+    key: &str,
+) -> nautilus_core::Result<Option<&'a serde_json::Map<String, serde_json::Value>>> {
+    match row.get(key) {
+        Some(nautilus_core::Value::Json(serde_json::Value::Object(obj))) => Ok(Some(obj)),
+        Some(nautilus_core::Value::Null) | None => Ok(None),
+        Some(other) => Err(nautilus_core::Error::TypeError(format!(
+            "expected object-valued aggregate '{}' in groupBy output, got {:?}",
+            key, other
+        ))),
+    }
+}
+
+/// Decode one `_avg` / `_sum` entry of an aggregate result.
+///
+/// PostgreSQL computes `AVG` (and `SUM` over exact numerics) as `numeric`,
+/// which the engine puts on the wire as a JSON string so no precision is lost
+/// in transit; SQLite and MySQL send a plain JSON number. Both spellings decode
+/// into the same Rust type here.
+fn decode_optional_numeric_aggregate<T>(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue + std::str::FromStr,
+{
+    match obj.get(key) {
+        Some(serde_json::Value::String(text)) => text.parse::<T>().map(Some).map_err(|_| {
+            nautilus_core::Error::TypeError(format!(
+                "aggregate '{}' is not a number: {}",
+                key, text
+            ))
+        }),
+        _ => decode_optional_group_by_json_value(obj, key),
+    }
+}
+
+fn decode_optional_group_by_json_value<T>(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue,
+{
+    match obj.get(key) {
+        Some(serde_json::Value::Null) | None => Ok(None),
+        Some(value) => <T as nautilus_core::FromValue>::from_value_owned(
+            crate::runtime::wire_value_to_core_value(key, value),
+        )
+        .map(Some),
+    }
+}
+fn serialize_update_filter_for_engine(
+    filter: Option<&nautilus_core::Expr>,
+) -> nautilus_core::Result<Option<serde_json::Value>> {
+    let filter_json = match filter {
+        Some(expr) => match nautilus_core::where_expr_to_protocol_json(expr) {
+            Ok(value) => value,
+            Err(nautilus_core::Error::InvalidQuery(_)) => return Ok(None),
+            Err(err) => return Err(err),
+        },
+        None => return Ok(None),
+    };
+
+    Ok(Some(filter_json))
+}
+
+fn single_record_filter_field_name(column: &str) -> Option<&'static str> {
+    if column == "Post__id"
+        || column == "id"
+    {
+        return Some("id");
+    }
+    if column == "Post__content"
+        || column == "content"
+    {
+        return Some("content");
+    }
+    None
+}
+
+fn collect_single_record_filter_fields(
+    expr: &nautilus_core::Expr,
+    fields: &mut std::collections::HashSet<&'static str>,
+) -> bool {
+    use nautilus_core::{BinaryOp, Expr};
+
+    match expr {
+        Expr::Binary {
+            left,
+            op: BinaryOp::And,
+            right,
+        } => {
+            collect_single_record_filter_fields(left, fields)
+                && collect_single_record_filter_fields(right, fields)
+        }
+        Expr::Binary {
+            left,
+            op: BinaryOp::Eq,
+            right,
+        } => match (&**left, &**right) {
+            (Expr::Column(column), Expr::Param(_)) | (Expr::Param(_), Expr::Column(column)) => {
+                let Some(field_name) = single_record_filter_field_name(column) else {
+                    return false;
+                };
+                fields.insert(field_name)
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn matches_single_record_constraint(
+    fields: &std::collections::HashSet<&'static str>,
+    constraint: &[&str],
+) -> bool {
+    fields.len() == constraint.len() && constraint.iter().all(|field| fields.contains(field))
+}
+
+fn is_single_record_filter(filter: &nautilus_core::Expr) -> bool {
+    const SINGLE_RECORD_CONSTRAINTS: &[&[&str]] = &[
+        &["id"],
+    ];
+
+    let mut fields = std::collections::HashSet::new();
+    if !collect_single_record_filter_fields(filter, &mut fields) {
+        return false;
+    }
+
+    SINGLE_RECORD_CONSTRAINTS
+        .iter()
+        .any(|constraint| matches_single_record_constraint(&fields, constraint))
+}
+
+
+/// Delegate for Post queries.
+///
+/// Obtained via `client.Post` (or the model accessor). Each method
+/// accepts a structured args object and executes the query immediately — no
+/// extra `.exec()` call is needed.
+pub struct PostDelegate<E: crate::Executor> {
+    client: crate::Client<E>,
+}
+
+impl<E> PostDelegate<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        PostDelegate { client }
+    }
+
+    fn build_find_many_builder(
+        client: crate::Client<E>,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<PostFindMany<E>> {
+        Self::reject_select_for_model_result(&args.select)?;
+        if !args.include.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "include queries require the embedded engine path in the generated Rust client"
+                    .to_string(),
+            ));
+        }
+
+        let mut builder = PostFindMany::new(client);
+        if let Some(filter) = args.where_ {
+            builder = builder.where_(filter);
+        }
+        for order in args.order_by {
+            builder = builder.order_by(order);
+        }
+        if let Some(take) = args.take {
+            builder = builder.take(take);
+        }
+        if let Some(skip) = args.skip {
+            builder = builder.skip(skip);
+        }
+        if let Some(cursor) = args.cursor {
+            builder = builder.cursor(cursor);
+        }
+        if !args.distinct.is_empty() {
+            builder = builder.distinct(args.distinct);
+        }
+        if let Some(nearest) = args.nearest {
+            builder = builder.nearest(nearest);
+        }
+
+        Ok(builder)
+    }
+
+    fn reject_select_for_model_result(
+        select: &std::collections::HashMap<String, bool>,
+    ) -> nautilus_core::Result<()> {
+        if !select.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "select returns partial rows and cannot be decoded as a full Post; use find_many_select, find_first_select, or find_unique_select instead"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn engine_decode_plan_for_find_many_args(
+        args: &nautilus_core::FindManyArgs,
+    ) -> (Vec<usize>, Vec<Option<crate::ValueHint>>) {
+        Self::engine_decode_plan_for_select(&args.select)
+    }
+
+    fn engine_decode_plan_for_find_unique_args(
+        args: &nautilus_core::FindUniqueArgs,
+    ) -> (Vec<usize>, Vec<Option<crate::ValueHint>>) {
+        Self::engine_decode_plan_for_select(&args.select)
+    }
+
+    fn engine_decode_plan_for_select(
+        select: &std::collections::HashMap<String, bool>,
+    ) -> (Vec<usize>, Vec<Option<crate::ValueHint>>) {
+        let selected_fields: std::collections::HashSet<String> = select
+            .iter()
+            .filter_map(|(key, enabled)| enabled.then_some(key.clone()))
+            .collect();
+
+        (
+            projected_scalar_decode_slots(&selected_fields),
+            projected_scalar_value_hints(&selected_fields),
+        )
+    }
+
+    /// Find all Post records matching `args`.
+    ///
+    /// Executes immediately and returns a `Vec<Post>`.
+    /// Prefer this when the caller naturally wants the whole result set in
+    /// memory, such as small pages, eager-loaded relation graphs, or code that
+    /// does further in-memory sorting/grouping.
+    pub fn find_many(
+        &self,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<Vec<Post>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        Self::reject_select_for_model_result(&args.select)?;
+        let (engine_decode_slots, engine_row_hints) =
+            Self::engine_decode_plan_for_find_many_args(&args);
+        if let Some(rows) =
+            crate::runtime::try_find_many_via_engine::<_, Post>(
+                &_c,
+                "Post",
+                &args,
+                move |row| {
+                    decode_model_row_with_hints(row, &engine_decode_slots, &engine_row_hints)
+                },
+            )
+            .await?
+        {
+            return Ok(rows);
+        }
+
+        let builder = Self::build_find_many_builder(
+            _c,
+            args,
+        )?;
+        builder.exec().await
+        }))
+    }
+
+    /// Find the first Post record matching `args`, or `None`.
+    pub fn find_first(
+        &self,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<Option<Post>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        Self::reject_select_for_model_result(&args.select)?;
+        let args = nautilus_core::FindManyArgs { take: Some(1), ..args };
+        let (engine_decode_slots, engine_row_hints) =
+            Self::engine_decode_plan_for_find_many_args(&args);
+        if let Some(rows) =
+            crate::runtime::try_find_many_via_engine::<_, Post>(
+                &_c,
+                "Post",
+                &args,
+                move |row| {
+                    decode_model_row_with_hints(row, &engine_decode_slots, &engine_row_hints)
+                },
+            )
+            .await?
+        {
+            return Ok(rows.into_iter().next());
+        }
+
+        let builder = Self::build_find_many_builder(
+            _c,
+            args,
+        )?;
+        builder.exec_optional().await
+        }))
+    }
+
+    /// Find a single Post record by a unique filter, or `None` if not found.
+    ///
+    /// `args.where_` should reference a `@id` or `@unique` field for correct semantics.
+    pub fn find_unique(
+        &self,
+        args: nautilus_core::FindUniqueArgs,
+    ) -> nautilus_core::Result<Option<Post>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        Self::reject_select_for_model_result(&args.select)?;
+        let (engine_decode_slots, engine_row_hints) =
+            Self::engine_decode_plan_for_find_unique_args(&args);
+        if let Some(record) =
+            crate::runtime::try_find_unique_via_engine::<_, Post>(
+                &_c,
+                "Post",
+                &args,
+                move |row| {
+                    decode_model_row_with_hints(row, &engine_decode_slots, &engine_row_hints)
+                },
+            )
+            .await?
+        {
+            return Ok(Some(record));
+        }
+
+        let find_args = nautilus_core::FindManyArgs {
+            where_: Some(args.where_),
+            take: Some(1),
+            select: args.select,
+            include: args.include,
+            ..Default::default()
+        };
+        let builder = Self::build_find_many_builder(
+            _c,
+            find_args,
+        )?;
+        builder.exec_optional().await
+        }))
+    }
+
+    /// Find a single Post record by a unique filter, or return `Error::NotFound`.
+    pub fn find_unique_or_throw(
+        &self,
+        args: nautilus_core::FindUniqueArgs,
+    ) -> nautilus_core::Result<Post> {
+        self.find_unique(args)?.ok_or_else(|| {
+            nautilus_core::Error::NotFound(
+                format!("No {} record found matching the given unique filter", "Post")
+            )
+        })
+    }
+
+    /// Find the first Post record matching `args`, or return `Error::NotFound`.
+    pub fn find_first_or_throw(
+        &self,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<Post> {
+        self.find_first(args)?.ok_or_else(|| {
+            nautilus_core::Error::NotFound(
+                format!("No {} record found matching the given filter", "Post")
+            )
+        })
+    }
+
+    /// Find all Post records with a typed scalar projection.
+    pub fn find_many_select<C, F>(
+        &self,
+        args: nautilus_core::FindManyArgs,
+        columns: F,
+    ) -> nautilus_core::Result<Vec<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+        F: FnOnce(PostColumns) -> C,
+    {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        if !args.include.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "include is not supported by typed select projections".to_string(),
+            ));
+        }
+        if !args.select.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "FindManyArgs.select is ignored by typed select projections; pass projected columns to find_many_select instead"
+                    .to_string(),
+            ));
+        }
+        let selection = columns(PostColumns);
+        let builder = Self::build_find_many_builder(
+            _c,
+            nautilus_core::FindManyArgs {
+                select: Default::default(),
+                include: Default::default(),
+                ..args
+            },
+        )?;
+        builder.exec_select(selection).await
+        }))
+    }
+
+    /// Find the first Post record with a typed scalar projection.
+    pub fn find_first_select<C, F>(
+        &self,
+        args: nautilus_core::FindManyArgs,
+        columns: F,
+    ) -> nautilus_core::Result<Option<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+        F: FnOnce(PostColumns) -> C,
+    {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        if !args.include.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "include is not supported by typed select projections".to_string(),
+            ));
+        }
+        if !args.select.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "FindManyArgs.select is ignored by typed select projections; pass projected columns to find_first_select instead"
+                    .to_string(),
+            ));
+        }
+        let selection = columns(PostColumns);
+        let args = nautilus_core::FindManyArgs {
+            take: Some(1),
+            select: Default::default(),
+            include: Default::default(),
+            ..args
+        };
+        let builder = Self::build_find_many_builder(
+            _c,
+            args,
+        )?;
+        builder.exec_select_optional(selection).await
+        }))
+    }
+
+    /// Find a unique Post record with a typed scalar projection.
+    pub fn find_unique_select<C, F>(
+        &self,
+        args: nautilus_core::FindUniqueArgs,
+        columns: F,
+    ) -> nautilus_core::Result<Option<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+        F: FnOnce(PostColumns) -> C,
+    {
+        if !args.select.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "FindUniqueArgs.select is ignored by typed select projections; pass projected columns to find_unique_select instead"
+                    .to_string(),
+            ));
+        }
+        if !args.include.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "include is not supported by typed select projections".to_string(),
+            ));
+        }
+        let find_args = nautilus_core::FindManyArgs {
+            where_: Some(args.where_),
+            take: Some(1),
+            select: Default::default(),
+            include: Default::default(),
+            ..Default::default()
+        };
+        self.find_first_select(find_args, columns)
+    }
+
+    /// Create a new Post record.
+    ///
+    /// Executes immediately and returns the created `Post`.
+    pub fn create(
+        &self,
+        data: PostCreateInput,
+    ) -> nautilus_core::Result<Post> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = data.clone();
+        let _event_payload = data.to_engine_data()?;
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = PostCreateEventContext::new(
+            "Post",
+            crate::CrudOperation::Create,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<PostCreateEventContext, Post>(
+            "Post",
+            crate::CrudOperation::Create,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Post> = async {
+            if let Some(record) =
+                crate::runtime::try_create_via_engine::<_, Post>(
+                    &_c,
+                    "Post",
+                    _event_payload.clone(),
+                    data.has_nested_writes(),
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await?
+            {
+                Ok(record)
+            } else {
+                let mut builder = PostCreate::new(_c);
+                if let Some(value) = data.id {
+                    builder = builder.id(value);
+                }
+                if let Some(value) = data.content {
+                    builder = builder.content(value);
+                }
+                builder.exec().await
+            }
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = PostCreateEventContext::new(
+                    "Post",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<PostCreateEventContext, Post>(
+                    "Post",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = PostCreateEventContext::new(
+                    "Post",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<PostCreateEventContext, Post>(
+                    "Post",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Create multiple Post records in a single batch.
+    ///
+    /// Executes immediately and returns the created records.
+    pub fn create_many(
+        &self,
+        entries: Vec<PostCreateEntry>,
+    ) -> nautilus_core::Result<Vec<Post>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = entries.clone();
+        let _event_payload = serde_json::Value::Array(
+            entries.iter().map(PostCreateEntry::to_engine_data).collect(),
+        );
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = PostCreateManyEventContext::new(
+            "Post",
+            crate::CrudOperation::CreateMany,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<PostCreateManyEventContext, Vec<Post>>(
+            "Post",
+            crate::CrudOperation::CreateMany,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Vec<Post>> = async {
+            if entries.is_empty() {
+                return Ok(vec![]);
+            }
+
+            if let Some(rows) =
+                crate::runtime::try_create_many_via_engine::<_, Post>(
+                    &_c,
+                    "Post",
+                    entries.iter().map(PostCreateEntry::to_engine_data).collect(),
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await?
+            {
+                return Ok(rows);
+            }
+
+            let mut builder = PostCreateMany::new(_c);
+            for entry in entries {
+                builder = builder.entry(entry);
+            }
+            builder.exec().await
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = PostCreateManyEventContext::new(
+                    "Post",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<PostCreateManyEventContext, Vec<Post>>(
+                    "Post",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = PostCreateManyEventContext::new(
+                    "Post",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<PostCreateManyEventContext, Vec<Post>>(
+                    "Post",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Update Post records matching `args.where_`.
+    ///
+    /// If `args.where_` is `None`, all rows are updated.
+    /// Executes immediately and returns the updated records.
+    pub fn update(
+        &self,
+        args: PostUpdateArgs,
+    ) -> nautilus_core::Result<Vec<Post>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = args.clone();
+        let _engine_data = args.data.to_engine_data()?;
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            _payload.insert(
+                "filter".to_string(),
+                match serialize_update_filter_for_engine(args.where_.as_ref())? {
+                    Some(value) => value,
+                    None => serde_json::Value::Object(serde_json::Map::new()),
+                },
+            );
+            _payload.insert("data".to_string(), _engine_data.clone());
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = PostUpdateEventContext::new(
+            "Post",
+            crate::CrudOperation::Update,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<PostUpdateEventContext, Vec<Post>>(
+            "Post",
+            crate::CrudOperation::Update,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Vec<Post>> = async {
+            let no_assignments = _engine_data
+                .as_object()
+                .is_some_and(|data| data.is_empty());
+            if no_assignments {
+                return Ok(vec![]);
+            }
+
+            if let Some(filter_json) = serialize_update_filter_for_engine(args.where_.as_ref())? {
+                if let Some(rows) =
+                    crate::runtime::try_update_via_engine::<_, Post>(
+                        &_c,
+                        "Post",
+                        filter_json,
+                        _engine_data.clone(),
+                        args.data.has_nested_writes(),
+                        |row| {
+                            decode_model_row_with_hints(
+                                row,
+                                all_scalar_decode_slots(),
+                                all_scalar_value_hints(),
+                            )
+                        },
+                    )
+                    .await?
+                {
+                    return Ok(rows);
+                }
+            }
+
+            if args.data.has_nested_writes() {
+                return Err(crate::runtime::nested::writes_need_engine("Post"));
+            }
+
+            let mut builder = PostUpdate::new(_c).set_data(args.data);
+            if let Some(filter) = args.where_ {
+                builder = builder.where_(filter);
+            } else {
+                builder = builder.all();
+            }
+            builder.exec().await
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = PostUpdateEventContext::new(
+                    "Post",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<PostUpdateEventContext, Vec<Post>>(
+                    "Post",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = PostUpdateEventContext::new(
+                    "Post",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<PostUpdateEventContext, Vec<Post>>(
+                    "Post",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Delete the first Post record matching `args.where_`.
+    ///
+    /// finds the first matching record and
+    /// deletes it by its primary key. Returns `Ok(None)` if no record matches.
+    pub fn delete(
+        &self,
+        args: PostDeleteArgs,
+    ) -> nautilus_core::Result<Option<Post>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = args.clone();
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            let _filter = match args.where_.as_ref() {
+                Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                    .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+                None => serde_json::Value::Object(serde_json::Map::new()),
+            };
+            _payload.insert("filter".to_string(), _filter);
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = PostDeleteEventContext::new(
+            "Post",
+            crate::CrudOperation::Delete,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<PostDeleteEventContext, Option<Post>>(
+            "Post",
+            crate::CrudOperation::Delete,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Option<Post>> = async {
+            if let Some(filter) = args.where_.clone() {
+                if _c.dialect().supports_returning() && is_single_record_filter(&filter) {
+                    let deleted = PostDelete::new(_c.clone()).where_(filter).exec().await?;
+                    return match deleted.len() {
+                        0 => Ok(None),
+                        1 => Ok(deleted.into_iter().next()),
+                        count => Err(nautilus_core::Error::Other(format!(
+                            "expected at most one deleted Post row, got {}",
+                            count
+                        ))),
+                    };
+                }
+            }
+
+            // Find the first matching record to get its primary key
+            let record = self.find_first(nautilus_core::FindManyArgs {
+                where_: args.where_,
+                ..Default::default()
+            })?;
+
+            let Some(record) = record else {
+                return Ok(None);
+            };
+
+            // Build a primary-key filter to delete exactly that one record
+            let pk_filter = nautilus_core::Expr::column("Post__id").eq(nautilus_core::Expr::param(record.id.clone()));
+            PostDelete::new(_c.clone()).where_(pk_filter).exec().await?;
+            Ok(Some(record))
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = PostDeleteEventContext::new(
+                    "Post",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<PostDeleteEventContext, Option<Post>>(
+                    "Post",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = PostDeleteEventContext::new(
+                    "Post",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<PostDeleteEventContext, Option<Post>>(
+                    "Post",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Delete all Post records matching `args.where_`.
+    ///
+    /// If `args.where_` is `None`, all rows are deleted.
+    /// Executes immediately and returns the deleted records.
+    pub fn delete_many(
+        &self,
+        args: PostDeleteArgs,
+    ) -> nautilus_core::Result<Vec<Post>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = args.clone();
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            let _filter = match args.where_.as_ref() {
+                Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                    .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+                None => serde_json::Value::Object(serde_json::Map::new()),
+            };
+            _payload.insert("filter".to_string(), _filter);
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = PostDeleteManyEventContext::new(
+            "Post",
+            crate::CrudOperation::DeleteMany,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<PostDeleteManyEventContext, Vec<Post>>(
+            "Post",
+            crate::CrudOperation::DeleteMany,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Vec<Post>> = async {
+            let mut builder = PostDelete::new(_c);
+            if let Some(expr) = args.where_ {
+                builder = builder.where_(expr);
+            } else {
+                builder = builder.all();
+            }
+            builder.exec().await
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = PostDeleteManyEventContext::new(
+                    "Post",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<PostDeleteManyEventContext, Vec<Post>>(
+                    "Post",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = PostDeleteManyEventContext::new(
+                    "Post",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<PostDeleteManyEventContext, Vec<Post>>(
+                    "Post",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+
+    /// Count Post records matching `args`.
+    pub fn count(
+        &self,
+        args: PostCountArgs,
+    ) -> nautilus_core::Result<i64> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        if let Some(count) =
+            crate::runtime::try_count_via_engine(
+                &_c,
+                "Post",
+                args.to_engine_args()?,
+            )
+            .await?
+        {
+            return Ok(count);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "count queries require the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+        }))
+    }
+    /// Update every Post record matching `args.where_`, returning
+    /// the affected-row count.
+    ///
+    /// Unlike [`Self::update`], no rows are read back: the engine runs one
+    /// statement without a `RETURNING` clause however many rows it touches.
+    pub fn update_many(
+        &self,
+        args: PostUpdateArgs,
+    ) -> nautilus_core::Result<u64> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = args.clone();
+        let filter = serialize_update_filter_for_engine(args.where_.as_ref())?
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+        let _event_data = args.data.to_engine_data()?;
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            _payload.insert("filter".to_string(), filter.clone());
+            _payload.insert("data".to_string(), _event_data.clone());
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = PostUpdateManyEventContext::new(
+            "Post",
+            crate::CrudOperation::UpdateMany,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<PostUpdateManyEventContext, u64>(
+            "Post",
+            crate::CrudOperation::UpdateMany,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<u64> = async {
+            match crate::runtime::try_update_many_via_engine(
+                &_c,
+                "Post",
+                filter,
+                _event_data,
+            )
+            .await?
+            {
+                Some(count) => Ok(count),
+                None => Err(nautilus_core::Error::InvalidQuery(
+                    "updateMany requires the embedded engine path in the generated Rust client"
+                        .to_string(),
+                )),
+            }
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = PostUpdateManyEventContext::new(
+                    "Post",
+                    crate::CrudOperation::UpdateMany,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded)
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<PostUpdateManyEventContext, u64>(
+                    "Post",
+                    crate::CrudOperation::UpdateMany,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = PostUpdateManyEventContext::new(
+                    "Post",
+                    crate::CrudOperation::UpdateMany,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<PostUpdateManyEventContext, u64>(
+                    "Post",
+                    crate::CrudOperation::UpdateMany,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Delete every Post record matching `args.where_`, returning
+    /// the affected-row count.
+    ///
+    /// The count-only counterpart of [`Self::delete_many`], which reads the
+    /// deleted rows back through `RETURNING`.
+    pub fn delete_many_count(
+        &self,
+        args: PostDeleteArgs,
+    ) -> nautilus_core::Result<u64> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let filter = match args.where_.as_ref() {
+            Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+            None => serde_json::Value::Object(serde_json::Map::new()),
+        };
+        if let Some(count) =
+            crate::runtime::try_delete_many_via_engine(
+                &_c,
+                "Post",
+                filter,
+            )
+            .await?
+        {
+            return Ok(count);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "deleteMany requires the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+        }))
+    }
+
+
+    /// Aggregate over every Post record matching `args.where_`,
+    /// without a grouping key.
+    ///
+    /// Always resolves to one row, even when the filter matches nothing: counts
+    /// are then `0` and the other aggregates `None`.
+    pub fn aggregate(
+        &self,
+        args: PostAggregateArgs,
+    ) -> nautilus_core::Result<PostAggregateOutput> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let engine_args = args.to_engine_args()?;
+        if let Some(row) =
+            crate::runtime::try_aggregate_row_via_engine(
+                &_c,
+                "Post",
+                engine_args,
+            )
+            .await?
+        {
+            return match row {
+                Some(row) => PostAggregateOutput::from_row(&row),
+                None => Ok(PostAggregateOutput::default()),
+            };
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "aggregate queries require the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+        }))
+    }
+
+    /// Ask the database to explain the statement [`Self::find_many`] would run
+    /// for `args`.
+    ///
+    /// `args.include` relations are loaded by separate statements and are not
+    /// part of the reported plan. `analyze` executes the statement to collect
+    /// real timings where the backend supports it.
+    pub fn explain(
+        &self,
+        args: nautilus_core::FindManyArgs,
+        analyze: bool,
+    ) -> nautilus_core::Result<nautilus_protocol::ExplainResult> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        if let Some(result) =
+            crate::runtime::try_explain_via_engine(
+                &_c,
+                "Post",
+                &args,
+                analyze,
+            )
+            .await?
+        {
+            return Ok(result);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "explain requires the embedded engine path in the generated Rust client".to_string(),
+        ))
+        }))
+    }
+
+    /// Group Post rows and compute aggregates.
+    pub fn group_by(
+        &self,
+        args: PostGroupByArgs,
+    ) -> nautilus_core::Result<Vec<PostGroupByOutput>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let engine_args = args.to_engine_args()?;
+        if let Some(rows) =
+            crate::runtime::try_group_by_rows_via_engine(
+                &_c,
+                "Post",
+                engine_args,
+            )
+            .await?
+        {
+            let mut decoded = Vec::with_capacity(rows.len());
+            for row in &rows {
+                decoded.push(PostGroupByOutput::from_row(row)?);
+            }
+            return Ok(decoded);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "groupBy queries require the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+        }))
+    }
+
+    /// Execute a raw SQL string and return the result rows as generic maps.
+    ///
+    /// The SQL is sent to the database as-is with no parameter binding.
+    /// Prefer `raw_stmt_query` when user-supplied values are involved to avoid
+    /// SQL injection.
+    pub fn raw_query(
+        &self,
+        sql: impl Into<String>,
+    ) -> nautilus_core::Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let sql_obj = nautilus_dialect::Sql { text: sql.into(), params: vec![] };
+        let stream = _c.executor().execute(&sql_obj);
+        futures::pin_mut!(stream);
+        let mut results: Vec<std::collections::HashMap<String, serde_json::Value>> = Vec::new();
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result
+                .map_err(|e| nautilus_core::Error::Other(e.to_string()))?
+                .into();
+            let map = row
+                .iter()
+                .map(|(name, val)| {
+                    let json_val = val.to_json_plain();
+                    (name.to_string(), json_val)
+                })
+                .collect();
+            results.push(map);
+        }
+        Ok(results)
+        }))
+    }
+
+    /// Execute a raw prepared-statement query with bound parameters.
+    ///
+    /// Use `$1`, `$2`, … (PostgreSQL) or `?` (MySQL / SQLite) as placeholders.
+    /// Parameters are bound in the order they appear in the `params` slice.
+    pub fn raw_stmt_query(
+        &self,
+        sql: impl Into<String>,
+        params: Vec<nautilus_core::Value>,
+    ) -> nautilus_core::Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let sql_obj = nautilus_dialect::Sql { text: sql.into(), params };
+        let stream = _c.executor().execute(&sql_obj);
+        futures::pin_mut!(stream);
+        let mut results: Vec<std::collections::HashMap<String, serde_json::Value>> = Vec::new();
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result
+                .map_err(|e| nautilus_core::Error::Other(e.to_string()))?
+                .into();
+            let map = row
+                .iter()
+                .map(|(name, val)| {
+                    let json_val = val.to_json_plain();
+                    (name.to_string(), json_val)
+                })
+                .collect();
+            results.push(map);
+        }
+        Ok(results)
+        }))
+    }
+    /// Create or update a Post record.
+    ///
+    /// When the embedded engine is available this runs as a single atomic
+    /// `INSERT ... ON CONFLICT` statement, so no other writer can slip between
+    /// the lookup and the write. `args.where_` must name exactly one unique
+    /// constraint (or the primary key). Against a standalone executor the
+    /// operation falls back to a lookup followed by an update or a create.
+    ///
+    /// Executes immediately and returns the created or updated `Post`
+    /// (or `None` when `args.return_data` is `false`).
+    pub fn upsert(
+        &self,
+        args: PostUpsertArgs,
+    ) -> nautilus_core::Result<Option<Post>> {
+        if args.create.has_nested_writes() || args.update.has_nested_writes() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "upsert on 'Post' does not accept nested writes; use create or update"
+                    .to_string(),
+            ));
+        }
+        let _engine_filter = serialize_update_filter_for_engine(args.where_.as_ref())?;
+        let _upsert_client = self.client.clone();
+        let _engine_create = args.create.to_engine_data()?;
+        let _engine_update = args.update.to_engine_data()?;
+        let _engine_rows: Option<Vec<Post>> = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let Some(filter_json) = _engine_filter else {
+                    return Ok(None);
+                };
+                crate::runtime::try_upsert_via_engine::<_, Post>(
+                    &_upsert_client,
+                    "Post",
+                    filter_json,
+                    _engine_create,
+                    _engine_update,
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await
+            })
+        })?;
+
+        if let Some(rows) = _engine_rows {
+            if !args.return_data {
+                return Ok(None);
+            }
+            return Ok(rows.into_iter().next());
+        }
+
+        let has_update_assignments = args.update.has_assignments();
+
+        if self.client.dialect().supports_returning() && has_update_assignments {
+            let updated = self.update(PostUpdateArgs {
+                where_: args.where_.clone(),
+                data: args.update.clone(),
+            })?;
+
+            if let Some(record) = updated.into_iter().next() {
+                if !args.return_data {
+                    return Ok(None);
+                }
+                return Ok(Some(record));
+            }
+        }
+
+        let existing = self.find_first(nautilus_core::FindManyArgs {
+            where_: args.where_.clone(),
+            ..Default::default()
+        })?;
+
+        if let Some(record) = existing {
+            if !has_update_assignments {
+                if !args.return_data {
+                    return Ok(None);
+                }
+                return Ok(Some(record));
+            }
+
+            let updated = self.update(PostUpdateArgs {
+                where_: args.where_,
+                data: args.update,
+            })?;
+            if !args.return_data {
+                return Ok(None);
+            }
+            Ok(Some(updated.into_iter().next().unwrap_or(record)))
+        } else {
+            let created = self.create(args.create)?;
+            if !args.return_data {
+                return Ok(None);
+            }
+            Ok(Some(created))
+        }
+    }
+
+}
+
+
+/// Resolve ORDER BY paths that target fields inside composite values.
+fn composite_order_expr(
+    column: &str,
+) -> Option<nautilus_core::Expr> {
+    match column {
+        _ => None,
+    }
+}
+
+/// Resolve a `nearest.field` reference to the qualified pgvector column it
+/// names, accepting the logical name, the database column, and the qualified
+/// `table__column` form the wire protocol uses.
+fn vector_distance_column(_field: &str) -> Option<&'static str> {
+    None
+}
+
+/// Build the ORDER BY expression for a pgvector nearest-neighbor search.
+///
+/// The restrictions mirror the engine: the search needs a positive `take` to
+/// stay bounded, and it cannot be combined with backward pagination, a cursor
+/// or `distinct`, all of which would fight the distance ordering.
+fn nearest_order_expr(
+    nearest: nautilus_core::VectorNearest,
+    take: Option<i32>,
+    has_cursor: bool,
+    has_distinct: bool,
+) -> nautilus_core::Result<nautilus_core::Expr> {
+    let Some(column) = vector_distance_column(&nearest.field) else {
+        return Err(nautilus_core::Error::InvalidQuery(format!(
+            "'nearest.field' must reference a Vector field of Post, got '{}'",
+            nearest.field
+        )));
+    };
+    if !matches!(take, Some(value) if value > 0) {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' requires a positive 'take' limit".to_string(),
+        ));
+    }
+    if has_cursor {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' cannot be combined with 'cursor'".to_string(),
+        ));
+    }
+    if has_distinct {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' cannot be combined with 'distinct'".to_string(),
+        ));
+    }
+
+    Ok(nautilus_core::Expr::vector_distance(
+        nearest.metric,
+        nautilus_core::Expr::column(column),
+        nautilus_core::Expr::param(nautilus_core::Value::Vector(nearest.query)),
+    ))
+}
+
+/// Internal FindMany builder for Post - use `PostDelegate::find_many(args)` instead.
+pub(crate) struct PostFindMany<E: crate::Executor, S = ()> {
+    client: crate::Client<E>,
+    filter: Option<nautilus_core::Expr>,
+    order_by: Vec<nautilus_core::OrderBy>,
+    /// Positive = forward pagination, negative = backward pagination.
+    take: Option<i32>,
+    skip: Option<u32>,
+    select: std::collections::HashSet<String>,
+    /// Cursor map: PK field name -> value for stable keyset pagination.
+    cursor: Option<std::collections::HashMap<String, nautilus_core::Value>>,
+    /// True when `take` was negative (backward pagination).
+    backward: bool,
+    /// Columns to deduplicate on (SELECT DISTINCT / DISTINCT ON).
+    distinct: Vec<String>,
+    /// pgvector nearest-neighbor search, ordering rows by distance.
+    nearest: Option<nautilus_core::VectorNearest>,
+    _selection: std::marker::PhantomData<S>,
+}
+
+impl<E, S> PostFindMany<E, S>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        PostFindMany {
+            client,
+            filter: None,
+            order_by: vec![],
+            take: None,
+            skip: None,
+            select: std::collections::HashSet::new(),
+            cursor: None,
+            backward: false,
+            distinct: vec![],
+            nearest: None,
+            _selection: std::marker::PhantomData,
+        }
+    }
+
+    /// Add a WHERE filter.
+    #[must_use]
+    pub(crate) fn where_(mut self, expr: nautilus_core::Expr) -> Self {
+        self.filter = Some(expr);
+        self
+    }
+
+    /// Add ORDER BY clause.
+    #[must_use]
+    pub(crate) fn order_by(mut self, order: nautilus_core::OrderBy) -> Self {
+        self.order_by.push(order);
+        self
+    }
+
+    /// Limit the number of results.
+    ///
+    /// Positive `n` paginates **forward**; negative `n` paginates **backward**
+    /// (flips ORDER BY and reverses the result slice in memory).
+    #[must_use]
+    pub(crate) fn take(mut self, n: i32) -> Self {
+        self.backward = n < 0;
+        self.take = Some(n);
+        self
+    }
+
+    /// Skip a number of results (OFFSET).
+    #[must_use]
+    pub(crate) fn skip(mut self, n: u32) -> Self {
+        self.skip = Some(n);
+        self
+    }
+
+    /// Set the cursor for stable keyset pagination.
+    ///
+    /// The map must contain all primary-key fields of the model.
+    /// The cursor record is included in the result.
+    #[must_use]
+    pub(crate) fn cursor(
+        mut self,
+        map: std::collections::HashMap<String, nautilus_core::Value>,
+    ) -> Self {
+        self.cursor = Some(map);
+        self
+    }
+
+    /// Specify columns to deduplicate on (SELECT DISTINCT / DISTINCT ON).
+    ///
+    /// - **Postgres**: emits `DISTINCT ON (cols)` - the columns are automatically
+    ///   prepended to `ORDER BY` before query execution.
+    /// - **SQLite / MySQL**: emits plain `SELECT DISTINCT` (full-row dedup;
+    ///   combine with `select_fields` for column-level effect).
+    #[must_use]
+    pub(crate) fn distinct(mut self, columns: Vec<String>) -> Self {
+        self.distinct = columns;
+        self
+    }
+
+    /// Order results by pgvector distance from a query embedding.
+    #[must_use]
+    pub(crate) fn nearest(mut self, nearest: nautilus_core::VectorNearest) -> Self {
+        self.nearest = Some(nearest);
+        self
+    }
+
+    fn into_execution_parts(
+        self,
+    ) -> nautilus_core::Result<(
+        crate::Client<E>,
+        nautilus_dialect::Sql,
+        Vec<Option<crate::ValueHint>>,
+        Vec<usize>,
+        bool,
+    )> {
+        use nautilus_core::*;
+
+        let PostFindMany {
+            client,
+            filter,
+            order_by,
+            take,
+            skip,
+            select,
+            cursor,
+            backward,
+            distinct,
+            nearest,
+            _selection,
+        } = self;
+        let row_hints = projected_scalar_value_hints(&select);
+        let decode_slots = projected_scalar_decode_slots(&select);
+        let mut builder = Select::from_table("Post").with_capacity(SelectCapacity {
+            items: 2,
+            order_by_columns: order_by.len() + distinct.len() + 1,
+            order_by_exprs: usize::from(nearest.is_some()),
+            distinct: distinct.len(),
+            ..SelectCapacity::default()
+        });
+
+        // Add scalar columns (PK columns always included; others filtered by select if active)
+        builder = builder.item(SelectItem::column(ColumnMarker::from_static("Post", "id")));
+        if select.is_empty() || select.contains("content") {
+            builder = builder.item(SelectItem::column(ColumnMarker::from_static("Post", "content")));
+        }
+
+        // Auto-add distinct columns to ORDER BY so they appear first (required for
+        // Postgres DISTINCT ON; harmless for SQLite / MySQL which use plain DISTINCT).
+        if !distinct.is_empty() {
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+            for col in &distinct {
+                if !existing_cols.contains(col.as_str()) {
+                    let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                    builder = builder.order_by(col.clone(), dir);
+                }
+            }
+        }
+
+        // Cursor predicate
+        // Build an inclusive keyset WHERE clause from the cursor map and merge
+        // it with any caller-supplied filter.
+        let effective_filter = if let Some(ref cursor_map) = cursor {
+            // Static PK field (cursor-map-key, table__db_col) pairs - generated
+            // at code-generation time from the model's primary-key definition.
+            let pk_pairs: &[(&str, &str)] = &[
+                ("id", "Post__id"),
+            ];
+            let cursor_pred =
+                nautilus_core::build_cursor_predicate(pk_pairs, cursor_map, backward)?;
+
+            // Auto-add any PK column that is not yet in order_by so that the
+            // keyset predicate is unambiguous.
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+            if !existing_cols.contains("id") {
+                let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                builder = builder.order_by("id".to_string(), dir);
+            }
+
+            Some(match filter {
+                Some(f) => f.and(cursor_pred),
+                None => cursor_pred,
+            })
+        } else {
+            filter
+        };
+
+        if let Some(f) = effective_filter {
+            builder = builder.filter(f);
+        }
+
+        if let Some(nearest) = nearest {
+            let distance = nearest_order_expr(nearest, take, cursor.is_some(), !distinct.is_empty())?;
+            builder = builder.order_by_expr(distance, OrderDir::Asc);
+        }
+
+        // Apply ordering, flipping direction for backward pagination.
+        for order in order_by {
+            let dir = if backward {
+                match order.direction {
+                    OrderDir::Asc => OrderDir::Desc,
+                    OrderDir::Desc => OrderDir::Asc,
+                }
+            } else {
+                order.direction
+            };
+            if let Some(expr) = composite_order_expr(&order.column) {
+                builder = builder.order_by_expr(expr, dir);
+            } else {
+                builder = builder.order_by(order.column, dir);
+            }
+        }
+
+        // Apply take (absolute value; direction is handled by ORDER BY flip).
+        if let Some(n) = take {
+            builder = builder.take(n.saturating_abs());
+        }
+        if let Some(offset) = skip {
+            builder = builder.skip(offset);
+        }
+
+        // Apply distinct (SELECT DISTINCT / DISTINCT ON).
+        if !distinct.is_empty() {
+            builder = builder.distinct(distinct);
+        }
+
+        let select = builder.build()?;
+        let sql = client.dialect().render_select_owned(select)?;
+
+        Ok((client, sql, row_hints, decode_slots, backward))
+    }
+
+    fn into_selection_execution_parts<C>(
+        self,
+        selection: &C,
+    ) -> nautilus_core::Result<(
+        crate::Client<E>,
+        nautilus_dialect::Sql,
+        Vec<Option<crate::ValueHint>>,
+        bool,
+    )>
+    where
+        C: nautilus_core::SelectColumns,
+    {
+        use nautilus_core::*;
+
+        let PostFindMany {
+            client,
+            filter,
+            order_by,
+            take,
+            skip,
+            select: _,
+            cursor,
+            backward,
+            distinct,
+            nearest,
+            _selection,
+        } = self;
+        let selected_columns = selection.columns();
+        let row_hints = selected_columns
+            .iter()
+            .map(projection_value_hint_for_column)
+            .collect::<Vec<_>>();
+        let mut builder = Select::from_table("Post").with_capacity(SelectCapacity {
+            items: selected_columns.len(),
+            order_by_columns: order_by.len() + distinct.len() + 1,
+            order_by_exprs: usize::from(nearest.is_some()),
+            distinct: distinct.len(),
+            ..SelectCapacity::default()
+        });
+
+        for column in selected_columns {
+            builder = builder.item(SelectItem::column(column));
+        }
+
+        if !distinct.is_empty() {
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+            for col in &distinct {
+                if !existing_cols.contains(col.as_str()) {
+                    let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                    builder = builder.order_by(col.clone(), dir);
+                }
+            }
+        }
+
+        let effective_filter = if let Some(ref cursor_map) = cursor {
+            let pk_pairs: &[(&str, &str)] = &[
+                ("id", "Post__id"),
+            ];
+            let cursor_pred =
+                nautilus_core::build_cursor_predicate(pk_pairs, cursor_map, backward)?;
+
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+            if !existing_cols.contains("id") {
+                let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                builder = builder.order_by("id".to_string(), dir);
+            }
+
+            Some(match filter {
+                Some(f) => f.and(cursor_pred),
+                None => cursor_pred,
+            })
+        } else {
+            filter
+        };
+
+        if let Some(f) = effective_filter {
+            builder = builder.filter(f);
+        }
+
+        if let Some(nearest) = nearest {
+            let distance = nearest_order_expr(nearest, take, cursor.is_some(), !distinct.is_empty())?;
+            builder = builder.order_by_expr(distance, OrderDir::Asc);
+        }
+
+        for order in order_by {
+            let dir = if backward {
+                match order.direction {
+                    OrderDir::Asc => OrderDir::Desc,
+                    OrderDir::Desc => OrderDir::Asc,
+                }
+            } else {
+                order.direction
+            };
+            if let Some(expr) = composite_order_expr(&order.column) {
+                builder = builder.order_by_expr(expr, dir);
+            } else {
+                builder = builder.order_by(order.column, dir);
+            }
+        }
+
+        if let Some(n) = take {
+            builder = builder.take(n.saturating_abs());
+        }
+        if let Some(offset) = skip {
+            builder = builder.skip(offset);
+        }
+
+        if !distinct.is_empty() {
+            builder = builder.distinct(distinct);
+        }
+
+        let select = builder.build()?;
+        let sql = client.dialect().render_select_owned(select)?;
+
+        Ok((client, sql, row_hints, backward))
+    }
+}
+
+impl<E> PostFindMany<E, ()>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    /// Execute the query and return all rows.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<Post>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, decode_slots, backward) = self.into_execution_parts()?;
+
+        let rows = crate::execute_all(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            let decoded = decode_model_row_with_hints(row, &decode_slots, &row_hints)?;
+            results.push(decoded);
+        }
+
+        // Backward pagination: DB returned rows in reversed order - restore natural order.
+        if backward {
+            results.reverse();
+        }
+
+        Ok(results)
+    }
+
+    /// Execute the query and decode at most one row.
+    pub(crate) async fn exec_optional(self) -> nautilus_core::Result<Option<Post>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, decode_slots, _backward) = self.into_execution_parts()?;
+        let row = crate::execute_optional(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let row: crate::Row = row.into();
+        Ok(Some(decode_model_row_with_hints(row, &decode_slots, &row_hints)?))
+    }
+
+    pub(crate) async fn exec_select<C>(
+        self,
+        selection: C,
+    ) -> nautilus_core::Result<Vec<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+    {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, backward) =
+            self.into_selection_execution_parts(&selection)?;
+
+        let rows = crate::execute_all(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            let row = normalize_projection_row(row, &row_hints)?;
+            results.push(selection.decode(&row)?);
+        }
+
+        if backward {
+            results.reverse();
+        }
+
+        Ok(results)
+    }
+
+    pub(crate) async fn exec_select_optional<C>(
+        self,
+        selection: C,
+    ) -> nautilus_core::Result<Option<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+    {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, _backward) =
+            self.into_selection_execution_parts(&selection)?;
+        let row = crate::execute_optional(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let row: crate::Row = row.into();
+        let row = normalize_projection_row(row, &row_hints)?;
+        Ok(Some(selection.decode(&row)?))
+    }
+}
+
+/// Internal Create builder for Post — use `PostDelegate::create(data)` instead.
+pub(crate) struct PostCreate<E: crate::Executor> {
+    client: crate::Client<E>,
+    id: Option<i32>,
+    content: Option<Option<String>>,
+}
+
+impl<E> PostCreate<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        PostCreate {
+            client,
+            id: None,
+            content: None,
+        }
+    }
+    /// Set id.
+    #[must_use]
+    pub(crate) fn id(mut self, value: impl Into<i32>) -> Self {
+        self.id = Some(value.into());
+        self
+    }
+    /// Set content.
+    #[must_use]
+    pub(crate) fn content(mut self, value: impl Into<Option<String>>) -> Self {
+        self.content = Some(value.into());
+        self
+    }
+    /// Execute the create query.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Post> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let mut columns = Vec::with_capacity(2);
+        let mut values = Vec::with_capacity(2);
+        if let Some(value) = self.id {
+            columns.push(ColumnMarker::from_static("Post", "id"));
+            values.push(Value::from(value));
+        }
+        if let Some(value) = self.content {
+            columns.push(ColumnMarker::from_static("Post", "content"));
+            values.push(Value::from(value));
+        }
+
+        let mut builder = Insert::into_table("Post")
+            .columns(columns)
+            .values(values);
+
+        let supports_returning = self.client.dialect().supports_returning();
+        if supports_returning {
+            let returning_cols = vec![
+                ColumnMarker::from_static("Post", "id"),
+                ColumnMarker::from_static("Post", "content"),
+            ];
+            builder = builder.returning(returning_cols);
+        }
+
+        let insert = builder.build()?;
+        let sql = self.client.dialect().render_insert_owned(insert)?;
+
+        let row: Row = crate::execute_one(self.client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?
+            .into();
+
+        decode_model_row_with_hints(row, all_scalar_decode_slots(), all_scalar_value_hints())
+    }
+}
+
+
+/// Entry for creating Post.
+#[derive(Debug, Clone)]
+pub struct PostCreateEntry {
+    pub id: i32,
+    pub content: Option<String>,
+}
+
+impl PostCreateEntry {
+    pub(crate) fn to_engine_data(&self) -> serde_json::Value {
+        let mut data = serde_json::Map::new();
+        data.insert(
+            "id".to_string(),
+            nautilus_core::Value::from(self.id.clone()).to_json_plain(),
+        );
+        data.insert(
+            "content".to_string(),
+            match &self.content {
+                Some(value) => nautilus_core::Value::from(value.clone()).to_json_plain(),
+                None => serde_json::Value::Null,
+            },
+        );
+        serde_json::Value::Object(data)
+    }
+}
+
+/// Internal CreateMany builder for Post — use `PostDelegate::create_many(entries)` instead.
+pub(crate) struct PostCreateMany<E: crate::Executor> {
+    client: crate::Client<E>,
+    entries: Vec<PostCreateEntry>,
+}
+
+impl<E> PostCreateMany<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        PostCreateMany {
+            client,
+            entries: vec![],
+        }
+    }
+
+    /// Add an entry to the batch.
+    #[must_use]
+    pub(crate) fn entry(mut self, entry: PostCreateEntry) -> Self {
+        self.entries.push(entry);
+        self
+    }
+
+    /// Execute the batch create using a single multi-row `INSERT`.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<Post>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        if self.entries.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // MySQL does not support RETURNING — fall back to per-row inserts.
+        if !self.client.dialect().supports_returning() {
+            let mut results = Vec::with_capacity(self.entries.len());
+            for entry in self.entries {
+                let result = PostCreate::new(self.client.clone())
+                    .id(entry.id)
+                    .content(entry.content)
+                    .exec().await?;
+                results.push(result);
+            }
+            return Ok(results);
+        }
+
+        let columns = vec![
+            ColumnMarker::from_static("Post", "id"),
+            ColumnMarker::from_static("Post", "content"),
+        ];
+
+        let mut rows = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            let row = vec![
+                Value::from(entry.id.clone()),
+                Value::from(entry.content.clone()),
+            ];
+            rows.push(row);
+        }
+
+        let returning_cols = vec![
+            ColumnMarker::from_static("Post", "id"),
+            ColumnMarker::from_static("Post", "content"),
+        ];
+        let builder = Insert::into_table("Post")
+            .with_capacity(InsertCapacity {
+                columns: columns.len(),
+                rows: rows.len(),
+                returning: returning_cols.len(),
+            })
+            .columns(columns)
+            .rows(rows)
+            .returning(returning_cols);
+
+        let insert = builder.build()?;
+        let sql = self.client.dialect().render_insert_owned(insert)?;
+
+        let rows = crate::execute_all(self.client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            let decoded = decode_model_row_with_hints(
+                row,
+                all_scalar_decode_slots(),
+                all_scalar_value_hints(),
+            )?;
+            results.push(decoded);
+        }
+
+        Ok(results)
+    }
+}
+
+
+/// Internal Update builder for Post — use `PostDelegate::update(args)` instead.
+pub(crate) struct PostUpdate<E: crate::Executor> {
+    client: crate::Client<E>,
+    filter: Option<nautilus_core::Expr>,
+    require_filter: bool,
+    /// Column-value assignments collected from `set_data`.
+    assignments: Vec<(nautilus_core::ColumnMarker, nautilus_core::Assignment)>,
+}
+
+impl<E> PostUpdate<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        PostUpdate {
+            client,
+            filter: None,
+            require_filter: true,
+            assignments: Vec::with_capacity(2),
+        }
+    }
+
+    /// Set WHERE filter.
+    #[must_use]
+    pub(crate) fn where_(mut self, expr: nautilus_core::Expr) -> Self {
+        self.filter = Some(expr);
+        self
+    }
+
+    /// Update all rows (removes the safety guard that requires a filter).
+    #[must_use]
+    pub(crate) fn all(mut self) -> Self {
+        self.require_filter = false;
+        self
+    }
+
+    /// Load field assignments from a structured update-input value.
+    ///
+    /// Only fields that are `Some(…)` in `data` are included in the SET
+    /// clause; `None` fields are intentionally skipped (left unchanged).
+    /// For nullable fields a `Some(None)` sets the column to NULL.
+    #[must_use]
+    pub(crate) fn set_data(mut self, data: PostUpdateInput) -> Self {
+        if let Some(outer) = data.id {
+            let assignment = outer.to_assignment("id");
+            self.assignments.push((
+                nautilus_core::ColumnMarker::from_static("Post", "id"),
+                assignment,
+            ));
+        }
+        if let Some(outer) = data.content {
+            let assignment = nautilus_core::Assignment::Value(match outer {
+                Some(v) => nautilus_core::Value::from(v),
+                None => nautilus_core::Value::Null,
+            });
+            self.assignments.push((
+                nautilus_core::ColumnMarker::from_static("Post", "content"),
+                assignment,
+            ));
+        }
+        self
+    }
+
+    /// Execute the update, returning affected rows via `RETURNING`.
+    ///
+    /// Returns an empty `Vec` for databases that do not support `RETURNING`
+    /// (e.g. MySQL).  Returns an empty `Vec` without touching the database
+    /// when no assignments have been loaded via `set_data`.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<Post>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        if self.assignments.is_empty() {
+            return Ok(vec![]);
+        }
+
+        if self.require_filter && self.filter.is_none() {
+            return Err(Error::InvalidQuery(
+                "Update requires a WHERE filter — call `.all()` to update every row.".to_string(),
+            ));
+        }
+
+        let mut builder = Update::table("Post")
+            .with_capacity(UpdateCapacity {
+                assignments: self.assignments.len(),
+                returning: usize::from(self.client.dialect().supports_returning()) * 2,
+            })
+            .assignments(self.assignments);
+        if let Some(filter) = self.filter {
+            builder = builder.filter(filter);
+        }
+
+        let supports_returning = self.client.dialect().supports_returning();
+        if supports_returning {
+            let returning_cols = vec![
+                ColumnMarker::from_static("Post", "id"),
+                ColumnMarker::from_static("Post", "content"),
+            ];
+            builder = builder.returning(returning_cols);
+        }
+
+        let update = builder.build()?;
+        let sql = self.client.dialect().render_update_owned(update)?;
+
+        let rows = crate::execute_all(self.client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            results.push(decode_model_row_with_hints(
+                row,
+                all_scalar_decode_slots(),
+                all_scalar_value_hints(),
+            )?);
+        }
+
+        Ok(results)
+    }
+}
+
+
+/// Internal Delete builder for Post — use `PostDelegate::delete(filter)` instead.
+pub(crate) struct PostDelete<E: crate::Executor> {
+    client: crate::Client<E>,
+    filter: Option<nautilus_core::Expr>,
+    require_filter: bool,
+}
+
+impl<E> PostDelete<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        PostDelete {
+            client,
+            filter: None,
+            require_filter: true,
+        }
+    }
+
+    /// Set WHERE filter.
+    #[must_use]
+    pub(crate) fn where_(mut self, expr: nautilus_core::Expr) -> Self {
+        self.filter = Some(expr);
+        self
+    }
+
+    /// Delete all rows (removes the safety guard that requires a filter).
+    #[must_use]
+    pub(crate) fn all(mut self) -> Self {
+        self.require_filter = false;
+        self
+    }
+
+    /// Execute the delete, returning deleted rows via `RETURNING`.
+    ///
+    /// Returns an empty `Vec` for databases that do not support `RETURNING`
+    /// (e.g. MySQL).
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<Post>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        if self.require_filter && self.filter.is_none() {
+            return Err(Error::InvalidQuery(
+                "Delete requires a WHERE filter — call `.all()` to delete every row.".to_string(),
+            ));
+        }
+
+        let mut builder = Delete::from_table("Post").with_capacity(DeleteCapacity {
+            returning: usize::from(self.client.dialect().supports_returning()) * 2,
+        });
+        if let Some(filter) = self.filter {
+            builder = builder.filter(filter);
+        }
+
+        let supports_returning = self.client.dialect().supports_returning();
+        if supports_returning {
+            let returning_cols = vec![
+                ColumnMarker::from_static("Post", "id"),
+                ColumnMarker::from_static("Post", "content"),
+            ];
+            builder = builder.returning(returning_cols);
+        }
+
+        let delete = builder.build()?;
+        let sql = self.client.dialect().render_delete_owned(delete)?;
+
+        let rows = crate::execute_all(self.client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            results.push(decode_model_row_with_hints(
+                row,
+                all_scalar_decode_slots(),
+                all_scalar_value_hints(),
+            )?);
+        }
+
+        Ok(results)
+    }
+}

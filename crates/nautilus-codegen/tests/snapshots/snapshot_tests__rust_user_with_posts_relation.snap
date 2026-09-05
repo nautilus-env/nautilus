@@ -1,0 +1,3557 @@
+---
+source: crates/nautilus-codegen/tests/snapshot_tests.rs
+expression: snapshot_value
+---
+//! User model and associated builders.
+use crate::Row;
+use futures::stream::StreamExt;
+use super::Post;
+use super::PostCreateInput;
+use super::PostUpdateInput;
+fn all_scalar_value_hints() -> &'static [Option<crate::ValueHint>] {
+    &[
+        None,
+        None,
+    ]
+}
+
+fn all_scalar_decode_slots() -> &'static [usize] {
+    &[
+        0,
+        1,
+    ]
+}
+
+
+fn projected_scalar_value_hints(
+    fields: &std::collections::HashSet<String>,
+) -> Vec<Option<crate::ValueHint>> {
+    let mut hints = Vec::with_capacity(2);
+    hints.push(None);
+    if fields.is_empty() || fields.contains("name") {
+        hints.push(None);
+    }
+    hints
+}
+
+fn projected_scalar_decode_slots(fields: &std::collections::HashSet<String>) -> Vec<usize> {
+    let mut slots = Vec::with_capacity(2);
+    slots.push(0);
+    if fields.is_empty() || fields.contains("name") {
+        slots.push(1);
+    }
+    slots
+}
+
+#[allow(dead_code)]
+fn decode_relation_json_ref<T>(value: &nautilus_core::Value) -> Option<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    match value {
+        nautilus_core::Value::Json(json) => serde::Deserialize::deserialize(json).ok(),
+        _ => None,
+    }
+}
+
+#[allow(dead_code)]
+fn decode_relation_json_owned<T>(value: nautilus_core::Value) -> Option<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    match value {
+        nautilus_core::Value::Json(json) => serde_json::from_value(json).ok(),
+        _ => None,
+    }
+}
+
+fn decode_model_row_with_hints(
+    row: crate::Row,
+    decode_slots: &[usize],
+    hints: &[Option<crate::ValueHint>],
+) -> nautilus_core::Result<User> {
+    if decode_slots.len() != hints.len() {
+        return Err(nautilus_core::Error::Other(format!(
+            "Failed to decode User row: projection slot count {} does not match hint count {}",
+            decode_slots.len(),
+            hints.len(),
+        )));
+    }
+
+    if row.len() < decode_slots.len() {
+        return Err(nautilus_core::Error::TypeError(format!(
+            "expected at least {} projected scalar columns for User, got {}",
+            decode_slots.len(),
+            row.len(),
+        )));
+    }
+    let mut id: Option<i32> = None;
+    let mut name: Option<String> = None;
+    let mut posts = vec![];
+
+    for (column_idx, (column_name, value)) in row.into_columns_iter().enumerate() {
+        if column_idx >= decode_slots.len() {
+            match column_name.as_ref() {
+                "posts_json" => {
+                    posts =
+                        decode_relation_json_owned::<Vec<Post>>(value)
+                            .unwrap_or_default();
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        let value = match hints[column_idx] {
+            Some(hint) => crate::normalize_value_with_hint(&column_name, column_idx, value, hint)
+                .map_err(|e| {
+                    nautilus_core::Error::Other(format!(
+                        "Failed to normalize User row: {}",
+                        e
+                    ))
+                })?,
+            None => value,
+        };
+
+        match decode_slots[column_idx] {
+            0 => {
+                id = Some(nautilus_core::FromValue::from_value_owned(value)?);
+            }
+            1 => {
+                name = Some(nautilus_core::FromValue::from_value_owned(value)?);
+            }
+            other => {
+                return Err(nautilus_core::Error::TypeError(format!(
+                    "unknown scalar projection slot {} while decoding User",
+                    other
+                )));
+            }
+        }
+    }
+
+    Ok(User {
+        id: id.ok_or_else(|| nautilus_core::Error::TypeError(
+            "missing required column 'id' (id) while decoding full User".to_string()
+        ))?,
+        name: name.ok_or_else(|| nautilus_core::Error::TypeError(
+            "missing required column 'name' (name) while decoding full User".to_string()
+        ))?,
+        posts,
+    })
+}
+
+fn projection_value_hint_for_column(
+    column: &nautilus_core::ColumnMarker,
+) -> Option<crate::ValueHint> {
+    if column.table.as_ref() != "User" {
+        return None;
+    }
+
+    match column.name.as_ref() {
+        "id" => None,
+        "name" => None,
+        _ => None,
+    }
+}
+
+fn normalize_projection_row(
+    row: crate::Row,
+    hints: &[Option<crate::ValueHint>],
+) -> nautilus_core::Result<crate::Row> {
+    let mut normalized = crate::Row::with_capacity(row.len());
+    for (idx, (column_name, value)) in row.into_columns_iter().enumerate() {
+        let value = match hints.get(idx).and_then(|hint| *hint) {
+            Some(hint) => crate::normalize_value_with_hint(&column_name, idx, value, hint)
+                .map_err(|e| {
+                    nautilus_core::Error::Other(format!(
+                        "Failed to normalize User projection row: {}",
+                        e
+                    ))
+                })?,
+            None => value,
+        };
+        normalized.push_column(column_name, value);
+    }
+    Ok(normalized)
+}
+
+/// User model.
+///
+/// Scalar fields mirror the schema exactly. Partial `select` results use the
+/// delegate projection APIs instead of this full model type.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct User {
+    /// @id @default(autoincrement())
+    pub id: i32,
+    pub name: String,
+    #[serde(default, alias = "posts_json")]
+    /// Relation field (lazy-loaded)
+    pub posts: Vec<Post>,
+}
+
+
+impl User {
+    /// Column accessor for id.
+    pub fn id() -> nautilus_core::Column<i32> {
+        nautilus_core::Column::new("User", "id")
+    }
+    /// Column accessor for name.
+    pub fn name() -> nautilus_core::Column<String> {
+        nautilus_core::Column::new("User", "name")
+    }
+    /// Create a delegate for User queries.
+    pub fn nautilus<E>(client: &crate::Client<E>) -> UserDelegate<E>
+    where
+        E: crate::Executor,
+        for<'a> E::Row<'a>: Into<crate::Row>,
+    {
+        UserDelegate::new(client.clone())
+    }
+}
+
+
+impl crate::FromRow for User {
+    fn from_row(row: &crate::Row) -> nautilus_core::Result<Self> {
+        let id = row
+            .get("id")
+            .or_else(|| row.get("User__id"))
+            .ok_or_else(|| nautilus_core::Error::TypeError(
+                "missing required column 'id' (id) while decoding full User".to_string()
+            ))
+            .and_then(nautilus_core::FromValue::from_value)?;
+        let name = row
+            .get("name")
+            .or_else(|| row.get("User__name"))
+            .ok_or_else(|| nautilus_core::Error::TypeError(
+                "missing required column 'name' (name) while decoding full User".to_string()
+            ))
+            .and_then(nautilus_core::FromValue::from_value)?;
+
+        // Decode relation fields from JSON (if included via .include()).
+        let posts = row.get("posts_json")
+            .map(|v| match v {
+                nautilus_core::Value::Null => vec![],
+                other => decode_relation_json_ref::<Vec<Post>>(other)
+                    .unwrap_or_default(),
+            })
+            .unwrap_or_default();
+
+        Ok(User {
+            id,
+            name,
+            posts,
+        })
+    }
+}
+
+
+/// Column accessors for User selections.
+#[derive(Debug, Clone, Copy)]
+pub struct UserColumns;
+
+impl UserColumns {
+    pub fn id(&self) -> nautilus_core::Column<i32> {
+        nautilus_core::Column::new("User", "id")
+    }
+    pub fn name(&self) -> nautilus_core::Column<String> {
+        nautilus_core::Column::new("User", "name")
+    }
+    /// Filter parent rows that have **at least one** `posts` matching `child_filter`.
+    pub fn posts_some(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
+        nautilus_core::Expr::relation_some(
+            "posts",
+            "User",
+            "Post",
+            "authorId",
+            "id",
+            child_filter,
+        )
+    }
+    /// Filter parent rows that have **no** `posts` matching `child_filter`.
+    pub fn posts_none(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
+        nautilus_core::Expr::relation_none(
+            "posts",
+            "User",
+            "Post",
+            "authorId",
+            "id",
+            child_filter,
+        )
+    }
+    /// Filter parent rows where **all** `posts` match `child_filter`.
+    pub fn posts_every(&self, child_filter: nautilus_core::Expr) -> nautilus_core::Expr {
+        nautilus_core::Expr::relation_every(
+            "posts",
+            "User",
+            "Post",
+            "authorId",
+            "id",
+            child_filter,
+        )
+    }
+}
+
+
+
+/// Nested writes on the `posts` relation of User,
+/// as accepted by `UserCreateInput`.
+///
+/// Every operation runs inside the same transaction as the User
+/// write, so a failing child rolls the parent back.
+#[derive(Debug, Default, Clone)]
+pub struct UserPostsCreateNested {
+    /// Create these Post records pointing at the parent.
+    pub create: Vec<PostCreateInput>,
+    /// Same as `create`, spelled the way the batch operation is.
+    pub create_many: Vec<PostCreateInput>,
+    /// Point the matched Post records at the parent.
+    pub connect: Vec<nautilus_core::Expr>,
+    /// Connect each matched Post, creating it when there is none.
+    pub connect_or_create: Vec<crate::ConnectOrCreate<PostCreateInput>>,
+}
+
+impl UserPostsCreateNested {
+    fn is_empty(&self) -> bool {
+        self.create.is_empty()
+            && self.create_many.is_empty()
+            && self.connect.is_empty()
+            && self.connect_or_create.is_empty()
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut operations = serde_json::Map::new();
+        if !self.create.is_empty() {
+            operations.insert("create".to_string(), crate::runtime::nested::data_array(&self.create)?);
+        }
+        if !self.create_many.is_empty() {
+            operations.insert(
+                "createMany".to_string(),
+                serde_json::json!({ "data": crate::runtime::nested::data_array(&self.create_many)? }),
+            );
+        }
+        if !self.connect.is_empty() {
+            operations.insert(
+                "connect".to_string(),
+                crate::runtime::nested::filter_array(&self.connect)?,
+            );
+        }
+        if !self.connect_or_create.is_empty() {
+            operations.insert(
+                "connectOrCreate".to_string(),
+                crate::runtime::nested::entry_array(&self.connect_or_create)?,
+            );
+        }
+        Ok(serde_json::Value::Object(operations))
+    }
+}
+
+/// Nested writes on the `posts` relation of User,
+/// as accepted by `UserUpdateInput`.
+///
+/// Removals run before additions, so a `set` clears the relation before
+/// `connect` fills it again.
+#[derive(Debug, Default, Clone)]
+pub struct UserPostsUpdateNested {
+    /// Create these Post records pointing at the parent.
+    pub create: Vec<PostCreateInput>,
+    /// Same as `create`, spelled the way the batch operation is.
+    pub create_many: Vec<PostCreateInput>,
+    /// Point the matched Post records at the parent.
+    pub connect: Vec<nautilus_core::Expr>,
+    /// Connect each matched Post, creating it when there is none.
+    pub connect_or_create: Vec<crate::ConnectOrCreate<PostCreateInput>>,
+    /// Detach the matched records from the parent.
+    pub disconnect: Vec<nautilus_core::Expr>,
+    /// Replace the members of the relation with the matched records.
+    pub set: Vec<nautilus_core::Expr>,
+    /// Update one connected record per entry; an entry matching none fails.
+    pub update: Vec<crate::NestedUpdate<PostUpdateInput>>,
+    /// Update every connected record the filter of the entry narrows to.
+    pub update_many: Vec<crate::NestedUpdate<PostUpdateInput>>,
+    /// Delete one connected record per filter; a filter matching none fails.
+    pub delete: Vec<nautilus_core::Expr>,
+    /// Delete every connected record the filter narrows to.
+    pub delete_many: Vec<nautilus_core::Expr>,
+}
+
+impl UserPostsUpdateNested {
+    fn is_empty(&self) -> bool {
+        self.create.is_empty()
+            && self.create_many.is_empty()
+            && self.connect.is_empty()
+            && self.connect_or_create.is_empty()
+            && self.disconnect.is_empty()
+            && self.set.is_empty()
+            && self.update.is_empty()
+            && self.update_many.is_empty()
+            && self.delete.is_empty()
+            && self.delete_many.is_empty()
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut operations = serde_json::Map::new();
+        if !self.create.is_empty() {
+            operations.insert("create".to_string(), crate::runtime::nested::data_array(&self.create)?);
+        }
+        if !self.create_many.is_empty() {
+            operations.insert(
+                "createMany".to_string(),
+                serde_json::json!({ "data": crate::runtime::nested::data_array(&self.create_many)? }),
+            );
+        }
+        if !self.connect.is_empty() {
+            operations.insert(
+                "connect".to_string(),
+                crate::runtime::nested::filter_array(&self.connect)?,
+            );
+        }
+        if !self.connect_or_create.is_empty() {
+            operations.insert(
+                "connectOrCreate".to_string(),
+                crate::runtime::nested::entry_array(&self.connect_or_create)?,
+            );
+        }
+        if !self.disconnect.is_empty() {
+            operations.insert(
+                "disconnect".to_string(),
+                crate::runtime::nested::filter_array(&self.disconnect)?,
+            );
+        }
+        if !self.set.is_empty() {
+            operations.insert("set".to_string(), crate::runtime::nested::filter_array(&self.set)?);
+        }
+        if !self.update.is_empty() {
+            operations.insert("update".to_string(), crate::runtime::nested::entry_array(&self.update)?);
+        }
+        if !self.update_many.is_empty() {
+            operations.insert(
+                "updateMany".to_string(),
+                crate::runtime::nested::entry_array(&self.update_many)?,
+            );
+        }
+        if !self.delete.is_empty() {
+            operations.insert("delete".to_string(), crate::runtime::nested::filter_array(&self.delete)?);
+        }
+        if !self.delete_many.is_empty() {
+            operations.insert(
+                "deleteMany".to_string(),
+                crate::runtime::nested::filter_array(&self.delete_many)?,
+            );
+        }
+        Ok(serde_json::Value::Object(operations))
+    }
+}
+
+
+/// Structured input for creating a User record.
+///
+/// All fields are optional; unset fields are omitted from the INSERT.
+#[derive(Debug, Default, Clone)]
+pub struct UserCreateInput {
+    /// id column.
+    pub id: Option<i32>,
+    /// name column.
+    pub name: Option<String>,
+    /// Nested writes on the `posts` relation.
+    pub posts: UserPostsCreateNested,
+}
+
+impl UserCreateInput {
+    /// Whether the input names a relation, which only the engine can write.
+    pub(crate) fn has_nested_writes(&self) -> bool {
+        !self.posts.is_empty()
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut data = serde_json::Map::new();
+        if let Some(value) = &self.id {
+            data.insert(
+                "id".to_string(),
+                nautilus_core::Value::from(value.clone()).to_json_plain(),
+            );
+        }
+        if let Some(value) = &self.name {
+            data.insert(
+                "name".to_string(),
+                nautilus_core::Value::from(value.clone()).to_json_plain(),
+            );
+        }
+        if !self.posts.is_empty() {
+            data.insert(
+                "posts".to_string(),
+                self.posts.to_engine_data()?,
+            );
+        }
+        Ok(serde_json::Value::Object(data))
+    }
+}
+
+impl crate::runtime::nested::NestedInput for UserCreateInput {
+    fn to_nested_json(&self) -> nautilus_core::Result<serde_json::Value> {
+        self.to_engine_data()
+    }
+}
+
+/// Structured input for updating User records.
+///
+/// All fields are optional; only set fields are included in the UPDATE.
+#[derive(Debug, Default, Clone)]
+pub struct UserUpdateInput {
+    /// id column: a value to write, or arithmetic the database
+    /// applies to the row's current one.
+    pub id: Option<crate::NumericUpdate<i32, i32>>,
+    /// name column.
+    pub name: Option<String>,
+    /// Nested writes on the `posts` relation.
+    pub posts: UserPostsUpdateNested,
+}
+
+impl UserUpdateInput {
+    /// Whether the input names a relation, which only the engine can write.
+    pub(crate) fn has_nested_writes(&self) -> bool {
+        !self.posts.is_empty()
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut data = serde_json::Map::new();
+        if let Some(value) = &self.id {
+            data.insert(
+                "id".to_string(),
+                value.to_engine_json(),
+            );
+        }
+        if let Some(value) = &self.name {
+            data.insert(
+                "name".to_string(),
+                nautilus_core::Value::from(value.clone()).to_json_plain(),
+            );
+        }
+        if !self.posts.is_empty() {
+            data.insert(
+                "posts".to_string(),
+                self.posts.to_engine_data()?,
+            );
+        }
+        Ok(serde_json::Value::Object(data))
+    }
+
+    fn has_assignments(&self) -> bool {
+        self.id.is_some() ||
+        self.name.is_some() ||
+        self.has_nested_writes()
+    }
+}
+
+impl crate::runtime::nested::NestedInput for UserUpdateInput {
+    fn to_nested_json(&self) -> nautilus_core::Result<serde_json::Value> {
+        self.to_engine_data()
+    }
+}
+
+/// Structured arguments for updating User records.
+#[derive(Debug, Default, Clone)]
+pub struct UserUpdateArgs {
+    /// Optional WHERE filter — if `None`, all rows are updated.
+    pub where_: Option<nautilus_core::Expr>,
+    /// Fields to update.
+    pub data: UserUpdateInput,
+}
+
+/// Structured arguments for deleting User records.
+#[derive(Debug, Default, Clone)]
+pub struct UserDeleteArgs {
+    /// Optional WHERE filter — if `None`, all rows are deleted.
+    pub where_: Option<nautilus_core::Expr>,
+}
+
+/// Structured arguments for upserting a User record.
+#[derive(Debug, Default, Clone)]
+pub struct UserUpsertArgs {
+    /// WHERE filter used to look up the existing record (should target a unique field).
+    pub where_: Option<nautilus_core::Expr>,
+    /// Fields used when creating a new record (record not found).
+    pub create: UserCreateInput,
+    /// Fields applied when updating an existing record.
+    pub update: UserUpdateInput,
+    /// Whether to return the created/updated record (default: true).
+    pub return_data: bool,
+}
+
+pub type UserCreateEventContext =
+    crate::CrudEventContext<UserCreateInput, User>;
+pub type UserCreateManyEventContext =
+    crate::CrudEventContext<Vec<UserCreateEntry>, Vec<User>>;
+pub type UserUpdateEventContext =
+    crate::CrudEventContext<UserUpdateArgs, Vec<User>>;
+pub type UserUpdateManyEventContext =
+    crate::CrudEventContext<UserUpdateArgs, u64>;
+pub type UserDeleteEventContext =
+    crate::CrudEventContext<UserDeleteArgs, Option<User>>;
+pub type UserDeleteManyEventContext =
+    crate::CrudEventContext<UserDeleteArgs, Vec<User>>;
+
+
+/// Scalar fields on User that can be referenced in generated aggregate APIs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UserScalarField {
+    Id,
+    Name,
+}
+
+impl UserScalarField {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Id => "id",
+            Self::Name => "name",
+        }
+    }
+}
+
+/// Sort direction used by User `group_by()` ordering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UserSortOrder {
+    Asc,
+    Desc,
+}
+
+impl UserSortOrder {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        }
+    }
+}
+
+/// Structured arguments for counting User records.
+#[derive(Debug, Default, Clone)]
+pub struct UserCountArgs {
+    /// Optional WHERE filter.
+    pub where_: Option<nautilus_core::Expr>,
+    /// Limit the counted window.
+    pub take: Option<i32>,
+    /// Offset the counted window.
+    pub skip: Option<u32>,
+    /// Optional keyset cursor for paginated counts.
+    pub cursor: Option<std::collections::HashMap<String, nautilus_core::Value>>,
+}
+
+impl UserCountArgs {
+    fn to_engine_args(&self) -> nautilus_core::Result<Option<serde_json::Value>> {
+        let mut args = serde_json::Map::new();
+
+        if let Some(filter) = self.where_.as_ref() {
+            args.insert(
+                "where".to_string(),
+                nautilus_core::where_expr_to_protocol_json(filter)?,
+            );
+        }
+        if let Some(take) = self.take {
+            args.insert("take".to_string(), serde_json::Value::from(take));
+        }
+        if let Some(skip) = self.skip {
+            args.insert("skip".to_string(), serde_json::Value::from(skip));
+        }
+        if let Some(cursor) = self.cursor.as_ref() {
+            args.insert("cursor".to_string(), serialize_cursor_for_engine(cursor));
+        }
+
+        Ok((!args.is_empty()).then_some(serde_json::Value::Object(args)))
+    }
+}
+
+/// Select which COUNT aggregates to return from `UserDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct UserCountAggregateInput {
+    pub _all: bool,
+    pub id: bool,
+    pub name: bool,
+}
+
+impl UserCountAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self._all {
+            obj.insert("_all".to_string(), serde_json::Value::Bool(true));
+        }
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        if self.name {
+            obj.insert("name".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+/// Select which AVG aggregates to return from `UserDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct UserAvgAggregateInput {
+    pub id: bool,
+}
+
+impl UserAvgAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// Select which SUM aggregates to return from `UserDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct UserSumAggregateInput {
+    pub id: bool,
+}
+
+impl UserSumAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// Select which MIN aggregates to return from `UserDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct UserMinAggregateInput {
+    pub id: bool,
+    pub name: bool,
+}
+
+impl UserMinAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        if self.name {
+            obj.insert("name".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// Select which MAX aggregates to return from `UserDelegate::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct UserMaxAggregateInput {
+    pub id: bool,
+    pub name: bool,
+}
+
+impl UserMaxAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self.id {
+            obj.insert("id".to_string(), serde_json::Value::Bool(true));
+        }
+        if self.name {
+            obj.insert("name".to_string(), serde_json::Value::Bool(true));
+        }
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// One ORDER BY item for `UserDelegate::group_by()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserGroupByOrderBy {
+    Field {
+        field: UserScalarField,
+        direction: UserSortOrder,
+    },
+    CountAll(UserSortOrder),
+    Count {
+        field: UserScalarField,
+        direction: UserSortOrder,
+    },
+    Avg {
+        field: UserScalarField,
+        direction: UserSortOrder,
+    },
+    Sum {
+        field: UserScalarField,
+        direction: UserSortOrder,
+    },
+    Min {
+        field: UserScalarField,
+        direction: UserSortOrder,
+    },
+    Max {
+        field: UserScalarField,
+        direction: UserSortOrder,
+    },
+}
+
+impl UserGroupByOrderBy {
+    fn to_json(&self) -> serde_json::Value {
+        match self {
+            Self::Field { field, direction } => {
+                let mut obj = serde_json::Map::new();
+                obj.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                serde_json::Value::Object(obj)
+            }
+            Self::CountAll(direction) => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    "_all".to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_count".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Count { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_count".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Avg { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_avg".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Sum { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_sum".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Min { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_min".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Max { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_max".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+        }
+    }
+}
+
+/// Structured arguments for grouping User rows and computing aggregates.
+#[derive(Debug, Default, Clone)]
+pub struct UserGroupByArgs {
+    /// Logical field names to group by.
+    pub by: Vec<UserScalarField>,
+    /// Optional pre-group WHERE filter.
+    pub where_: Option<nautilus_core::Expr>,
+    /// Optional HAVING JSON object using the protocol aggregate shape.
+    pub having: Option<serde_json::Value>,
+    /// Limit the number of returned groups.
+    pub take: Option<i32>,
+    /// Offset the returned groups.
+    pub skip: Option<u32>,
+    /// COUNT aggregation selection.
+    pub count: Option<UserCountAggregateInput>,
+    /// AVG aggregation selection.
+    pub avg: Option<UserAvgAggregateInput>,
+    /// SUM aggregation selection.
+    pub sum: Option<UserSumAggregateInput>,
+    /// MIN aggregation selection.
+    pub min: Option<UserMinAggregateInput>,
+    /// MAX aggregation selection.
+    pub max: Option<UserMaxAggregateInput>,
+    /// ORDER BY items applied after grouping.
+    pub order_by: Vec<UserGroupByOrderBy>,
+}
+
+impl UserGroupByArgs {
+    fn to_engine_args(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut args = serde_json::Map::new();
+        args.insert(
+            "by".to_string(),
+            serde_json::Value::Array(
+                self.by
+                    .iter()
+                    .map(|field| serde_json::Value::String(field.as_str().to_string()))
+                    .collect(),
+            ),
+        );
+
+        if let Some(filter) = self.where_.as_ref() {
+            args.insert(
+                "where".to_string(),
+                nautilus_core::where_expr_to_protocol_json(filter)?,
+            );
+        }
+        if let Some(having) = self.having.as_ref() {
+            args.insert("having".to_string(), having.clone());
+        }
+        if let Some(take) = self.take {
+            args.insert("take".to_string(), serde_json::Value::from(take));
+        }
+        if let Some(skip) = self.skip {
+            args.insert("skip".to_string(), serde_json::Value::from(skip));
+        }
+        if let Some(count) = self.count.as_ref().and_then(UserCountAggregateInput::to_json) {
+            args.insert("count".to_string(), count);
+        }
+        if let Some(avg) = self.avg.as_ref().and_then(UserAvgAggregateInput::to_json) {
+            args.insert("avg".to_string(), avg);
+        }
+        if let Some(sum) = self.sum.as_ref().and_then(UserSumAggregateInput::to_json) {
+            args.insert("sum".to_string(), sum);
+        }
+        if let Some(min) = self.min.as_ref().and_then(UserMinAggregateInput::to_json) {
+            args.insert("min".to_string(), min);
+        }
+        if let Some(max) = self.max.as_ref().and_then(UserMaxAggregateInput::to_json) {
+            args.insert("max".to_string(), max);
+        }
+        if !self.order_by.is_empty() {
+            args.insert(
+                "orderBy".to_string(),
+                serde_json::Value::Array(
+                    self.order_by
+                        .iter()
+                        .map(UserGroupByOrderBy::to_json)
+                        .collect(),
+                ),
+            );
+        }
+
+        Ok(serde_json::Value::Object(args))
+    }
+}
+
+/// Typed COUNT aggregates returned by `UserDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct UserCountAggregateOutput {
+    pub _all: Option<i64>,
+    pub id: Option<i64>,
+    pub name: Option<i64>,
+}
+
+impl UserCountAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            _all: decode_optional_group_by_json_value(obj, "_all")?,
+            id: decode_optional_group_by_json_value(obj, "id")?,
+            name: decode_optional_group_by_json_value(obj, "name")?,
+        })
+    }
+}
+/// Typed AVG aggregates returned by `UserDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct UserAvgAggregateOutput {
+    pub id: Option<f64>,
+}
+
+impl UserAvgAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_numeric_aggregate(obj, "id")?,
+        })
+    }
+}
+
+/// Typed SUM aggregates returned by `UserDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct UserSumAggregateOutput {
+    pub id: Option<i64>,
+}
+
+impl UserSumAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_numeric_aggregate(obj, "id")?,
+        })
+    }
+}
+
+/// Typed MIN aggregates returned by `UserDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct UserMinAggregateOutput {
+    pub id: Option<i32>,
+    pub name: Option<String>,
+}
+
+impl UserMinAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_group_by_json_value(obj, "id")?,
+            name: decode_optional_group_by_json_value(obj, "name")?,
+        })
+    }
+}
+
+/// Typed MAX aggregates returned by `UserDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct UserMaxAggregateOutput {
+    pub id: Option<i32>,
+    pub name: Option<String>,
+}
+
+impl UserMaxAggregateOutput {
+    fn from_json_object(
+        obj: &serde_json::Map<String, serde_json::Value>,
+    ) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_group_by_json_value(obj, "id")?,
+            name: decode_optional_group_by_json_value(obj, "name")?,
+        })
+    }
+}
+
+/// Structured arguments for aggregating User rows without grouping.
+#[derive(Debug, Default, Clone)]
+pub struct UserAggregateArgs {
+    /// Optional WHERE filter.
+    pub where_: Option<nautilus_core::Expr>,
+    /// COUNT aggregation selection.
+    pub count: Option<UserCountAggregateInput>,
+    /// AVG aggregation selection.
+    pub avg: Option<UserAvgAggregateInput>,
+    /// SUM aggregation selection.
+    pub sum: Option<UserSumAggregateInput>,
+    /// MIN aggregation selection.
+    pub min: Option<UserMinAggregateInput>,
+    /// MAX aggregation selection.
+    pub max: Option<UserMaxAggregateInput>,
+}
+
+impl UserAggregateArgs {
+    fn to_engine_args(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut args = serde_json::Map::new();
+
+        if let Some(filter) = self.where_.as_ref() {
+            args.insert(
+                "where".to_string(),
+                nautilus_core::where_expr_to_protocol_json(filter)?,
+            );
+        }
+        if let Some(count) = self.count.as_ref().and_then(UserCountAggregateInput::to_json) {
+            args.insert("count".to_string(), count);
+        }
+        if let Some(avg) = self.avg.as_ref().and_then(UserAvgAggregateInput::to_json) {
+            args.insert("avg".to_string(), avg);
+        }
+        if let Some(sum) = self.sum.as_ref().and_then(UserSumAggregateInput::to_json) {
+            args.insert("sum".to_string(), sum);
+        }
+        if let Some(min) = self.min.as_ref().and_then(UserMinAggregateInput::to_json) {
+            args.insert("min".to_string(), min);
+        }
+        if let Some(max) = self.max.as_ref().and_then(UserMaxAggregateInput::to_json) {
+            args.insert("max".to_string(), max);
+        }
+
+        Ok(serde_json::Value::Object(args))
+    }
+}
+
+/// Aggregates over the whole filtered set, returned by `UserDelegate::aggregate()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct UserAggregateOutput {
+    pub _count: Option<UserCountAggregateOutput>,
+    pub _avg: Option<UserAvgAggregateOutput>,
+    pub _sum: Option<UserSumAggregateOutput>,
+    pub _min: Option<UserMinAggregateOutput>,
+    pub _max: Option<UserMaxAggregateOutput>,
+}
+
+impl UserAggregateOutput {
+    fn from_row(row: &crate::Row) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            _count: decode_optional_group_by_object(row, "_count")?
+                .map(UserCountAggregateOutput::from_json_object)
+                .transpose()?,
+            _avg: decode_optional_group_by_object(row, "_avg")?
+                .map(UserAvgAggregateOutput::from_json_object)
+                .transpose()?,
+            _sum: decode_optional_group_by_object(row, "_sum")?
+                .map(UserSumAggregateOutput::from_json_object)
+                .transpose()?,
+            _min: decode_optional_group_by_object(row, "_min")?
+                .map(UserMinAggregateOutput::from_json_object)
+                .transpose()?,
+            _max: decode_optional_group_by_object(row, "_max")?
+                .map(UserMaxAggregateOutput::from_json_object)
+                .transpose()?,
+        })
+    }
+}
+
+/// One typed row returned by `UserDelegate::group_by()`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct UserGroupByOutput {
+    pub id: Option<i32>,
+    pub name: Option<String>,
+    pub _count: Option<UserCountAggregateOutput>,
+    pub _avg: Option<UserAvgAggregateOutput>,
+    pub _sum: Option<UserSumAggregateOutput>,
+    pub _min: Option<UserMinAggregateOutput>,
+    pub _max: Option<UserMaxAggregateOutput>,
+}
+
+impl UserGroupByOutput {
+    fn from_row(row: &crate::Row) -> nautilus_core::Result<Self> {
+        Ok(Self {
+            id: decode_optional_group_by_row_value(row, "id")?,
+            name: decode_optional_group_by_row_value(row, "name")?,
+            _count: decode_optional_group_by_object(row, "_count")?
+                .map(UserCountAggregateOutput::from_json_object)
+                .transpose()?,
+            _avg: decode_optional_group_by_object(row, "_avg")?
+                .map(UserAvgAggregateOutput::from_json_object)
+                .transpose()?,
+            _sum: decode_optional_group_by_object(row, "_sum")?
+                .map(UserSumAggregateOutput::from_json_object)
+                .transpose()?,
+            _min: decode_optional_group_by_object(row, "_min")?
+                .map(UserMinAggregateOutput::from_json_object)
+                .transpose()?,
+            _max: decode_optional_group_by_object(row, "_max")?
+                .map(UserMaxAggregateOutput::from_json_object)
+                .transpose()?,
+        })
+    }
+}
+
+fn serialize_cursor_for_engine(
+    cursor: &std::collections::HashMap<String, nautilus_core::Value>,
+) -> serde_json::Value {
+    serde_json::Value::Object(
+        cursor
+            .iter()
+            .map(|(key, value)| (key.clone(), value.to_json_plain()))
+            .collect(),
+    )
+}
+
+fn decode_optional_group_by_row_value<T>(
+    row: &crate::Row,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue,
+{
+    match row.get(key) {
+        Some(nautilus_core::Value::Null) | None => Ok(None),
+        Some(value) => <T as nautilus_core::FromValue>::from_value(value).map(Some),
+    }
+}
+
+fn decode_optional_group_by_object<'a>(
+    row: &'a crate::Row,
+    key: &str,
+) -> nautilus_core::Result<Option<&'a serde_json::Map<String, serde_json::Value>>> {
+    match row.get(key) {
+        Some(nautilus_core::Value::Json(serde_json::Value::Object(obj))) => Ok(Some(obj)),
+        Some(nautilus_core::Value::Null) | None => Ok(None),
+        Some(other) => Err(nautilus_core::Error::TypeError(format!(
+            "expected object-valued aggregate '{}' in groupBy output, got {:?}",
+            key, other
+        ))),
+    }
+}
+
+/// Decode one `_avg` / `_sum` entry of an aggregate result.
+///
+/// PostgreSQL computes `AVG` (and `SUM` over exact numerics) as `numeric`,
+/// which the engine puts on the wire as a JSON string so no precision is lost
+/// in transit; SQLite and MySQL send a plain JSON number. Both spellings decode
+/// into the same Rust type here.
+fn decode_optional_numeric_aggregate<T>(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue + std::str::FromStr,
+{
+    match obj.get(key) {
+        Some(serde_json::Value::String(text)) => text.parse::<T>().map(Some).map_err(|_| {
+            nautilus_core::Error::TypeError(format!(
+                "aggregate '{}' is not a number: {}",
+                key, text
+            ))
+        }),
+        _ => decode_optional_group_by_json_value(obj, key),
+    }
+}
+
+fn decode_optional_group_by_json_value<T>(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue,
+{
+    match obj.get(key) {
+        Some(serde_json::Value::Null) | None => Ok(None),
+        Some(value) => <T as nautilus_core::FromValue>::from_value_owned(
+            crate::runtime::wire_value_to_core_value(key, value),
+        )
+        .map(Some),
+    }
+}
+fn serialize_update_filter_for_engine(
+    filter: Option<&nautilus_core::Expr>,
+) -> nautilus_core::Result<Option<serde_json::Value>> {
+    let filter_json = match filter {
+        Some(expr) => match nautilus_core::where_expr_to_protocol_json(expr) {
+            Ok(value) => value,
+            Err(nautilus_core::Error::InvalidQuery(_)) => return Ok(None),
+            Err(err) => return Err(err),
+        },
+        None => return Ok(None),
+    };
+
+    Ok(Some(filter_json))
+}
+
+fn single_record_filter_field_name(column: &str) -> Option<&'static str> {
+    if column == "User__id"
+        || column == "id"
+    {
+        return Some("id");
+    }
+    if column == "User__name"
+        || column == "name"
+    {
+        return Some("name");
+    }
+    None
+}
+
+fn collect_single_record_filter_fields(
+    expr: &nautilus_core::Expr,
+    fields: &mut std::collections::HashSet<&'static str>,
+) -> bool {
+    use nautilus_core::{BinaryOp, Expr};
+
+    match expr {
+        Expr::Binary {
+            left,
+            op: BinaryOp::And,
+            right,
+        } => {
+            collect_single_record_filter_fields(left, fields)
+                && collect_single_record_filter_fields(right, fields)
+        }
+        Expr::Binary {
+            left,
+            op: BinaryOp::Eq,
+            right,
+        } => match (&**left, &**right) {
+            (Expr::Column(column), Expr::Param(_)) | (Expr::Param(_), Expr::Column(column)) => {
+                let Some(field_name) = single_record_filter_field_name(column) else {
+                    return false;
+                };
+                fields.insert(field_name)
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn matches_single_record_constraint(
+    fields: &std::collections::HashSet<&'static str>,
+    constraint: &[&str],
+) -> bool {
+    fields.len() == constraint.len() && constraint.iter().all(|field| fields.contains(field))
+}
+
+fn is_single_record_filter(filter: &nautilus_core::Expr) -> bool {
+    const SINGLE_RECORD_CONSTRAINTS: &[&[&str]] = &[
+        &["id"],
+    ];
+
+    let mut fields = std::collections::HashSet::new();
+    if !collect_single_record_filter_fields(filter, &mut fields) {
+        return false;
+    }
+
+    SINGLE_RECORD_CONSTRAINTS
+        .iter()
+        .any(|constraint| matches_single_record_constraint(&fields, constraint))
+}
+
+
+/// Delegate for User queries.
+///
+/// Obtained via `client.User` (or the model accessor). Each method
+/// accepts a structured args object and executes the query immediately — no
+/// extra `.exec()` call is needed.
+pub struct UserDelegate<E: crate::Executor> {
+    client: crate::Client<E>,
+}
+
+impl<E> UserDelegate<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        UserDelegate { client }
+    }
+
+    fn build_find_many_builder(
+        client: crate::Client<E>,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<UserFindMany<E>> {
+        Self::reject_select_for_model_result(&args.select)?;
+        if !args.include.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "include queries require the embedded engine path in the generated Rust client"
+                    .to_string(),
+            ));
+        }
+
+        let mut builder = UserFindMany::new(client);
+        if let Some(filter) = args.where_ {
+            builder = builder.where_(filter);
+        }
+        for order in args.order_by {
+            builder = builder.order_by(order);
+        }
+        if let Some(take) = args.take {
+            builder = builder.take(take);
+        }
+        if let Some(skip) = args.skip {
+            builder = builder.skip(skip);
+        }
+        if let Some(cursor) = args.cursor {
+            builder = builder.cursor(cursor);
+        }
+        if !args.distinct.is_empty() {
+            builder = builder.distinct(args.distinct);
+        }
+        if let Some(nearest) = args.nearest {
+            builder = builder.nearest(nearest);
+        }
+
+        Ok(builder)
+    }
+
+    fn reject_select_for_model_result(
+        select: &std::collections::HashMap<String, bool>,
+    ) -> nautilus_core::Result<()> {
+        if !select.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "select returns partial rows and cannot be decoded as a full User; use find_many_select, find_first_select, or find_unique_select instead"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn engine_decode_plan_for_find_many_args(
+        args: &nautilus_core::FindManyArgs,
+    ) -> (Vec<usize>, Vec<Option<crate::ValueHint>>) {
+        Self::engine_decode_plan_for_select(&args.select)
+    }
+
+    fn engine_decode_plan_for_find_unique_args(
+        args: &nautilus_core::FindUniqueArgs,
+    ) -> (Vec<usize>, Vec<Option<crate::ValueHint>>) {
+        Self::engine_decode_plan_for_select(&args.select)
+    }
+
+    fn engine_decode_plan_for_select(
+        select: &std::collections::HashMap<String, bool>,
+    ) -> (Vec<usize>, Vec<Option<crate::ValueHint>>) {
+        let selected_fields: std::collections::HashSet<String> = select
+            .iter()
+            .filter_map(|(key, enabled)| enabled.then_some(key.clone()))
+            .collect();
+
+        (
+            projected_scalar_decode_slots(&selected_fields),
+            projected_scalar_value_hints(&selected_fields),
+        )
+    }
+
+    /// Find all User records matching `args`.
+    ///
+    /// Executes immediately and returns a `Vec<User>`.
+    /// Prefer this when the caller naturally wants the whole result set in
+    /// memory, such as small pages, eager-loaded relation graphs, or code that
+    /// does further in-memory sorting/grouping.
+    pub fn find_many(
+        &self,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<Vec<User>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        Self::reject_select_for_model_result(&args.select)?;
+        let (engine_decode_slots, engine_row_hints) =
+            Self::engine_decode_plan_for_find_many_args(&args);
+        if let Some(rows) =
+            crate::runtime::try_find_many_via_engine::<_, User>(
+                &_c,
+                "User",
+                &args,
+                move |row| {
+                    decode_model_row_with_hints(row, &engine_decode_slots, &engine_row_hints)
+                },
+            )
+            .await?
+        {
+            return Ok(rows);
+        }
+
+        let builder = Self::build_find_many_builder(
+            _c,
+            args,
+        )?;
+        builder.exec().await
+        }))
+    }
+
+    /// Find the first User record matching `args`, or `None`.
+    pub fn find_first(
+        &self,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<Option<User>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        Self::reject_select_for_model_result(&args.select)?;
+        let args = nautilus_core::FindManyArgs { take: Some(1), ..args };
+        let (engine_decode_slots, engine_row_hints) =
+            Self::engine_decode_plan_for_find_many_args(&args);
+        if let Some(rows) =
+            crate::runtime::try_find_many_via_engine::<_, User>(
+                &_c,
+                "User",
+                &args,
+                move |row| {
+                    decode_model_row_with_hints(row, &engine_decode_slots, &engine_row_hints)
+                },
+            )
+            .await?
+        {
+            return Ok(rows.into_iter().next());
+        }
+
+        let builder = Self::build_find_many_builder(
+            _c,
+            args,
+        )?;
+        builder.exec_optional().await
+        }))
+    }
+
+    /// Find a single User record by a unique filter, or `None` if not found.
+    ///
+    /// `args.where_` should reference a `@id` or `@unique` field for correct semantics.
+    pub fn find_unique(
+        &self,
+        args: nautilus_core::FindUniqueArgs,
+    ) -> nautilus_core::Result<Option<User>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        Self::reject_select_for_model_result(&args.select)?;
+        let (engine_decode_slots, engine_row_hints) =
+            Self::engine_decode_plan_for_find_unique_args(&args);
+        if let Some(record) =
+            crate::runtime::try_find_unique_via_engine::<_, User>(
+                &_c,
+                "User",
+                &args,
+                move |row| {
+                    decode_model_row_with_hints(row, &engine_decode_slots, &engine_row_hints)
+                },
+            )
+            .await?
+        {
+            return Ok(Some(record));
+        }
+
+        let find_args = nautilus_core::FindManyArgs {
+            where_: Some(args.where_),
+            take: Some(1),
+            select: args.select,
+            include: args.include,
+            ..Default::default()
+        };
+        let builder = Self::build_find_many_builder(
+            _c,
+            find_args,
+        )?;
+        builder.exec_optional().await
+        }))
+    }
+
+    /// Find a single User record by a unique filter, or return `Error::NotFound`.
+    pub fn find_unique_or_throw(
+        &self,
+        args: nautilus_core::FindUniqueArgs,
+    ) -> nautilus_core::Result<User> {
+        self.find_unique(args)?.ok_or_else(|| {
+            nautilus_core::Error::NotFound(
+                format!("No {} record found matching the given unique filter", "User")
+            )
+        })
+    }
+
+    /// Find the first User record matching `args`, or return `Error::NotFound`.
+    pub fn find_first_or_throw(
+        &self,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<User> {
+        self.find_first(args)?.ok_or_else(|| {
+            nautilus_core::Error::NotFound(
+                format!("No {} record found matching the given filter", "User")
+            )
+        })
+    }
+
+    /// Find all User records with a typed scalar projection.
+    pub fn find_many_select<C, F>(
+        &self,
+        args: nautilus_core::FindManyArgs,
+        columns: F,
+    ) -> nautilus_core::Result<Vec<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+        F: FnOnce(UserColumns) -> C,
+    {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        if !args.include.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "include is not supported by typed select projections".to_string(),
+            ));
+        }
+        if !args.select.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "FindManyArgs.select is ignored by typed select projections; pass projected columns to find_many_select instead"
+                    .to_string(),
+            ));
+        }
+        let selection = columns(UserColumns);
+        let builder = Self::build_find_many_builder(
+            _c,
+            nautilus_core::FindManyArgs {
+                select: Default::default(),
+                include: Default::default(),
+                ..args
+            },
+        )?;
+        builder.exec_select(selection).await
+        }))
+    }
+
+    /// Find the first User record with a typed scalar projection.
+    pub fn find_first_select<C, F>(
+        &self,
+        args: nautilus_core::FindManyArgs,
+        columns: F,
+    ) -> nautilus_core::Result<Option<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+        F: FnOnce(UserColumns) -> C,
+    {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        if !args.include.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "include is not supported by typed select projections".to_string(),
+            ));
+        }
+        if !args.select.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "FindManyArgs.select is ignored by typed select projections; pass projected columns to find_first_select instead"
+                    .to_string(),
+            ));
+        }
+        let selection = columns(UserColumns);
+        let args = nautilus_core::FindManyArgs {
+            take: Some(1),
+            select: Default::default(),
+            include: Default::default(),
+            ..args
+        };
+        let builder = Self::build_find_many_builder(
+            _c,
+            args,
+        )?;
+        builder.exec_select_optional(selection).await
+        }))
+    }
+
+    /// Find a unique User record with a typed scalar projection.
+    pub fn find_unique_select<C, F>(
+        &self,
+        args: nautilus_core::FindUniqueArgs,
+        columns: F,
+    ) -> nautilus_core::Result<Option<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+        F: FnOnce(UserColumns) -> C,
+    {
+        if !args.select.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "FindUniqueArgs.select is ignored by typed select projections; pass projected columns to find_unique_select instead"
+                    .to_string(),
+            ));
+        }
+        if !args.include.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "include is not supported by typed select projections".to_string(),
+            ));
+        }
+        let find_args = nautilus_core::FindManyArgs {
+            where_: Some(args.where_),
+            take: Some(1),
+            select: Default::default(),
+            include: Default::default(),
+            ..Default::default()
+        };
+        self.find_first_select(find_args, columns)
+    }
+
+    /// Create a new User record.
+    ///
+    /// Executes immediately and returns the created `User`.
+    pub fn create(
+        &self,
+        data: UserCreateInput,
+    ) -> nautilus_core::Result<User> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = data.clone();
+        let _event_payload = data.to_engine_data()?;
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = UserCreateEventContext::new(
+            "User",
+            crate::CrudOperation::Create,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<UserCreateEventContext, User>(
+            "User",
+            crate::CrudOperation::Create,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<User> = async {
+            if let Some(record) =
+                crate::runtime::try_create_via_engine::<_, User>(
+                    &_c,
+                    "User",
+                    _event_payload.clone(),
+                    data.has_nested_writes(),
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await?
+            {
+                Ok(record)
+            } else {
+                let mut builder = UserCreate::new(_c);
+                if let Some(value) = data.id {
+                    builder = builder.id(value);
+                }
+                if let Some(value) = data.name {
+                    builder = builder.name(value);
+                }
+                builder.exec().await
+            }
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = UserCreateEventContext::new(
+                    "User",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<UserCreateEventContext, User>(
+                    "User",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = UserCreateEventContext::new(
+                    "User",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<UserCreateEventContext, User>(
+                    "User",
+                    crate::CrudOperation::Create,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Create multiple User records in a single batch.
+    ///
+    /// Executes immediately and returns the created records.
+    pub fn create_many(
+        &self,
+        entries: Vec<UserCreateEntry>,
+    ) -> nautilus_core::Result<Vec<User>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = entries.clone();
+        let _event_payload = serde_json::Value::Array(
+            entries.iter().map(UserCreateEntry::to_engine_data).collect(),
+        );
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = UserCreateManyEventContext::new(
+            "User",
+            crate::CrudOperation::CreateMany,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<UserCreateManyEventContext, Vec<User>>(
+            "User",
+            crate::CrudOperation::CreateMany,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Vec<User>> = async {
+            if entries.is_empty() {
+                return Ok(vec![]);
+            }
+
+            if let Some(rows) =
+                crate::runtime::try_create_many_via_engine::<_, User>(
+                    &_c,
+                    "User",
+                    entries.iter().map(UserCreateEntry::to_engine_data).collect(),
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await?
+            {
+                return Ok(rows);
+            }
+
+            let mut builder = UserCreateMany::new(_c);
+            for entry in entries {
+                builder = builder.entry(entry);
+            }
+            builder.exec().await
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = UserCreateManyEventContext::new(
+                    "User",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<UserCreateManyEventContext, Vec<User>>(
+                    "User",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = UserCreateManyEventContext::new(
+                    "User",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<UserCreateManyEventContext, Vec<User>>(
+                    "User",
+                    crate::CrudOperation::CreateMany,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Update User records matching `args.where_`.
+    ///
+    /// If `args.where_` is `None`, all rows are updated.
+    /// Executes immediately and returns the updated records.
+    pub fn update(
+        &self,
+        args: UserUpdateArgs,
+    ) -> nautilus_core::Result<Vec<User>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = args.clone();
+        let _engine_data = args.data.to_engine_data()?;
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            _payload.insert(
+                "filter".to_string(),
+                match serialize_update_filter_for_engine(args.where_.as_ref())? {
+                    Some(value) => value,
+                    None => serde_json::Value::Object(serde_json::Map::new()),
+                },
+            );
+            _payload.insert("data".to_string(), _engine_data.clone());
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = UserUpdateEventContext::new(
+            "User",
+            crate::CrudOperation::Update,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<UserUpdateEventContext, Vec<User>>(
+            "User",
+            crate::CrudOperation::Update,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Vec<User>> = async {
+            let no_assignments = _engine_data
+                .as_object()
+                .is_some_and(|data| data.is_empty());
+            if no_assignments {
+                return Ok(vec![]);
+            }
+
+            if let Some(filter_json) = serialize_update_filter_for_engine(args.where_.as_ref())? {
+                if let Some(rows) =
+                    crate::runtime::try_update_via_engine::<_, User>(
+                        &_c,
+                        "User",
+                        filter_json,
+                        _engine_data.clone(),
+                        args.data.has_nested_writes(),
+                        |row| {
+                            decode_model_row_with_hints(
+                                row,
+                                all_scalar_decode_slots(),
+                                all_scalar_value_hints(),
+                            )
+                        },
+                    )
+                    .await?
+                {
+                    return Ok(rows);
+                }
+            }
+
+            if args.data.has_nested_writes() {
+                return Err(crate::runtime::nested::writes_need_engine("User"));
+            }
+
+            let mut builder = UserUpdate::new(_c).set_data(args.data);
+            if let Some(filter) = args.where_ {
+                builder = builder.where_(filter);
+            } else {
+                builder = builder.all();
+            }
+            builder.exec().await
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = UserUpdateEventContext::new(
+                    "User",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<UserUpdateEventContext, Vec<User>>(
+                    "User",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = UserUpdateEventContext::new(
+                    "User",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<UserUpdateEventContext, Vec<User>>(
+                    "User",
+                    crate::CrudOperation::Update,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Delete the first User record matching `args.where_`.
+    ///
+    /// finds the first matching record and
+    /// deletes it by its primary key. Returns `Ok(None)` if no record matches.
+    pub fn delete(
+        &self,
+        args: UserDeleteArgs,
+    ) -> nautilus_core::Result<Option<User>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = args.clone();
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            let _filter = match args.where_.as_ref() {
+                Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                    .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+                None => serde_json::Value::Object(serde_json::Map::new()),
+            };
+            _payload.insert("filter".to_string(), _filter);
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = UserDeleteEventContext::new(
+            "User",
+            crate::CrudOperation::Delete,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<UserDeleteEventContext, Option<User>>(
+            "User",
+            crate::CrudOperation::Delete,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Option<User>> = async {
+            if let Some(filter) = args.where_.clone() {
+                if _c.dialect().supports_returning() && is_single_record_filter(&filter) {
+                    let deleted = UserDelete::new(_c.clone()).where_(filter).exec().await?;
+                    return match deleted.len() {
+                        0 => Ok(None),
+                        1 => Ok(deleted.into_iter().next()),
+                        count => Err(nautilus_core::Error::Other(format!(
+                            "expected at most one deleted User row, got {}",
+                            count
+                        ))),
+                    };
+                }
+            }
+
+            // Find the first matching record to get its primary key
+            let record = self.find_first(nautilus_core::FindManyArgs {
+                where_: args.where_,
+                ..Default::default()
+            })?;
+
+            let Some(record) = record else {
+                return Ok(None);
+            };
+
+            // Build a primary-key filter to delete exactly that one record
+            let pk_filter = nautilus_core::Expr::column("User__id").eq(nautilus_core::Expr::param(record.id.clone()));
+            UserDelete::new(_c.clone()).where_(pk_filter).exec().await?;
+            Ok(Some(record))
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = UserDeleteEventContext::new(
+                    "User",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<UserDeleteEventContext, Option<User>>(
+                    "User",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = UserDeleteEventContext::new(
+                    "User",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<UserDeleteEventContext, Option<User>>(
+                    "User",
+                    crate::CrudOperation::Delete,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Delete all User records matching `args.where_`.
+    ///
+    /// If `args.where_` is `None`, all rows are deleted.
+    /// Executes immediately and returns the deleted records.
+    pub fn delete_many(
+        &self,
+        args: UserDeleteArgs,
+    ) -> nautilus_core::Result<Vec<User>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = args.clone();
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            let _filter = match args.where_.as_ref() {
+                Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                    .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+                None => serde_json::Value::Object(serde_json::Map::new()),
+            };
+            _payload.insert("filter".to_string(), _filter);
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = UserDeleteManyEventContext::new(
+            "User",
+            crate::CrudOperation::DeleteMany,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<UserDeleteManyEventContext, Vec<User>>(
+            "User",
+            crate::CrudOperation::DeleteMany,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<Vec<User>> = async {
+            let mut builder = UserDelete::new(_c);
+            if let Some(expr) = args.where_ {
+                builder = builder.where_(expr);
+            } else {
+                builder = builder.all();
+            }
+            builder.exec().await
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = UserDeleteManyEventContext::new(
+                    "User",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded.clone())
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<UserDeleteManyEventContext, Vec<User>>(
+                    "User",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = UserDeleteManyEventContext::new(
+                    "User",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<UserDeleteManyEventContext, Vec<User>>(
+                    "User",
+                    crate::CrudOperation::DeleteMany,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+
+    /// Count User records matching `args`.
+    pub fn count(
+        &self,
+        args: UserCountArgs,
+    ) -> nautilus_core::Result<i64> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        if let Some(count) =
+            crate::runtime::try_count_via_engine(
+                &_c,
+                "User",
+                args.to_engine_args()?,
+            )
+            .await?
+        {
+            return Ok(count);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "count queries require the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+        }))
+    }
+    /// Update every User record matching `args.where_`, returning
+    /// the affected-row count.
+    ///
+    /// Unlike [`Self::update`], no rows are read back: the engine runs one
+    /// statement without a `RETURNING` clause however many rows it touches.
+    pub fn update_many(
+        &self,
+        args: UserUpdateArgs,
+    ) -> nautilus_core::Result<u64> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let _events = _c.events().clone();
+        let _transaction_id = _c.transaction_id();
+        let _event_args = args.clone();
+        let filter = serialize_update_filter_for_engine(args.where_.as_ref())?
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+        let _event_data = args.data.to_engine_data()?;
+        let _event_payload = {
+            let mut _payload = serde_json::Map::new();
+            _payload.insert("filter".to_string(), filter.clone());
+            _payload.insert("data".to_string(), _event_data.clone());
+            serde_json::Value::Object(_payload)
+        };
+        let mut _event_state = std::collections::HashMap::new();
+        let mut _before_ctx = UserUpdateManyEventContext::new(
+            "User",
+            crate::CrudOperation::UpdateMany,
+            crate::EventPhase::Before,
+            _event_args.clone(),
+            _event_payload.clone(),
+            _event_state,
+        )
+        .with_transaction_id(_transaction_id.clone());
+        if let Some(_stop) = _events.run::<UserUpdateManyEventContext, u64>(
+            "User",
+            crate::CrudOperation::UpdateMany,
+            crate::EventPhase::Before,
+            &mut _before_ctx,
+        ).await? {
+            return Ok(_stop);
+        }
+        _event_state = _before_ctx.state;
+
+        let _operation_result: nautilus_core::Result<u64> = async {
+            match crate::runtime::try_update_many_via_engine(
+                &_c,
+                "User",
+                filter,
+                _event_data,
+            )
+            .await?
+            {
+                Some(count) => Ok(count),
+                None => Err(nautilus_core::Error::InvalidQuery(
+                    "updateMany requires the embedded engine path in the generated Rust client"
+                        .to_string(),
+                )),
+            }
+        }.await;
+
+        match _operation_result {
+            Ok(_decoded) => {
+                let mut _after_ctx = UserUpdateManyEventContext::new(
+                    "User",
+                    crate::CrudOperation::UpdateMany,
+                    crate::EventPhase::After,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_result(_decoded)
+                .with_transaction_id(_transaction_id);
+                if let Some(_stop) = _events.run::<UserUpdateManyEventContext, u64>(
+                    "User",
+                    crate::CrudOperation::UpdateMany,
+                    crate::EventPhase::After,
+                    &mut _after_ctx,
+                ).await? {
+                    return Ok(_stop);
+                }
+                Ok(_decoded)
+            }
+            Err(_error) => {
+                let _error_text = _error.to_string();
+                let mut _error_ctx = UserUpdateManyEventContext::new(
+                    "User",
+                    crate::CrudOperation::UpdateMany,
+                    crate::EventPhase::Error,
+                    _event_args,
+                    _event_payload,
+                    _event_state,
+                )
+                .with_error(_error_text)
+                .with_transaction_id(_transaction_id);
+                let _ = _events.run::<UserUpdateManyEventContext, u64>(
+                    "User",
+                    crate::CrudOperation::UpdateMany,
+                    crate::EventPhase::Error,
+                    &mut _error_ctx,
+                ).await?;
+                Err(_error)
+            }
+        }
+        }))
+    }
+
+    /// Delete every User record matching `args.where_`, returning
+    /// the affected-row count.
+    ///
+    /// The count-only counterpart of [`Self::delete_many`], which reads the
+    /// deleted rows back through `RETURNING`.
+    pub fn delete_many_count(
+        &self,
+        args: UserDeleteArgs,
+    ) -> nautilus_core::Result<u64> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let filter = match args.where_.as_ref() {
+            Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+            None => serde_json::Value::Object(serde_json::Map::new()),
+        };
+        if let Some(count) =
+            crate::runtime::try_delete_many_via_engine(
+                &_c,
+                "User",
+                filter,
+            )
+            .await?
+        {
+            return Ok(count);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "deleteMany requires the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+        }))
+    }
+
+
+    /// Aggregate over every User record matching `args.where_`,
+    /// without a grouping key.
+    ///
+    /// Always resolves to one row, even when the filter matches nothing: counts
+    /// are then `0` and the other aggregates `None`.
+    pub fn aggregate(
+        &self,
+        args: UserAggregateArgs,
+    ) -> nautilus_core::Result<UserAggregateOutput> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let engine_args = args.to_engine_args()?;
+        if let Some(row) =
+            crate::runtime::try_aggregate_row_via_engine(
+                &_c,
+                "User",
+                engine_args,
+            )
+            .await?
+        {
+            return match row {
+                Some(row) => UserAggregateOutput::from_row(&row),
+                None => Ok(UserAggregateOutput::default()),
+            };
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "aggregate queries require the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+        }))
+    }
+
+    /// Ask the database to explain the statement [`Self::find_many`] would run
+    /// for `args`.
+    ///
+    /// `args.include` relations are loaded by separate statements and are not
+    /// part of the reported plan. `analyze` executes the statement to collect
+    /// real timings where the backend supports it.
+    pub fn explain(
+        &self,
+        args: nautilus_core::FindManyArgs,
+        analyze: bool,
+    ) -> nautilus_core::Result<nautilus_protocol::ExplainResult> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        if let Some(result) =
+            crate::runtime::try_explain_via_engine(
+                &_c,
+                "User",
+                &args,
+                analyze,
+            )
+            .await?
+        {
+            return Ok(result);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "explain requires the embedded engine path in the generated Rust client".to_string(),
+        ))
+        }))
+    }
+
+    /// Group User rows and compute aggregates.
+    pub fn group_by(
+        &self,
+        args: UserGroupByArgs,
+    ) -> nautilus_core::Result<Vec<UserGroupByOutput>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let engine_args = args.to_engine_args()?;
+        if let Some(rows) =
+            crate::runtime::try_group_by_rows_via_engine(
+                &_c,
+                "User",
+                engine_args,
+            )
+            .await?
+        {
+            let mut decoded = Vec::with_capacity(rows.len());
+            for row in &rows {
+                decoded.push(UserGroupByOutput::from_row(row)?);
+            }
+            return Ok(decoded);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "groupBy queries require the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+        }))
+    }
+
+    /// Execute a raw SQL string and return the result rows as generic maps.
+    ///
+    /// The SQL is sent to the database as-is with no parameter binding.
+    /// Prefer `raw_stmt_query` when user-supplied values are involved to avoid
+    /// SQL injection.
+    pub fn raw_query(
+        &self,
+        sql: impl Into<String>,
+    ) -> nautilus_core::Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let sql_obj = nautilus_dialect::Sql { text: sql.into(), params: vec![] };
+        let stream = _c.executor().execute(&sql_obj);
+        futures::pin_mut!(stream);
+        let mut results: Vec<std::collections::HashMap<String, serde_json::Value>> = Vec::new();
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result
+                .map_err(|e| nautilus_core::Error::Other(e.to_string()))?
+                .into();
+            let map = row
+                .iter()
+                .map(|(name, val)| {
+                    let json_val = val.to_json_plain();
+                    (name.to_string(), json_val)
+                })
+                .collect();
+            results.push(map);
+        }
+        Ok(results)
+        }))
+    }
+
+    /// Execute a raw prepared-statement query with bound parameters.
+    ///
+    /// Use `$1`, `$2`, … (PostgreSQL) or `?` (MySQL / SQLite) as placeholders.
+    /// Parameters are bound in the order they appear in the `params` slice.
+    pub fn raw_stmt_query(
+        &self,
+        sql: impl Into<String>,
+        params: Vec<nautilus_core::Value>,
+    ) -> nautilus_core::Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+        let sql_obj = nautilus_dialect::Sql { text: sql.into(), params };
+        let stream = _c.executor().execute(&sql_obj);
+        futures::pin_mut!(stream);
+        let mut results: Vec<std::collections::HashMap<String, serde_json::Value>> = Vec::new();
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result
+                .map_err(|e| nautilus_core::Error::Other(e.to_string()))?
+                .into();
+            let map = row
+                .iter()
+                .map(|(name, val)| {
+                    let json_val = val.to_json_plain();
+                    (name.to_string(), json_val)
+                })
+                .collect();
+            results.push(map);
+        }
+        Ok(results)
+        }))
+    }
+    /// Create or update a User record.
+    ///
+    /// When the embedded engine is available this runs as a single atomic
+    /// `INSERT ... ON CONFLICT` statement, so no other writer can slip between
+    /// the lookup and the write. `args.where_` must name exactly one unique
+    /// constraint (or the primary key). Against a standalone executor the
+    /// operation falls back to a lookup followed by an update or a create.
+    ///
+    /// Executes immediately and returns the created or updated `User`
+    /// (or `None` when `args.return_data` is `false`).
+    pub fn upsert(
+        &self,
+        args: UserUpsertArgs,
+    ) -> nautilus_core::Result<Option<User>> {
+        if args.create.has_nested_writes() || args.update.has_nested_writes() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "upsert on 'User' does not accept nested writes; use create or update"
+                    .to_string(),
+            ));
+        }
+        let _engine_filter = serialize_update_filter_for_engine(args.where_.as_ref())?;
+        let _upsert_client = self.client.clone();
+        let _engine_create = args.create.to_engine_data()?;
+        let _engine_update = args.update.to_engine_data()?;
+        let _engine_rows: Option<Vec<User>> = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let Some(filter_json) = _engine_filter else {
+                    return Ok(None);
+                };
+                crate::runtime::try_upsert_via_engine::<_, User>(
+                    &_upsert_client,
+                    "User",
+                    filter_json,
+                    _engine_create,
+                    _engine_update,
+                    |row| {
+                        decode_model_row_with_hints(
+                            row,
+                            all_scalar_decode_slots(),
+                            all_scalar_value_hints(),
+                        )
+                    },
+                )
+                .await
+            })
+        })?;
+
+        if let Some(rows) = _engine_rows {
+            if !args.return_data {
+                return Ok(None);
+            }
+            return Ok(rows.into_iter().next());
+        }
+
+        let has_update_assignments = args.update.has_assignments();
+
+        if self.client.dialect().supports_returning() && has_update_assignments {
+            let updated = self.update(UserUpdateArgs {
+                where_: args.where_.clone(),
+                data: args.update.clone(),
+            })?;
+
+            if let Some(record) = updated.into_iter().next() {
+                if !args.return_data {
+                    return Ok(None);
+                }
+                return Ok(Some(record));
+            }
+        }
+
+        let existing = self.find_first(nautilus_core::FindManyArgs {
+            where_: args.where_.clone(),
+            ..Default::default()
+        })?;
+
+        if let Some(record) = existing {
+            if !has_update_assignments {
+                if !args.return_data {
+                    return Ok(None);
+                }
+                return Ok(Some(record));
+            }
+
+            let updated = self.update(UserUpdateArgs {
+                where_: args.where_,
+                data: args.update,
+            })?;
+            if !args.return_data {
+                return Ok(None);
+            }
+            Ok(Some(updated.into_iter().next().unwrap_or(record)))
+        } else {
+            let created = self.create(args.create)?;
+            if !args.return_data {
+                return Ok(None);
+            }
+            Ok(Some(created))
+        }
+    }
+
+}
+
+
+/// Resolve ORDER BY paths that target fields inside composite values.
+fn composite_order_expr(
+    column: &str,
+) -> Option<nautilus_core::Expr> {
+    match column {
+        _ => None,
+    }
+}
+
+/// Resolve a `nearest.field` reference to the qualified pgvector column it
+/// names, accepting the logical name, the database column, and the qualified
+/// `table__column` form the wire protocol uses.
+fn vector_distance_column(_field: &str) -> Option<&'static str> {
+    None
+}
+
+/// Build the ORDER BY expression for a pgvector nearest-neighbor search.
+///
+/// The restrictions mirror the engine: the search needs a positive `take` to
+/// stay bounded, and it cannot be combined with backward pagination, a cursor
+/// or `distinct`, all of which would fight the distance ordering.
+fn nearest_order_expr(
+    nearest: nautilus_core::VectorNearest,
+    take: Option<i32>,
+    has_cursor: bool,
+    has_distinct: bool,
+) -> nautilus_core::Result<nautilus_core::Expr> {
+    let Some(column) = vector_distance_column(&nearest.field) else {
+        return Err(nautilus_core::Error::InvalidQuery(format!(
+            "'nearest.field' must reference a Vector field of User, got '{}'",
+            nearest.field
+        )));
+    };
+    if !matches!(take, Some(value) if value > 0) {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' requires a positive 'take' limit".to_string(),
+        ));
+    }
+    if has_cursor {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' cannot be combined with 'cursor'".to_string(),
+        ));
+    }
+    if has_distinct {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' cannot be combined with 'distinct'".to_string(),
+        ));
+    }
+
+    Ok(nautilus_core::Expr::vector_distance(
+        nearest.metric,
+        nautilus_core::Expr::column(column),
+        nautilus_core::Expr::param(nautilus_core::Value::Vector(nearest.query)),
+    ))
+}
+
+/// Internal FindMany builder for User - use `UserDelegate::find_many(args)` instead.
+pub(crate) struct UserFindMany<E: crate::Executor, S = ()> {
+    client: crate::Client<E>,
+    filter: Option<nautilus_core::Expr>,
+    order_by: Vec<nautilus_core::OrderBy>,
+    /// Positive = forward pagination, negative = backward pagination.
+    take: Option<i32>,
+    skip: Option<u32>,
+    select: std::collections::HashSet<String>,
+    /// Cursor map: PK field name -> value for stable keyset pagination.
+    cursor: Option<std::collections::HashMap<String, nautilus_core::Value>>,
+    /// True when `take` was negative (backward pagination).
+    backward: bool,
+    /// Columns to deduplicate on (SELECT DISTINCT / DISTINCT ON).
+    distinct: Vec<String>,
+    /// pgvector nearest-neighbor search, ordering rows by distance.
+    nearest: Option<nautilus_core::VectorNearest>,
+    _selection: std::marker::PhantomData<S>,
+}
+
+impl<E, S> UserFindMany<E, S>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        UserFindMany {
+            client,
+            filter: None,
+            order_by: vec![],
+            take: None,
+            skip: None,
+            select: std::collections::HashSet::new(),
+            cursor: None,
+            backward: false,
+            distinct: vec![],
+            nearest: None,
+            _selection: std::marker::PhantomData,
+        }
+    }
+
+    /// Add a WHERE filter.
+    #[must_use]
+    pub(crate) fn where_(mut self, expr: nautilus_core::Expr) -> Self {
+        self.filter = Some(expr);
+        self
+    }
+
+    /// Add ORDER BY clause.
+    #[must_use]
+    pub(crate) fn order_by(mut self, order: nautilus_core::OrderBy) -> Self {
+        self.order_by.push(order);
+        self
+    }
+
+    /// Limit the number of results.
+    ///
+    /// Positive `n` paginates **forward**; negative `n` paginates **backward**
+    /// (flips ORDER BY and reverses the result slice in memory).
+    #[must_use]
+    pub(crate) fn take(mut self, n: i32) -> Self {
+        self.backward = n < 0;
+        self.take = Some(n);
+        self
+    }
+
+    /// Skip a number of results (OFFSET).
+    #[must_use]
+    pub(crate) fn skip(mut self, n: u32) -> Self {
+        self.skip = Some(n);
+        self
+    }
+
+    /// Set the cursor for stable keyset pagination.
+    ///
+    /// The map must contain all primary-key fields of the model.
+    /// The cursor record is included in the result.
+    #[must_use]
+    pub(crate) fn cursor(
+        mut self,
+        map: std::collections::HashMap<String, nautilus_core::Value>,
+    ) -> Self {
+        self.cursor = Some(map);
+        self
+    }
+
+    /// Specify columns to deduplicate on (SELECT DISTINCT / DISTINCT ON).
+    ///
+    /// - **Postgres**: emits `DISTINCT ON (cols)` - the columns are automatically
+    ///   prepended to `ORDER BY` before query execution.
+    /// - **SQLite / MySQL**: emits plain `SELECT DISTINCT` (full-row dedup;
+    ///   combine with `select_fields` for column-level effect).
+    #[must_use]
+    pub(crate) fn distinct(mut self, columns: Vec<String>) -> Self {
+        self.distinct = columns;
+        self
+    }
+
+    /// Order results by pgvector distance from a query embedding.
+    #[must_use]
+    pub(crate) fn nearest(mut self, nearest: nautilus_core::VectorNearest) -> Self {
+        self.nearest = Some(nearest);
+        self
+    }
+
+    fn into_execution_parts(
+        self,
+    ) -> nautilus_core::Result<(
+        crate::Client<E>,
+        nautilus_dialect::Sql,
+        Vec<Option<crate::ValueHint>>,
+        Vec<usize>,
+        bool,
+    )> {
+        use nautilus_core::*;
+
+        let UserFindMany {
+            client,
+            filter,
+            order_by,
+            take,
+            skip,
+            select,
+            cursor,
+            backward,
+            distinct,
+            nearest,
+            _selection,
+        } = self;
+        let row_hints = projected_scalar_value_hints(&select);
+        let decode_slots = projected_scalar_decode_slots(&select);
+        let mut builder = Select::from_table("User").with_capacity(SelectCapacity {
+            items: 2,
+            order_by_columns: order_by.len() + distinct.len() + 1,
+            order_by_exprs: usize::from(nearest.is_some()),
+            distinct: distinct.len(),
+            ..SelectCapacity::default()
+        });
+
+        // Add scalar columns (PK columns always included; others filtered by select if active)
+        builder = builder.item(SelectItem::column(ColumnMarker::from_static("User", "id")));
+        if select.is_empty() || select.contains("name") {
+            builder = builder.item(SelectItem::column(ColumnMarker::from_static("User", "name")));
+        }
+
+        // Auto-add distinct columns to ORDER BY so they appear first (required for
+        // Postgres DISTINCT ON; harmless for SQLite / MySQL which use plain DISTINCT).
+        if !distinct.is_empty() {
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+            for col in &distinct {
+                if !existing_cols.contains(col.as_str()) {
+                    let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                    builder = builder.order_by(col.clone(), dir);
+                }
+            }
+        }
+
+        // Cursor predicate
+        // Build an inclusive keyset WHERE clause from the cursor map and merge
+        // it with any caller-supplied filter.
+        let effective_filter = if let Some(ref cursor_map) = cursor {
+            // Static PK field (cursor-map-key, table__db_col) pairs - generated
+            // at code-generation time from the model's primary-key definition.
+            let pk_pairs: &[(&str, &str)] = &[
+                ("id", "User__id"),
+            ];
+            let cursor_pred =
+                nautilus_core::build_cursor_predicate(pk_pairs, cursor_map, backward)?;
+
+            // Auto-add any PK column that is not yet in order_by so that the
+            // keyset predicate is unambiguous.
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+            if !existing_cols.contains("id") {
+                let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                builder = builder.order_by("id".to_string(), dir);
+            }
+
+            Some(match filter {
+                Some(f) => f.and(cursor_pred),
+                None => cursor_pred,
+            })
+        } else {
+            filter
+        };
+
+        if let Some(f) = effective_filter {
+            builder = builder.filter(f);
+        }
+
+        if let Some(nearest) = nearest {
+            let distance = nearest_order_expr(nearest, take, cursor.is_some(), !distinct.is_empty())?;
+            builder = builder.order_by_expr(distance, OrderDir::Asc);
+        }
+
+        // Apply ordering, flipping direction for backward pagination.
+        for order in order_by {
+            let dir = if backward {
+                match order.direction {
+                    OrderDir::Asc => OrderDir::Desc,
+                    OrderDir::Desc => OrderDir::Asc,
+                }
+            } else {
+                order.direction
+            };
+            if let Some(expr) = composite_order_expr(&order.column) {
+                builder = builder.order_by_expr(expr, dir);
+            } else {
+                builder = builder.order_by(order.column, dir);
+            }
+        }
+
+        // Apply take (absolute value; direction is handled by ORDER BY flip).
+        if let Some(n) = take {
+            builder = builder.take(n.saturating_abs());
+        }
+        if let Some(offset) = skip {
+            builder = builder.skip(offset);
+        }
+
+        // Apply distinct (SELECT DISTINCT / DISTINCT ON).
+        if !distinct.is_empty() {
+            builder = builder.distinct(distinct);
+        }
+
+        let select = builder.build()?;
+        let sql = client.dialect().render_select_owned(select)?;
+
+        Ok((client, sql, row_hints, decode_slots, backward))
+    }
+
+    fn into_selection_execution_parts<C>(
+        self,
+        selection: &C,
+    ) -> nautilus_core::Result<(
+        crate::Client<E>,
+        nautilus_dialect::Sql,
+        Vec<Option<crate::ValueHint>>,
+        bool,
+    )>
+    where
+        C: nautilus_core::SelectColumns,
+    {
+        use nautilus_core::*;
+
+        let UserFindMany {
+            client,
+            filter,
+            order_by,
+            take,
+            skip,
+            select: _,
+            cursor,
+            backward,
+            distinct,
+            nearest,
+            _selection,
+        } = self;
+        let selected_columns = selection.columns();
+        let row_hints = selected_columns
+            .iter()
+            .map(projection_value_hint_for_column)
+            .collect::<Vec<_>>();
+        let mut builder = Select::from_table("User").with_capacity(SelectCapacity {
+            items: selected_columns.len(),
+            order_by_columns: order_by.len() + distinct.len() + 1,
+            order_by_exprs: usize::from(nearest.is_some()),
+            distinct: distinct.len(),
+            ..SelectCapacity::default()
+        });
+
+        for column in selected_columns {
+            builder = builder.item(SelectItem::column(column));
+        }
+
+        if !distinct.is_empty() {
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+            for col in &distinct {
+                if !existing_cols.contains(col.as_str()) {
+                    let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                    builder = builder.order_by(col.clone(), dir);
+                }
+            }
+        }
+
+        let effective_filter = if let Some(ref cursor_map) = cursor {
+            let pk_pairs: &[(&str, &str)] = &[
+                ("id", "User__id"),
+            ];
+            let cursor_pred =
+                nautilus_core::build_cursor_predicate(pk_pairs, cursor_map, backward)?;
+
+            let existing_cols: std::collections::HashSet<&str> =
+                order_by.iter().map(|o| o.column.as_str()).collect();
+            if !existing_cols.contains("id") {
+                let dir = if backward { OrderDir::Desc } else { OrderDir::Asc };
+                builder = builder.order_by("id".to_string(), dir);
+            }
+
+            Some(match filter {
+                Some(f) => f.and(cursor_pred),
+                None => cursor_pred,
+            })
+        } else {
+            filter
+        };
+
+        if let Some(f) = effective_filter {
+            builder = builder.filter(f);
+        }
+
+        if let Some(nearest) = nearest {
+            let distance = nearest_order_expr(nearest, take, cursor.is_some(), !distinct.is_empty())?;
+            builder = builder.order_by_expr(distance, OrderDir::Asc);
+        }
+
+        for order in order_by {
+            let dir = if backward {
+                match order.direction {
+                    OrderDir::Asc => OrderDir::Desc,
+                    OrderDir::Desc => OrderDir::Asc,
+                }
+            } else {
+                order.direction
+            };
+            if let Some(expr) = composite_order_expr(&order.column) {
+                builder = builder.order_by_expr(expr, dir);
+            } else {
+                builder = builder.order_by(order.column, dir);
+            }
+        }
+
+        if let Some(n) = take {
+            builder = builder.take(n.saturating_abs());
+        }
+        if let Some(offset) = skip {
+            builder = builder.skip(offset);
+        }
+
+        if !distinct.is_empty() {
+            builder = builder.distinct(distinct);
+        }
+
+        let select = builder.build()?;
+        let sql = client.dialect().render_select_owned(select)?;
+
+        Ok((client, sql, row_hints, backward))
+    }
+}
+
+impl<E> UserFindMany<E, ()>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    /// Execute the query and return all rows.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<User>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, decode_slots, backward) = self.into_execution_parts()?;
+
+        let rows = crate::execute_all(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            let decoded = decode_model_row_with_hints(row, &decode_slots, &row_hints)?;
+            results.push(decoded);
+        }
+
+        // Backward pagination: DB returned rows in reversed order - restore natural order.
+        if backward {
+            results.reverse();
+        }
+
+        Ok(results)
+    }
+
+    /// Execute the query and decode at most one row.
+    pub(crate) async fn exec_optional(self) -> nautilus_core::Result<Option<User>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, decode_slots, _backward) = self.into_execution_parts()?;
+        let row = crate::execute_optional(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let row: crate::Row = row.into();
+        Ok(Some(decode_model_row_with_hints(row, &decode_slots, &row_hints)?))
+    }
+
+    pub(crate) async fn exec_select<C>(
+        self,
+        selection: C,
+    ) -> nautilus_core::Result<Vec<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+    {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, backward) =
+            self.into_selection_execution_parts(&selection)?;
+
+        let rows = crate::execute_all(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            let row = normalize_projection_row(row, &row_hints)?;
+            results.push(selection.decode(&row)?);
+        }
+
+        if backward {
+            results.reverse();
+        }
+
+        Ok(results)
+    }
+
+    pub(crate) async fn exec_select_optional<C>(
+        self,
+        selection: C,
+    ) -> nautilus_core::Result<Option<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+    {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, _backward) =
+            self.into_selection_execution_parts(&selection)?;
+        let row = crate::execute_optional(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let row: crate::Row = row.into();
+        let row = normalize_projection_row(row, &row_hints)?;
+        Ok(Some(selection.decode(&row)?))
+    }
+}
+
+/// Internal Create builder for User — use `UserDelegate::create(data)` instead.
+pub(crate) struct UserCreate<E: crate::Executor> {
+    client: crate::Client<E>,
+    id: Option<i32>,
+    name: Option<String>,
+}
+
+impl<E> UserCreate<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        UserCreate {
+            client,
+            id: None,
+            name: None,
+        }
+    }
+    /// Set id.
+    #[must_use]
+    pub(crate) fn id(mut self, value: impl Into<i32>) -> Self {
+        self.id = Some(value.into());
+        self
+    }
+    /// Set name.
+    #[must_use]
+    pub(crate) fn name(mut self, value: impl Into<String>) -> Self {
+        self.name = Some(value.into());
+        self
+    }
+    /// Execute the create query.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<User> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let mut columns = Vec::with_capacity(2);
+        let mut values = Vec::with_capacity(2);
+        if let Some(value) = self.id {
+            columns.push(ColumnMarker::from_static("User", "id"));
+            values.push(Value::from(value));
+        }
+        if let Some(value) = self.name {
+            columns.push(ColumnMarker::from_static("User", "name"));
+            values.push(Value::from(value));
+        }
+
+        let mut builder = Insert::into_table("User")
+            .columns(columns)
+            .values(values);
+
+        let supports_returning = self.client.dialect().supports_returning();
+        if supports_returning {
+            let returning_cols = vec![
+                ColumnMarker::from_static("User", "id"),
+                ColumnMarker::from_static("User", "name"),
+            ];
+            builder = builder.returning(returning_cols);
+        }
+
+        let insert = builder.build()?;
+        let sql = self.client.dialect().render_insert_owned(insert)?;
+
+        let row: Row = crate::execute_one(self.client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?
+            .into();
+
+        decode_model_row_with_hints(row, all_scalar_decode_slots(), all_scalar_value_hints())
+    }
+}
+
+
+/// Entry for creating User.
+#[derive(Debug, Clone)]
+pub struct UserCreateEntry {
+    pub id: i32,
+    pub name: String,
+}
+
+impl UserCreateEntry {
+    pub(crate) fn to_engine_data(&self) -> serde_json::Value {
+        let mut data = serde_json::Map::new();
+        data.insert(
+            "id".to_string(),
+            nautilus_core::Value::from(self.id.clone()).to_json_plain(),
+        );
+        data.insert(
+            "name".to_string(),
+            nautilus_core::Value::from(self.name.clone()).to_json_plain(),
+        );
+        serde_json::Value::Object(data)
+    }
+}
+
+/// Internal CreateMany builder for User — use `UserDelegate::create_many(entries)` instead.
+pub(crate) struct UserCreateMany<E: crate::Executor> {
+    client: crate::Client<E>,
+    entries: Vec<UserCreateEntry>,
+}
+
+impl<E> UserCreateMany<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        UserCreateMany {
+            client,
+            entries: vec![],
+        }
+    }
+
+    /// Add an entry to the batch.
+    #[must_use]
+    pub(crate) fn entry(mut self, entry: UserCreateEntry) -> Self {
+        self.entries.push(entry);
+        self
+    }
+
+    /// Execute the batch create using a single multi-row `INSERT`.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<User>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        if self.entries.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // MySQL does not support RETURNING — fall back to per-row inserts.
+        if !self.client.dialect().supports_returning() {
+            let mut results = Vec::with_capacity(self.entries.len());
+            for entry in self.entries {
+                let result = UserCreate::new(self.client.clone())
+                    .id(entry.id)
+                    .name(entry.name)
+                    .exec().await?;
+                results.push(result);
+            }
+            return Ok(results);
+        }
+
+        let columns = vec![
+            ColumnMarker::from_static("User", "id"),
+            ColumnMarker::from_static("User", "name"),
+        ];
+
+        let mut rows = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            let row = vec![
+                Value::from(entry.id.clone()),
+                Value::from(entry.name.clone()),
+            ];
+            rows.push(row);
+        }
+
+        let returning_cols = vec![
+            ColumnMarker::from_static("User", "id"),
+            ColumnMarker::from_static("User", "name"),
+        ];
+        let builder = Insert::into_table("User")
+            .with_capacity(InsertCapacity {
+                columns: columns.len(),
+                rows: rows.len(),
+                returning: returning_cols.len(),
+            })
+            .columns(columns)
+            .rows(rows)
+            .returning(returning_cols);
+
+        let insert = builder.build()?;
+        let sql = self.client.dialect().render_insert_owned(insert)?;
+
+        let rows = crate::execute_all(self.client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            let decoded = decode_model_row_with_hints(
+                row,
+                all_scalar_decode_slots(),
+                all_scalar_value_hints(),
+            )?;
+            results.push(decoded);
+        }
+
+        Ok(results)
+    }
+}
+
+
+/// Internal Update builder for User — use `UserDelegate::update(args)` instead.
+pub(crate) struct UserUpdate<E: crate::Executor> {
+    client: crate::Client<E>,
+    filter: Option<nautilus_core::Expr>,
+    require_filter: bool,
+    /// Column-value assignments collected from `set_data`.
+    assignments: Vec<(nautilus_core::ColumnMarker, nautilus_core::Assignment)>,
+}
+
+impl<E> UserUpdate<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        UserUpdate {
+            client,
+            filter: None,
+            require_filter: true,
+            assignments: Vec::with_capacity(2),
+        }
+    }
+
+    /// Set WHERE filter.
+    #[must_use]
+    pub(crate) fn where_(mut self, expr: nautilus_core::Expr) -> Self {
+        self.filter = Some(expr);
+        self
+    }
+
+    /// Update all rows (removes the safety guard that requires a filter).
+    #[must_use]
+    pub(crate) fn all(mut self) -> Self {
+        self.require_filter = false;
+        self
+    }
+
+    /// Load field assignments from a structured update-input value.
+    ///
+    /// Only fields that are `Some(…)` in `data` are included in the SET
+    /// clause; `None` fields are intentionally skipped (left unchanged).
+    /// For nullable fields a `Some(None)` sets the column to NULL.
+    #[must_use]
+    pub(crate) fn set_data(mut self, data: UserUpdateInput) -> Self {
+        if let Some(outer) = data.id {
+            let assignment = outer.to_assignment("id");
+            self.assignments.push((
+                nautilus_core::ColumnMarker::from_static("User", "id"),
+                assignment,
+            ));
+        }
+        if let Some(outer) = data.name {
+            let assignment = nautilus_core::Assignment::Value(nautilus_core::Value::from(outer));
+            self.assignments.push((
+                nautilus_core::ColumnMarker::from_static("User", "name"),
+                assignment,
+            ));
+        }
+        self
+    }
+
+    /// Execute the update, returning affected rows via `RETURNING`.
+    ///
+    /// Returns an empty `Vec` for databases that do not support `RETURNING`
+    /// (e.g. MySQL).  Returns an empty `Vec` without touching the database
+    /// when no assignments have been loaded via `set_data`.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<User>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        if self.assignments.is_empty() {
+            return Ok(vec![]);
+        }
+
+        if self.require_filter && self.filter.is_none() {
+            return Err(Error::InvalidQuery(
+                "Update requires a WHERE filter — call `.all()` to update every row.".to_string(),
+            ));
+        }
+
+        let mut builder = Update::table("User")
+            .with_capacity(UpdateCapacity {
+                assignments: self.assignments.len(),
+                returning: usize::from(self.client.dialect().supports_returning()) * 2,
+            })
+            .assignments(self.assignments);
+        if let Some(filter) = self.filter {
+            builder = builder.filter(filter);
+        }
+
+        let supports_returning = self.client.dialect().supports_returning();
+        if supports_returning {
+            let returning_cols = vec![
+                ColumnMarker::from_static("User", "id"),
+                ColumnMarker::from_static("User", "name"),
+            ];
+            builder = builder.returning(returning_cols);
+        }
+
+        let update = builder.build()?;
+        let sql = self.client.dialect().render_update_owned(update)?;
+
+        let rows = crate::execute_all(self.client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            results.push(decode_model_row_with_hints(
+                row,
+                all_scalar_decode_slots(),
+                all_scalar_value_hints(),
+            )?);
+        }
+
+        Ok(results)
+    }
+}
+
+
+/// Internal Delete builder for User — use `UserDelegate::delete(filter)` instead.
+pub(crate) struct UserDelete<E: crate::Executor> {
+    client: crate::Client<E>,
+    filter: Option<nautilus_core::Expr>,
+    require_filter: bool,
+}
+
+impl<E> UserDelete<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        UserDelete {
+            client,
+            filter: None,
+            require_filter: true,
+        }
+    }
+
+    /// Set WHERE filter.
+    #[must_use]
+    pub(crate) fn where_(mut self, expr: nautilus_core::Expr) -> Self {
+        self.filter = Some(expr);
+        self
+    }
+
+    /// Delete all rows (removes the safety guard that requires a filter).
+    #[must_use]
+    pub(crate) fn all(mut self) -> Self {
+        self.require_filter = false;
+        self
+    }
+
+    /// Execute the delete, returning deleted rows via `RETURNING`.
+    ///
+    /// Returns an empty `Vec` for databases that do not support `RETURNING`
+    /// (e.g. MySQL).
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<User>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        if self.require_filter && self.filter.is_none() {
+            return Err(Error::InvalidQuery(
+                "Delete requires a WHERE filter — call `.all()` to delete every row.".to_string(),
+            ));
+        }
+
+        let mut builder = Delete::from_table("User").with_capacity(DeleteCapacity {
+            returning: usize::from(self.client.dialect().supports_returning()) * 2,
+        });
+        if let Some(filter) = self.filter {
+            builder = builder.filter(filter);
+        }
+
+        let supports_returning = self.client.dialect().supports_returning();
+        if supports_returning {
+            let returning_cols = vec![
+                ColumnMarker::from_static("User", "id"),
+                ColumnMarker::from_static("User", "name"),
+            ];
+            builder = builder.returning(returning_cols);
+        }
+
+        let delete = builder.build()?;
+        let sql = self.client.dialect().render_delete_owned(delete)?;
+
+        let rows = crate::execute_all(self.client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            results.push(decode_model_row_with_hints(
+                row,
+                all_scalar_decode_slots(),
+                all_scalar_value_hints(),
+            )?);
+        }
+
+        Ok(results)
+    }
+}
