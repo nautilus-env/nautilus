@@ -15,6 +15,8 @@ pub mod delete;
 pub mod error;
 /// Expression AST for filters and WHERE clauses.
 pub mod expr;
+/// Quoting rule for SQL identifiers.
+pub mod ident;
 /// INSERT query AST and builder.
 pub mod insert;
 /// Helpers for converting typed Rust query args into engine wire JSON.
@@ -36,6 +38,10 @@ pub use cursor::build_cursor_predicate;
 pub use delete::{Delete, DeleteBuilder, DeleteCapacity};
 pub use error::{Error, Result};
 pub use expr::{BinaryOp, Expr, JsonPathCast, LiteralSql, RelationFilterOp, RelationJoinTable};
+pub use ident::{
+    push_qualified_ident, push_quoted_ident, push_quoted_ident_segments, push_table_name,
+    quote_ident, quote_table_name,
+};
 pub use insert::{Insert, InsertBuilder, InsertCapacity, OnConflict};
 pub use protocol_json::{
     find_many_args_to_protocol_json, find_many_args_to_protocol_object, where_expr_to_protocol_json,

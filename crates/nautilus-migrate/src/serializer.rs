@@ -471,7 +471,10 @@ fn render_model_block(
     }
 
     // Keep @@map explicit so the model/table mapping survives round-trips.
-    lines.push(format!("  @@map(\"{}\")", table_name.name));
+    lines.push(format!(
+        "  @@map(\"{}\")",
+        escape_schema_string(&table_name.name)
+    ));
     if let Some(schema) = table_name.schema() {
         lines.push(format!("  @@schema(\"{}\")", escape_schema_string(schema)));
     }
@@ -509,7 +512,10 @@ fn render_view_block(
 
     let mut lines = vec![format!("view {} {{", naming.model_name)];
     lines.extend(render_column_lines(live, view, naming));
-    lines.push(format!("  @@map(\"{}\")", view_name.name));
+    lines.push(format!(
+        "  @@map(\"{}\")",
+        escape_schema_string(&view_name.name)
+    ));
     if let Some(schema) = view_name.schema() {
         lines.push(format!("  @@schema(\"{}\")", escape_schema_string(schema)));
     }
@@ -790,7 +796,7 @@ fn render_index_lines(
                 }
             }
             if idx.name != default_index_name(&table_name.name, &idx.columns) {
-                args.push(format!("map: \"{}\"", idx.name));
+                args.push(format!("map: \"{}\"", escape_schema_string(&idx.name)));
             }
             if let Some(predicate) = &idx.predicate {
                 args.push(format!(

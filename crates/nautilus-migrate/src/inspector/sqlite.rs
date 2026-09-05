@@ -5,6 +5,7 @@ use super::{
 };
 use crate::error::{MigrationError, Result};
 use crate::live::{ComputedKind, LiveColumn, LiveIndex, LiveIndexKind, LiveSchema, LiveTable};
+use nautilus_core::ident::quote_ident;
 use nautilus_core::TableName;
 
 impl SchemaInspector {
@@ -48,7 +49,7 @@ impl SchemaInspector {
         let mut live = LiveSchema::default();
 
         for (table_name, create_sql) in tables {
-            let pragma_sql = format!("PRAGMA table_xinfo(\"{}\")", table_name);
+            let pragma_sql = format!("PRAGMA table_xinfo({})", quote_ident(&table_name, '"'));
             let col_rows = sqlx::query(&pragma_sql)
                 .fetch_all(&pool)
                 .await
@@ -146,7 +147,7 @@ impl SchemaInspector {
                 }
             }
 
-            let index_list_sql = format!("PRAGMA index_list(\"{}\")", table_name);
+            let index_list_sql = format!("PRAGMA index_list({})", quote_ident(&table_name, '"'));
             let idx_list_rows = sqlx::query(&index_list_sql)
                 .fetch_all(&pool)
                 .await
@@ -168,7 +169,7 @@ impl SchemaInspector {
                     continue;
                 }
 
-                let index_info_sql = format!("PRAGMA index_info(\"{}\")", idx_name);
+                let index_info_sql = format!("PRAGMA index_info({})", quote_ident(&idx_name, '"'));
                 let idx_info_rows = sqlx::query(&index_info_sql)
                     .fetch_all(&pool)
                     .await
@@ -196,7 +197,8 @@ impl SchemaInspector {
                 });
             }
 
-            let fk_pragma_sql = format!("PRAGMA foreign_key_list(\"{}\")", table_name);
+            let fk_pragma_sql =
+                format!("PRAGMA foreign_key_list({})", quote_ident(&table_name, '"'));
             let fk_pragma_rows = sqlx::query(&fk_pragma_sql)
                 .fetch_all(&pool)
                 .await
@@ -229,7 +231,7 @@ impl SchemaInspector {
                 .try_get("name")
                 .map_err(|e| MigrationError::Database(e.to_string()))?;
 
-            let pragma_sql = format!("PRAGMA table_info(\"{}\")", view_name);
+            let pragma_sql = format!("PRAGMA table_info({})", quote_ident(&view_name, '"'));
             let col_rows = sqlx::query(&pragma_sql)
                 .fetch_all(&pool)
                 .await

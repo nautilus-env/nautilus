@@ -719,16 +719,13 @@ pub(crate) const WINDOW_ROW_NUMBER_ALIAS: &str = "__nautilus_rn";
 /// Alias of the subquery a [`nautilus_core::PartitionWindow`] wraps the select in.
 pub(crate) const WINDOW_SUBQUERY_ALIAS: &str = "__nautilus_win";
 
-fn push_escaped_identifier(sql: &mut String, name: &str, quote: char) {
-    for ch in name.chars() {
-        if ch == quote {
-            sql.push(quote);
-        }
-        sql.push(ch);
-    }
-}
+/// Identifier quoting, owned by [`nautilus_core::ident`] so that migrations,
+/// introspection and rendered queries all delimit and escape a name the same way.
+pub(crate) use nautilus_core::ident::{
+    push_qualified_ident as push_qualified_identifier, push_quoted_ident as push_quoted_identifier,
+    push_table_name,
+};
 
-/// Quote a SQL identifier directly into the SQL buffer.
 /// The `$param_cast` hook for dialects that never cast a bound parameter.
 ///
 /// PostgreSQL is the only dialect that needs one: it binds several values as
@@ -738,48 +735,13 @@ pub(crate) fn no_param_cast(_value: &nautilus_core::Value) -> Option<String> {
     None
 }
 
-pub(crate) fn push_quoted_identifier(sql: &mut String, name: &str, quote: char) {
-    sql.push(quote);
-    push_escaped_identifier(sql, name, quote);
-    sql.push(quote);
-}
-
-/// Quote multiple identifier segments as a single identifier directly into the SQL buffer.
-pub(crate) fn push_quoted_identifier_segments(sql: &mut String, segments: &[&str], quote: char) {
-    sql.push(quote);
-    for segment in segments {
-        push_escaped_identifier(sql, segment, quote);
-    }
-    sql.push(quote);
-}
-
-/// Render `table.column` directly into the SQL buffer.
-/// Render a table in the statement's table position, qualifying it with its
-/// schema when it has one.
-///
-/// Column references keep using the bare table name: every supported provider
-/// gives `schema.table` the bare `table` as its implicit alias.
-pub(crate) fn push_table_name(sql: &mut String, table: &nautilus_core::TableName, quote: char) {
-    if let Some(schema) = table.schema() {
-        push_quoted_identifier(sql, schema, quote);
-        sql.push('.');
-    }
-    push_quoted_identifier(sql, &table.name, quote);
-}
-
-pub(crate) fn push_qualified_identifier(sql: &mut String, table: &str, column: &str, quote: char) {
-    push_quoted_identifier(sql, table, quote);
-    sql.push('.');
-    push_quoted_identifier(sql, column, quote);
-}
-
 /// Render a join-safe `table__column` alias directly into the SQL buffer.
 pub(crate) fn push_column_alias(
     sql: &mut String,
     column: &nautilus_core::ColumnMarker,
     quote: char,
 ) {
-    push_quoted_identifier_segments(
+    nautilus_core::ident::push_quoted_ident_segments(
         sql,
         &[column.table.as_ref(), "__", column.name.as_ref()],
         quote,

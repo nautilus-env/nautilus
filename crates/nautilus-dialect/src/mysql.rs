@@ -344,20 +344,6 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
 mod tests {
     use super::*;
 
-    fn quote_identifier(name: &str) -> String {
-        let mut sql = String::new();
-        crate::push_quoted_identifier(&mut sql, name, '`');
-        sql
-    }
-
-    #[test]
-    fn test_quote_identifier() {
-        assert_eq!(quote_identifier("users"), "`users`");
-        assert_eq!(quote_identifier("email"), "`email`");
-        assert_eq!(quote_identifier("foo`bar"), "`foo``bar`");
-        assert_eq!(quote_identifier("a`b`c"), "`a``b``c`");
-    }
-
     #[test]
     fn upsert_renders_on_duplicate_key_update() {
         let insert = Insert::into_table("users")

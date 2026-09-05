@@ -2091,3 +2091,36 @@ fn raw_predicates_are_written_back_as_sql_in_lists() {
     );
     common::parse(&out).expect("pulled schema must reparse");
 }
+
+#[test]
+fn serialises_names_carrying_a_quote_so_the_schema_reparses() {
+    let live = common::make_live_schema(vec![LiveTable {
+        name: TableName::new("we\"ird".to_string()),
+        columns: vec![LiveColumn {
+            name: "id".to_string(),
+            col_type: "integer".to_string(),
+            nullable: false,
+            default_value: None,
+            generated_expr: None,
+            computed_kind: None,
+            check_expr: None,
+            auto_increment: false,
+            self_updating: false,
+        }],
+        primary_key: vec!["id".to_string()],
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }]);
+
+    let out = serialize_live_schema(
+        &live,
+        DatabaseProvider::Postgres,
+        "postgres://localhost/test",
+    );
+
+    assert!(out.contains("@@map(\"we\\\"ird\")"), "{out}");
+
+    let ir = common::parse(&out).expect("schema should reparse");
+    assert!(ir.models.values().any(|m| m.db_name == "we\"ird"));
+}

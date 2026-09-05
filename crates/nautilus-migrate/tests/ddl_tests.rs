@@ -943,3 +943,85 @@ fn test_sqlite_drop_live_tables_defers_foreign_key_checks() {
         statements
     );
 }
+
+#[test]
+fn quote_identifier_doubles_the_delimiter_of_each_provider() {
+    assert_eq!(
+        DatabaseProvider::Postgres.quote_identifier("we\"ird"),
+        "\"we\"\"ird\""
+    );
+    assert_eq!(
+        DatabaseProvider::Sqlite.quote_identifier("we\"ird"),
+        "\"we\"\"ird\""
+    );
+    assert_eq!(
+        DatabaseProvider::Mysql.quote_identifier("we`ird"),
+        "`we``ird`"
+    );
+
+    assert_eq!(
+        DatabaseProvider::Postgres.quote_identifier("we`ird"),
+        "\"we`ird\"",
+        "the other provider's delimiter is an ordinary character"
+    );
+    assert_eq!(
+        DatabaseProvider::Mysql.quote_identifier("we\"ird"),
+        "`we\"ird`"
+    );
+}
+
+#[test]
+fn mapped_names_carrying_a_delimiter_stay_one_identifier_in_ddl() {
+    let source = r#"
+model User {
+  id    Int    @id
+  email String @map("we\"ird`col")
+
+  @@map("we\"ird`table")
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let pg = DdlGenerator::new(DatabaseProvider::Postgres)
+        .generate_create_tables(&ir)
+        .unwrap()
+        .join("\n");
+    assert!(
+        pg.contains("CREATE TABLE IF NOT EXISTS \"we\"\"ird`table\""),
+        "{pg}"
+    );
+    assert!(pg.contains("\"we\"\"ird`col\""), "{pg}");
+
+    let mysql = DdlGenerator::new(DatabaseProvider::Mysql)
+        .generate_create_tables(&ir)
+        .unwrap()
+        .join("\n");
+    assert!(
+        mysql.contains("CREATE TABLE IF NOT EXISTS `we\"ird``table`"),
+        "{mysql}"
+    );
+    assert!(mysql.contains("`we\"ird``col`"), "{mysql}");
+}
+
+#[test]
+fn a_mapped_name_holding_a_dot_is_not_read_as_a_schema_qualifier() {
+    let source = r#"
+model Event {
+  id Int @id
+
+  @@map("first.last")
+}
+"#;
+    let ir = common::parse(source).unwrap();
+
+    let sql = DdlGenerator::new(DatabaseProvider::Postgres)
+        .generate_create_tables(&ir)
+        .unwrap()
+        .join("\n");
+
+    assert!(
+        sql.contains("CREATE TABLE IF NOT EXISTS \"first.last\""),
+        "{sql}"
+    );
+    assert!(!sql.contains("\"first\".\"last\""), "{sql}");
+}

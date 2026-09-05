@@ -59,14 +59,7 @@ impl ProviderStrategy {
     /// Quote a table in the statement's table position, qualifying it with its
     /// schema when it has one.
     pub(crate) fn quote_table(&self, table: &TableName) -> String {
-        match table.schema() {
-            Some(schema) => format!(
-                "{}.{}",
-                self.provider.quote_identifier(schema),
-                self.provider.quote_identifier(&table.name)
-            ),
-            None => self.provider.quote_identifier(&table.name),
-        }
+        nautilus_core::ident::quote_table_name(table, self.provider.identifier_quote())
     }
 
     pub(crate) fn drop_table_sql(&self, table: &TableName, cascade: bool) -> String {

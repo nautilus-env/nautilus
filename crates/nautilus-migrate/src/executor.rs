@@ -327,8 +327,8 @@ impl<'a> ChangeReverser<'a> {
             }
             Change::CreateExtension { name, .. } => self.reverse_user_type(|| {
                 vec![format!(
-                    "DROP EXTENSION IF EXISTS \"{}\"",
-                    name.replace('"', "\"\"")
+                    "DROP EXTENSION IF EXISTS {}",
+                    nautilus_core::ident::quote_ident(name, '"')
                 )]
             }),
             // A schema can hold objects Nautilus does not manage, so rolling a

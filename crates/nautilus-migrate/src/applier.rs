@@ -237,9 +237,9 @@ impl<'a> DiffApplier<'a> {
                 let pk_cols = self.pk_col_list(model)?;
                 let drop_stmt = match self.provider {
                     DatabaseProvider::Postgres => format!(
-                        "ALTER TABLE {} DROP CONSTRAINT IF EXISTS \"{}_pkey\"",
+                        "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}",
                         self.q_table(table),
-                        table.name,
+                        self.q_segments(&[&table.name, "_pkey"]),
                     ),
                     _ => format!("ALTER TABLE {} DROP PRIMARY KEY", self.q_table(table)),
                 };
@@ -711,7 +711,8 @@ impl<'a> DiffApplier<'a> {
         if let Some(default) = &col.default_value {
             let new_default = if let Some(val) = default.strip_suffix(&format!("::{}", old_name)) {
                 format!("{}::{}", val, enum_name)
-            } else if let Some(val) = default.strip_suffix(&format!("::\"{}\"", old_name)) {
+            } else if let Some(val) = default.strip_suffix(&format!("::{}", self.type_q(old_name)))
+            {
                 format!("{}::{}", val, enum_name)
             } else {
                 default.clone()
@@ -787,6 +788,18 @@ impl<'a> DiffApplier<'a> {
             ProviderSqlPlan::Statements(stmts) => Ok(stmts),
             ProviderSqlPlan::RequiresTableRebuild => self.sqlite_rebuild(table),
         }
+    }
+
+    /// Quote several parts as one identifier, e.g. the `"<table>_pkey"` name
+    /// PostgreSQL gives an implicit primary-key constraint.
+    fn q_segments(&self, segments: &[&str]) -> String {
+        let mut sql = String::new();
+        nautilus_core::ident::push_quoted_ident_segments(
+            &mut sql,
+            segments,
+            self.provider.identifier_quote(),
+        );
+        sql
     }
 
     /// Quote a PostgreSQL type identifier without folding its case.

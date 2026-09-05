@@ -1,6 +1,7 @@
 use crate::error::{MigrationError, Result};
 use crate::live::model_table;
 use crate::provider::{CreateIndex, ProviderStrategy};
+use nautilus_core::ident::quote_ident;
 use nautilus_core::TableName;
 use nautilus_schema::ast::StorageStrategy;
 use nautilus_schema::ir::{
@@ -68,15 +69,19 @@ impl DatabaseProvider {
         }
     }
 
-    /// Quote an identifier for this database provider.
-    ///
-    /// PostgreSQL and SQLite use double quotes (`"name"`), MySQL uses backticks
-    /// (`` `name` ``).
-    pub fn quote_identifier(self, name: &str) -> String {
+    /// The delimiter this provider wraps identifiers in: double quotes for
+    /// PostgreSQL and SQLite, backticks for MySQL.
+    pub fn identifier_quote(self) -> char {
         match self {
-            Self::Postgres | Self::Sqlite => format!("\"{}\"", name),
-            Self::Mysql => format!("`{}`", name),
+            Self::Postgres | Self::Sqlite => '"',
+            Self::Mysql => '`',
         }
+    }
+
+    /// Quote an identifier for this database provider, doubling any delimiter
+    /// the name contains.
+    pub fn quote_identifier(self, name: &str) -> String {
+        nautilus_core::ident::quote_ident(name, self.identifier_quote())
     }
 
     /// Render the positional bind placeholder for the 1-based argument `index`
@@ -383,14 +388,14 @@ impl DdlGenerator {
     /// `WITH SCHEMA "<schema>"` so the extension is installed in that namespace
     /// rather than the default (`public`).
     pub(crate) fn generate_create_extension(&self, ext: &PostgresExtensionIr) -> String {
-        let name = ext.name.replace('"', "\"\"");
+        let name = quote_ident(&ext.name, '"');
         match ext.schema.as_deref() {
             Some(schema) => format!(
-                "CREATE EXTENSION IF NOT EXISTS \"{}\" WITH SCHEMA \"{}\"",
+                "CREATE EXTENSION IF NOT EXISTS {} WITH SCHEMA {}",
                 name,
-                schema.replace('"', "\"\"")
+                quote_ident(schema, '"')
             ),
-            None => format!("CREATE EXTENSION IF NOT EXISTS \"{}\"", name),
+            None => format!("CREATE EXTENSION IF NOT EXISTS {}", name),
         }
     }
 
@@ -402,7 +407,7 @@ impl DdlGenerator {
     /// so users have to opt out — any future "cascade" knob should preserve
     /// that safety-first behaviour.
     pub(crate) fn generate_drop_extension(&self, name: &str) -> String {
-        format!("DROP EXTENSION IF EXISTS \"{}\"", name.replace('"', "\"\""))
+        format!("DROP EXTENSION IF EXISTS {}", quote_ident(name, '"'))
     }
 
     /// Generate CREATE TYPE ... AS (...) statement for a composite type (Postgres only).
