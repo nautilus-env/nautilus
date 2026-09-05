@@ -117,3 +117,19 @@ review the `.snap` diff, then rerun with `INSTA_UPDATE=no`. On PowerShell, set
 `$env:INSTA_UPDATE = 'always'` or `'no'` before running Cargo. Without an explicit
 update mode, mismatches fail and leave ignored `.snap.new` candidates for review;
 accepted baselines are never updated by CI.
+
+Runtime E2E tests exercise generated Python, JS and Java clients against SQLite.
+They require `sqlite3`, Python 3 (`python3` or `python`), Node, Java 21 or newer,
+and the Jackson jars listed by `java_test_classpath` in
+`tests/stream_runtime_e2e_tests.rs`. Put those jars in
+`target/test-jars/jackson-<version>/` or set `NAUTILUS_JAVA_TEST_CLASSPATH`.
+
+```bash
+NAUTILUS_REQUIRE_E2E=1 cargo test --locked -p nautilus-orm-codegen \
+  --test stream_runtime_e2e_tests -- --nocapture
+```
+
+CI supplies these prerequisites and sets `NAUTILUS_REQUIRE_E2E=1`, so missing
+tools or jars fail the job. When the variable is unset, missing prerequisites
+skip the affected tests; `--nocapture` shows each reason. On PowerShell, set
+`$env:NAUTILUS_REQUIRE_E2E = '1'` before running Cargo.

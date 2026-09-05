@@ -17,6 +17,14 @@ fn database_url() -> String {
         .unwrap_or_else(|_| "postgres://nautilus:nautilus@localhost/nautilus_test".to_string())
 }
 
+fn skip_missing_prerequisite(reason: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("NAUTILUS_REQUIRE_E2E").is_some() {
+        return Err(format!("required PostgreSQL E2E prerequisite missing: {reason}").into());
+    }
+    eprintln!("skipping PostgreSQL extension E2E test: {reason}");
+    Ok(())
+}
+
 fn unique_schema(prefix: &str) -> String {
     let id = NEXT_SCHEMA_ID.fetch_add(1, Ordering::SeqCst);
     format!("{}_{}_{}", prefix, std::process::id(), id)
@@ -216,8 +224,7 @@ async fn pgvector_round_trip_with_hnsw_index_and_destructive_drop(
         let scoped_url = schema_scoped_url(&base_url, &schema);
         let scoped_pool = PgPool::connect(&scoped_url).await?;
 
-        // Detect whether pgvector is available on this server; gracefully skip
-        // otherwise so the test stays useful on a vanilla PostgreSQL image.
+        // Local vanilla PostgreSQL may omit pgvector; CI must provide it.
         let probe = sqlx::query("CREATE EXTENSION IF NOT EXISTS \"vector\"")
             .persistent(false)
             .execute(&scoped_pool)
@@ -225,8 +232,7 @@ async fn pgvector_round_trip_with_hnsw_index_and_destructive_drop(
         if let Err(err) = probe {
             let message = err.to_string().to_lowercase();
             if message.contains("not available") || message.contains("could not open extension") {
-                eprintln!("skipping pgvector round-trip test: {message}");
-                return Ok(());
+                return skip_missing_prerequisite(&message);
             }
             return Err(Box::<dyn std::error::Error>::from(err));
         }
@@ -471,8 +477,9 @@ async fn introspects_extension_installed_outside_public_schema(
             .fetch_optional(&admin_pool)
             .await?;
     if already_installed.is_some() {
-        eprintln!("skipping btree_gist namespace test because extension already exists");
-        return Ok(());
+        return skip_missing_prerequisite(
+            "btree_gist is already installed; use a fresh test database",
+        );
     }
 
     let schema = unique_schema("nautilus_ext_namespace");
@@ -490,8 +497,7 @@ async fn introspects_extension_installed_outside_public_schema(
         if let Err(err) = create_result {
             let message = err.to_string();
             if message.contains("extension") && message.contains("not available") {
-                eprintln!("skipping btree_gist namespace test: {message}");
-                return Ok(());
+                return skip_missing_prerequisite(&message);
             }
             return Err(Box::<dyn std::error::Error>::from(err));
         }

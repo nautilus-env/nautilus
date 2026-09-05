@@ -416,8 +416,7 @@ async fn test_streaming_drop_mid_iteration_keeps_pool_usable() {
 /// Round-trips a `vector` column, which the extended protocol returns in
 /// pgvector's binary format rather than as a text literal.
 ///
-/// Skips itself when the server has no pgvector available: the CI image is a
-/// stock `postgres:16`, so this only runs against a pgvector-enabled server.
+/// Optional on stock PostgreSQL; the CI extension job requires pgvector.
 #[tokio::test]
 #[ignore = "requires a running PostgreSQL instance with pgvector (run `docker-compose up -d` first)"]
 async fn test_vector_column_round_trips_through_the_binary_protocol() {
@@ -429,8 +428,15 @@ async fn test_vector_column_round_trips_through_the_binary_protocol() {
         text: "CREATE EXTENSION IF NOT EXISTS vector".to_string(),
         params: vec![],
     };
-    if execute_all(&executor, &create_extension).await.is_err() {
-        eprintln!("skipping vector round-trip test: pgvector is not available on this server");
+    if let Err(error) = execute_all(&executor, &create_extension).await {
+        let message = error.to_string();
+        assert!(
+            std::env::var_os("NAUTILUS_REQUIRE_E2E").is_none()
+                && (message.contains("not available")
+                    || message.contains("could not open extension")),
+            "failed to prepare pgvector for the connector E2E test: {error}"
+        );
+        eprintln!("skipping vector round-trip test: {error}");
         return;
     }
 

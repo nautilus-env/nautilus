@@ -102,7 +102,35 @@ fn command_exists(name: &str) -> bool {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .is_ok()
+        .is_ok_and(|status| status.success())
+}
+
+fn skip_missing_prerequisite(reason: &str) {
+    assert!(
+        env::var_os("NAUTILUS_REQUIRE_E2E").is_none(),
+        "required E2E prerequisite missing: {reason}"
+    );
+    eprintln!("skipping codegen runtime E2E test: {reason}");
+}
+
+fn commands_available(commands: &[&str]) -> bool {
+    for command in commands {
+        if !command_exists(command) {
+            skip_missing_prerequisite(&format!("{command} is not available"));
+            return false;
+        }
+    }
+    true
+}
+
+fn python_executable() -> Option<&'static str> {
+    let executable = ["python3", "python"]
+        .into_iter()
+        .find(|name| command_exists(name));
+    if executable.is_none() {
+        skip_missing_prerequisite("python3/python is not available");
+    }
+    executable
 }
 
 fn prefixed_path(dir: &Path) -> OsString {
@@ -164,7 +192,9 @@ fn render_output(output: &Output) -> String {
 }
 
 fn run_checked(command: &mut Command, context: &str) -> String {
+    // Resolve the database URL from the fixture's .env, not the caller's shell.
     let output = command
+        .env_remove("DATABASE_URL")
         .output()
         .unwrap_or_else(|error| panic!("{context}: failed to execute command: {error}"));
     assert!(
@@ -191,7 +221,7 @@ fn ensure_nautilus_binary() -> PathBuf {
                 "--quiet",
                 "--offline",
                 "--package",
-                "nautilus-cli",
+                "nautilus-orm",
                 "--bin",
                 "nautilus",
             ])
@@ -418,8 +448,10 @@ fn collect_java_sources(root: &Path) -> Vec<PathBuf> {
 
 #[test]
 fn generated_python_stream_many_early_break_cleans_up() {
-    if !command_exists("python3") {
-        eprintln!("skipping python stream_many e2e test: python3 not available");
+    let Some(python) = python_executable() else {
+        return;
+    };
+    if !commands_available(&["sqlite3"]) {
         return;
     }
 
@@ -446,7 +478,7 @@ fn generated_python_stream_many_early_break_cleans_up() {
     .expect("failed to write Python runner");
 
     let stdout = run_checked(
-        Command::new("python3")
+        Command::new(python)
             .arg(&runner)
             .env("PYTHONPATH", &fixture.root)
             .env("PATH", &fixture.path_env),
@@ -461,8 +493,7 @@ fn generated_python_stream_many_early_break_cleans_up() {
 
 #[test]
 fn generated_js_stream_many_early_break_cleans_up() {
-    if !command_exists("node") {
-        eprintln!("skipping js streamMany e2e test: node not available");
+    if !commands_available(&["node", "sqlite3"]) {
         return;
     }
 
@@ -504,8 +535,10 @@ fn generated_js_stream_many_early_break_cleans_up() {
 
 #[test]
 fn generated_python_cud_events_can_stop_propagation() {
-    if !command_exists("python3") {
-        eprintln!("skipping python CUD events e2e test: python3 not available");
+    let Some(python) = python_executable() else {
+        return;
+    };
+    if !commands_available(&["sqlite3"]) {
         return;
     }
 
@@ -576,7 +609,7 @@ asyncio.run(main())
     .expect("failed to write Python CUD events runner");
 
     let stdout = run_checked(
-        Command::new("python3")
+        Command::new(python)
             .arg(&runner)
             .env("PYTHONPATH", &fixture.root)
             .env("PATH", &fixture.path_env),
@@ -595,8 +628,7 @@ asyncio.run(main())
 
 #[test]
 fn generated_js_cud_events_can_stop_propagation() {
-    if !command_exists("node") {
-        eprintln!("skipping js CUD events e2e test: node not available");
+    if !commands_available(&["node", "sqlite3"]) {
         return;
     }
 
@@ -674,15 +706,14 @@ try {
 
 #[test]
 fn generated_java_cud_events_can_stop_propagation() {
-    if !command_exists("javac") || !command_exists("java") {
-        eprintln!("skipping java CUD events e2e test: javac/java not available");
+    if !commands_available(&["javac", "java", "sqlite3"]) {
         return;
     }
 
     let Some(classpath) = java_test_classpath() else {
-        eprintln!(
-            "skipping java CUD events e2e test: set NAUTILUS_JAVA_TEST_CLASSPATH or cache Jackson jars under target/test-jars/jackson-{JAVA_JACKSON_VERSION}"
-        );
+        skip_missing_prerequisite(&format!(
+            "set NAUTILUS_JAVA_TEST_CLASSPATH or cache Jackson jars under target/test-jars/jackson-{JAVA_JACKSON_VERSION}"
+        ));
         return;
     };
 
@@ -826,19 +857,17 @@ public final class JavaCudEventsE2e {
 }
 
 /// Java uses generated sources plus Jackson jars on the compile/runtime classpath.
-/// The test is skipped when that classpath is not available locally so the
-/// regular Rust suite stays offline-friendly.
+/// Missing prerequisites are reported as skips locally and failures in CI.
 #[test]
 fn generated_java_stream_many_early_break_cleans_up() {
-    if !command_exists("javac") || !command_exists("java") {
-        eprintln!("skipping java streamMany e2e test: javac/java not available");
+    if !commands_available(&["javac", "java", "sqlite3"]) {
         return;
     }
 
     let Some(classpath) = java_test_classpath() else {
-        eprintln!(
-            "skipping java streamMany e2e test: set NAUTILUS_JAVA_TEST_CLASSPATH or cache Jackson jars under target/test-jars/jackson-{JAVA_JACKSON_VERSION}"
-        );
+        skip_missing_prerequisite(&format!(
+            "set NAUTILUS_JAVA_TEST_CLASSPATH or cache Jackson jars under target/test-jars/jackson-{JAVA_JACKSON_VERSION}"
+        ));
         return;
     };
 

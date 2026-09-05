@@ -399,6 +399,36 @@ Changes marked ❌ emit a `-- Cannot auto-reverse` comment in the down file so y
 
 ---
 
+## PostgreSQL extension tests
+
+`tests/postgres_extensions_e2e.rs` covers extension DDL, introspection, pull/diff
+round trips, HNSW indexes and destructive drops. Use a dedicated fresh database:
+the tests create and drop database-wide extensions (`citext`, `hstore`, `ltree`,
+`btree_gist`, `vector`) and run sequentially.
+
+CI uses the [pgvector PostgreSQL image](https://github.com/pgvector/pgvector#docker).
+To reproduce that job locally:
+
+```bash
+docker run --rm -d --name nautilus-extensions-test \
+  -e POSTGRES_USER=nautilus -e POSTGRES_PASSWORD=nautilus \
+  -e POSTGRES_DB=nautilus_extensions_test \
+  -p 127.0.0.1:55432:5432 pgvector/pgvector:0.8.6-pg16-bookworm
+
+# Once pg_isready reports that the container accepts connections:
+NAUTILUS_REQUIRE_E2E=1 \
+NAUTILUS_TEST_POSTGRES_URL=postgres://nautilus:nautilus@localhost:55432/nautilus_extensions_test \
+  cargo test --locked -p nautilus-orm-migrate --test postgres_extensions_e2e \
+  -- --ignored --test-threads=1 --nocapture
+
+docker stop nautilus-extensions-test
+```
+
+With `NAUTILUS_REQUIRE_E2E` set, missing extensions or an already installed
+`btree_gist` fail the tests. Without it, optional prerequisites produce a skip
+message visible with `--nocapture`. On PowerShell, set the variables through
+`$env:NAUTILUS_REQUIRE_E2E` and `$env:NAUTILUS_TEST_POSTGRES_URL` before Cargo.
+
 ## Architecture
 
 ```
