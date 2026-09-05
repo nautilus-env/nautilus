@@ -11,7 +11,6 @@ mod columns;
 mod extensions;
 mod foreign_keys;
 mod indexes;
-mod normalize;
 mod ordering;
 mod tables;
 mod user_types;

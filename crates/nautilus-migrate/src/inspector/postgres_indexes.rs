@@ -38,7 +38,7 @@ pub(crate) fn group_pg_indexes(rows: Vec<sqlx::postgres::PgRow>) -> Vec<LiveInde
             .try_get::<Option<String>, _>("index_predicate")
             .ok()
             .flatten()
-            .map(|raw| super::normalize_pg_check_expr(&raw));
+            .map(|raw| crate::normalize::predicates::normalize_pg_check_expr(&raw));
 
         if let Some(entry) = ordered
             .iter_mut()

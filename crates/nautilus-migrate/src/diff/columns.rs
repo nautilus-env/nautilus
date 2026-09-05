@@ -3,13 +3,13 @@
 
 use nautilus_schema::ir::FieldIr;
 
-use super::normalize::{
-    column_types_match, normalize_check_expr, normalize_default, normalize_generated_expr,
-};
 use super::DiffAccumulator;
 use crate::change::Change;
 use crate::ddl::DatabaseProvider;
 use crate::live::LiveTable;
+use crate::normalize::defaults::normalize_default;
+use crate::normalize::predicates::{normalize_check_expr, normalize_generated_expr};
+use crate::normalize::types::column_types_match;
 use nautilus_core::TableName;
 
 impl DiffAccumulator {

@@ -19,6 +19,7 @@ mod error;
 mod executor;
 mod file_store;
 mod migration;
+mod normalize;
 mod provider;
 mod serializer;
 mod tracker;

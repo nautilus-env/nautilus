@@ -3,10 +3,10 @@
 
 use nautilus_schema::ir::{BasicIndexType, IndexKind, ModelIr};
 
-use super::normalize::normalize_check_expr;
 use super::DiffAccumulator;
 use crate::change::Change;
 use crate::live::{LiveIndex, LiveIndexKind, LiveTable};
+use crate::normalize::predicates::normalize_check_expr;
 use nautilus_core::TableName;
 
 impl DiffAccumulator {

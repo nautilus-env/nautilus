@@ -4,11 +4,11 @@
 
 use nautilus_schema::ir::{FieldIr, ModelIr, SchemaIr};
 
-use super::normalize::normalize_check_expr;
 use super::ordering::topo_sort_models;
 use super::DiffAccumulator;
 use crate::change::Change;
 use crate::live::{LiveSchema, LiveTable};
+use crate::normalize::predicates::normalize_check_expr;
 use nautilus_core::TableName;
 
 impl DiffAccumulator {

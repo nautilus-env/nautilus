@@ -1,10 +1,12 @@
 use super::{
-    group_sqlite_foreign_keys, normalize_sqlite_check_expr, normalize_sqlite_default,
-    normalize_sqlite_type, parse_sqlite_check_constraints, parse_sqlite_generated_exprs,
+    group_sqlite_foreign_keys, parse_sqlite_check_constraints, parse_sqlite_generated_exprs,
     SchemaInspector,
 };
 use crate::error::{MigrationError, Result};
 use crate::live::{ComputedKind, LiveColumn, LiveIndex, LiveIndexKind, LiveSchema, LiveTable};
+use crate::normalize::defaults::normalize_sqlite_default;
+use crate::normalize::predicates::normalize_sqlite_check_expr;
+use crate::normalize::types::normalize_sqlite_type;
 use nautilus_core::ident::quote_ident;
 use nautilus_core::TableName;
 

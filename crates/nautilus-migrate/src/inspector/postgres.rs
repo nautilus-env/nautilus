@@ -3,14 +3,14 @@ use std::collections::{HashMap, HashSet};
 use sqlx::postgres::PgRow;
 use sqlx::PgPool;
 
-use super::{
-    group_pg_foreign_keys, group_pg_indexes, normalize_pg_check_expr,
-    normalize_pg_composite_field_type, normalize_pg_default, normalize_pg_type, SchemaInspector,
-};
+use super::{group_pg_foreign_keys, group_pg_indexes, SchemaInspector};
 use crate::error::{MigrationError, Result};
 use crate::live::{
     ComputedKind, LiveColumn, LiveCompositeField, LiveCompositeType, LiveSchema, LiveTable,
 };
+use crate::normalize::defaults::normalize_pg_default;
+use crate::normalize::predicates::normalize_pg_check_expr;
+use crate::normalize::types::{normalize_pg_composite_field_type, normalize_pg_type};
 use nautilus_core::TableName;
 
 const TABLES_SQL: &str = "SELECT c.relname AS table_name \

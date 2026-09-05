@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use super::{
-    group_mysql_foreign_keys, normalize_mysql_check_expr, normalize_mysql_type, SchemaInspector,
-};
+use super::{group_mysql_foreign_keys, SchemaInspector};
 use crate::error::{MigrationError, Result};
 use crate::live::{ComputedKind, LiveColumn, LiveIndex, LiveIndexKind, LiveSchema, LiveTable};
+use crate::normalize::predicates::normalize_mysql_check_expr;
+use crate::normalize::types::normalize_mysql_type;
 use nautilus_core::TableName;
 use nautilus_schema::ir::BasicIndexType;
 
