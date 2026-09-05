@@ -115,6 +115,13 @@ println!("validated {} model(s)", ir.models.len());
 
 ## References
 
+Validation passes are registered once in
+`validator/mod.rs::SchemaValidator::run_validation_passes`. Both `validate_schema`
+and `analyze` use that order and stop after name conflicts. The former returns
+the first error; the latter collects errors followed by warnings. Add a semantic
+pass in its domain module under `validator/` and register it in that shared
+sequence before IR construction.
+
 - [GRAMMAR.md](GRAMMAR.md) for the language grammar
 - `tests/` for parser, validator, formatter, analysis, and IR coverage
 

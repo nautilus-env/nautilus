@@ -1,8 +1,8 @@
 //! Integration tests for the analysis API (`analyze`, `completion`, `hover`, `goto_definition`).
 
 use nautilus_schema::{
-    analyze, completion, goto_definition, hover, semantic_tokens, CompletionKind, SemanticKind,
-    Severity,
+    analyze, completion, goto_definition, hover, semantic_tokens, validate_schema, CompletionKind,
+    Diagnostic, SemanticKind, Severity,
 };
 
 const VALID: &str = r#"
@@ -194,6 +194,51 @@ model User {
         "missing later warning: {:?}",
         r.diagnostics
     );
+    let first_error = Diagnostic::from(validate_schema(r.ast.unwrap()).unwrap_err());
+    assert_eq!(first_error.message, r.diagnostics[0].message);
+    assert_eq!(first_error.span, r.diagnostics[0].span);
+    assert!(messages[0].contains("Generator 'provider'"));
+    assert!(messages[1].contains("Generator 'output'"));
+    assert!(messages[2].contains("Generator 'interface'"));
+    assert!(messages[3].contains("Unknown field 'foo'"));
+    assert_eq!(r.diagnostics.last().unwrap().severity, Severity::Warning);
+}
+
+#[test]
+fn validation_stops_after_duplicate_names_in_both_modes() {
+    let src = r#"
+generator client {
+  provider = 123
+}
+
+model User {
+  id Int @id
+}
+
+model User {
+  id Int @id
+}
+
+enum Role {
+  Admin
+}
+
+enum Role {
+  Member
+}
+"#;
+    let result = analyze(src);
+    assert!(result.ir.is_none());
+    assert_eq!(result.diagnostics.len(), 2);
+    assert!(result.diagnostics[0]
+        .message
+        .contains("Duplicate model name 'User'"));
+    assert!(result.diagnostics[1]
+        .message
+        .contains("Duplicate enum name 'Role'"));
+    let first_error = Diagnostic::from(validate_schema(result.ast.unwrap()).unwrap_err());
+    assert_eq!(first_error.message, result.diagnostics[0].message);
+    assert_eq!(first_error.span, result.diagnostics[0].span);
 }
 
 #[test]

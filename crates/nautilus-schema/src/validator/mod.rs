@@ -101,25 +101,7 @@ impl<'a> SchemaValidator<'a> {
     }
 
     fn validate(mut self) -> Result<SchemaIr> {
-        self.collect_names();
-
-        if !self.errors.is_empty() {
-            return Err(self.errors.pop_front().unwrap());
-        }
-
-        self.validate_datasources();
-        self.validate_generators();
-        self.validate_composite_types();
-        self.validate_models();
-        self.validate_views();
-        self.validate_relations();
-        self.validate_back_relations();
-        self.validate_defaults();
-        self.validate_updated_at_fields();
-        self.validate_computed_fields();
-        self.validate_check_constraints();
-        self.validate_ignored_declarations();
-        self.check_physical_name_collisions();
+        self.run_validation_passes();
 
         if !self.errors.is_empty() {
             return Err(self.errors.pop_front().unwrap());
@@ -129,25 +111,7 @@ impl<'a> SchemaValidator<'a> {
     }
 
     fn validate_collect_all(mut self) -> (Option<SchemaIr>, Vec<SchemaError>) {
-        self.collect_names();
-
-        if !self.errors.is_empty() {
-            return (None, self.errors.into_iter().collect());
-        }
-
-        self.validate_datasources();
-        self.validate_generators();
-        self.validate_composite_types();
-        self.validate_models();
-        self.validate_views();
-        self.validate_relations();
-        self.validate_back_relations();
-        self.validate_defaults();
-        self.validate_updated_at_fields();
-        self.validate_computed_fields();
-        self.validate_check_constraints();
-        self.validate_ignored_declarations();
-        self.check_physical_name_collisions();
+        self.run_validation_passes();
 
         if !self.errors.is_empty() {
             let mut all: Vec<SchemaError> = self.errors.into_iter().collect();
@@ -160,5 +124,28 @@ impl<'a> SchemaValidator<'a> {
             Ok(ir) => (Some(ir), warnings),
             Err(e) => (None, vec![e]),
         }
+    }
+
+    fn run_validation_passes(&mut self) {
+        self.collect_names();
+
+        // Later passes require unambiguous names in the lookup maps.
+        if !self.errors.is_empty() {
+            return;
+        }
+
+        self.validate_datasources();
+        self.validate_generators();
+        self.validate_composite_types();
+        self.validate_models();
+        self.validate_views();
+        self.validate_relations();
+        self.validate_back_relations();
+        self.validate_defaults();
+        self.validate_updated_at_fields();
+        self.validate_computed_fields();
+        self.validate_check_constraints();
+        self.validate_ignored_declarations();
+        self.check_physical_name_collisions();
     }
 }
