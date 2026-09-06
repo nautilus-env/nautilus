@@ -110,8 +110,8 @@ pub use sqlite::SqliteExecutor;
 pub use sqlite_stream::SqliteRowStream;
 pub use transaction::{IsolationLevel, TransactionExecutor, TransactionOptions};
 pub use value_hint::{
-    decode_row_with_hints, normalize_row_with_hints, normalize_rows_with_hints,
-    normalize_value_with_hint, ValueHint,
+    decode_row_with_hints, hint_name, normalize_row_with_hints, normalize_rows_with_hints,
+    normalize_scalar, normalize_value_with_hint, HintMismatch, ValueHint,
 };
 
 pub use nautilus_core::RowAccess;

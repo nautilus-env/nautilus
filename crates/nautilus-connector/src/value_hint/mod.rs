@@ -2,31 +2,16 @@
 //!
 //! The raw connector intentionally decodes only what backend row metadata can
 //! prove without schema context. These helpers let higher layers apply
-//! per-column hints afterward when they *do* know the expected types.
+//! per-column hints afterward when they *do* know the expected types. The
+//! coercions themselves live in [`scalar`], which higher layers share.
 
-use std::str::FromStr;
+mod scalar;
+
+pub use scalar::{hint_name, normalize_scalar, HintMismatch, ValueHint};
 
 use crate::error::{ConnectorError as Error, Result};
 use crate::{FromRow, Row};
 use nautilus_core::Value;
-use uuid::Uuid;
-
-/// Schema-aware coercion hint for a single projected column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ValueHint {
-    /// Parse textual / numeric values into [`Value::Decimal`].
-    Decimal,
-    /// Parse textual values into [`Value::DateTime`].
-    DateTime,
-    /// Parse JSON text (or wrap scalar backend values) into [`Value::Json`].
-    Json,
-    /// Parse textual values into [`Value::Uuid`].
-    Uuid,
-    /// Wrap textual values as [`Value::Geometry`].
-    Geometry,
-    /// Wrap textual values as [`Value::Geography`].
-    Geography,
-}
 
 /// Normalize a vector of rows using per-column schema hints.
 pub fn normalize_rows_with_hints(rows: Vec<Row>, hints: &[Option<ValueHint>]) -> Result<Vec<Row>> {
@@ -71,25 +56,6 @@ pub fn decode_row_with_hints<T: FromRow>(row: Row, hints: &[Option<ValueHint>]) 
     T::from_row(&row).map_err(Error::from)
 }
 
-fn parse_datetime_string(raw: &str) -> Option<chrono::NaiveDateTime> {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(raw) {
-        return Some(dt.naive_utc());
-    }
-
-    for fmt in [
-        "%Y-%m-%dT%H:%M:%S%.f",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%d %H:%M:%S%.f",
-        "%Y-%m-%d %H:%M:%S",
-    ] {
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(raw, fmt) {
-            return Some(dt);
-        }
-    }
-
-    None
-}
-
 /// Normalize a single projected value using its schema-aware hint.
 pub fn normalize_value_with_hint(
     column: &str,
@@ -97,139 +63,32 @@ pub fn normalize_value_with_hint(
     value: Value,
     hint: ValueHint,
 ) -> Result<Value> {
-    if matches!(value, Value::Null) {
-        return Ok(Value::Null);
-    }
-
-    match hint {
-        ValueHint::Decimal => normalize_decimal_value(column, index, value),
-        ValueHint::DateTime => normalize_datetime_value(column, index, value),
-        ValueHint::Json => normalize_json_value(column, index, value),
-        ValueHint::Uuid => normalize_uuid_value(column, index, value),
-        ValueHint::Geometry => normalize_geometry_value(column, index, value),
-        ValueHint::Geography => normalize_geography_value(column, index, value),
-    }
+    normalize_scalar(value, hint).map_err(|mismatch| hint_error(column, index, hint, mismatch))
 }
 
-fn normalize_decimal_value(column: &str, index: usize, value: Value) -> Result<Value> {
-    match value {
-        Value::Decimal(decimal) => Ok(Value::Decimal(decimal)),
-        Value::I32(n) => parse_decimal(column, index, &n.to_string()),
-        Value::I64(n) => parse_decimal(column, index, &n.to_string()),
-        Value::F64(n) if n.is_finite() => parse_decimal(column, index, &n.to_string()),
-        Value::String(raw) => parse_decimal(column, index, &raw),
-        other => Err(invalid_hint_value(column, index, ValueHint::Decimal, other)),
-    }
-}
-
-fn normalize_datetime_value(column: &str, index: usize, value: Value) -> Result<Value> {
-    match value {
-        Value::DateTime(dt) => Ok(Value::DateTime(dt)),
-        Value::String(raw) => parse_datetime_string(&raw)
-            .map(Value::DateTime)
-            .ok_or_else(|| invalid_hint_parse(column, index, ValueHint::DateTime, raw)),
-        other => Err(invalid_hint_value(
-            column,
-            index,
-            ValueHint::DateTime,
-            other,
-        )),
-    }
-}
-
-fn normalize_json_value(column: &str, index: usize, value: Value) -> Result<Value> {
-    match value {
-        Value::Json(json) => Ok(Value::Json(json)),
-        Value::String(raw) => serde_json::from_str::<serde_json::Value>(&raw)
-            .map(Value::Json)
-            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Json, raw)),
-        other => Ok(Value::Json(other.to_json_plain())),
-    }
-}
-
-fn normalize_uuid_value(column: &str, index: usize, value: Value) -> Result<Value> {
-    match value {
-        Value::Uuid(uuid) => Ok(Value::Uuid(uuid)),
-        Value::String(raw) => Uuid::parse_str(&raw)
-            .map(Value::Uuid)
-            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Uuid, raw)),
-        other => Err(invalid_hint_value(column, index, ValueHint::Uuid, other)),
-    }
-}
-
-fn normalize_geometry_value(column: &str, index: usize, value: Value) -> Result<Value> {
-    match value {
-        Value::Geometry(raw) => Ok(Value::Geometry(raw)),
-        Value::String(raw) => Ok(Value::Geometry(raw)),
-        other => Err(invalid_hint_value(
-            column,
-            index,
-            ValueHint::Geometry,
-            other,
-        )),
-    }
-}
-
-fn normalize_geography_value(column: &str, index: usize, value: Value) -> Result<Value> {
-    match value {
-        Value::Geography(raw) => Ok(Value::Geography(raw)),
-        Value::String(raw) => Ok(Value::Geography(raw)),
-        other => Err(invalid_hint_value(
-            column,
-            index,
-            ValueHint::Geography,
-            other,
-        )),
-    }
-}
-
-fn parse_decimal(column: &str, index: usize, raw: &str) -> Result<Value> {
-    rust_decimal::Decimal::from_str(raw)
-        .map(Value::Decimal)
-        .map_err(|_| invalid_hint_parse(column, index, ValueHint::Decimal, raw.to_string()))
-}
-
-fn invalid_hint_parse(
+fn hint_error(
     column: &str,
     index: usize,
     hint: ValueHint,
-    raw: impl Into<String>,
+    mismatch: HintMismatch,
 ) -> crate::ConnectorError {
-    Error::row_decode_msg(format!(
-        "Failed to normalize column '{}' at position {} as {} from value {:?}",
-        column,
-        index,
-        hint_name(hint),
-        raw.into()
-    ))
-}
-
-fn invalid_hint_value(
-    column: &str,
-    index: usize,
-    hint: ValueHint,
-    value: Value,
-) -> crate::ConnectorError {
-    Error::row_decode_msg(format!(
-        "Failed to normalize column '{}' at position {} as {} from incompatible value {:?}",
-        column,
-        index,
-        hint_name(hint),
-        value
-    ))
-}
-
-fn hint_name(hint: ValueHint) -> &'static str {
-    match hint {
-        ValueHint::Decimal => "Decimal",
-        ValueHint::DateTime => "DateTime",
-        ValueHint::Json => "Json",
-        ValueHint::Uuid => "Uuid",
-        ValueHint::Geometry => "Geometry",
-        ValueHint::Geography => "Geography",
+    match mismatch {
+        HintMismatch::Parse(raw) => Error::row_decode_msg(format!(
+            "Failed to normalize column '{}' at position {} as {} from value {:?}",
+            column,
+            index,
+            hint_name(hint),
+            raw
+        )),
+        HintMismatch::Incompatible(value) => Error::row_decode_msg(format!(
+            "Failed to normalize column '{}' at position {} as {} from incompatible value {:?}",
+            column,
+            index,
+            hint_name(hint),
+            value
+        )),
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

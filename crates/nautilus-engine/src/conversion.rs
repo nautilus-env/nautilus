@@ -9,8 +9,10 @@ use std::str::FromStr;
 
 use uuid::Uuid;
 
-use nautilus_connector::Row;
-use nautilus_core::{PlainValueRef, Value};
+use nautilus_connector::{
+    hint_name as scalar_hint_name, normalize_scalar, HintMismatch, Row, ValueHint as ScalarHint,
+};
+use nautilus_core::{parse_datetime, PlainValueRef, Value};
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::{CompositeTypeIr, ResolvedFieldType, ScalarType};
 
@@ -170,7 +172,7 @@ pub fn json_to_value_field(
     // PostgreSQL OID instead of sending an untyped text value.
     if let ResolvedFieldType::Scalar(ScalarType::DateTime) = field_type {
         if let serde_json::Value::String(s) = json {
-            if let Some(dt) = parse_datetime_string(s) {
+            if let Some(dt) = parse_datetime(s) {
                 return Ok(Value::DateTime(dt));
             }
         }
@@ -435,25 +437,6 @@ pub fn to_snake_case(s: &str) -> String {
     result
 }
 
-fn parse_datetime_string(raw: &str) -> Option<chrono::NaiveDateTime> {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(raw) {
-        return Some(dt.naive_utc());
-    }
-
-    for fmt in [
-        "%Y-%m-%dT%H:%M:%S%.f",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%d %H:%M:%S%.f",
-        "%Y-%m-%d %H:%M:%S",
-    ] {
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(raw, fmt) {
-            return Some(dt);
-        }
-    }
-
-    None
-}
-
 fn json_to_hstore_value(json: &serde_json::Value) -> Result<Value, ProtocolError> {
     match json {
         serde_json::Value::Null => Ok(Value::Null),
@@ -589,16 +572,32 @@ fn normalize_value_with_hint(
         ValueHint::Bool => normalize_bool_value(column, index, value),
         ValueHint::Int => normalize_int_value(column, index, value),
         ValueHint::Float => normalize_float_value(column, index, value),
-        ValueHint::Decimal => normalize_decimal_value(column, index, value),
-        ValueHint::DateTime => normalize_datetime_value(column, index, value),
-        ValueHint::Json => normalize_json_value(column, index, value),
-        ValueHint::Uuid => normalize_uuid_value(column, index, value),
-        ValueHint::Geometry => normalize_geometry_value(column, index, value),
-        ValueHint::Geography => normalize_geography_value(column, index, value),
+        ValueHint::Decimal => normalize_shared_value(column, index, value, ScalarHint::Decimal),
+        ValueHint::DateTime => normalize_shared_value(column, index, value, ScalarHint::DateTime),
+        ValueHint::Json => normalize_shared_value(column, index, value, ScalarHint::Json),
+        ValueHint::Uuid => normalize_shared_value(column, index, value, ScalarHint::Uuid),
+        ValueHint::Geometry => normalize_shared_value(column, index, value, ScalarHint::Geometry),
+        ValueHint::Geography => normalize_shared_value(column, index, value, ScalarHint::Geography),
         ValueHint::Composite(composite) => {
             normalize_composite_value(column, index, value, &composite)
         }
     }
+}
+
+/// Apply a coercion the connector already performs on raw rows, reporting a
+/// mismatch as an engine error.
+fn normalize_shared_value(
+    column: &str,
+    index: usize,
+    value: Value,
+    hint: ScalarHint,
+) -> Result<Value, ProtocolError> {
+    normalize_scalar(value, hint).map_err(|mismatch| match mismatch {
+        HintMismatch::Parse(raw) => invalid_hint_parse(column, index, scalar_hint_name(hint), raw),
+        HintMismatch::Incompatible(value) => {
+            invalid_hint_value(column, index, scalar_hint_name(hint), value)
+        }
+    })
 }
 
 fn normalize_int_value(column: &str, index: usize, value: Value) -> Result<Value, ProtocolError> {
@@ -608,12 +607,12 @@ fn normalize_int_value(column: &str, index: usize, value: Value) -> Result<Value
         Value::F64(n) => Ok(Value::I64(n as i64)),
         Value::Decimal(d) => i64::try_from(d)
             .map(Value::I64)
-            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Int, d.to_string())),
+            .map_err(|_| invalid_hint_parse(column, index, "Int", d.to_string())),
         Value::String(ref raw) => raw
             .parse::<i64>()
             .map(Value::I64)
-            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Int, raw.clone())),
-        other => Err(invalid_hint_value(column, index, ValueHint::Int, other)),
+            .map_err(|_| invalid_hint_parse(column, index, "Int", raw.clone())),
+        other => Err(invalid_hint_value(column, index, "Int", other)),
     }
 }
 
@@ -626,12 +625,12 @@ fn normalize_float_value(column: &str, index: usize, value: Value) -> Result<Val
             .to_string()
             .parse::<f64>()
             .map(Value::F64)
-            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Float, d.to_string())),
+            .map_err(|_| invalid_hint_parse(column, index, "Float", d.to_string())),
         Value::String(ref raw) => raw
             .parse::<f64>()
             .map(Value::F64)
-            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Float, raw.clone())),
-        other => Err(invalid_hint_value(column, index, ValueHint::Float, other)),
+            .map_err(|_| invalid_hint_parse(column, index, "Float", raw.clone())),
+        other => Err(invalid_hint_value(column, index, "Float", other)),
     }
 }
 
@@ -640,7 +639,7 @@ fn normalize_bool_value(column: &str, index: usize, value: Value) -> Result<Valu
         Value::Bool(_) => Ok(value),
         Value::I32(n) => Ok(Value::Bool(n != 0)),
         Value::I64(n) => Ok(Value::Bool(n != 0)),
-        other => Err(invalid_hint_value(column, index, ValueHint::Bool, other)),
+        other => Err(invalid_hint_value(column, index, "Boolean", other)),
     }
 }
 
@@ -780,138 +779,26 @@ fn parse_pg_record_literal(input: &str) -> Option<Vec<Option<String>>> {
     Some(fields)
 }
 
-fn normalize_decimal_value(
-    column: &str,
-    index: usize,
-    value: Value,
-) -> Result<Value, ProtocolError> {
-    match value {
-        Value::Decimal(decimal) => Ok(Value::Decimal(decimal)),
-        Value::I32(n) => parse_decimal(column, index, &n.to_string()),
-        Value::I64(n) => parse_decimal(column, index, &n.to_string()),
-        Value::F64(n) if n.is_finite() => parse_decimal(column, index, &n.to_string()),
-        Value::String(raw) => parse_decimal(column, index, &raw),
-        other => Err(invalid_hint_value(column, index, ValueHint::Decimal, other)),
-    }
-}
-
-fn normalize_datetime_value(
-    column: &str,
-    index: usize,
-    value: Value,
-) -> Result<Value, ProtocolError> {
-    match value {
-        Value::DateTime(dt) => Ok(Value::DateTime(dt)),
-        Value::String(raw) => parse_datetime_string(&raw)
-            .map(Value::DateTime)
-            .ok_or_else(|| invalid_hint_parse(column, index, ValueHint::DateTime, raw)),
-        other => Err(invalid_hint_value(
-            column,
-            index,
-            ValueHint::DateTime,
-            other,
-        )),
-    }
-}
-
-fn normalize_json_value(column: &str, index: usize, value: Value) -> Result<Value, ProtocolError> {
-    match value {
-        Value::Json(json) => Ok(Value::Json(json)),
-        Value::String(raw) => serde_json::from_str::<serde_json::Value>(&raw)
-            .map(Value::Json)
-            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Json, raw)),
-        other => Ok(Value::Json(other.to_json_plain())),
-    }
-}
-
-fn normalize_uuid_value(column: &str, index: usize, value: Value) -> Result<Value, ProtocolError> {
-    match value {
-        Value::Uuid(uuid) => Ok(Value::Uuid(uuid)),
-        Value::String(raw) => Uuid::parse_str(&raw)
-            .map(Value::Uuid)
-            .map_err(|_| invalid_hint_parse(column, index, ValueHint::Uuid, raw)),
-        other => Err(invalid_hint_value(column, index, ValueHint::Uuid, other)),
-    }
-}
-
-fn normalize_geometry_value(
-    column: &str,
-    index: usize,
-    value: Value,
-) -> Result<Value, ProtocolError> {
-    match value {
-        Value::Geometry(raw) => Ok(Value::Geometry(raw)),
-        Value::String(raw) => Ok(Value::Geometry(raw)),
-        other => Err(invalid_hint_value(
-            column,
-            index,
-            ValueHint::Geometry,
-            other,
-        )),
-    }
-}
-
-fn normalize_geography_value(
-    column: &str,
-    index: usize,
-    value: Value,
-) -> Result<Value, ProtocolError> {
-    match value {
-        Value::Geography(raw) => Ok(Value::Geography(raw)),
-        Value::String(raw) => Ok(Value::Geography(raw)),
-        other => Err(invalid_hint_value(
-            column,
-            index,
-            ValueHint::Geography,
-            other,
-        )),
-    }
-}
-
-fn parse_decimal(column: &str, index: usize, raw: &str) -> Result<Value, ProtocolError> {
-    rust_decimal::Decimal::from_str(raw)
-        .map(Value::Decimal)
-        .map_err(|_| invalid_hint_parse(column, index, ValueHint::Decimal, raw.to_string()))
-}
-
 fn invalid_hint_parse(
     column: &str,
     index: usize,
-    hint: ValueHint,
+    hint: &str,
     raw: impl Into<String>,
 ) -> ProtocolError {
     ProtocolError::DatabaseExecution(format!(
         "Failed to normalize column '{}' at position {} as {} from value {:?}",
         column,
         index,
-        hint_name(hint),
+        hint,
         raw.into()
     ))
 }
 
-fn invalid_hint_value(column: &str, index: usize, hint: ValueHint, value: Value) -> ProtocolError {
+fn invalid_hint_value(column: &str, index: usize, hint: &str, value: Value) -> ProtocolError {
     ProtocolError::DatabaseExecution(format!(
         "Failed to normalize column '{}' at position {} as {} from incompatible value {:?}",
-        column,
-        index,
-        hint_name(hint),
-        value
+        column, index, hint, value
     ))
-}
-
-fn hint_name(hint: ValueHint) -> &'static str {
-    match hint {
-        ValueHint::Bool => "Boolean",
-        ValueHint::Int => "Int",
-        ValueHint::Float => "Float",
-        ValueHint::Decimal => "Decimal",
-        ValueHint::DateTime => "DateTime",
-        ValueHint::Json => "Json",
-        ValueHint::Uuid => "Uuid",
-        ValueHint::Geometry => "Geometry",
-        ValueHint::Geography => "Geography",
-        ValueHint::Composite(_) => "Composite",
-    }
 }
 
 #[cfg(test)]

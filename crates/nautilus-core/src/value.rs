@@ -195,12 +195,22 @@ fn format_datetime(value: chrono::NaiveDateTime) -> String {
     value.format(DATETIME_FORMAT).to_string()
 }
 
-fn parse_datetime_string(raw: &str) -> std::result::Result<chrono::NaiveDateTime, String> {
+/// Parse the datetime spellings accepted across the stack: RFC-3339, or an
+/// ISO-8601 date and time separated by `T` or a space, with an optional
+/// fractional part.
+///
+/// Both the wire codec and the schema-aware row normalizers read the same
+/// spellings, so this is the single place that decides which ones are valid.
+pub fn parse_datetime(raw: &str) -> Option<chrono::NaiveDateTime> {
     chrono::DateTime::parse_from_rfc3339(raw)
         .map(|value| value.naive_utc())
         .or_else(|_| chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S%.f"))
         .or_else(|_| chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.f"))
-        .map_err(|_| format!("invalid datetime '{}'", raw))
+        .ok()
+}
+
+fn parse_datetime_string(raw: &str) -> std::result::Result<chrono::NaiveDateTime, String> {
+    parse_datetime(raw).ok_or_else(|| format!("invalid datetime '{}'", raw))
 }
 
 impl From<&Value> for SerdeValue {

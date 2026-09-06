@@ -201,13 +201,9 @@ impl FromValue for chrono::NaiveDateTime {
     fn from_value(value: &Value) -> Result<Self> {
         match value {
             Value::DateTime(v) => Ok(*v),
-            Value::String(v) => chrono::DateTime::parse_from_rfc3339(v)
-                .map(|dt| dt.naive_utc())
-                .or_else(|_| chrono::NaiveDateTime::parse_from_str(v, "%Y-%m-%dT%H:%M:%S%.f"))
-                .or_else(|_| chrono::NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S%.f"))
-                .map_err(|_| {
-                    crate::Error::TypeError(format!("failed to parse DateTime from string {:?}", v))
-                }),
+            Value::String(v) => crate::value::parse_datetime(v).ok_or_else(|| {
+                crate::Error::TypeError(format!("failed to parse DateTime from string {:?}", v))
+            }),
             Value::Null => Err(crate::Error::TypeError(
                 "NULL value for DateTime".to_string(),
             )),

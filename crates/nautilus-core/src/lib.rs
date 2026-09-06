@@ -52,4 +52,4 @@ pub use select::{
 };
 pub use table::TableName;
 pub use update::{Assignment, Update, UpdateBuilder, UpdateCapacity};
-pub use value::{Geography, Geometry, PlainValueRef, Value};
+pub use value::{parse_datetime, Geography, Geometry, PlainValueRef, Value};
