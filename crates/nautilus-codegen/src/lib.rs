@@ -14,6 +14,7 @@ pub mod generator;
 pub mod java;
 pub mod js;
 pub(crate) mod model_view;
+pub mod package;
 pub(crate) mod publish;
 pub mod python;
 pub(crate) mod schema_docs;
