@@ -199,6 +199,7 @@ pub struct Post {
     /// @id @default(autoincrement())
     pub id: i32,
     pub title: String,
+    #[serde(alias = "authorId")]
     pub author_id: i32,
     #[serde(default, alias = "author_json")]
     /// Relation field (lazy-loaded)

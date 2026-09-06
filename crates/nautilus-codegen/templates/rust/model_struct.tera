@@ -8,6 +8,9 @@ pub struct {{ model_name }} {
 {%- if field.doc_comment %}
     /// {{ field.doc_comment }}
 {%- endif %}
+{%- if field.name != field.logical_name %}
+    #[serde(alias = "{{ field.logical_name }}")]
+{%- endif %}
     pub {{ field.name }}: {{ field.rust_type }},
 {%- endfor %}
 {%- for field in relation_fields %}
