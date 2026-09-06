@@ -33,7 +33,7 @@ fn user_query_context(
     let ir = parse_ir(source);
     let user_model = ir.models.get("User").expect("User model missing");
     (
-        crate::handlers::build_relation_map(user_model, &ir.models)
+        crate::metadata::build_relation_map(user_model, &ir.models)
             .expect("relation map should build"),
         crate::handlers::build_field_type_map(user_model),
         ir.models,

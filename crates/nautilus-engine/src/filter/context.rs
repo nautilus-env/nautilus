@@ -47,7 +47,7 @@ pub(super) fn nested_include_context<'a>(
     };
 
     Ok(Some(NestedIncludeContext {
-        relations: Cow::Owned(crate::handlers::build_relation_map(
+        relations: Cow::Owned(crate::metadata::build_relation_map(
             target_model,
             all_models,
         )?),
@@ -82,7 +82,7 @@ pub(super) fn relation_filter_context<'a>(
     };
 
     Ok(Some(RelationFilterContext {
-        relations: Cow::Owned(crate::handlers::build_relation_map(
+        relations: Cow::Owned(crate::metadata::build_relation_map(
             target_model,
             all_models,
         )?),
