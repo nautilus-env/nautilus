@@ -1,0 +1,31 @@
+datasource db {
+  provider = "sqlite"
+  url = "sqlite::memory:"
+}
+
+enum Role {
+  MEMBER
+  ADMIN
+}
+
+model User {
+  id Int @id @default(autoincrement()) @map("user_id")
+  email String @unique @map("email_address")
+  name String? @map("display_name")
+  role Role @default(MEMBER) @map("account_role")
+  balance Decimal(12, 2) @map("account_balance")
+  joined DateTime @map("joined_at")
+  metadata Json @map("profile_data")
+  posts Post[]
+
+  @@map("app_users")
+}
+
+model Post {
+  id Int @id @default(autoincrement()) @map("post_id")
+  title String @map("post_title")
+  authorId Int @map("author_id")
+  author User @relation(fields: [authorId], references: [id])
+
+  @@map("blog_posts")
+}

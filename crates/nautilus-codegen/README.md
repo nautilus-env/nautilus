@@ -124,6 +124,38 @@ every run. Line endings are normalized to LF, file selection uses logical names,
 and fixtures use fixed paths. The suite also checks individual API contracts;
 `writer_tests` compiles a generated Rust client and an events macro consumer.
 
+`path_equivalence_tests` generates an async Rust client, compiles its consumer,
+and runs it against isolated SQLite databases using the engine's existing
+`tests/common` fixture. It compares RPC, embedded dispatch, typed handlers and
+generated client calls on the same schema. Run it without external toolchains:
+
+```bash
+cargo test --locked -p nautilus-orm-codegen --test path_equivalence_tests
+```
+
+The schema and consumer cases live in `tests/fixtures/path_equivalence/`.
+The generated consumer inherits the workspace lockfile and builds offline;
+its build cache lives in `target/path-equivalence/`.
+
+| Contract | Runtime coverage |
+| --- | --- |
+| Mapped names, null, enum, decimal, datetime and JSON | RPC, embedded, typed and Rust Auto/Always/Never reads |
+| Upsert insert/update, `returnData`, affected counts | Engine adapters and generated Rust client modes |
+| Includes with ordering and pagination | Engine adapters, Rust Auto/Always; Never rejects includes |
+| Error code, message and details | RPC, embedded and typed mutation adapters |
+| Before/after events, priorities and stopped writes | Rust modes plus Python/JS/Java runtime E2E |
+| Transaction rollback and reads on the transaction | Rust Auto/Always/Never |
+| Streaming early break, follow-up read and cleanup | Python/JS/Java runtime E2E |
+
+`Auto` remains the default. `Never` rejects count and include operations;
+event hooks belong to generated clients and are tested at that boundary.
+Typed and embedded mutation adapters return rows and require `returnData: true`;
+the generated client also checks its `return_data: false` result (`None`).
+Upserts can consume sequence values on conflict, so tests check generated keys
+by reading the inserted record back, without requiring contiguous identifiers.
+The equivalence fixture covers SQLite; provider-specific SQL and transaction
+behavior remain covered by the connector and engine integration suites.
+
 Verify baselines without writing files (also used in CI):
 
 ```bash

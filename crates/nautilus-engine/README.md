@@ -105,6 +105,12 @@ rollback.
 | `state` | Schema metadata, connector client, transaction registry |
 | `transport` | Stdin/stdout request loop |
 
+Runtime equivalence with generated Rust clients is tested by codegen's
+[`path_equivalence_tests`](../nautilus-codegen/tests/path_equivalence_tests.rs),
+which reuses this crate's SQLite fixture. The
+[coverage matrix](../nautilus-codegen/README.md#testing) identifies the adapters
+and client modes compared for each contract.
+
 ## Dependencies in the workspace
 
 - `nautilus-schema` for parsing and validated schema metadata

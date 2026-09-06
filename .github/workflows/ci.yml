@@ -61,6 +61,7 @@ jobs:
             --test snapshot_tests \
             --test type_helpers_tests \
             --test writer_tests \
+            --test path_equivalence_tests \
             --test parse_schema_tests \
             --test readme_contract_tests
 
@@ -120,7 +121,7 @@ jobs:
       - name: Test codegen portability
         env:
           INSTA_UPDATE: 'no'
-        run: cargo test --locked -p nautilus-orm-codegen --test snapshot_tests --test writer_tests
+        run: cargo test --locked -p nautilus-orm-codegen --test snapshot_tests --test writer_tests --test path_equivalence_tests
 
   codegen-e2e:
     name: Codegen runtime end-to-end
