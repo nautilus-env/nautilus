@@ -3,7 +3,7 @@
 use crate::package::GeneratedPackage;
 use crate::GeneratedFile;
 
-/// Everything the JavaScript backend produced, as [`package`] lays it out.
+/// JavaScript sources and declarations to assemble into a generated package.
 ///
 /// Each half of the client has its own field because the runtime and the
 /// declarations are generated separately and can be absent independently — a

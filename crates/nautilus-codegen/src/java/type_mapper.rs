@@ -1,8 +1,6 @@
 //! Java type-mapping helpers.
 
-use nautilus_schema::ir::{
-    CompositeFieldIr, DefaultValue, EnumIr, FieldIr, ResolvedFieldType, ScalarType,
-};
+use nautilus_schema::ir::{CompositeFieldIr, EnumIr, FieldIr, ResolvedFieldType, ScalarType};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::backend::LanguageBackend;
@@ -128,15 +126,7 @@ pub fn imports_for_scalar(scalar: &ScalarType) -> BTreeSet<String> {
 }
 
 pub fn is_auto_generated(field: &FieldIr) -> bool {
-    if field.computed.is_some() || field.is_updated_at {
-        return true;
-    }
-
-    matches!(
-        field.default_value,
-        Some(DefaultValue::Function(ref call))
-            if call.is_database_generated_default()
-    )
+    field.is_updated_at || crate::model_view::is_database_generated(field)
 }
 
 pub fn is_writable_on_create(field: &FieldIr) -> bool {

@@ -59,7 +59,7 @@ impl GeneratedPackage {
     /// Write the package into `output_path`, replacing what was there.
     ///
     /// The tree is built aside and swapped in, so a failure part-way leaves the
-    /// previously generated client untouched. See [`publish_into`].
+    /// previously generated client untouched.
     pub fn publish(&self, output_path: &str) -> Result<()> {
         publish_into(output_path, |directory| self.write_into(directory))
     }

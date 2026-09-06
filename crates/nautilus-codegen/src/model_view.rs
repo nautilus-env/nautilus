@@ -12,7 +12,8 @@
 
 use heck::ToSnakeCase;
 use nautilus_schema::ir::{
-    FieldIr, ManyToManyJoinIr, ModelIr, RelationIr, ResolvedFieldType, ScalarType, SchemaIr,
+    DefaultValue, FieldIr, ManyToManyJoinIr, ModelIr, RelationIr, ResolvedFieldType, ScalarType,
+    SchemaIr,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -73,6 +74,32 @@ impl FieldView<'_> {
     pub fn is_orderable(&self) -> bool {
         is_orderable_model_field(self.field)
     }
+
+    pub fn is_database_generated(&self) -> bool {
+        is_database_generated(self.field)
+    }
+
+    pub fn requires_create_value(&self) -> bool {
+        self.field.is_required
+            && self.field.default_value.is_none()
+            && !self.field.is_updated_at
+            && self.field.computed.is_none()
+    }
+
+    /// Arithmetic updates operate on a numeric value, never on an array.
+    pub fn accepts_arithmetic(&self) -> bool {
+        !self.field.is_array && self.numeric_scalar().is_some()
+    }
+}
+
+/// A computed column or a default function supplied by the database.
+/// Backends decide whether their input API still exposes an override.
+pub(crate) fn is_database_generated(field: &FieldIr) -> bool {
+    field.computed.is_some()
+        || matches!(
+            &field.default_value,
+            Some(DefaultValue::Function(call)) if call.is_database_generated_default()
+        )
 }
 
 /// One relation field of a model, resolved against the schema.

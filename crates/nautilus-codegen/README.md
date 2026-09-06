@@ -106,11 +106,42 @@ java -cp ".;db\dist\nautilus-client.jar;db\dist\lib\*" Main
 | Python templates | `templates/python/` |
 | JS / TS templates | `templates/js/` |
 | Java templates | `templates/java/` |
-| Writers | `src/writer.rs` |
-| Rust generator context | `src/generator.rs` |
-| Python generator context | `src/python/` |
-| JS generator context | `src/js/` |
-| Java generator context | `src/java/` |
+| In-memory output layout | `src/writer/` |
+| Rust generator contexts | `src/generator/` |
+| Python generator contexts | `src/python/generator/` |
+| JS generator contexts | `src/js/generator/` |
+| Java generator contexts | `src/java/generator/` |
+
+Each generator's `mod.rs` assembles the output and preserves the existing public
+entry points. Its private `templates.rs` registers embedded templates. Contexts
+stay with the code that constructs them:
+
+- Rust separates scalar fields and read hints (`fields`), cursor/unique/vector
+  metadata (`keys`), composite ordering (`ordering`), and relation hydration and
+  nested writes (`relations`).
+- Python and JS separate field/input/filter contexts (`fields`), relation and
+  include contexts (`relations`), language type expressions and enum/composite
+  declarations (`types`), client imports (`client`), and embedded runtime files
+  (`runtime`). JS produces runtime code and declarations from the same contexts.
+- Java separates package settings (`config`), enum/model/composite records
+  (`records`), partial records (`projections`), JSON decoding expressions
+  (`readers`), query and input builders (`dsl`), model operations (`delegate`),
+  client/Maven output (`client`), and runtime/event files (`runtime`).
+
+To add a semantic field property, define it in `src/model_view.rs` and consume it
+from the relevant language contexts. It owns shared facts about required create
+values, generated defaults, numeric aggregates, arithmetic updates, relations
+and vector fields. Extension availability and wire representation belong to
+`src/extension_types.rs` and its `ExtensionRegistry`. Names, imports, type
+expressions, defaults rendered as literals, and template syntax belong to each
+backend.
+
+Input exposure remains a backend decision: Rust permits overriding `now()`;
+Python exposes all create fields with requiredness metadata; JS omits generated
+create fields; Java also excludes `updatedAt` fields. These distinctions must be
+preserved when sharing a new field classification. Update the relevant context
+and template, then verify `snapshot_tests` and a compiled/runtime consumer from
+`writer_tests`, `path_equivalence_tests`, or `stream_runtime_e2e_tests`.
 
 ## Testing
 

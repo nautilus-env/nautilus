@@ -19,7 +19,7 @@ use crate::GeneratedFile;
 
 pub use js::JsOutput;
 
-/// Write the generated Rust client to `output_path`. See [`rust::package`].
+/// Assemble and publish the generated Rust client at `output_path`.
 pub fn write_rust_code(
     output_path: &str,
     models: &HashMap<String, String>,
@@ -41,7 +41,7 @@ pub fn write_rust_code(
     .publish(output_path)
 }
 
-/// Write the generated Python package to `output_path`. See [`python::package`].
+/// Assemble and publish the generated Python package at `output_path`.
 pub fn write_python_code(
     output_path: &str,
     models: &[GeneratedFile],
@@ -62,12 +62,12 @@ pub fn write_python_code(
     .publish(output_path)
 }
 
-/// Write the generated JavaScript package to `output_path`. See [`js::package`].
+/// Assemble and publish the generated JavaScript package at `output_path`.
 pub fn write_js_code(output_path: &str, output: JsOutput<'_>) -> Result<()> {
     js::package(output).publish(output_path)
 }
 
-/// Write the generated Java module to `output_path`. See [`java::package`].
+/// Assemble and publish the generated Java module at `output_path`.
 pub fn write_java_code(output_path: &str, files: &[GeneratedFile]) -> Result<()> {
     java::package(files).publish(output_path)
 }

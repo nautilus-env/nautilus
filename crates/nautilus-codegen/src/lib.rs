@@ -4,9 +4,9 @@
 //! called from `nautilus-cli` (the unified binary) as well as from the
 //! standalone `nautilus-codegen` binary.
 //!
-//! A run is four steps, each of which is one module: [`load`] turns a schema
-//! path into the IR, [`client`] turns the IR into the files of a package,
-//! [`install`] puts those files where the schema asked, and [`report`] is the
+//! A run is four steps, each of which is one module: `load` turns a schema
+//! path into the IR, `client` turns the IR into the files of a package,
+//! `install` puts those files where the schema asked, and `report` is the
 //! only one that prints. Generating a client therefore neither writes nor
 //! installs anything by itself.
 

@@ -73,17 +73,7 @@ pub trait LanguageBackend {
     /// backend intentionally differs (it exposes `now()` fields as writable),
     /// which is why it lives in `type_helpers.rs` and does not use this trait.
     fn is_auto_generated(&self, field: &FieldIr) -> bool {
-        if field.computed.is_some() {
-            return true;
-        }
-        if let Some(default) = &field.default_value {
-            matches!(
-                default,
-                DefaultValue::Function(f) if f.is_database_generated_default()
-            )
-        } else {
-            false
-        }
+        crate::model_view::is_database_generated(field)
     }
 
     /// Returns the standard string operators (`contains`, `startswith`/`startsWith`,
