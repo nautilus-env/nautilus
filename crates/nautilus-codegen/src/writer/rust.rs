@@ -82,6 +82,11 @@ pub(crate) fn package(
 
 /// How many `..` hops separate the output directory from the workspace root,
 /// as the generated `Cargo.toml` has to spell them.
+///
+/// The search starts above the output directory: the manifest generated in
+/// standalone mode declares a `[workspace]` of its own, so a directory that has
+/// been generated into before would otherwise answer as its own workspace root
+/// and leave every path dependency pointing at the filesystem root.
 fn workspace_root_path(output_path: &str) -> Result<String> {
     let output = Path::new(output_path);
     let absolute = if output.is_absolute() {
@@ -94,8 +99,11 @@ fn workspace_root_path(output_path: &str) -> Result<String> {
 
     let mut hops = PathBuf::new();
     let mut candidate = absolute.clone();
+    let workspace_toml = absolute
+        .parent()
+        .and_then(crate::install::rust::find_workspace_cargo_toml);
 
-    if let Some(workspace_toml) = crate::find_workspace_cargo_toml(&absolute) {
+    if let Some(workspace_toml) = workspace_toml {
         let workspace_dir = workspace_toml.parent().unwrap();
         while candidate != workspace_dir {
             hops.push("..");

@@ -153,6 +153,17 @@ fn test_write_rust_code_standalone_creates_cargo_toml() {
         cargo_content.contains("nautilus-events-macros = { path = "),
         "Cargo.toml missing generated events proc-macro dependency:\n{cargo_content}"
     );
+
+    // The manifest just written declares a `[workspace]` of its own, so a
+    // second generation must still look past the output directory for the
+    // workspace its path dependencies point back to.
+    write_rust_code(path, &models, None, None, &[], USER_SCHEMA, true)
+        .expect("write_rust_code (standalone, again) failed");
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap(),
+        cargo_content,
+        "generating twice into the same directory changed the manifest"
+    );
 }
 
 /// When enums are present an enums.rs file is written to src/.
