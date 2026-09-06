@@ -160,14 +160,23 @@ fn field_assignment(
             operator, field.logical_name
         )));
     }
-    if !operand.is_number() {
+    let decimal_operand = match (&field.field_type, operand.as_str()) {
+        (ResolvedFieldType::Scalar(ScalarType::Decimal { .. }), Some(_)) => {
+            json_to_value_field(operand, &field.field_type).ok()
+        }
+        _ => None,
+    };
+    if !operand.is_number() && decimal_operand.is_none() {
         return Err(ProtocolError::InvalidParams(format!(
             "'{}' on field '{}' takes a number",
             operator, field.logical_name
         )));
     }
 
-    let operand = json_to_value_field(operand, &field.field_type)?;
+    let operand = match decimal_operand {
+        Some(value) => value,
+        None => json_to_value_field(operand, &field.field_type)?,
+    };
     Ok(Some(Assignment::Expr(Expr::Binary {
         left: Box::new(Expr::column(&field.db_name)),
         op,

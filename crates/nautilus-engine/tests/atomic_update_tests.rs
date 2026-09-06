@@ -288,6 +288,56 @@ async fn float_and_decimal_columns_take_arithmetic_too() {
         15.0
     );
 
+    for (operator, operand, expected) in [
+        ("increment", "0.25", "15.25"),
+        ("decrement", "0.25", "15"),
+        ("multiply", "2", "30"),
+        ("divide", "2.5", "12"),
+    ] {
+        call_rpc_json(
+            &state,
+            QUERY_UPDATE,
+            json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "model": "Post",
+                "filter": { "title": "first" },
+                "data": { "balance": { (operator): operand } }
+            }),
+        )
+        .await;
+        let row = post(&state).await;
+        assert_eq!(
+            row["Post__balance"]
+                .as_str()
+                .unwrap()
+                .parse::<rust_decimal::Decimal>()
+                .unwrap(),
+            expected.parse::<rust_decimal::Decimal>().unwrap(),
+        );
+    }
+
+    for (field, operand) in [("balance", "lots"), ("views", "5"), ("ratio", "2.5")] {
+        let response = call_rpc_response(
+            &state,
+            QUERY_UPDATE,
+            json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "model": "Post",
+                "filter": { "title": "first" },
+                "data": { (field): { "increment": operand } }
+            }),
+        )
+        .await;
+        let error = response
+            .error
+            .expect("unsupported string operand should fail");
+        assert_eq!(
+            error.code,
+            nautilus_protocol::ProtocolError::InvalidParams(String::new()).code()
+        );
+        assert!(error.message.contains("takes a number"));
+    }
+
     drop(state);
     drop(temp_dir);
 }
