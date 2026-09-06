@@ -3,26 +3,23 @@
 
 use nautilus_connector::Row;
 use nautilus_core::{
-    build_cursor_predicate, Delete, DeleteCapacity, Expr, Insert, InsertCapacity, OrderDir, Select,
-    SelectCapacity, SelectItem, Update, UpdateCapacity, Value,
+    Delete, DeleteCapacity, Expr, Insert, InsertCapacity, Select, SelectCapacity, SelectItem,
+    Update, UpdateCapacity, Value,
 };
 use nautilus_dialect::Sql;
-use nautilus_protocol::wire::ok_partial;
 use nautilus_protocol::{
-    AggregateParams, CountParams, CreateManyParams, CreateParams, DeleteManyParams, DeleteParams,
-    ExplainParams, FindFirstParams, FindManyParams, FindUniqueParams, GroupByParams, ProtocolError,
-    RpcRequest, RpcResponse, UpdateManyParams, UpdateParams, UpsertParams,
+    AggregateParams, CreateManyParams, CreateParams, DeleteManyParams, DeleteParams, GroupByParams,
+    ProtocolError, RpcRequest, UpdateManyParams, UpdateParams, UpsertParams,
 };
 use nautilus_schema::ir::{DefaultValue, FieldIr, ModelIr, ResolvedFieldType};
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use tokio::sync::mpsc;
 
 use super::{field_marker, get_model_or_error, get_writable_model_or_error, parse_params};
 use crate::conversion::{
     check_protocol_version, json_to_value, json_to_value_field, normalize_rows_with_hints,
     rows_to_raw_json, ValueHint,
 };
-use crate::filter::{parse_group_by_order_by, parse_having, qualify_filter_columns, QueryArgs};
+use crate::filter::{parse_group_by_order_by, parse_having, qualify_filter_columns};
 use crate::state::EngineState;
 
 mod aggregation;
