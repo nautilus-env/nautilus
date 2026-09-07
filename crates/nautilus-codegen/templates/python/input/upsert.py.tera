@@ -1,0 +1,10 @@
+class {{ model_name }}UpsertInput(TypedDict, total=False):
+    """Input data for upserting a {{ model_name }}.
+
+    Contains both ``create`` (used when no matching record exists) and
+    ``update`` (applied when a matching record is found).
+    """
+    create: NotRequired[{{ model_name }}CreateInput]
+    update: NotRequired[{{ model_name }}UpdateInput]
+
+

@@ -1,0 +1,61 @@
+    {% if is_async %}async {% endif %}def explain(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: Optional[{{ model_name }}SelectInput] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        analyze: bool = False,
+    ) -> {{ model_name }}ExplainOutput:
+        """Ask the database to explain the statement :meth:`find_many` would run.
+
+        Args:
+            where: Filter conditions (optional).
+            order_by: Sorting directions.
+            {% if has_vector_fields %}nearest: pgvector nearest-neighbor search options.
+            {% endif %}take: Row limit (LIMIT).
+            skip: Rows to skip (OFFSET).
+            select: Scalar field projection.
+            cursor: Keyset cursor.
+            distinct: Field names to deduplicate on.
+            analyze: Execute the statement to collect real timings. PostgreSQL
+                and MySQL support this; SQLite's plan is static and ignores it.
+
+        Returns:
+            A ``{{ model_name }}ExplainOutput`` with the rendered SQL, its bound
+            parameters in placeholder order, and the plan rows.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _{{ table_name }}_py_to_db)
+        if order_by is not None:
+            if isinstance(order_by, list):
+                args["orderBy"] = order_by
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
+{%- if has_vector_fields %}
+        if nearest is not None:
+            args["nearest"] = _serialize_nearest_input(nearest)
+{%- endif %}
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if select is not None:
+            args["select"] = _process_select_fields(select, _{{ table_name }}_py_to_logical)
+        if cursor is not None:
+            args["cursor"] = cursor
+        if distinct is not None:
+            args["distinct"] = distinct
+
+        return {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.explain", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "args": args,
+            "analyze": analyze,
+        })
+

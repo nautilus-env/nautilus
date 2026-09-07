@@ -1,0 +1,17 @@
+{% include "model/imports.py.tera" %}
+{% include "files/input_imports.py.tera" %}
+
+{% include "model/record.py.tera" %}
+{% include "model/projection.py.tera" %}
+{% include "files/event_imports.py.tera" %}
+{% include "files/codec_imports.py.tera" %}
+{%- if is_view %}
+from ._{{ snake_name }}_read import _{{ model_name }}Read
+{%- else %}
+from ._{{ snake_name }}_write import _{{ model_name }}Write
+{%- endif %}
+from ._{{ snake_name }}_aggregate import _{{ model_name }}Aggregate
+
+{% include "delegate/state.py.tera" %}
+{% include "delegate/upsert.py.tera" %}
+{% include "model/exports.py.tera" %}

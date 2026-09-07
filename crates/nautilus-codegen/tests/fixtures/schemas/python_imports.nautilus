@@ -1,0 +1,39 @@
+datasource db {
+  provider = "postgresql"
+  url = "postgresql://unused:unused@localhost/unused"
+  extensions = [citext, hstore, ltree, postgis, vector]
+}
+
+type Address {
+  street String
+  city String
+}
+
+enum Role {
+  ACTIVE
+  INACTIVE
+}
+
+model Example {
+  id Int @id @default(autoincrement())
+  role Role
+  address Address?
+  email Citext
+  path Ltree?
+  meta Hstore?
+  footprint Geometry?
+  serviceArea Geography?
+  embedding Vector(3)
+  parentId Int
+  parent Parent @relation(fields: [parentId], references: [id])
+}
+
+model Parent {
+  id Int @id
+  children Example[]
+}
+
+view Summary {
+  id String @id
+  label String
+}

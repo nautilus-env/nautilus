@@ -1,0 +1,110 @@
+    @overload
+    {% if is_async %}async {% endif %}def find_many(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: None = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: Optional[int] = None,
+    ) -> List[{{ model_name }}]: ...
+
+    @overload
+    {% if is_async %}async {% endif %}def find_many(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: {{ model_name }}SelectInput,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: Optional[int] = None,
+    ) -> List[{{ model_name }}Projection]: ...
+
+    {% if is_async %}async {% endif %}def find_many(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: Optional[{{ model_name }}SelectInput] = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: Optional[int] = None,
+    ) -> Union[List[{{ model_name }}], List[{{ model_name }}Projection]]:
+        """Find all {{ model_name }} records matching the given filters.
+
+        Args:
+            where: Filter conditions (optional).
+            order_by: Sorting directions, e.g. ``{"created_at": "desc"}``.
+            {% if has_vector_fields %}nearest: pgvector nearest-neighbor search options.
+            {% endif %}take: Maximum number of rows to return (LIMIT).
+                  Positive values paginate **forward**; negative values
+                  paginate **backward** from the cursor position.
+            skip: Number of rows to skip (OFFSET).
+            select: Scalar field projection, e.g. ``{"id": True, "display_name": True}``.
+                    Primary-key fields are always returned by the engine.
+            include: Relations to eager-load, e.g. ``{"posts": True}``.
+            cursor: Stable keyset cursor — a dict of primary-key field name
+                    to value.  All PK fields of the model must be present.
+                    The cursor record is included in the result (inclusive).
+            distinct: List of field names to deduplicate on.
+                      Postgres: ``SELECT DISTINCT ON (col, ...)`` with the
+                      distinct columns auto-prepended to ORDER BY.
+                      SQLite / MySQL: plain ``SELECT DISTINCT`` (full-row
+                      dedup — most effective combined with ``select``).
+            chunk_size: Optional protocol-level row chunk size for large result
+                        sets. The client still returns one fully merged list.
+
+        Returns:
+            A list of matching ``{{ model_name }}`` instances. Prefer this API
+            when the caller naturally wants the whole result set in memory.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _{{ table_name }}_py_to_db)
+        if order_by is not None:
+            if isinstance(order_by, list):
+                args["orderBy"] = order_by
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
+{%- if has_vector_fields %}
+        if nearest is not None:
+            args["nearest"] = _serialize_nearest_input(nearest)
+{%- endif %}
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if select is not None:
+            args["select"] = _process_select_fields(select, _{{ table_name }}_py_to_logical)
+        if include is not None:
+            args["include"] = _serialize_{{ snake_name }}_include(include)
+        if cursor is not None:
+            args["cursor"] = cursor
+        if distinct is not None:
+            args["distinct"] = distinct
+        payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "args": args,
+        }
+        if chunk_size is not None:
+            payload["chunkSize"] = chunk_size
+
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.findMany", payload)
+        decoder = _{{ snake_name }}_projection_from_wire if select is not None else _{{ table_name }}_from_row
+        return [decoder(row) for row in result.get("data", [])]
+

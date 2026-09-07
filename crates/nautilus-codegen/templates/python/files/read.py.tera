@@ -1,0 +1,30 @@
+"""{{ model_name }} reads and streaming."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Union, overload
+from .._internal.protocol import PROTOCOL_VERSION
+from .{{ snake_name }} import {{ model_name }}, {{ model_name }}Projection
+from ._{{ snake_name }}_inputs import (
+    {{ model_name }}WhereInput, {{ model_name }}OrderByInput, {{ model_name }}SelectInput,
+{%- if has_vector_fields %}
+    {{ model_name }}NearestInput,
+{%- endif %}
+{%- if has_includes %}
+    {{ model_name }}IncludeInput,
+{%- endif %}
+)
+from ._{{ snake_name }}_codec import (
+    _{{ table_name }}_py_to_db, _{{ table_name }}_py_to_logical,
+    _first_data_row, _process_where_filters, _process_select_fields,
+    _serialize_nearest_input, _serialize_{{ snake_name }}_include,
+    _{{ snake_name }}_projection_from_wire, _{{ table_name }}_from_row,
+)
+if TYPE_CHECKING:
+    from .._internal.client import NautilusClient
+
+class _{{ model_name }}Read:
+    _client: NautilusClient
+
+{% include "delegate/find_many.py.tera" %}
+{% include "delegate/stream.py.tera" %}
+{% include "delegate/find_single.py.tera" %}

@@ -161,6 +161,26 @@ The public `generate_model` / `generate_all_models` and `write_rust_code` APIs
 retain their complete-model strings and existing layout. Both output forms use
 the same template partials; neither writer parses generated Rust to split it.
 
+Python's `templates/python/model_file.py.tera` assembles `model/`, `input/`, and
+`delegate/` partials. Command-based generation uses
+`src/python/generator/files.rs` and the `files/` templates to keep
+`models/<model>.py` as the public facade and emit private sibling modules for
+inputs, event types, wire conversion, reads, writes, and aggregates. The facade
+still defines the Pydantic model and public delegate, explicitly re-exports
+input/event types and compatibility helpers, and retains its existing
+`__all__`. Private operation classes supply inherited methods; the write class
+inherits reads because deleting one row first looks it up. Views only inherit
+reads and aggregates. Model-independent helpers remain with the codecs until
+their separate runtime consolidation.
+
+Import order is deliberate: the facade defines the model before loading event
+types, codecs, and delegates that reference it. Relation codecs continue to
+import other public model modules lazily, and `models/__init__.py` rebuilds
+Pydantic forward references once every model has loaded. Keep these contracts
+when adding a relation or a new input type. `generate_python_model`,
+`generate_all_python_models`, and `write_python_code` keep their source-only
+behavior, sharing the same operation bodies with the modular output.
+
 ## Testing
 
 ```bash
@@ -222,6 +242,13 @@ update mode, mismatches fail and leave ignored `.snap.new` candidates for review
 accepted baselines are never updated by CI.
 
 Runtime E2E tests exercise generated Python, JS and Java clients against SQLite.
+Python's fixtures use command-based generation to cover the private module
+imports, publication, streaming, and event dispatch together.
+The import compatibility case compares the source-only and modular clients at
+runtime: symbols, `__all__`, model annotations, and delegate signatures match
+for relations, views, enums, composites, and extensions. It uses the existing
+Pydantic stub and does not need a database; real Pydantic integration is also
+exercised by the generated-client examples.
 They require `sqlite3`, Python 3 (`python3` or `python`), Node, Java 21 or newer,
 and the Jackson jars listed by `java_test_classpath` in
 `tests/stream_runtime_e2e_tests.rs`. Put those jars in

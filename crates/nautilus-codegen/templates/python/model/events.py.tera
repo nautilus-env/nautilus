@@ -1,0 +1,132 @@
+class {{ model_name }}CreateEventArgs(TypedDict):
+    data: {{ model_name }}CreateInput
+    return_data: bool
+
+
+class {{ model_name }}CreateManyEventArgs(TypedDict):
+    data: List[{{ model_name }}CreateInput]
+    return_data: bool
+
+
+class {{ model_name }}UpdateEventArgs(TypedDict):
+    where: Optional[{{ model_name }}WhereInput]
+    data: {{ model_name }}UpdateInput
+    return_data: bool
+
+
+class {{ model_name }}UpdateManyEventArgs(TypedDict):
+    where: Optional[{{ model_name }}WhereInput]
+    data: {{ model_name }}UpdateInput
+
+
+class {{ model_name }}DeleteEventArgs(TypedDict):
+    where: {{ model_name }}WhereInput
+    return_data: bool
+
+
+class {{ model_name }}DeleteManyEventArgs(TypedDict):
+    where: Optional[{{ model_name }}WhereInput]
+    return_data: bool
+
+
+class {{ model_name }}CreateEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    data: Dict[str, Any]
+    returnData: bool
+
+
+class {{ model_name }}CreateManyEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    data: List[Dict[str, Any]]
+    returnData: bool
+
+
+class {{ model_name }}UpdateEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    filter: Dict[str, Any]
+    data: Dict[str, Any]
+    returnData: bool
+
+
+class {{ model_name }}UpdateManyEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    filter: Dict[str, Any]
+    data: Dict[str, Any]
+
+
+class {{ model_name }}DeleteEventPayload(TypedDict):
+    protocolVersion: str
+    model: Literal["{{ model_name }}"]
+    filter: Dict[str, Any]
+    returnData: bool
+
+
+{{ model_name }}DeleteManyEventPayload = {{ model_name }}DeleteEventPayload
+{{ model_name }}CreateEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["create"],
+    {{ model_name }}CreateEventArgs,
+    {{ model_name }}CreateEventPayload,
+    Optional[{{ model_name }}],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}CreateManyEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["createMany"],
+    {{ model_name }}CreateManyEventArgs,
+    {{ model_name }}CreateManyEventPayload,
+    Optional[List[{{ model_name }}]],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}UpdateEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["update"],
+    {{ model_name }}UpdateEventArgs,
+    {{ model_name }}UpdateEventPayload,
+    Optional[Union[List[{{ model_name }}], int]],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}UpdateManyEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["updateMany"],
+    {{ model_name }}UpdateManyEventArgs,
+    {{ model_name }}UpdateManyEventPayload,
+    Optional[int],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}DeleteEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["delete"],
+    {{ model_name }}DeleteEventArgs,
+    {{ model_name }}DeleteEventPayload,
+    Optional[{{ model_name }}],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}DeleteManyEventContext = CrudEventContext[
+    type[{{ model_name }}],
+    Literal["deleteMany"],
+    {{ model_name }}DeleteManyEventArgs,
+    {{ model_name }}DeleteManyEventPayload,
+    Optional[Union[List[{{ model_name }}], int]],
+    BaseException,
+    Dict[str, Any],
+]
+{{ model_name }}EventContext = Union[
+    {{ model_name }}CreateEventContext,
+    {{ model_name }}CreateManyEventContext,
+    {{ model_name }}UpdateEventContext,
+    {{ model_name }}UpdateManyEventContext,
+    {{ model_name }}DeleteEventContext,
+    {{ model_name }}DeleteManyEventContext,
+]
+
+

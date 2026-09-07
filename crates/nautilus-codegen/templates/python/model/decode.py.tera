@@ -1,0 +1,84 @@
+def _get_wire_value(row: Dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in row:
+            return row[key]
+    return _MISSING
+
+
+def _coerce_{{ snake_name }}_scalar(py_key: str, value: Any) -> Any:
+    if py_key in _{{ table_name }}_scalar_coercers:
+        return _{{ table_name }}_scalar_coercers[py_key](value)
+    return value
+
+
+def _hydrate_{{ snake_name }}_relation(field_name: str, value: Any) -> Any:
+{%- for field in include_fields %}
+    if field_name == "{{ field.name }}":
+        from .{{ field.target_snake }} import _{{ field.target_snake }}_from_wire
+
+{%- if field.is_array %}
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [
+                _{{ field.target_snake }}_from_wire(item)
+                for item in value
+                if isinstance(item, dict)
+            ]
+        return []
+{%- else %}
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return _{{ field.target_snake }}_from_wire(value)
+        return None
+{%- endif %}
+{%- endfor %}
+    return value
+
+
+def _{{ snake_name }}_from_wire(row: Dict[str, Any]) -> "{{ model_name }}":
+    """Convert engine rows and nested include payloads to {{ model_name }}."""
+    kwargs: Dict[str, Any] = {}
+{%- for f in scalar_fields %}
+    value = _get_wire_value(row, "{{ table_name }}__{{ f.db_name }}", "{{ f.logical_name }}")
+    if value is not _MISSING:
+        if value is not None:
+            kwargs["{{ f.name }}"] = _coerce_{{ snake_name }}_scalar("{{ f.name }}", value)
+{%- endfor %}
+{%- for field in include_fields %}
+    relation_value = _get_wire_value(row, "{{ field.logical_name }}_json")
+    if relation_value is not _MISSING:
+        kwargs["{{ field.name }}"] = _hydrate_{{ snake_name }}_relation(
+            "{{ field.name }}",
+            relation_value,
+        )
+{%- endfor %}
+    return {{ model_name }}(**kwargs)
+
+
+def _{{ snake_name }}_projection_from_wire(row: Dict[str, Any]) -> "{{ model_name }}Projection":
+    """Convert engine rows to a partial {{ model_name }} projection."""
+    payload: Any = {}
+{%- for f in scalar_fields %}
+    value = _get_wire_value(row, "{{ table_name }}__{{ f.db_name }}", "{{ f.logical_name }}")
+    if value is not _MISSING:
+        payload["{{ f.name }}"] = (
+            _coerce_{{ snake_name }}_scalar("{{ f.name }}", value)
+            if value is not None
+            else None
+        )
+{%- endfor %}
+    return payload
+
+
+def _{{ table_name }}_from_row(row: Dict[str, Any]) -> "{{ model_name }}":
+    """Convert engine row (table__column keys) to {{ model_name }} dataclass."""
+    return _{{ snake_name }}_from_wire(row)
+
+
+def _{{ snake_name }}_from_row(row: Dict[str, Any]) -> "{{ model_name }}":
+    """Compatibility wrapper keyed by model snake_case."""
+    return _{{ snake_name }}_from_wire(row)
+
+

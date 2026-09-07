@@ -3,5 +3,5 @@
 
 # Snapshot content preserves generated whitespace and has portable line endings.
 crates/nautilus-codegen/tests/snapshots/*.snap text eol=lf whitespace=-blank-at-eol
-crates/nautilus-codegen/templates/**/*.tera whitespace=-blank-at-eof
+crates/nautilus-codegen/templates/**/*.tera whitespace=-blank-at-eol,-blank-at-eof
 crates/nautilus-events-macros/tests/ui/*.stderr text eol=lf whitespace=-blank-at-eol

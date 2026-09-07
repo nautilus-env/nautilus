@@ -1,0 +1,33 @@
+"""{{ model_name }} aggregates, query plans, and raw SQL."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from .._internal.protocol import PROTOCOL_VERSION
+from ._{{ snake_name }}_inputs import (
+    {{ model_name }}WhereInput, {{ model_name }}OrderByInput, {{ model_name }}SelectInput,
+    {{ model_name }}ScalarFieldKeys, {{ model_name }}CountAggregateInput,
+{%- if has_numeric_fields %}
+    {{ model_name }}AvgAggregateInput, {{ model_name }}SumAggregateInput,
+{%- endif %}
+{%- if has_vector_fields %}
+    {{ model_name }}NearestInput,
+{%- endif %}
+    {{ model_name }}MinAggregateInput, {{ model_name }}MaxAggregateInput,
+    {{ model_name }}GroupByOutput, {{ model_name }}AggregateOutput, {{ model_name }}ExplainOutput,
+    SortOrder,
+)
+from ._{{ snake_name }}_codec import (
+    _{{ table_name }}_py_to_db, _{{ table_name }}_py_to_logical,
+    _process_where_filters, _process_select_fields, _serialize_nearest_input,
+)
+if TYPE_CHECKING:
+    from .._internal.client import NautilusClient
+
+class _{{ model_name }}Aggregate:
+    _client: NautilusClient
+
+{% include "delegate/aggregate.py.tera" %}
+{% include "delegate/explain.py.tera" %}
+{% include "delegate/count.py.tera" %}
+{% include "delegate/group_by.py.tera" %}
+{% include "delegate/raw.py.tera" %}

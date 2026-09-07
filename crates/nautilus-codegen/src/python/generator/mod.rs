@@ -4,6 +4,7 @@ use crate::extension_types::ExtensionRegistry;
 use crate::model_view::ModelView;
 use crate::GeneratedFile;
 use anyhow::{Context as _, Result};
+use heck::ToSnakeCase;
 use nautilus_schema::ir::{ModelIr, SchemaIr};
 use serde::Serialize;
 use tera::Context;
@@ -14,6 +15,7 @@ use templates::render;
 
 mod client;
 mod fields;
+mod files;
 mod relations;
 mod runtime;
 mod templates;
@@ -22,6 +24,7 @@ mod types;
 pub use client::{
     generate_enums_init, generate_models_init, generate_package_init, generate_python_client,
 };
+pub(crate) use files::generate_python_model_files;
 pub use runtime::{
     generate_errors_init, generate_events_init, generate_internal_init, generate_transaction_init,
     python_runtime_files,
@@ -34,6 +37,8 @@ pub use types::{generate_python_composite_types, generate_python_enums};
 /// `is_async` determines whether delegate methods use `async def`/`await` (`true`)
 /// or synchronous `def` + `asyncio.run()` wrappers (`false`).
 /// `recursive_type_depth` controls the depth of generated recursive include TypedDicts.
+/// This source-only API keeps one complete module; command-based generation
+/// splits its implementation behind the same public model imports.
 pub fn generate_python_model(
     model: &ModelIr,
     ir: &SchemaIr,
@@ -51,6 +56,22 @@ fn generate_python_model_with_registry(
     recursive_type_depth: usize,
     extensions: &ExtensionRegistry,
 ) -> Result<GeneratedFile> {
+    let context = model_context(model, ir, is_async, recursive_type_depth, extensions);
+    let model_code = render("model_file.py.tera", &context)
+        .with_context(|| format!("Failed to generate Python model '{}'", model.logical_name))?;
+    Ok((
+        format!("{}.py", model.logical_name.to_snake_case()),
+        model_code,
+    ))
+}
+
+fn model_context(
+    model: &ModelIr,
+    ir: &SchemaIr,
+    is_async: bool,
+    recursive_type_depth: usize,
+    extensions: &ExtensionRegistry,
+) -> Context {
     let view = ModelView::new(model, ir, extensions);
     let mut context = Context::new();
     crate::template::insert_protocol_version(&mut context);
@@ -110,10 +131,7 @@ fn generate_python_model_with_registry(
     context.insert("is_async", &is_async);
     context.insert("recursive_type_depth", &recursive_type_depth);
 
-    let model_code = render("model_file.py.tera", &context)
-        .with_context(|| format!("Failed to generate Python model '{}'", view.logical_name()))?;
-
-    Ok((format!("{}.py", view.snake_name()), model_code))
+    context
 }
 
 /// Insert the `{Model}Delegate` / `{Model}FindMany` / … class names the

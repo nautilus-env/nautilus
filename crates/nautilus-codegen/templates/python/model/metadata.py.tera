@@ -1,0 +1,98 @@
+_{{ table_name }}_row_map: Dict[str, str] = {
+{%- for f in scalar_fields %}
+    "{{ table_name }}__{{ f.db_name }}": "{{ f.name }}",
+{%- endfor %}
+}
+_{{ table_name }}_fields: frozenset = frozenset({
+{%- for f in scalar_fields %}
+    "{{ f.name }}",
+{%- endfor %}
+})
+
+
+def _coerce_boolean_value(value: Any) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.lower()
+        if lowered in ("true", "1"):
+            return True
+        if lowered in ("false", "0"):
+            return False
+    return value
+
+
+_{{ table_name }}_scalar_coercers: Dict[str, Any] = {
+{%- for f in scalar_fields %}
+{%- if f.is_enum %}
+    "{{ f.name }}": {{ f.base_type }},
+{%- elif f.extension_coercer %}
+    "{{ f.name }}": {{ f.extension_coercer }},
+{%- elif f.base_type == "bool" %}
+    "{{ f.name }}": _coerce_boolean_value,
+{%- elif f.base_type == "datetime" %}
+    "{{ f.name }}": lambda v: datetime.fromisoformat(v.replace(" ", "T")) if isinstance(v, str) else v,
+{%- endif %}
+{%- endfor %}
+}
+# Python field name -> DB column name mapping (handles @map renames)
+_{{ table_name }}_py_to_db: Dict[str, str] = {
+{%- for f in scalar_fields %}
+    "{{ f.logical_name }}": "{{ f.db_name }}",
+{%- if f.name != f.logical_name %}
+    "{{ f.name }}": "{{ f.db_name }}",
+{%- endif %}
+{%- endfor %}
+}
+_{{ table_name }}_py_to_logical: Dict[str, str] = {
+{%- for f in scalar_fields %}
+    "{{ f.logical_name }}": "{{ f.logical_name }}",
+{%- if f.name != f.logical_name %}
+    "{{ f.name }}": "{{ f.logical_name }}",
+{%- endif %}
+{%- endfor %}
+}
+_{{ table_name }}_object_value_db_fields: frozenset = frozenset({
+{%- for db_name in object_value_db_fields %}
+    "{{ db_name }}",
+{%- endfor %}
+})
+_{{ table_name }}_extension_input_serializers: Dict[str, Any] = {
+{%- for f in scalar_fields %}
+{%- if f.extension_input_serializer %}
+    "{{ f.logical_name }}": {{ f.extension_input_serializer }},
+{%- if f.name != f.logical_name %}
+    "{{ f.name }}": {{ f.extension_input_serializer }},
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+}
+_FILTER_OPERATOR_KEYS: frozenset = frozenset({
+    "contains",
+    "endsWith",
+    "endswith",
+    "eq",
+    "equals",
+    "gt",
+    "gte",
+    "in",
+    "in_",
+    "isNull",
+    "isNotNull",
+    "is_not_null",
+    "is_null",
+    "like",
+    "lt",
+    "lte",
+    "not",
+    "notIn",
+    "not_",
+    "not_in",
+    "startsWith",
+    "startswith",
+})
+_MISSING = object()
+
+

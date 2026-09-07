@@ -1,0 +1,11 @@
+"""{{ model_name }} event arguments, payloads, and contexts."""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
+from .._internal.events import CrudEventContext
+from .{{ snake_name }} import {{ model_name }}
+from ._{{ snake_name }}_inputs import (
+    {{ model_name }}WhereInput, {{ model_name }}CreateInput, {{ model_name }}UpdateInput,
+)
+
+{% include "model/events.py.tera" %}

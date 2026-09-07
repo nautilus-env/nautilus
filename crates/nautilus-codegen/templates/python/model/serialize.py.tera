@@ -1,0 +1,161 @@
+def _serialize_wire_value(value: Any) -> Any:
+    """Convert generated client values into JSON-RPC-safe payloads."""
+    if isinstance(value, Enum):
+        return value.value
+    to_wire = getattr(value, "to_wire", None)
+    if callable(to_wire):
+        return _serialize_wire_value(to_wire())
+    if is_dataclass(value):
+        return {k: _serialize_wire_value(v) for k, v in asdict(value).items()}
+    if isinstance(value, list):
+        return [_serialize_wire_value(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _serialize_wire_value(v) for k, v in value.items()}
+    return value
+
+
+def _looks_like_filter_operator_dict(value: Dict[str, Any]) -> bool:
+    return bool(value) and all(key in _FILTER_OPERATOR_KEYS for key in value)
+
+
+def _object_equality_requires_explicit_equals(field_name: str) -> None:
+    raise TypeError(
+        f"Field '{field_name}' stores object-like JSON/HSTORE values. "
+        "Use {'equals': ...} for object equality filters."
+    )
+
+
+def _serialize_scalar_input(field_name: str, value: Any) -> Any:
+    serializer = _{{ table_name }}_extension_input_serializers.get(field_name)
+    if value is None or serializer is None:
+        return _serialize_wire_value(value)
+    return _serialize_wire_value(serializer(value))
+
+
+def _serialize_filter_input(field_name: str, operator: str, value: Any) -> Any:
+    serializer = _{{ table_name }}_extension_input_serializers.get(field_name)
+    if value is None or serializer is None:
+        return _serialize_wire_value(value)
+    if operator in ("in", "notIn") and isinstance(value, list):
+        return [
+            _serialize_wire_value(item if item is None else serializer(item))
+            for item in value
+        ]
+    return _serialize_wire_value(serializer(value))
+
+
+def _serialize_nearest_input(nearest: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(nearest)
+    field_name = result.get("field")
+    if isinstance(field_name, str) and "query" in result:
+        result["query"] = _serialize_scalar_input(field_name, result["query"])
+    return result
+
+
+def _first_data_row(result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    data = result.get("data")
+    if not isinstance(data, list) or not data:
+        return None
+    row = data[0]
+    if not isinstance(row, dict):
+        return None
+    return row
+
+
+def _{{ snake_name }}_event_context(
+    client: Any,
+    operation: str,
+    phase: EventPhase,
+    args: Dict[str, Any],
+    payload: Dict[str, Any],
+    state: Dict[str, Any],
+    *,
+    result: Any = None,
+    error: Optional[BaseException] = None,
+) -> CrudEventContext:
+    return CrudEventContext(
+        db=client,
+        model={{ model_name }},
+        model_name="{{ model_name }}",
+        operation=operation,
+        phase=phase,
+        args=args,
+        payload=payload,
+        result=result,
+        error=error,
+        state=state,
+    )
+
+
+def _process_create_data(data: Dict[str, Any], py_to_db: Dict[str, str]) -> Dict[str, Any]:
+    """Convert CreateInput/UpdateInput dict to DB column names."""
+    result = {}
+    for key, value in data.items():
+        db_key = py_to_db.get(key, key)
+        result[db_key] = _serialize_scalar_input(key, value)
+    return result
+
+
+def _process_where_filters(where: Dict[str, Any], py_to_db: Dict[str, str]) -> Dict[str, Any]:
+    """Convert WhereInput format to internal filter format."""
+    result = {}
+    for key, value in where.items():
+        if key in ('AND', 'OR', 'NOT'):
+            if isinstance(value, list):
+                result[key] = [_process_where_filters(item, py_to_db) for item in value]
+            else:
+                result[key] = _process_where_filters(value, py_to_db)
+        else:
+            db_key = py_to_db.get(key, key)
+            if isinstance(value, dict):
+                if (
+                    key in _{{ table_name }}_extension_input_serializers
+                    and db_key not in _{{ table_name }}_object_value_db_fields
+                    and not _looks_like_filter_operator_dict(value)
+                ):
+                    result[db_key] = _serialize_scalar_input(key, value)
+                    continue
+                if (
+                    db_key in _{{ table_name }}_object_value_db_fields
+                    and not _looks_like_filter_operator_dict(value)
+                ):
+                    _object_equality_requires_explicit_equals(key)
+                # Filter object with operators – keep nested {field: {op: value}} format
+                # so the engine's parse_field_condition receives {"id": {"in": [...]}}.
+                ops = {}
+                for op, op_value in value.items():
+                    # Convert Python-safe names back to the engine protocol.
+                    actual_op = {
+                        "equals": "eq",
+                        "eq": "eq",
+                        "in_": "in",
+                        "not_": "not",
+                        "notIn": "notIn",
+                        "not_in": "notIn",
+                        "startsWith": "startsWith",
+                        "startswith": "startsWith",
+                        "endsWith": "endsWith",
+                        "endswith": "endsWith",
+                        "isNull": "isNull",
+                        "isNotNull": "isNotNull",
+                        "is_not_null": "isNotNull",
+                        "is_null": "isNull",
+                    }.get(op, op)
+                    coerced = _serialize_filter_input(key, actual_op, op_value)
+                    ops[actual_op] = coerced
+                if ops:
+                    result[db_key] = ops
+            else:
+                result[db_key] = _serialize_scalar_input(key, value)
+    return result
+
+
+def _process_select_fields(select: Dict[str, bool], py_to_logical: Dict[str, str]) -> Dict[str, bool]:
+    """Convert Python field names to logical field names for query projection."""
+    result = {}
+    for key, value in select.items():
+        logical_key = py_to_logical.get(key, key)
+        result[logical_key] = value
+    return result
+
+

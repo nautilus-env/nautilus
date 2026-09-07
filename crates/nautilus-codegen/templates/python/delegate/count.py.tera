@@ -1,0 +1,39 @@
+    {% if is_async %}async {% endif %}def count(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Count the number of {{ model_name }} records matching the given filters.
+
+        Args:
+            where: Filter conditions (optional).
+            take: Limit the count to a forward-pagination window of at most this
+                  many rows.  When combined with ``skip``, counts only the rows
+                  in that slice (mirrors ``findMany`` semantics).
+            skip: Number of rows to skip before counting.
+            cursor: Keyset cursor — combined with ``take``/``skip`` to count
+                    within a paginated window.
+
+        Returns:
+            The integer count of matching records.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _{{ table_name }}_py_to_db)
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if cursor is not None:
+            args["cursor"] = cursor
+
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.count", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "args": args if args else None,
+        })
+        return result.get("count", 0)
+

@@ -1,0 +1,106 @@
+    {% if is_async %}
+    @overload
+    def stream_many(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: None = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: int = 128,
+    ) -> AsyncIterator[{{ model_name }}]: ...
+
+    @overload
+    def stream_many(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: {{ model_name }}SelectInput,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: int = 128,
+    ) -> AsyncIterator[{{ model_name }}Projection]: ...
+
+    async def stream_many(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}take: Optional[int] = None,
+        skip: Optional[int] = None,
+        select: Optional[{{ model_name }}SelectInput] = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+        cursor: Optional[Dict[str, Any]] = None,
+        distinct: Optional[List[str]] = None,
+        chunk_size: int = 128,
+    ) -> AsyncIterator[Union[{{ model_name }}, {{ model_name }}Projection]]:
+        """Stream {{ model_name }} records as they arrive from the engine.
+
+        Unlike :meth:`find_many`, this API does not merge every partial frame
+        into one final list before returning. Each matching row is yielded as
+        soon as the engine emits the next chunk.
+
+        Prefer :meth:`find_many` for small pages or any path that already wants
+        a final ``list[{{ model_name }}]``. Prefer :meth:`stream_many` for
+        exports, scans, or early-exit consumers that should not accumulate all
+        rows client-side.
+
+        Args:
+            chunk_size: Protocol-level chunk size used by the engine for this
+                        streamed request. Must be greater than zero.
+
+        Yields:
+            Matching ``{{ model_name }}`` instances, one by one.
+        """
+        if chunk_size < 1:
+            raise ValueError("chunk_size must be greater than zero")
+
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _{{ table_name }}_py_to_db)
+        if order_by is not None:
+            if isinstance(order_by, list):
+                args["orderBy"] = order_by
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
+{%- if has_vector_fields %}
+        if nearest is not None:
+            args["nearest"] = _serialize_nearest_input(nearest)
+{%- endif %}
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if select is not None:
+            args["select"] = _process_select_fields(select, _{{ table_name }}_py_to_logical)
+        if include is not None:
+            args["include"] = _serialize_{{ snake_name }}_include(include)
+        if cursor is not None:
+            args["cursor"] = cursor
+        if distinct is not None:
+            args["distinct"] = distinct
+
+        payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "args": args,
+            "chunkSize": chunk_size,
+        }
+
+        async for chunk in self._client._stream_rpc("query.findMany", payload):
+            decoder = _{{ snake_name }}_projection_from_wire if select is not None else _{{ table_name }}_from_row
+            for row in chunk.get("data", []):
+                yield decoder(row)
+    {% endif %}
+

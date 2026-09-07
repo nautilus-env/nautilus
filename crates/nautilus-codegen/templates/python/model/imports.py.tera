@@ -1,0 +1,72 @@
+"""{{ model_name }} model and related types."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, is_dataclass
+from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, NotRequired, Optional, Required, ClassVar, TypedDict, Union, overload
+{%- if needs_typeddict %}
+from datetime import datetime
+from uuid import UUID
+from decimal import Decimal
+{%- else %}
+{%- if has_datetime %}
+from datetime import datetime
+{%- endif %}
+{%- if has_uuid %}
+from uuid import UUID
+{%- endif %}
+{%- if has_decimal %}
+from decimal import Decimal
+{%- endif %}
+{%- endif %}
+from enum import Enum
+from .._internal.descriptors import classproperty
+from .._internal.events import (
+    CrudEventContext,
+    EventPhase,
+    default_cud_result,
+    model_event_decorator,
+    resolve_stop_result,
+    run_crud_event,
+    run_crud_event_sync,
+)
+from .._internal.protocol import PROTOCOL_VERSION
+{% if has_enums %}
+
+from ..enums.enums import {% for e in enum_imports %}{{ e }}{% if not loop.last %}, {% endif %}{% endfor %}
+{%- endif %}
+{%- if has_composite_types %}
+
+from ..types.types import {% for t in composite_type_imports %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %}
+{%- endif %}
+{%- if has_extension_types %}
+{%- for ext in extension_imports %}
+from ..extensions.{{ ext.module }}.types import {% for symbol in ext.symbols %}{{ symbol }}{% if not loop.last %}, {% endif %}{% endfor %}
+{%- endfor %}
+{%- endif %}
+
+if TYPE_CHECKING:
+{%- if has_relations %}
+    from . import {% for r in relation_imports %}{{ r }}{% if not loop.last %}, {% endif %}{% endfor %}
+{%- endif %}
+{%- if has_includes %}
+{%- for field in include_fields %}
+    from .{{ field.target_snake }} import (
+        {{ field.target_model }}WhereInput,
+        {{ field.target_model }}OrderByInput,
+        {{ field.target_model }}ScalarFieldKeys,
+{%- for depth in range(end=recursive_type_depth) %}
+        {{ field.target_model }}IncludeRecursive{{ depth + 1 }},
+{%- endfor %}
+    )
+{%- endfor %}
+{%- endif %}
+    from .._internal.client import NautilusClient
+
+JsonPrimitive = Union[str, int, float, bool, None]
+JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]
+JsonScalarOrArray = Union[JsonPrimitive, List[Any]]
+HstoreValue = Dict[str, Optional[str]]
+
+

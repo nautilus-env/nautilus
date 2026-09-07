@@ -1,0 +1,57 @@
+{%- if not is_view %}
+    {% if is_async %}async {% endif %}def upsert(
+        self,
+        *,
+        where: {{ model_name }}WhereInput,
+        data: {{ model_name }}UpsertInput,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+        return_data: bool = True,
+    ) -> Optional[{{ model_name }}]:
+        """Create or update a {{ model_name }} record in one atomic statement.
+
+        Runs as a single ``INSERT ... ON CONFLICT`` (``ON DUPLICATE KEY UPDATE``
+        on MySQL), so no other writer can slip between the lookup and the write:
+        ``data["create"]`` is inserted, and ``data["update"]`` is applied instead
+        when the row already exists.
+
+        Args:
+            where: Filter naming exactly one unique constraint (or the primary
+                   key); those columns become the conflict target, and
+                   ``data["create"]`` must supply a value for each of them.
+            data: Dict with ``create`` and ``update`` keys, each holding the
+                  respective field values.
+            include: Relations to eager-load on the returned record.
+            return_data: When ``True`` (default) returns the record.
+                Set to ``False`` to skip ``RETURNING`` overhead; ``None`` is
+                returned in that case.
+
+        Returns:
+            The created or updated ``{{ model_name }}`` instance, or ``None`` when
+            ``return_data=False``.
+        """
+        create_data: {{ model_name }}CreateInput = data.get("create", {})  # type: ignore[assignment]
+        update_data: {{ model_name }}UpdateInput = data.get("update", {})  # type: ignore[assignment]
+        _payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "filter": _process_where_filters(where or {}, _{{ table_name }}_py_to_db),
+            "create": _process_create_data(create_data, _{{ table_name }}_py_to_db),
+            "update": _process_create_data(update_data, _{{ table_name }}_py_to_db),
+            "returnData": return_data,
+        }
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.upsert", _payload)
+        if not return_data:
+            return None
+        data_rows = result.get("data", [])
+        if not data_rows:
+            raise RuntimeError("upsert: engine returned no data")
+        record = _{{ table_name }}_from_row(data_rows[0])
+        if include:
+            rows = {% if is_async %}await {% endif %}self.find_many(where=where, take=1, include=include)
+            return rows[0] if rows else record
+        return record
+{% endif %}
+
+
+
+

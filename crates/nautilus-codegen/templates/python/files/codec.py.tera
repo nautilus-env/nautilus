@@ -1,0 +1,7 @@
+{% include "model/imports.py.tera" %}
+from .{{ snake_name }} import {{ model_name }}, {{ model_name }}Projection
+
+{% include "model/metadata.py.tera" %}
+{% include "model/serialize.py.tera" %}
+{% include "model/include.py.tera" %}
+{% include "model/decode.py.tera" %}

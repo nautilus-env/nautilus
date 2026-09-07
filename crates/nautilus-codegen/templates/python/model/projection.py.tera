@@ -1,0 +1,15 @@
+class {{ model_name }}Projection(TypedDict, total=False):
+    """Partial {{ model_name }} payload returned when ``select`` is used."""
+{%- for f in scalar_fields %}
+{%- if f.doc_comment %}
+    # {{ f.doc_comment }}
+{%- endif %}
+{%- if f.is_pk %}
+    {{ f.name }}: Required[{{ f.python_type }}]
+{%- else %}
+    {{ f.name }}: NotRequired[{{ f.python_type }}]
+{%- endif %}
+{%- endfor %}
+
+
+# Engine response key mapping: "table__db_column" -> Python field name

@@ -1,0 +1,131 @@
+class IntFieldUpdate(TypedDict, total=False):
+    """Atomic update operators for an integer column.
+
+    ``set`` writes the operand as given; the others let the database derive the
+    new value from the row's current one, so concurrent updates do not overwrite
+    each other. Name one operator at a time.
+    """
+    set: NotRequired[int]
+    increment: NotRequired[int]
+    decrement: NotRequired[int]
+    multiply: NotRequired[int]
+    divide: NotRequired[int]
+
+
+class FloatFieldUpdate(TypedDict, total=False):
+    """Atomic update operators for a float column. See :class:`IntFieldUpdate`."""
+    set: NotRequired[float]
+    increment: NotRequired[float]
+    decrement: NotRequired[float]
+    multiply: NotRequired[float]
+    divide: NotRequired[float]
+
+
+class DecimalFieldUpdate(TypedDict, total=False):
+    """Atomic update operators for a decimal column. See :class:`IntFieldUpdate`."""
+    set: NotRequired[Decimal]
+    increment: NotRequired[Decimal]
+    decrement: NotRequired[Decimal]
+    multiply: NotRequired[Decimal]
+    divide: NotRequired[Decimal]
+
+
+class StringFilter(TypedDict, total=False):
+    """String field filter operations."""
+    equals: NotRequired[str]
+    not_: NotRequired[str]
+    contains: NotRequired[str]
+    startswith: NotRequired[str]
+    endswith: NotRequired[str]
+    in_: NotRequired[List[str]]
+    not_in: NotRequired[List[str]]
+    is_null: NotRequired[bool]
+
+
+class IntFilter(TypedDict, total=False):
+    """Integer field filter operations."""
+    equals: NotRequired[int]
+    not_: NotRequired[int]
+    lt: NotRequired[int]
+    lte: NotRequired[int]
+    gt: NotRequired[int]
+    gte: NotRequired[int]
+    in_: NotRequired[List[int]]
+    not_in: NotRequired[List[int]]
+    is_null: NotRequired[bool]
+
+
+class FloatFilter(TypedDict, total=False):
+    """Float field filter operations."""
+    equals: NotRequired[float]
+    not_: NotRequired[float]
+    lt: NotRequired[float]
+    lte: NotRequired[float]
+    gt: NotRequired[float]
+    gte: NotRequired[float]
+    in_: NotRequired[List[float]]
+    not_in: NotRequired[List[float]]
+    is_null: NotRequired[bool]
+
+
+class DecimalFilter(TypedDict, total=False):
+    """Decimal field filter operations."""
+    equals: NotRequired[Decimal]
+    not_: NotRequired[Decimal]
+    lt: NotRequired[Decimal]
+    lte: NotRequired[Decimal]
+    gt: NotRequired[Decimal]
+    gte: NotRequired[Decimal]
+    in_: NotRequired[List[Decimal]]
+    not_in: NotRequired[List[Decimal]]
+    is_null: NotRequired[bool]
+
+
+class DateTimeFilter(TypedDict, total=False):
+    """DateTime field filter operations."""
+    equals: NotRequired[datetime]
+    not_: NotRequired[datetime]
+    lt: NotRequired[datetime]
+    lte: NotRequired[datetime]
+    gt: NotRequired[datetime]
+    gte: NotRequired[datetime]
+    in_: NotRequired[List[datetime]]
+    not_in: NotRequired[List[datetime]]
+    is_null: NotRequired[bool]
+
+
+class UuidFilter(TypedDict, total=False):
+    """UUID field filter operations."""
+    equals: NotRequired[UUID]
+    not_: NotRequired[UUID]
+    in_: NotRequired[List[UUID]]
+    not_in: NotRequired[List[UUID]]
+    is_null: NotRequired[bool]
+
+
+class BoolFilter(TypedDict, total=False):
+    """Boolean field filter operations."""
+    equals: NotRequired[bool]
+    not_: NotRequired[bool]
+    is_null: NotRequired[bool]
+
+
+class JsonFilter(TypedDict, total=False):
+    """JSON / JSONB field filter operations."""
+    equals: NotRequired[JsonValue]
+    not_: NotRequired[JsonValue]
+    is_null: NotRequired[bool]
+
+
+class HstoreFilter(TypedDict, total=False):
+    """Hstore field filter operations."""
+    equals: NotRequired[{% if has_hstore_extension %}HstoreInput{% else %}HstoreValue{% endif %}]
+    not_: NotRequired[{% if has_hstore_extension %}HstoreInput{% else %}HstoreValue{% endif %}]
+    is_null: NotRequired[bool]
+
+
+class VectorFilter(TypedDict, total=False):
+    """Vector field filter operations."""
+    equals: NotRequired[{% if has_vector_extension %}VectorInput{% else %}List[float]{% endif %}]
+    not_: NotRequired[{% if has_vector_extension %}VectorInput{% else %}List[float]{% endif %}]
+    is_null: NotRequired[bool]

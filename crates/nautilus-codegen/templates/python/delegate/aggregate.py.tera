@@ -1,0 +1,57 @@
+    {% if is_async %}async {% endif %}def aggregate(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        count: Optional[Union[bool, {{ model_name }}CountAggregateInput]] = None,
+{% if has_numeric_fields %}
+        avg: Optional[{{ model_name }}AvgAggregateInput] = None,
+        sum: Optional[{{ model_name }}SumAggregateInput] = None,
+{% endif %}
+        min: Optional[{{ model_name }}MinAggregateInput] = None,
+        max: Optional[{{ model_name }}MaxAggregateInput] = None,
+    ) -> {{ model_name }}AggregateOutput:
+        """Aggregate over every {{ model_name }} record matching ``where``.
+
+        Same aggregates as :meth:`group_by` without a grouping key, so the
+        result is a single row covering the whole filtered set. A filter that
+        matches nothing still yields a row: counts are ``0`` and the other
+        aggregates ``None``.
+
+        Args:
+            where: Filter conditions (optional).
+            count: Compute COUNT. Pass ``True`` for ``COUNT(*)`` or a
+                ``{{ model_name }}CountAggregateInput`` dict to count specific fields.
+{% if has_numeric_fields %}
+            avg: Compute AVG for the specified numeric fields.
+            sum: Compute SUM for the specified numeric fields.
+{% endif %}
+            min: Compute MIN for the specified fields.
+            max: Compute MAX for the specified fields.
+
+        Returns:
+            One ``{{ model_name }}AggregateOutput`` dict.
+        """
+        args: Dict[str, Any] = {}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _{{ table_name }}_py_to_db)
+        if count is not None:
+            args["count"] = count
+{%- if has_numeric_fields %}
+        if avg is not None:
+            args["avg"] = avg
+        if sum is not None:
+            args["sum"] = sum
+{%- endif %}
+        if min is not None:
+            args["min"] = min
+        if max is not None:
+            args["max"] = max
+
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.aggregate", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "args": args,
+        })
+        rows = result.get("data", [])
+        return rows[0] if rows else {}
+

@@ -1,0 +1,194 @@
+    @overload
+    {% if is_async %}async {% endif %}def find_first(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}select: None = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> Optional[{{ model_name }}]: ...
+
+    @overload
+    {% if is_async %}async {% endif %}def find_first(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}select: {{ model_name }}SelectInput,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> Optional[{{ model_name }}Projection]: ...
+
+    {% if is_async %}async {% endif %}def find_first(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}select: Optional[{{ model_name }}SelectInput] = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> Union[{{ model_name }}, {{ model_name }}Projection, None]:
+        """Find the first {{ model_name }} record matching the given filters.
+
+        Returns:
+            The first matching ``{{ model_name }}`` instance, or ``None``.
+        """
+        args: Dict[str, Any] = {"take": 1}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _{{ table_name }}_py_to_db)
+        if order_by is not None:
+            if isinstance(order_by, list):
+                args["orderBy"] = order_by
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order_by.items()]
+{%- if has_vector_fields %}
+        if nearest is not None:
+            args["nearest"] = _serialize_nearest_input(nearest)
+{%- endif %}
+        if select is not None:
+            args["select"] = _process_select_fields(select, _{{ table_name }}_py_to_logical)
+        if include is not None:
+            args["include"] = _serialize_{{ snake_name }}_include(include)
+
+        payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "args": args,
+        }
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.findFirst", payload)
+        row = _first_data_row(result)
+        if row is None:
+            return None
+        decoder = _{{ snake_name }}_projection_from_wire if select is not None else _{{ table_name }}_from_row
+        return decoder(row)
+
+    @overload
+    {% if is_async %}async {% endif %}def find_unique(
+        self,
+        *,
+        where: {{ model_name }}WhereInput,
+        select: None = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> Optional[{{ model_name }}]: ...
+
+    @overload
+    {% if is_async %}async {% endif %}def find_unique(
+        self,
+        *,
+        where: {{ model_name }}WhereInput,
+        select: {{ model_name }}SelectInput,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> Optional[{{ model_name }}Projection]: ...
+
+    {% if is_async %}async {% endif %}def find_unique(
+        self,
+        *,
+        where: {{ model_name }}WhereInput,
+        select: Optional[{{ model_name }}SelectInput] = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> Union[{{ model_name }}, {{ model_name }}Projection, None]:
+        """Find a single {{ model_name }} record by a unique filter.
+
+        Returns:
+            The matching ``{{ model_name }}`` instance, or ``None``.
+        """
+        if select is not None or include is not None:
+            return {% if is_async %}await {% endif %}self.find_first(where=where, select=select, include=include)
+
+        payload: Dict[str, Any] = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "filter": _process_where_filters(where, _{{ table_name }}_py_to_db),
+        }
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.findUnique", payload)
+        row = _first_data_row(result)
+        return _{{ table_name }}_from_row(row) if row is not None else None
+
+    @overload
+    {% if is_async %}async {% endif %}def find_unique_or_throw(
+        self,
+        *,
+        where: {{ model_name }}WhereInput,
+        select: None = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> {{ model_name }}: ...
+
+    @overload
+    {% if is_async %}async {% endif %}def find_unique_or_throw(
+        self,
+        *,
+        where: {{ model_name }}WhereInput,
+        select: {{ model_name }}SelectInput,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> {{ model_name }}Projection: ...
+
+    {% if is_async %}async {% endif %}def find_unique_or_throw(
+        self,
+        *,
+        where: {{ model_name }}WhereInput,
+        select: Optional[{{ model_name }}SelectInput] = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> Union[{{ model_name }}, {{ model_name }}Projection]:
+        """Find a single {{ model_name }} record by a unique filter, or raise if not found.
+
+        Returns:
+            The matching ``{{ model_name }}`` instance.
+
+        Raises:
+            NotFoundError: If no record matches the given filter.
+        """
+        from ..errors import NotFoundError
+        record = {% if is_async %}await {% endif %}self.find_unique(where=where, select=select, include=include)
+        if record is None:
+            raise NotFoundError(
+                f"findUniqueOrThrow: no {{ model_name }} record found matching the given filter"
+            )
+        return record
+
+    @overload
+    {% if is_async %}async {% endif %}def find_first_or_throw(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}select: None = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> {{ model_name }}: ...
+
+    @overload
+    {% if is_async %}async {% endif %}def find_first_or_throw(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}select: {{ model_name }}SelectInput,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> {{ model_name }}Projection: ...
+
+    {% if is_async %}async {% endif %}def find_first_or_throw(
+        self,
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        order_by: Optional[Union[{{ model_name }}OrderByInput, List[{{ model_name }}OrderByInput]]] = None,
+        {% if has_vector_fields %}nearest: Optional[{{ model_name }}NearestInput] = None,
+        {% endif %}select: Optional[{{ model_name }}SelectInput] = None,
+        include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
+    ) -> Union[{{ model_name }}, {{ model_name }}Projection]:
+        """Find the first {{ model_name }} record matching ``where``, or raise if not found.
+
+        Returns:
+            The first matching ``{{ model_name }}`` instance.
+
+        Raises:
+            NotFoundError: If no record matches the given filters.
+        """
+        from ..errors import NotFoundError
+        record = {% if is_async %}await {% endif %}self.find_first(where=where, order_by=order_by,{% if has_vector_fields %} nearest=nearest,{% endif %} select=select, include=include)
+        if record is None:
+            raise NotFoundError(
+                f"findFirstOrThrow: no {{ model_name }} record found matching the given filter"
+            )
+        return record

@@ -1,0 +1,200 @@
+class {{ model_name }}(BaseModel):
+    """{{ model_name }} model mapped to '{{ table_name }}' table."""
+    __nautilus_model_name__: ClassVar[str] = "{{ model_name }}"
+{%- for f in scalar_fields %}
+{%- if f.doc_comment %}
+    # {{ f.doc_comment }}
+{%- endif %}
+    {{ f.name }}: {{ f.model_python_type }}{% if f.model_has_default %} = {{ f.model_default }}{% endif %}
+{%- endfor %}
+{%- for f in relation_fields %}
+{%- if f.doc_comment %}
+    # {{ f.doc_comment }}
+{%- endif %}
+    {{ f.name }}: {{ f.python_type }} = {{ f.default }}
+{%- endfor %}
+
+    nautilus: ClassVar["{{ delegate_name }}"]
+
+    if TYPE_CHECKING:
+        # Type hint for IDE autocomplete - at runtime this is a classproperty descriptor
+        nautilus: "{{ delegate_name }}"
+    else:
+        @classproperty
+        def nautilus(cls) -> "{{ delegate_name }}":
+            """Access the auto-registered client delegate for {{ model_name }}.
+            
+            This property allows calling model operations directly on the class:
+                users = await User.nautilus.find_many(where={"role": "ADMIN"}, take=10)
+                user  = await User.nautilus.create({"email": "alice@example.com"})
+             
+            Requires a Nautilus instance with auto_register=True:
+                async with Nautilus(auto_register=True):
+                    await User.nautilus.find_many()
+            
+            Returns:
+                The delegate instance for this model.
+                
+            Raises:
+                RuntimeError: If no auto-registered Nautilus instance exists.
+            """
+            from .._internal.client import NautilusClient
+            client = NautilusClient.get_global_instance()
+            if client is None:
+                raise RuntimeError(
+                    f"No Nautilus instance with auto_register=True found. "
+                    f"Create one with: Nautilus(auto_register=True)"
+                )
+            return client.get_delegate("{{ snake_name }}")
+
+    @classmethod
+    @overload
+    def onCreate(
+        cls,
+        handler: Callable[["{{ model_name }}CreateEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["{{ model_name }}CreateEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onCreate(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["{{ model_name }}CreateEventContext"], Any]],
+        Callable[["{{ model_name }}CreateEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onCreate(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "create", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onCreateMany(
+        cls,
+        handler: Callable[["{{ model_name }}CreateManyEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["{{ model_name }}CreateManyEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onCreateMany(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["{{ model_name }}CreateManyEventContext"], Any]],
+        Callable[["{{ model_name }}CreateManyEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onCreateMany(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "createMany", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onUpdate(
+        cls,
+        handler: Callable[["{{ model_name }}UpdateEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["{{ model_name }}UpdateEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onUpdate(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["{{ model_name }}UpdateEventContext"], Any]],
+        Callable[["{{ model_name }}UpdateEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onUpdate(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "update", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onUpdateMany(
+        cls,
+        handler: Callable[["{{ model_name }}UpdateManyEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["{{ model_name }}UpdateManyEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onUpdateMany(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["{{ model_name }}UpdateManyEventContext"], Any]],
+        Callable[["{{ model_name }}UpdateManyEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onUpdateMany(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "updateMany", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onDelete(
+        cls,
+        handler: Callable[["{{ model_name }}DeleteEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["{{ model_name }}DeleteEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onDelete(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["{{ model_name }}DeleteEventContext"], Any]],
+        Callable[["{{ model_name }}DeleteEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onDelete(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "delete", phase_or_handler, priority=priority)
+
+    @classmethod
+    @overload
+    def onDeleteMany(
+        cls,
+        handler: Callable[["{{ model_name }}DeleteManyEventContext"], Any],
+        *,
+        priority: int = 0,
+    ) -> Callable[["{{ model_name }}DeleteManyEventContext"], Any]: ...
+
+    @classmethod
+    @overload
+    def onDeleteMany(
+        cls,
+        phase_or_handler: EventPhase = EventPhase.BEFORE,
+        *,
+        priority: int = 0,
+    ) -> Callable[
+        [Callable[["{{ model_name }}DeleteManyEventContext"], Any]],
+        Callable[["{{ model_name }}DeleteManyEventContext"], Any],
+    ]: ...
+
+    @classmethod
+    def onDeleteMany(cls, phase_or_handler: Any = EventPhase.BEFORE, *, priority: int = 0) -> Any:
+        return model_event_decorator(cls, "deleteMany", phase_or_handler, priority=priority)
+
+

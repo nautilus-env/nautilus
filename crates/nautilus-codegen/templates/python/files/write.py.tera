@@ -1,0 +1,25 @@
+"""{{ model_name }} writes and their event lifecycle."""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Union
+from .._internal.events import (
+    EventPhase, default_cud_result, resolve_stop_result, run_crud_event, run_crud_event_sync,
+)
+from .._internal.protocol import PROTOCOL_VERSION
+from .{{ snake_name }} import {{ model_name }}
+from ._{{ snake_name }}_inputs import (
+    {{ model_name }}WhereInput, {{ model_name }}CreateInput, {{ model_name }}UpdateInput,
+)
+from ._{{ snake_name }}_codec import (
+    _{{ table_name }}_py_to_db, _{{ snake_name }}_event_context,
+    _process_create_data, _process_where_filters, _{{ table_name }}_from_row,
+)
+from ._{{ snake_name }}_read import _{{ model_name }}Read
+
+class _{{ model_name }}Write(_{{ model_name }}Read):
+{% include "delegate/create.py.tera" %}
+{% include "delegate/create_many.py.tera" %}
+{% include "delegate/update.py.tera" %}
+{% include "delegate/delete.py.tera" %}
+{% include "delegate/delete_many.py.tera" %}
+{% include "delegate/update_many.py.tera" %}

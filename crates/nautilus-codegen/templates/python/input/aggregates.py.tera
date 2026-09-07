@@ -1,0 +1,71 @@
+{{ model_name }}ScalarFieldKeys = Literal[{% for field in scalar_fields %}"{{ field.name }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+
+SortOrder = Literal["asc", "desc"]
+
+
+class {{ model_name }}CountAggregateInput(TypedDict, total=False):
+    """Select which fields to include in COUNT aggregation."""
+    _all: NotRequired[bool]
+    {% for field in scalar_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+
+{% if has_numeric_fields %}
+class {{ model_name }}AvgAggregateInput(TypedDict, total=False):
+    """Select which numeric fields to include in AVG aggregation."""
+    {% for field in numeric_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+
+class {{ model_name }}SumAggregateInput(TypedDict, total=False):
+    """Select which numeric fields to include in SUM aggregation."""
+    {% for field in numeric_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+{% endif %}
+
+class {{ model_name }}MinAggregateInput(TypedDict, total=False):
+    """Select which fields to include in MIN aggregation."""
+    {% for field in orderable_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+
+class {{ model_name }}MaxAggregateInput(TypedDict, total=False):
+    """Select which fields to include in MAX aggregation."""
+    {% for field in orderable_fields %}
+    {{ field.name }}: NotRequired[bool]
+    {% endfor %}
+
+
+class {{ model_name }}AggregateOutput(TypedDict, total=False):
+    """Result row from an aggregate query on {{ model_name }}."""
+    _count: NotRequired[Dict[str, int]]
+    _avg: NotRequired[Dict[str, Optional[float]]]
+    _sum: NotRequired[Dict[str, Any]]
+    _min: NotRequired[Dict[str, Any]]
+    _max: NotRequired[Dict[str, Any]]
+
+
+class {{ model_name }}ExplainOutput(TypedDict):
+    """Rendered statement and database plan returned by ``explain``."""
+    sql: str
+    params: List[Any]
+    plan: List[Dict[str, Any]]
+
+
+class {{ model_name }}GroupByOutput(TypedDict, total=False):
+    """Result row from a group_by query on {{ model_name }}."""
+    {% for field in scalar_fields %}
+    {{ field.name }}: NotRequired[{{ field.python_type }}]
+    {% endfor %}
+    _count: NotRequired[Dict[str, int]]
+    _avg: NotRequired[Dict[str, float]]
+    _sum: NotRequired[Dict[str, Any]]
+    _min: NotRequired[Dict[str, Any]]
+    _max: NotRequired[Dict[str, Any]]
+
+

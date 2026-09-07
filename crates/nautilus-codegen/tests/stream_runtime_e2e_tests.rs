@@ -1,8 +1,9 @@
 use nautilus_codegen::{
+    generate_command,
     java::generate_java_client,
     js::{generate_all_js_models, generate_js_client, generate_js_models_index, js_runtime_files},
-    python::{generate_all_python_models, generate_python_client, python_runtime_files},
-    writer::{write_java_code, write_js_code, write_python_code, JsOutput},
+    writer::{write_java_code, write_js_code, JsOutput},
+    GenerateOptions, InstallMode,
 };
 use nautilus_schema::{ir::SchemaIr, validate_schema_source};
 use std::{
@@ -314,27 +315,80 @@ SELECT printf('User-%05d', x) FROM seq;
 }
 
 fn generate_python_client_fixture(output_dir: &Path, schema_path: &str) {
-    let ir = validate(BASE_SCHEMA);
-    let models = generate_all_python_models(&ir, true, 0)
-        .expect("generate_all_python_models should succeed");
-    let runtime_files = python_runtime_files();
-    let client_code = Some(
-        generate_python_client(&ir.models, schema_path, true)
-            .expect("generate_python_client should succeed"),
-    );
-
-    write_python_code(
-        output_dir
-            .to_str()
-            .expect("python output path should be utf-8"),
-        &models,
-        None,
-        None,
-        &[],
-        client_code,
-        &runtime_files,
+    fs::write(
+        schema_path,
+        format!(
+            "{BASE_SCHEMA}\ngenerator client {{\n  provider = \"nautilus-client-py\"\n  interface = \"async\"\n  output = {:?}\n}}\n",
+            output_dir.to_str().expect("python output path should be utf-8"),
+        ),
     )
-    .expect("failed to write generated python client");
+    .expect("failed to write Python generator configuration");
+    generate_command(
+        Path::new(schema_path),
+        GenerateOptions {
+            install: InstallMode::Never,
+            ..Default::default()
+        },
+    )
+    .expect("failed to generate Python client");
+}
+
+#[test]
+fn generated_python_modules_preserve_public_imports() {
+    use nautilus_codegen::{
+        extension_types::{generate_python_extension_files, ExtensionRegistry},
+        python::{
+            generate_all_python_models, generate_python_client, generate_python_composite_types,
+            generate_python_enums, python_runtime_files,
+        },
+        writer::write_python_code,
+    };
+
+    let Some(python) = python_executable() else {
+        return;
+    };
+    let fixture = tempfile::tempdir_in(workspace_root()).unwrap();
+    let schema_path = fixture.path().join("schema.nautilus");
+    let modular_output = fixture.path().join("modular_client");
+    let source = format!(
+        "{}\ngenerator client {{\n  provider = \"nautilus-client-py\"\n  interface = \"async\"\n  output = {:?}\n}}\n",
+        include_str!("fixtures/schemas/python_imports.nautilus"),
+        modular_output.to_str().unwrap(),
+    );
+    fs::write(&schema_path, &source).unwrap();
+    let ir = validate(&source);
+    let extensions = ExtensionRegistry::from_schema(&ir);
+    write_python_code(
+        fixture.path().join("source_client").to_str().unwrap(),
+        &generate_all_python_models(&ir, true, 5).unwrap(),
+        Some(generate_python_enums(&ir.enums).unwrap()),
+        generate_python_composite_types(&ir.composite_types).unwrap(),
+        &generate_python_extension_files(&extensions).unwrap(),
+        Some(generate_python_client(&ir.models, "schema.nautilus", true).unwrap()),
+        &python_runtime_files(),
+    )
+    .unwrap();
+    generate_command(
+        &schema_path,
+        GenerateOptions {
+            install: InstallMode::Never,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    fs::write(fixture.path().join("pydantic.py"), PYDANTIC_STUB).unwrap();
+    let runner = fixture.path().join("check_imports.py");
+    fs::write(
+        &runner,
+        include_str!("fixtures/stream_runtime_e2e/check_python_imports.py"),
+    )
+    .unwrap();
+    run_checked(
+        Command::new(python)
+            .arg(runner)
+            .env("PYTHONPATH", fixture.path()),
+        "Python public import compatibility",
+    );
 }
 
 fn generate_js_client_fixture(output_dir: &Path, schema_path: &str) {

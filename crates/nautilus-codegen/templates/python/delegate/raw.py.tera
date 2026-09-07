@@ -1,0 +1,45 @@
+    {% if is_async %}async {% endif %}def raw_query(
+        self,
+        sql: str,
+    ) -> List[Dict[str, Any]]:
+        """Execute a raw SQL string and return the result rows as dicts.
+
+        The SQL is sent to the database as-is with no parameter binding.
+        Prefer :meth:`raw_stmt_query` when user-supplied values are involved to
+        avoid SQL injection.
+
+        Args:
+            sql: Raw SQL string to execute.
+
+        Returns:
+            A list of dicts mapping column name to value for each result row.
+        """
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.rawQuery", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "sql": sql,
+        })
+        return result.get("data", [])
+
+    {% if is_async %}async {% endif %}def raw_stmt_query(
+        self,
+        sql: str,
+        params: Optional[List[Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Execute a raw prepared-statement query with bound parameters.
+
+        Use ``$1``, ``$2``, … (PostgreSQL) or ``?`` (MySQL / SQLite) as
+        placeholders. Parameters are bound in the order they appear in *params*.
+
+        Args:
+            sql: SQL string containing parameter placeholders.
+            params: Ordered list of values to bind to the placeholders.
+
+        Returns:
+            A list of dicts mapping column name to value for each result row.
+        """
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.rawStmtQuery", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "sql": sql,
+            "params": params or [],
+        })
+        return result.get("data", [])

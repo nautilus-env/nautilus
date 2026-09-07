@@ -1,0 +1,60 @@
+{% if has_includes %}
+
+class {{ model_name }}IncludeInput(TypedDict, total=False):
+    """Relations to include in {{ model_name }} queries.
+
+    Each field accepts either ``True`` (include with defaults) or a typed-args
+    dict to filter / paginate the included records.
+    """
+    {% for field in include_fields %}
+    {{ field.name }}: NotRequired[Union[bool, "FindMany{{ field.target_model }}ArgsFrom{{ model_name }}"]]
+    {% endfor %}
+
+{% for field in include_fields %}
+class FindMany{{ field.target_model }}ArgsFrom{{ model_name }}(TypedDict, total=False):
+    """Arguments for including {{ field.target_model }} in {{ model_name }} queries."""
+    where: NotRequired["{{ field.target_model }}WhereInput"]
+    {% if field.is_array %}
+    take: NotRequired[int]
+    skip: NotRequired[int]
+    order_by: NotRequired[Union["{{ field.target_model }}OrderByInput", List["{{ field.target_model }}OrderByInput"]]]
+    cursor: NotRequired[Dict[str, Any]]
+    distinct: NotRequired[List["{{ field.target_model }}ScalarFieldKeys"]]
+    {% endif %}
+    include: NotRequired["{{ field.target_model }}IncludeRecursive1"]
+
+{% endfor %}
+
+{# Recursive include types
+   These are used when THIS model ({{ model_name }}) is itself nested inside
+   another include.  Depth 1 is used at the first nesting level, depth N at
+   the Nth level; at the maximum depth the `include` field is omitted to avoid
+   infinite type recursion. #}
+{% for depth in range(end=recursive_type_depth) %}{% set d = depth + 1 %}
+class {{ model_name }}IncludeRecursive{{ d }}(TypedDict, total=False):
+    """Depth-{{ d }} include for {{ model_name }} (recursive nesting)."""
+    {% for field in include_fields %}
+    {{ field.name }}: NotRequired[Union[bool, "FindMany{{ field.target_model }}ArgsFrom{{ model_name }}Recursive{{ d }}"]]
+    {% endfor %}
+
+{% for field in include_fields %}
+class FindMany{{ field.target_model }}ArgsFrom{{ model_name }}Recursive{{ d }}(TypedDict, total=False):
+    """Depth-{{ d }} args for including {{ field.target_model }} from {{ model_name }}."""
+    where: NotRequired["{{ field.target_model }}WhereInput"]
+    {% if field.is_array %}
+    take: NotRequired[int]
+    skip: NotRequired[int]
+    order_by: NotRequired[Union["{{ field.target_model }}OrderByInput", List["{{ field.target_model }}OrderByInput"]]]
+    cursor: NotRequired[Dict[str, Any]]
+    distinct: NotRequired[List["{{ field.target_model }}ScalarFieldKeys"]]
+    {% endif %}
+    {% if d < recursive_type_depth %}
+    include: NotRequired["{{ field.target_model }}IncludeRecursive{{ d + 1 }}"]
+    {% endif %}
+
+{% endfor %}
+{% endfor %}
+
+{% endif %}
+
+

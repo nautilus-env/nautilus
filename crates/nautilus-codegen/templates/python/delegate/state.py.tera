@@ -1,0 +1,20 @@
+class {{ delegate_name }}{{ delegate_bases | default(value="") }}:
+    """Operations for {{ model_name }}.
+
+{%- if is_async %}
+    Every method executes immediately when awaited — no extra ``.exec()`` call
+    is needed::
+
+        users = await client.{{ table_name }}.find_many(where={"role": "ADMIN"}, take=10)
+        user  = await client.{{ table_name }}.create({"email": "alice@example.com"})
+{%- else %}
+    Every method executes synchronously — no ``await`` or event loop needed::
+
+        users = client.{{ table_name }}.find_many(where={"role": "ADMIN"}, take=10)
+        user  = client.{{ table_name }}.create({"email": "alice@example.com"})
+{%- endif %}
+    """
+
+    def __init__(self, client: NautilusClient) -> None:
+        self._client = client
+

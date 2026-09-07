@@ -1,0 +1,78 @@
+    {% if is_async %}async {% endif %}def group_by(
+        self,
+        by: List[{{ model_name }}ScalarFieldKeys],
+        *,
+        where: Optional[{{ model_name }}WhereInput] = None,
+        having: Optional[Dict[str, Any]] = None,
+        take: Optional[int] = None,
+        skip: Optional[int] = None,
+        count: Optional[Union[bool, {{ model_name }}CountAggregateInput]] = None,
+{% if has_numeric_fields %}
+        avg: Optional[{{ model_name }}AvgAggregateInput] = None,
+        sum: Optional[{{ model_name }}SumAggregateInput] = None,
+{% endif %}
+        min: Optional[{{ model_name }}MinAggregateInput] = None,
+        max: Optional[{{ model_name }}MaxAggregateInput] = None,
+        order: Optional[Union[
+            Dict[{{ model_name }}ScalarFieldKeys, SortOrder],
+            List[Dict[{{ model_name }}ScalarFieldKeys, SortOrder]],
+        ]] = None,
+    ) -> List[{{ model_name }}GroupByOutput]:
+        """Group {{ model_name }} records and compute aggregates.
+
+        Args:
+            by: List of field names to group by. Required.
+            where: Pre-group filter (applied before grouping).
+            having: Post-group filter (applied after grouping), e.g.
+                ``{"_count": {"_all": {"gt": 5}}}``.
+            take: Maximum number of groups to return.
+            skip: Number of groups to skip.
+            count: Compute COUNT. Pass ``True`` for ``COUNT(*)`` or a
+                ``{{ model_name }}CountAggregateInput`` dict to count specific fields.
+{% if has_numeric_fields %}
+            avg: Compute AVG for the specified numeric fields.
+            sum: Compute SUM for the specified numeric fields.
+{% endif %}
+            min: Compute MIN for the specified fields.
+            max: Compute MAX for the specified fields.
+            order: Sort order — a mapping or list of mappings from field name
+                to ``"asc"``/``"desc"``. Aggregate keys like ``_count``,
+                ``_sum``, etc. are also accepted.
+
+        Returns:
+            A list of ``{{ model_name }}GroupByOutput`` dicts, one per group.
+        """
+        args: Dict[str, Any] = {"by": list(by)}
+        if where is not None:
+            args["where"] = _process_where_filters(where, _{{ table_name }}_py_to_db)
+        if having is not None:
+            args["having"] = having
+        if take is not None:
+            args["take"] = take
+        if skip is not None:
+            args["skip"] = skip
+        if count is not None:
+            args["count"] = count
+{% if has_numeric_fields %}
+        if avg is not None:
+            args["avg"] = avg
+        if sum is not None:
+            args["sum"] = sum
+{% endif %}
+        if min is not None:
+            args["min"] = min
+        if max is not None:
+            args["max"] = max
+        if order is not None:
+            if isinstance(order, list):
+                args["orderBy"] = order
+            else:
+                args["orderBy"] = [{field: direction} for field, direction in order.items()]
+
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.groupBy", {
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "{{ model_name }}",
+            "args": args,
+        })
+        return result.get("data", [])
+
