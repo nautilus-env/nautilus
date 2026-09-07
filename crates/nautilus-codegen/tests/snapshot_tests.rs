@@ -72,6 +72,15 @@ fn generated_python_file<'a>(files: &'a [(String, String)], file_name: &str) -> 
         .unwrap_or_else(|| panic!("missing generated Python file '{file_name}'"))
 }
 
+/// The runtime module holding the codec rules every generated model shares.
+fn python_runtime_codec() -> String {
+    python_runtime_files()
+        .into_iter()
+        .find(|(name, _)| name == "_codec.py")
+        .map(|(_, code)| code)
+        .expect("missing Python runtime file '_codec.py'")
+}
+
 fn generated_named_file<'a>(files: &'a [(String, String)], file_name: &str) -> &'a str {
     files
         .iter()
@@ -1075,8 +1084,13 @@ fn test_python_composite_write_inputs_use_generated_types() {
         "expected composite array update inputs to use List[Address]:\n{code}"
     );
     assert!(
-        code.contains("result[db_key] = _serialize_scalar_input(key, value)"),
-        "expected composite payload serialization to flow through _serialize_scalar_input:\n{code}"
+        code.contains("_process_create_data = _User_input_codec.create_data"),
+        "expected composite payloads to be written through the shared codec:\n{code}"
+    );
+    assert!(
+        section_until(&python_runtime_codec(), "def create_data", "\n\n    def ")
+            .contains("result[db_key] = self.scalar_input(key, value)"),
+        "expected composite payload serialization to flow through scalar_input"
     );
 
     let composite_types = generate_python_composite_types(&ir.composite_types)
@@ -2007,7 +2021,8 @@ model User {
     let py_models = generate_all_python_models(&ir, false, 1)
         .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
-    assert!(py_model.contains("HstoreValue = Dict[str, Optional[str]]"));
+    assert!(py_model.contains("from .._internal.codec import HstoreValue,"));
+    assert!(python_runtime_codec().contains("HstoreValue = Dict[str, Optional[str]]"));
     assert!(py_model.contains("class HstoreFilter(TypedDict, total=False):"));
     // With the `hstore` extension declared the filter accepts the wrapper too.
     assert!(py_model.contains("equals: NotRequired[HstoreInput]"));
@@ -2236,13 +2251,15 @@ model User {
     let py_models = generate_all_python_models(&ir, false, 1)
         .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
+    assert!(py_model.contains("_process_where_filters = _User_input_codec.where_filters"));
 
-    assert!(py_model.contains("\"in_\": \"in\""));
-    assert!(py_model.contains("\"not_\": \"not\""));
-    assert!(py_model.contains("\"not_in\": \"notIn\""));
-    assert!(py_model.contains("\"startswith\": \"startsWith\""));
-    assert!(py_model.contains("\"endswith\": \"endsWith\""));
-    assert!(py_model.contains("\"is_null\": \"isNull\""));
+    let runtime = python_runtime_codec();
+    assert!(runtime.contains("\"in_\": \"in\""));
+    assert!(runtime.contains("\"not_\": \"not\""));
+    assert!(runtime.contains("\"not_in\": \"notIn\""));
+    assert!(runtime.contains("\"startswith\": \"startsWith\""));
+    assert!(runtime.contains("\"endswith\": \"endsWith\""));
+    assert!(runtime.contains("\"is_null\": \"isNull\""));
 }
 
 #[test]
@@ -2287,11 +2304,13 @@ model User {
     let py_models = generate_all_python_models(&ir, false, 1)
         .expect("generate_all_python_models should succeed");
     let py_model = generated_python_file(&py_models, "user.py");
-    assert!(py_model.contains("JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]"));
+    let py_runtime = python_runtime_codec();
+    assert!(py_runtime.contains("JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]"));
     assert!(py_model.contains("_object_value_db_fields: frozenset = frozenset({"));
-    assert!(py_model.contains("_object_equality_requires_explicit_equals"));
-    assert!(py_model.contains("Use {'equals': ...} for object equality filters."));
-    assert!(py_model.contains("\"equals\": \"eq\""));
+    assert!(py_model.contains("    _User_object_value_db_fields,\n)"));
+    assert!(py_runtime.contains("object_equality_requires_explicit_equals"));
+    assert!(py_runtime.contains("Use {'equals': ...} for object equality filters."));
+    assert!(py_runtime.contains("\"equals\": \"eq\""));
     assert!(py_model.contains("class JsonFilter(TypedDict, total=False):"));
     assert!(py_model.contains("equals: NotRequired[JsonValue]"));
     assert!(py_model.contains("payload: NotRequired[Union[JsonScalarOrArray, JsonFilter]]"));
@@ -2715,11 +2734,17 @@ model Doc {
     let py_models = generate_all_python_models(&ir, true, 0)
         .expect("generate_all_python_models should succeed");
     let py = generated_python_file(&py_models, "doc.py");
-    for function in ["def _serialize_scalar_input", "def _serialize_filter_input"] {
-        let body = section_until(py, function, "\n\ndef ");
+    assert!(
+        py.contains("_serialize_scalar_input = _Doc_input_codec.scalar_input")
+            && py.contains("_serialize_filter_input = _Doc_input_codec.filter_input"),
+        "the model must serialize its inputs through the shared codec:\n{py}"
+    );
+    let runtime = python_runtime_codec();
+    for method in ["def scalar_input", "def filter_input"] {
+        let body = section_until(&runtime, method, "\n\n    def ");
         assert!(
             body.contains("if value is None or serializer is None:"),
-            "the Python client must bypass the extension coercer for None in {function}:\n{body}"
+            "the Python client must bypass the extension coercer for None in {method}:\n{body}"
         );
     }
 }
@@ -2812,13 +2837,16 @@ model Post {
         .find(|(name, _)| name == "post.py")
         .expect("post model missing");
 
+    let post_include_args = section_until(post_py, "def _serialize_post_include_args", "\n\ndef ");
     assert!(
-        post_py.contains("_process_where_filters(value, _Post_py_to_db)"),
-        "an include node's where must go through the included model's own filter preparation:\n{post_py}"
+        post_include_args.contains("_process_where_filters,")
+            && post_include_args.contains("_Post_py_to_db,"),
+        "an include node's where must go through the included model's own filter preparation:\n{post_include_args}"
     );
     assert!(
-        post_py.contains(r#"node["orderBy"] = [{fk: fv} for fk, fv in value.items()]"#),
-        "an include node's order_by must reach the engine as a list:\n{post_py}"
+        python_runtime_codec()
+            .contains(r#"node["orderBy"] = [{fk: fv} for fk, fv in value.items()]"#),
+        "an include node's order_by must reach the engine as a list"
     );
     assert!(
         author_py.contains("from .post import _serialize_post_include_args"),

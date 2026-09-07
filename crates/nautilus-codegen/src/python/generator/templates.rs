@@ -52,6 +52,10 @@ pub static PYTHON_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::ne
             include_str!("../../../templates/python/model/imports.py.tera"),
         ),
         (
+            "model/runtime_imports.py.tera",
+            include_str!("../../../templates/python/model/runtime_imports.py.tera"),
+        ),
+        (
             "model/record.py.tera",
             include_str!("../../../templates/python/model/record.py.tera"),
         ),

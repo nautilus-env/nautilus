@@ -1,37 +1,11 @@
 def _serialize_{{ snake_name }}_include_args(spec: Any) -> Any:
-    """Prepare one include node, which loads {{ model_name }} under a parent.
-
-    The node has the shape of a read's arguments and gets the same
-    preparation: its ``where`` is a {{ model_name }} filter, so it goes through
-    this model's own serializers rather than the parent's, and ``order_by``
-    becomes the ``orderBy`` list the engine expects.
-    """
-    if spec is None or isinstance(spec, bool):
-        return spec
-    if not isinstance(spec, dict):
-        return spec
-    node: Dict[str, Any] = {}
-    for key, value in spec.items():
-        if value is None:
-            # An entry set to None is one the caller left out, not an empty
-            # filter or an empty ordering, which the engine would reject.
-            continue
-        if key in ("order_by", "orderBy"):
-            if isinstance(value, dict):
-                node["orderBy"] = [{fk: fv} for fk, fv in value.items()]
-            else:
-                node["orderBy"] = value
-        elif key == "where":
-            node["where"] = (
-                _process_where_filters(value, _{{ table_name }}_py_to_db)
-                if isinstance(value, dict)
-                else value
-            )
-        elif key == "include":
-            node["include"] = _serialize_{{ snake_name }}_include(value)
-        else:
-            node[key] = value
-    return node
+    """Prepare one include node, which loads {{ model_name }} under a parent."""
+    return _serialize_include_args(
+        spec,
+        _process_where_filters,
+        _{{ table_name }}_py_to_db,
+        _serialize_{{ snake_name }}_include,
+    )
 
 
 def _serialize_{{ snake_name }}_include(include: Any) -> Any:

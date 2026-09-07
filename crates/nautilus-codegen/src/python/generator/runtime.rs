@@ -31,7 +31,8 @@ pub fn generate_events_init() -> &'static str {
 }
 
 /// Returns static runtime Python files to be written alongside generated code.
-/// These files implement the base client, engine process manager, protocol, and errors.
+/// These files implement the base client, engine process manager, protocol,
+/// errors, and the wire codec the models share.
 pub fn python_runtime_files() -> Vec<GeneratedFile> {
     let protocol_version = nautilus_protocol::PROTOCOL_VERSION.to_string();
     vec![
@@ -63,6 +64,10 @@ pub fn python_runtime_files() -> Vec<GeneratedFile> {
         (
             "_events.py".to_string(),
             include_str!("../../../templates/python/runtime/_events.py").to_string(),
+        ),
+        (
+            "_codec.py".to_string(),
+            include_str!("../../../templates/python/runtime/_codec.py").to_string(),
         ),
     ]
 }

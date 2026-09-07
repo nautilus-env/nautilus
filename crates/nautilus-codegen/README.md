@@ -170,8 +170,10 @@ still defines the Pydantic model and public delegate, explicitly re-exports
 input/event types and compatibility helpers, and retains its existing
 `__all__`. Private operation classes supply inherited methods; the write class
 inherits reads because deleting one row first looks it up. Views only inherit
-reads and aggregates. Model-independent helpers remain with the codecs until
-their separate runtime consolidation.
+reads and aggregates. Model-independent codec rules — wire serialization,
+filter and select preparation, include nodes, row reading — live in the
+runtime's `_internal/codec.py`; a model keeps only its own maps and serializers
+and binds them through `ModelInputCodec`.
 
 Import order is deliberate: the facade defines the model before loading event
 types, codecs, and delegates that reference it. Relation codecs continue to

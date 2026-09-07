@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
 from pydantic import BaseModel, Field
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, NotRequired, Optional, Required, ClassVar, TypedDict, Union, overload
 {%- if needs_typeddict %}
@@ -20,7 +19,6 @@ from uuid import UUID
 from decimal import Decimal
 {%- endif %}
 {%- endif %}
-from enum import Enum
 from .._internal.descriptors import classproperty
 from .._internal.events import (
     CrudEventContext,
@@ -32,6 +30,7 @@ from .._internal.events import (
     run_crud_event_sync,
 )
 from .._internal.protocol import PROTOCOL_VERSION
+from .._internal.codec import HstoreValue, JsonPrimitive, JsonScalarOrArray, JsonValue
 {% if has_enums %}
 
 from ..enums.enums import {% for e in enum_imports %}{{ e }}{% if not loop.last %}, {% endif %}{% endfor %}
@@ -63,10 +62,5 @@ if TYPE_CHECKING:
 {%- endfor %}
 {%- endif %}
     from .._internal.client import NautilusClient
-
-JsonPrimitive = Union[str, int, float, bool, None]
-JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]
-JsonScalarOrArray = Union[JsonPrimitive, List[Any]]
-HstoreValue = Dict[str, Optional[str]]
 
 

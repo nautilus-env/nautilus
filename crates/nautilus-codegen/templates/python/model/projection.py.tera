@@ -12,4 +12,3 @@ class {{ model_name }}Projection(TypedDict, total=False):
 {%- endfor %}
 
 
-# Engine response key mapping: "table__db_column" -> Python field name
