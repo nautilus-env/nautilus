@@ -24,86 +24,31 @@
             _payload.insert("data".to_string(), _event_data.clone());
             serde_json::Value::Object(_payload)
         };
-        let mut _event_state = std::collections::HashMap::new();
-        let mut _before_ctx = {{ model_name }}UpdateManyEventContext::new(
+        crate::events::run_with_crud_events(
+            &_events,
             "{{ model_name }}",
             crate::CrudOperation::UpdateMany,
-            crate::EventPhase::Before,
-            _event_args.clone(),
-            _event_payload.clone(),
-            _event_state,
-        )
-        .with_transaction_id(_transaction_id.clone());
-        if let Some(_stop) = _events.run::<{{ model_name }}UpdateManyEventContext, u64>(
-            "{{ model_name }}",
-            crate::CrudOperation::UpdateMany,
-            crate::EventPhase::Before,
-            &mut _before_ctx,
-        ).await? {
-            return Ok(_stop);
-        }
-        _event_state = _before_ctx.state;
-
-        let _operation_result: nautilus_core::Result<u64> = async {
-            match crate::runtime::try_update_many_via_engine(
-                {% if is_async %}&self.client{% else %}&_c{% endif %},
-                "{{ model_name }}",
-                filter,
-                _event_data,
-            )
-            .await?
-            {
-                Some(count) => Ok(count),
-                None => Err(nautilus_core::Error::InvalidQuery(
-                    "updateMany requires the embedded engine path in the generated Rust client"
-                        .to_string(),
-                )),
-            }
-        }.await;
-
-        match _operation_result {
-            Ok(_decoded) => {
-                let mut _after_ctx = {{ model_name }}UpdateManyEventContext::new(
+            _transaction_id,
+            _event_args,
+            _event_payload,
+            || async move {
+                match crate::runtime::try_update_many_via_engine(
+                    {% if is_async %}&self.client{% else %}&_c{% endif %},
                     "{{ model_name }}",
-                    crate::CrudOperation::UpdateMany,
-                    crate::EventPhase::After,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
+                    filter,
+                    _event_data,
                 )
-                .with_result(_decoded)
-                .with_transaction_id(_transaction_id);
-                if let Some(_stop) = _events.run::<{{ model_name }}UpdateManyEventContext, u64>(
-                    "{{ model_name }}",
-                    crate::CrudOperation::UpdateMany,
-                    crate::EventPhase::After,
-                    &mut _after_ctx,
-                ).await? {
-                    return Ok(_stop);
+                .await?
+                {
+                    Some(count) => Ok(count),
+                    None => Err(nautilus_core::Error::InvalidQuery(
+                        "updateMany requires the embedded engine path in the generated Rust client"
+                            .to_string(),
+                    )),
                 }
-                Ok(_decoded)
-            }
-            Err(_error) => {
-                let _error_text = _error.to_string();
-                let mut _error_ctx = {{ model_name }}UpdateManyEventContext::new(
-                    "{{ model_name }}",
-                    crate::CrudOperation::UpdateMany,
-                    crate::EventPhase::Error,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_error(_error_text)
-                .with_transaction_id(_transaction_id);
-                let _ = _events.run::<{{ model_name }}UpdateManyEventContext, u64>(
-                    "{{ model_name }}",
-                    crate::CrudOperation::UpdateMany,
-                    crate::EventPhase::Error,
-                    &mut _error_ctx,
-                ).await?;
-                Err(_error)
-            }
-        }
+            },
+        )
+        .await
 {%- if not is_async %}
         }))
 {%- endif %}

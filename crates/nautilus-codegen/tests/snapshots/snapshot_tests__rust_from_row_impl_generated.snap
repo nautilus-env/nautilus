@@ -1522,102 +1522,48 @@ where
         let _transaction_id = _c.transaction_id();
         let _event_args = data.clone();
         let _event_payload = data.to_engine_data()?;
-        let mut _event_state = std::collections::HashMap::new();
-        let mut _before_ctx = ProductCreateEventContext::new(
+        let _engine_data = _event_payload.clone();
+        crate::events::run_with_crud_events(
+            &_events,
             "Product",
             crate::CrudOperation::Create,
-            crate::EventPhase::Before,
-            _event_args.clone(),
-            _event_payload.clone(),
-            _event_state,
+            _transaction_id,
+            _event_args,
+            _event_payload,
+            || async move {
+                if let Some(record) =
+                    crate::runtime::try_create_via_engine::<_, Product>(
+                        &_c,
+                        "Product",
+                        _engine_data,
+                        data.has_nested_writes(),
+                        |row| {
+                            decode_model_row_with_hints(
+                                row,
+                                all_scalar_decode_slots(),
+                                all_scalar_value_hints(),
+                            )
+                        },
+                    )
+                    .await?
+                {
+                    Ok(record)
+                } else {
+                    let mut builder = ProductCreate::new(_c);
+                    if let Some(value) = data.id {
+                        builder = builder.id(value);
+                    }
+                    if let Some(value) = data.name {
+                        builder = builder.name(value);
+                    }
+                    if let Some(value) = data.price {
+                        builder = builder.price(value);
+                    }
+                    builder.exec().await
+                }
+            },
         )
-        .with_transaction_id(_transaction_id.clone());
-        if let Some(_stop) = _events.run::<ProductCreateEventContext, Product>(
-            "Product",
-            crate::CrudOperation::Create,
-            crate::EventPhase::Before,
-            &mut _before_ctx,
-        ).await? {
-            return Ok(_stop);
-        }
-        _event_state = _before_ctx.state;
-
-        let _operation_result: nautilus_core::Result<Product> = async {
-            if let Some(record) =
-                crate::runtime::try_create_via_engine::<_, Product>(
-                    &_c,
-                    "Product",
-                    _event_payload.clone(),
-                    data.has_nested_writes(),
-                    |row| {
-                        decode_model_row_with_hints(
-                            row,
-                            all_scalar_decode_slots(),
-                            all_scalar_value_hints(),
-                        )
-                    },
-                )
-                .await?
-            {
-                Ok(record)
-            } else {
-                let mut builder = ProductCreate::new(_c);
-                if let Some(value) = data.id {
-                    builder = builder.id(value);
-                }
-                if let Some(value) = data.name {
-                    builder = builder.name(value);
-                }
-                if let Some(value) = data.price {
-                    builder = builder.price(value);
-                }
-                builder.exec().await
-            }
-        }.await;
-
-        match _operation_result {
-            Ok(_decoded) => {
-                let mut _after_ctx = ProductCreateEventContext::new(
-                    "Product",
-                    crate::CrudOperation::Create,
-                    crate::EventPhase::After,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_result(_decoded.clone())
-                .with_transaction_id(_transaction_id);
-                if let Some(_stop) = _events.run::<ProductCreateEventContext, Product>(
-                    "Product",
-                    crate::CrudOperation::Create,
-                    crate::EventPhase::After,
-                    &mut _after_ctx,
-                ).await? {
-                    return Ok(_stop);
-                }
-                Ok(_decoded)
-            }
-            Err(_error) => {
-                let _error_text = _error.to_string();
-                let mut _error_ctx = ProductCreateEventContext::new(
-                    "Product",
-                    crate::CrudOperation::Create,
-                    crate::EventPhase::Error,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_error(_error_text)
-                .with_transaction_id(_transaction_id);
-                let _ = _events.run::<ProductCreateEventContext, Product>(
-                    "Product",
-                    crate::CrudOperation::Create,
-                    crate::EventPhase::Error,
-                    &mut _error_ctx,
-                ).await?;
-                Err(_error)
-            }
-        }
+        .await
         }))
     }
 
@@ -1636,99 +1582,44 @@ where
         let _event_payload = serde_json::Value::Array(
             entries.iter().map(ProductCreateEntry::to_engine_data).collect(),
         );
-        let mut _event_state = std::collections::HashMap::new();
-        let mut _before_ctx = ProductCreateManyEventContext::new(
+        crate::events::run_with_crud_events(
+            &_events,
             "Product",
             crate::CrudOperation::CreateMany,
-            crate::EventPhase::Before,
-            _event_args.clone(),
-            _event_payload.clone(),
-            _event_state,
-        )
-        .with_transaction_id(_transaction_id.clone());
-        if let Some(_stop) = _events.run::<ProductCreateManyEventContext, Vec<Product>>(
-            "Product",
-            crate::CrudOperation::CreateMany,
-            crate::EventPhase::Before,
-            &mut _before_ctx,
-        ).await? {
-            return Ok(_stop);
-        }
-        _event_state = _before_ctx.state;
-
-        let _operation_result: nautilus_core::Result<Vec<Product>> = async {
-            if entries.is_empty() {
-                return Ok(vec![]);
-            }
-
-            if let Some(rows) =
-                crate::runtime::try_create_many_via_engine::<_, Product>(
-                    &_c,
-                    "Product",
-                    entries.iter().map(ProductCreateEntry::to_engine_data).collect(),
-                    |row| {
-                        decode_model_row_with_hints(
-                            row,
-                            all_scalar_decode_slots(),
-                            all_scalar_value_hints(),
-                        )
-                    },
-                )
-                .await?
-            {
-                return Ok(rows);
-            }
-
-            let mut builder = ProductCreateMany::new(_c);
-            for entry in entries {
-                builder = builder.entry(entry);
-            }
-            builder.exec().await
-        }.await;
-
-        match _operation_result {
-            Ok(_decoded) => {
-                let mut _after_ctx = ProductCreateManyEventContext::new(
-                    "Product",
-                    crate::CrudOperation::CreateMany,
-                    crate::EventPhase::After,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_result(_decoded.clone())
-                .with_transaction_id(_transaction_id);
-                if let Some(_stop) = _events.run::<ProductCreateManyEventContext, Vec<Product>>(
-                    "Product",
-                    crate::CrudOperation::CreateMany,
-                    crate::EventPhase::After,
-                    &mut _after_ctx,
-                ).await? {
-                    return Ok(_stop);
+            _transaction_id,
+            _event_args,
+            _event_payload,
+            || async move {
+                if entries.is_empty() {
+                    return Ok(vec![]);
                 }
-                Ok(_decoded)
-            }
-            Err(_error) => {
-                let _error_text = _error.to_string();
-                let mut _error_ctx = ProductCreateManyEventContext::new(
-                    "Product",
-                    crate::CrudOperation::CreateMany,
-                    crate::EventPhase::Error,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_error(_error_text)
-                .with_transaction_id(_transaction_id);
-                let _ = _events.run::<ProductCreateManyEventContext, Vec<Product>>(
-                    "Product",
-                    crate::CrudOperation::CreateMany,
-                    crate::EventPhase::Error,
-                    &mut _error_ctx,
-                ).await?;
-                Err(_error)
-            }
-        }
+
+                if let Some(rows) =
+                    crate::runtime::try_create_many_via_engine::<_, Product>(
+                        &_c,
+                        "Product",
+                        entries.iter().map(ProductCreateEntry::to_engine_data).collect(),
+                        |row| {
+                            decode_model_row_with_hints(
+                                row,
+                                all_scalar_decode_slots(),
+                                all_scalar_value_hints(),
+                            )
+                        },
+                    )
+                    .await?
+                {
+                    return Ok(rows);
+                }
+
+                let mut builder = ProductCreateMany::new(_c);
+                for entry in entries {
+                    builder = builder.entry(entry);
+                }
+                builder.exec().await
+            },
+        )
+        .await
         }))
     }
 
@@ -1758,112 +1649,57 @@ where
             _payload.insert("data".to_string(), _engine_data.clone());
             serde_json::Value::Object(_payload)
         };
-        let mut _event_state = std::collections::HashMap::new();
-        let mut _before_ctx = ProductUpdateEventContext::new(
+        crate::events::run_with_crud_events(
+            &_events,
             "Product",
             crate::CrudOperation::Update,
-            crate::EventPhase::Before,
-            _event_args.clone(),
-            _event_payload.clone(),
-            _event_state,
+            _transaction_id,
+            _event_args,
+            _event_payload,
+            || async move {
+                let no_assignments = _engine_data
+                    .as_object()
+                    .is_some_and(|data| data.is_empty());
+                if no_assignments {
+                    return Ok(vec![]);
+                }
+
+                if let Some(filter_json) = serialize_update_filter_for_engine(args.where_.as_ref())? {
+                    if let Some(rows) =
+                        crate::runtime::try_update_via_engine::<_, Product>(
+                            &_c,
+                            "Product",
+                            filter_json,
+                            _engine_data.clone(),
+                            args.data.has_nested_writes(),
+                            |row| {
+                                decode_model_row_with_hints(
+                                    row,
+                                    all_scalar_decode_slots(),
+                                    all_scalar_value_hints(),
+                                )
+                            },
+                        )
+                        .await?
+                    {
+                        return Ok(rows);
+                    }
+                }
+
+                if args.data.has_nested_writes() {
+                    return Err(crate::runtime::nested::writes_need_engine("Product"));
+                }
+
+                let mut builder = ProductUpdate::new(_c).set_data(args.data);
+                if let Some(filter) = args.where_ {
+                    builder = builder.where_(filter);
+                } else {
+                    builder = builder.all();
+                }
+                builder.exec().await
+            },
         )
-        .with_transaction_id(_transaction_id.clone());
-        if let Some(_stop) = _events.run::<ProductUpdateEventContext, Vec<Product>>(
-            "Product",
-            crate::CrudOperation::Update,
-            crate::EventPhase::Before,
-            &mut _before_ctx,
-        ).await? {
-            return Ok(_stop);
-        }
-        _event_state = _before_ctx.state;
-
-        let _operation_result: nautilus_core::Result<Vec<Product>> = async {
-            let no_assignments = _engine_data
-                .as_object()
-                .is_some_and(|data| data.is_empty());
-            if no_assignments {
-                return Ok(vec![]);
-            }
-
-            if let Some(filter_json) = serialize_update_filter_for_engine(args.where_.as_ref())? {
-                if let Some(rows) =
-                    crate::runtime::try_update_via_engine::<_, Product>(
-                        &_c,
-                        "Product",
-                        filter_json,
-                        _engine_data.clone(),
-                        args.data.has_nested_writes(),
-                        |row| {
-                            decode_model_row_with_hints(
-                                row,
-                                all_scalar_decode_slots(),
-                                all_scalar_value_hints(),
-                            )
-                        },
-                    )
-                    .await?
-                {
-                    return Ok(rows);
-                }
-            }
-
-            if args.data.has_nested_writes() {
-                return Err(crate::runtime::nested::writes_need_engine("Product"));
-            }
-
-            let mut builder = ProductUpdate::new(_c).set_data(args.data);
-            if let Some(filter) = args.where_ {
-                builder = builder.where_(filter);
-            } else {
-                builder = builder.all();
-            }
-            builder.exec().await
-        }.await;
-
-        match _operation_result {
-            Ok(_decoded) => {
-                let mut _after_ctx = ProductUpdateEventContext::new(
-                    "Product",
-                    crate::CrudOperation::Update,
-                    crate::EventPhase::After,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_result(_decoded.clone())
-                .with_transaction_id(_transaction_id);
-                if let Some(_stop) = _events.run::<ProductUpdateEventContext, Vec<Product>>(
-                    "Product",
-                    crate::CrudOperation::Update,
-                    crate::EventPhase::After,
-                    &mut _after_ctx,
-                ).await? {
-                    return Ok(_stop);
-                }
-                Ok(_decoded)
-            }
-            Err(_error) => {
-                let _error_text = _error.to_string();
-                let mut _error_ctx = ProductUpdateEventContext::new(
-                    "Product",
-                    crate::CrudOperation::Update,
-                    crate::EventPhase::Error,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_error(_error_text)
-                .with_transaction_id(_transaction_id);
-                let _ = _events.run::<ProductUpdateEventContext, Vec<Product>>(
-                    "Product",
-                    crate::CrudOperation::Update,
-                    crate::EventPhase::Error,
-                    &mut _error_ctx,
-                ).await?;
-                Err(_error)
-            }
-        }
+        .await
         }))
     }
 
@@ -1890,100 +1726,45 @@ where
             _payload.insert("filter".to_string(), _filter);
             serde_json::Value::Object(_payload)
         };
-        let mut _event_state = std::collections::HashMap::new();
-        let mut _before_ctx = ProductDeleteEventContext::new(
+        crate::events::run_with_crud_events(
+            &_events,
             "Product",
             crate::CrudOperation::Delete,
-            crate::EventPhase::Before,
-            _event_args.clone(),
-            _event_payload.clone(),
-            _event_state,
+            _transaction_id,
+            _event_args,
+            _event_payload,
+            || async move {
+                if let Some(filter) = args.where_.clone() {
+                    if _c.dialect().supports_returning() && is_single_record_filter(&filter) {
+                        let deleted = ProductDelete::new(_c.clone()).where_(filter).exec().await?;
+                        return match deleted.len() {
+                            0 => Ok(None),
+                            1 => Ok(deleted.into_iter().next()),
+                            count => Err(nautilus_core::Error::Other(format!(
+                                "expected at most one deleted Product row, got {}",
+                                count
+                            ))),
+                        };
+                    }
+                }
+
+                // Find the first matching record to get its primary key
+                let record = self.find_first(nautilus_core::FindManyArgs {
+                    where_: args.where_,
+                    ..Default::default()
+                })?;
+
+                let Some(record) = record else {
+                    return Ok(None);
+                };
+
+                // Build a primary-key filter to delete exactly that one record
+                let pk_filter = nautilus_core::Expr::column("Product__id").eq(nautilus_core::Expr::param(record.id.clone()));
+                ProductDelete::new(_c.clone()).where_(pk_filter).exec().await?;
+                Ok(Some(record))
+            },
         )
-        .with_transaction_id(_transaction_id.clone());
-        if let Some(_stop) = _events.run::<ProductDeleteEventContext, Option<Product>>(
-            "Product",
-            crate::CrudOperation::Delete,
-            crate::EventPhase::Before,
-            &mut _before_ctx,
-        ).await? {
-            return Ok(_stop);
-        }
-        _event_state = _before_ctx.state;
-
-        let _operation_result: nautilus_core::Result<Option<Product>> = async {
-            if let Some(filter) = args.where_.clone() {
-                if _c.dialect().supports_returning() && is_single_record_filter(&filter) {
-                    let deleted = ProductDelete::new(_c.clone()).where_(filter).exec().await?;
-                    return match deleted.len() {
-                        0 => Ok(None),
-                        1 => Ok(deleted.into_iter().next()),
-                        count => Err(nautilus_core::Error::Other(format!(
-                            "expected at most one deleted Product row, got {}",
-                            count
-                        ))),
-                    };
-                }
-            }
-
-            // Find the first matching record to get its primary key
-            let record = self.find_first(nautilus_core::FindManyArgs {
-                where_: args.where_,
-                ..Default::default()
-            })?;
-
-            let Some(record) = record else {
-                return Ok(None);
-            };
-
-            // Build a primary-key filter to delete exactly that one record
-            let pk_filter = nautilus_core::Expr::column("Product__id").eq(nautilus_core::Expr::param(record.id.clone()));
-            ProductDelete::new(_c.clone()).where_(pk_filter).exec().await?;
-            Ok(Some(record))
-        }.await;
-
-        match _operation_result {
-            Ok(_decoded) => {
-                let mut _after_ctx = ProductDeleteEventContext::new(
-                    "Product",
-                    crate::CrudOperation::Delete,
-                    crate::EventPhase::After,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_result(_decoded.clone())
-                .with_transaction_id(_transaction_id);
-                if let Some(_stop) = _events.run::<ProductDeleteEventContext, Option<Product>>(
-                    "Product",
-                    crate::CrudOperation::Delete,
-                    crate::EventPhase::After,
-                    &mut _after_ctx,
-                ).await? {
-                    return Ok(_stop);
-                }
-                Ok(_decoded)
-            }
-            Err(_error) => {
-                let _error_text = _error.to_string();
-                let mut _error_ctx = ProductDeleteEventContext::new(
-                    "Product",
-                    crate::CrudOperation::Delete,
-                    crate::EventPhase::Error,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_error(_error_text)
-                .with_transaction_id(_transaction_id);
-                let _ = _events.run::<ProductDeleteEventContext, Option<Product>>(
-                    "Product",
-                    crate::CrudOperation::Delete,
-                    crate::EventPhase::Error,
-                    &mut _error_ctx,
-                ).await?;
-                Err(_error)
-            }
-        }
+        .await
         }))
     }
 
@@ -2010,79 +1791,24 @@ where
             _payload.insert("filter".to_string(), _filter);
             serde_json::Value::Object(_payload)
         };
-        let mut _event_state = std::collections::HashMap::new();
-        let mut _before_ctx = ProductDeleteManyEventContext::new(
+        crate::events::run_with_crud_events(
+            &_events,
             "Product",
             crate::CrudOperation::DeleteMany,
-            crate::EventPhase::Before,
-            _event_args.clone(),
-            _event_payload.clone(),
-            _event_state,
-        )
-        .with_transaction_id(_transaction_id.clone());
-        if let Some(_stop) = _events.run::<ProductDeleteManyEventContext, Vec<Product>>(
-            "Product",
-            crate::CrudOperation::DeleteMany,
-            crate::EventPhase::Before,
-            &mut _before_ctx,
-        ).await? {
-            return Ok(_stop);
-        }
-        _event_state = _before_ctx.state;
-
-        let _operation_result: nautilus_core::Result<Vec<Product>> = async {
-            let mut builder = ProductDelete::new(_c);
-            if let Some(expr) = args.where_ {
-                builder = builder.where_(expr);
-            } else {
-                builder = builder.all();
-            }
-            builder.exec().await
-        }.await;
-
-        match _operation_result {
-            Ok(_decoded) => {
-                let mut _after_ctx = ProductDeleteManyEventContext::new(
-                    "Product",
-                    crate::CrudOperation::DeleteMany,
-                    crate::EventPhase::After,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_result(_decoded.clone())
-                .with_transaction_id(_transaction_id);
-                if let Some(_stop) = _events.run::<ProductDeleteManyEventContext, Vec<Product>>(
-                    "Product",
-                    crate::CrudOperation::DeleteMany,
-                    crate::EventPhase::After,
-                    &mut _after_ctx,
-                ).await? {
-                    return Ok(_stop);
+            _transaction_id,
+            _event_args,
+            _event_payload,
+            || async move {
+                let mut builder = ProductDelete::new(_c);
+                if let Some(expr) = args.where_ {
+                    builder = builder.where_(expr);
+                } else {
+                    builder = builder.all();
                 }
-                Ok(_decoded)
-            }
-            Err(_error) => {
-                let _error_text = _error.to_string();
-                let mut _error_ctx = ProductDeleteManyEventContext::new(
-                    "Product",
-                    crate::CrudOperation::DeleteMany,
-                    crate::EventPhase::Error,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_error(_error_text)
-                .with_transaction_id(_transaction_id);
-                let _ = _events.run::<ProductDeleteManyEventContext, Vec<Product>>(
-                    "Product",
-                    crate::CrudOperation::DeleteMany,
-                    crate::EventPhase::Error,
-                    &mut _error_ctx,
-                ).await?;
-                Err(_error)
-            }
-        }
+                builder.exec().await
+            },
+        )
+        .await
         }))
     }
 
@@ -2134,86 +1860,31 @@ where
             _payload.insert("data".to_string(), _event_data.clone());
             serde_json::Value::Object(_payload)
         };
-        let mut _event_state = std::collections::HashMap::new();
-        let mut _before_ctx = ProductUpdateManyEventContext::new(
+        crate::events::run_with_crud_events(
+            &_events,
             "Product",
             crate::CrudOperation::UpdateMany,
-            crate::EventPhase::Before,
-            _event_args.clone(),
-            _event_payload.clone(),
-            _event_state,
-        )
-        .with_transaction_id(_transaction_id.clone());
-        if let Some(_stop) = _events.run::<ProductUpdateManyEventContext, u64>(
-            "Product",
-            crate::CrudOperation::UpdateMany,
-            crate::EventPhase::Before,
-            &mut _before_ctx,
-        ).await? {
-            return Ok(_stop);
-        }
-        _event_state = _before_ctx.state;
-
-        let _operation_result: nautilus_core::Result<u64> = async {
-            match crate::runtime::try_update_many_via_engine(
-                &_c,
-                "Product",
-                filter,
-                _event_data,
-            )
-            .await?
-            {
-                Some(count) => Ok(count),
-                None => Err(nautilus_core::Error::InvalidQuery(
-                    "updateMany requires the embedded engine path in the generated Rust client"
-                        .to_string(),
-                )),
-            }
-        }.await;
-
-        match _operation_result {
-            Ok(_decoded) => {
-                let mut _after_ctx = ProductUpdateManyEventContext::new(
+            _transaction_id,
+            _event_args,
+            _event_payload,
+            || async move {
+                match crate::runtime::try_update_many_via_engine(
+                    &_c,
                     "Product",
-                    crate::CrudOperation::UpdateMany,
-                    crate::EventPhase::After,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
+                    filter,
+                    _event_data,
                 )
-                .with_result(_decoded)
-                .with_transaction_id(_transaction_id);
-                if let Some(_stop) = _events.run::<ProductUpdateManyEventContext, u64>(
-                    "Product",
-                    crate::CrudOperation::UpdateMany,
-                    crate::EventPhase::After,
-                    &mut _after_ctx,
-                ).await? {
-                    return Ok(_stop);
+                .await?
+                {
+                    Some(count) => Ok(count),
+                    None => Err(nautilus_core::Error::InvalidQuery(
+                        "updateMany requires the embedded engine path in the generated Rust client"
+                            .to_string(),
+                    )),
                 }
-                Ok(_decoded)
-            }
-            Err(_error) => {
-                let _error_text = _error.to_string();
-                let mut _error_ctx = ProductUpdateManyEventContext::new(
-                    "Product",
-                    crate::CrudOperation::UpdateMany,
-                    crate::EventPhase::Error,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_error(_error_text)
-                .with_transaction_id(_transaction_id);
-                let _ = _events.run::<ProductUpdateManyEventContext, u64>(
-                    "Product",
-                    crate::CrudOperation::UpdateMany,
-                    crate::EventPhase::Error,
-                    &mut _error_ctx,
-                ).await?;
-                Err(_error)
-            }
-        }
+            },
+        )
+        .await
         }))
     }
 

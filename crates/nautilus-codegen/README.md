@@ -146,7 +146,10 @@ and template, then verify `snapshot_tests` and a compiled/runtime consumer from
 Rust's `templates/rust/delegate.tera` assembles partials under `delegate/` for
 nested and scalar input, aggregate types, filters, reads, projections, streaming,
 and individual write operations. `model/` separates imports and row decoding;
-`read/` separates ordering, builder configuration, and execution.
+`read/` separates ordering, builder configuration, and execution. A write names
+its operation, event args and payload and hands its body to
+`events::run_with_crud_events`, which owns the before/after/error sequence, the
+state carried between phases, and a before handler that stops propagation.
 
 Command-based Rust generation uses `src/generator/files.rs` to render these
 partials into `src/<model>/` alongside a short `src/<model>.rs` facade. Model

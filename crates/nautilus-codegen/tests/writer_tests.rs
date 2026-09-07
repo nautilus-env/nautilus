@@ -307,7 +307,11 @@ fn test_write_rust_code_writes_event_runtime_and_client_hooks() {
             && events_content.contains("pub fn on_update_many_with_priority")
             && events_content
                 .contains("handlers.sort_by(|left, right| right.priority.cmp(&left.priority))")
-            && events_content.contains("pub async fn run<C, T>"),
+            && events_content.contains("pub async fn run<C, T>")
+            && events_content.contains("pub async fn run_with_crud_events<TArgs, TResult, F, Fut>")
+            && events_content.contains("EventPhase::Before")
+            && events_content.contains("EventPhase::After")
+            && events_content.contains("EventPhase::Error"),
         "events.rs should expose the generated Rust event runtime:\n{events_content}"
     );
     assert!(
@@ -319,11 +323,11 @@ fn test_write_rust_code_writes_event_runtime_and_client_hooks() {
     assert!(
         user_content.contains("pub type UserCreateEventContext")
             && user_content.contains("pub type UserUpdateEventContext")
-            && user_content.contains("crate::EventPhase::Before")
-            && user_content.contains("_events.run::<UserCreateEventContext, User>")
-            && user_content.contains("_events.run::<UserUpdateEventContext, Vec<User>>")
             && user_content.contains("pub type UserUpdateManyEventContext")
-            && user_content.contains("_events.run::<UserUpdateManyEventContext, u64>"),
+            && user_content.contains("crate::events::run_with_crud_events(")
+            && user_content.contains("crate::CrudOperation::Create,")
+            && user_content.contains("crate::CrudOperation::Update,")
+            && user_content.contains("crate::CrudOperation::UpdateMany,"),
         "generated Rust delegates should type and run CRUD event hooks:\n{user_content}"
     );
 }

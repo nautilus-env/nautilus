@@ -388,3 +388,94 @@ impl EventRegistry {
         Ok(None)
     }
 }
+
+/// Runs one write through its CRUD events: before, the operation, then after or error.
+///
+/// A before handler that stops propagation supplies the result and the operation never
+/// runs; the state a handler leaves behind reaches the later phases, and an error still
+/// reaches its handlers before it is returned.
+pub async fn run_with_crud_events<TArgs, TResult, F, Fut>(
+    events: &EventRegistry,
+    model_name: &'static str,
+    operation: CrudOperation,
+    transaction_id: Option<String>,
+    args: TArgs,
+    payload: serde_json::Value,
+    run: F,
+) -> nautilus_core::Result<TResult>
+where
+    TArgs: Clone + Send + 'static,
+    TResult: Clone + Send + 'static,
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = nautilus_core::Result<TResult>>,
+{
+    let mut before = CrudEventContext::<TArgs, TResult>::new(
+        model_name,
+        operation,
+        EventPhase::Before,
+        args.clone(),
+        payload.clone(),
+        HashMap::new(),
+    )
+    .with_transaction_id(transaction_id.clone());
+    if let Some(stop) = events
+        .run::<CrudEventContext<TArgs, TResult>, TResult>(
+            model_name,
+            operation,
+            EventPhase::Before,
+            &mut before,
+        )
+        .await?
+    {
+        return Ok(stop);
+    }
+    let state = before.state;
+
+    match run().await {
+        Ok(result) => {
+            let mut after = CrudEventContext::<TArgs, TResult>::new(
+                model_name,
+                operation,
+                EventPhase::After,
+                args,
+                payload,
+                state,
+            )
+            .with_result(result.clone())
+            .with_transaction_id(transaction_id);
+            if let Some(stop) = events
+                .run::<CrudEventContext<TArgs, TResult>, TResult>(
+                    model_name,
+                    operation,
+                    EventPhase::After,
+                    &mut after,
+                )
+                .await?
+            {
+                return Ok(stop);
+            }
+            Ok(result)
+        }
+        Err(error) => {
+            let mut failed = CrudEventContext::<TArgs, TResult>::new(
+                model_name,
+                operation,
+                EventPhase::Error,
+                args,
+                payload,
+                state,
+            )
+            .with_error(error.to_string())
+            .with_transaction_id(transaction_id);
+            events
+                .run::<CrudEventContext<TArgs, TResult>, TResult>(
+                    model_name,
+                    operation,
+                    EventPhase::Error,
+                    &mut failed,
+                )
+                .await?;
+            Err(error)
+        }
+    }
+}

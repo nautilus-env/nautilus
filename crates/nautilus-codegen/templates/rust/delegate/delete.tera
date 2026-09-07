@@ -24,101 +24,46 @@
             _payload.insert("filter".to_string(), _filter);
             serde_json::Value::Object(_payload)
         };
-        let mut _event_state = std::collections::HashMap::new();
-        let mut _before_ctx = {{ model_name }}DeleteEventContext::new(
+        crate::events::run_with_crud_events(
+            &_events,
             "{{ model_name }}",
             crate::CrudOperation::Delete,
-            crate::EventPhase::Before,
-            _event_args.clone(),
-            _event_payload.clone(),
-            _event_state,
+            _transaction_id,
+            _event_args,
+            _event_payload,
+            || async move {
+                if let Some(filter) = args.where_.clone() {
+                    if {% if is_async %}self.client{% else %}_c{% endif %}.dialect().supports_returning() && is_single_record_filter(&filter) {
+                        let deleted = {{ delete_name }}::new({% if is_async %}self.client.clone(){% else %}_c.clone(){% endif %}).where_(filter).exec().await?;
+                        return match deleted.len() {
+                            0 => Ok(None),
+                            1 => Ok(deleted.into_iter().next()),
+                            count => Err(nautilus_core::Error::Other(format!(
+                                "expected at most one deleted {{ model_name }} row, got {}",
+                                count
+                            ))),
+                        };
+                    }
+                }
+
+                // Find the first matching record to get its primary key
+                let record = self.find_first(nautilus_core::FindManyArgs {
+                    where_: args.where_,
+                    ..Default::default()
+                }){% if is_async %}.await{% endif %}?;
+
+                let Some(record) = record else {
+                    return Ok(None);
+                };
+
+                // Build a primary-key filter to delete exactly that one record
+{%- set pk_fields = scalar_fields | filter(attribute="is_pk", value=true) %}
+                let pk_filter = {% for f in pk_fields %}{% if not loop.first %}.and({% endif %}nautilus_core::Expr::column("{{ table_name }}__{{ f.db_name }}").eq(nautilus_core::Expr::param(record.{{ f.name }}.clone())){% if not loop.first %}){% endif %}{% endfor %};
+                {{ delete_name }}::new({% if is_async %}self.client.clone(){% else %}_c.clone(){% endif %}).where_(pk_filter).exec().await?;
+                Ok(Some(record))
+            },
         )
-        .with_transaction_id(_transaction_id.clone());
-        if let Some(_stop) = _events.run::<{{ model_name }}DeleteEventContext, Option<{{ model_name }}>>(
-            "{{ model_name }}",
-            crate::CrudOperation::Delete,
-            crate::EventPhase::Before,
-            &mut _before_ctx,
-        ).await? {
-            return Ok(_stop);
-        }
-        _event_state = _before_ctx.state;
-
-        let _operation_result: nautilus_core::Result<Option<{{ model_name }}>> = async {
-            if let Some(filter) = args.where_.clone() {
-                if {% if is_async %}self.client{% else %}_c{% endif %}.dialect().supports_returning() && is_single_record_filter(&filter) {
-                    let deleted = {{ delete_name }}::new({% if is_async %}self.client.clone(){% else %}_c.clone(){% endif %}).where_(filter).exec().await?;
-                    return match deleted.len() {
-                        0 => Ok(None),
-                        1 => Ok(deleted.into_iter().next()),
-                        count => Err(nautilus_core::Error::Other(format!(
-                            "expected at most one deleted {{ model_name }} row, got {}",
-                            count
-                        ))),
-                    };
-                }
-            }
-
-            // Find the first matching record to get its primary key
-            let record = self.find_first(nautilus_core::FindManyArgs {
-                where_: args.where_,
-                ..Default::default()
-            }){% if is_async %}.await{% endif %}?;
-
-            let Some(record) = record else {
-                return Ok(None);
-            };
-
-            // Build a primary-key filter to delete exactly that one record
-            {%- set pk_fields = scalar_fields | filter(attribute="is_pk", value=true) %}
-            let pk_filter = {% for f in pk_fields %}{% if not loop.first %}.and({% endif %}nautilus_core::Expr::column("{{ table_name }}__{{ f.db_name }}").eq(nautilus_core::Expr::param(record.{{ f.name }}.clone())){% if not loop.first %}){% endif %}{% endfor %};
-            {{ delete_name }}::new({% if is_async %}self.client.clone(){% else %}_c.clone(){% endif %}).where_(pk_filter).exec().await?;
-            Ok(Some(record))
-        }.await;
-
-        match _operation_result {
-            Ok(_decoded) => {
-                let mut _after_ctx = {{ model_name }}DeleteEventContext::new(
-                    "{{ model_name }}",
-                    crate::CrudOperation::Delete,
-                    crate::EventPhase::After,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_result(_decoded.clone())
-                .with_transaction_id(_transaction_id);
-                if let Some(_stop) = _events.run::<{{ model_name }}DeleteEventContext, Option<{{ model_name }}>>(
-                    "{{ model_name }}",
-                    crate::CrudOperation::Delete,
-                    crate::EventPhase::After,
-                    &mut _after_ctx,
-                ).await? {
-                    return Ok(_stop);
-                }
-                Ok(_decoded)
-            }
-            Err(_error) => {
-                let _error_text = _error.to_string();
-                let mut _error_ctx = {{ model_name }}DeleteEventContext::new(
-                    "{{ model_name }}",
-                    crate::CrudOperation::Delete,
-                    crate::EventPhase::Error,
-                    _event_args,
-                    _event_payload,
-                    _event_state,
-                )
-                .with_error(_error_text)
-                .with_transaction_id(_transaction_id);
-                let _ = _events.run::<{{ model_name }}DeleteEventContext, Option<{{ model_name }}>>(
-                    "{{ model_name }}",
-                    crate::CrudOperation::Delete,
-                    crate::EventPhase::Error,
-                    &mut _error_ctx,
-                ).await?;
-                Err(_error)
-            }
-        }
+        .await
 {%- if not is_async %}
         }))
 {%- else %}
