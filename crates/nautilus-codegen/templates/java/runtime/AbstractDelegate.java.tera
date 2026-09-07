@@ -1,21 +1,38 @@
 package {{ package_name }}.internal;
 
+import {{ package_name }}.events.CrudEventContext;
+import {{ package_name }}.events.EventPhase;
+import {{ package_name }}.events.StopPropagation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+/**
+ * The part of a model delegate that does not depend on the model: the request
+ * envelope, the select guards, and the shapes a write follows around its events.
+ *
+ * <p>A generated delegate keeps the typed API, names the wire method and hands
+ * over a decoder; what every model spells the same way lives here.
+ */
 public abstract class AbstractDelegate<T> {
+    private static final int DEFAULT_STREAM_CHUNK_SIZE = 128;
+
     private final RpcCaller client;
     private final String modelName;
+    private final Class<T> modelType;
 
-    protected AbstractDelegate(RpcCaller client, String modelName) {
+    protected AbstractDelegate(RpcCaller client, String modelName, Class<T> modelType) {
         this.client = client;
         this.modelName = modelName;
+        this.modelType = modelType;
     }
 
     protected final JsonNode rpc(String method, ObjectNode params) {
@@ -56,5 +73,210 @@ public abstract class AbstractDelegate<T> {
 
     protected final <R> Stream<R> rows(Stream<JsonNode> results, Function<JsonNode, R> mapper) {
         return results.flatMap(result -> JsonSupport.dataList(result, mapper).stream());
+    }
+
+    /** The envelope every model-scoped request starts from. */
+    protected final ObjectNode request() {
+        ObjectNode request = JsonSupport.object();
+        request.put("protocolVersion", JsonSupport.PROTOCOL_VERSION);
+        request.put("model", this.modelName);
+        return request;
+    }
+
+    /** The envelope of the two raw statements, which carry SQL instead of a model. */
+    protected final ObjectNode rawRequest(String sql) {
+        ObjectNode request = JsonSupport.object();
+        request.put("protocolVersion", JsonSupport.PROTOCOL_VERSION);
+        request.put("sql", sql);
+        return request;
+    }
+
+    /** A read request over {@code args}, carrying the chunk size when one was set. */
+    protected final ObjectNode readRequest(ObjectNode args, Integer chunkSize) {
+        ObjectNode request = request();
+        request.set("args", args);
+        if (chunkSize != null) {
+            request.put("chunkSize", chunkSize.intValue());
+        }
+        return request;
+    }
+
+    /** A read request narrowed to a single row. */
+    protected final ObjectNode singleRowRequest(ObjectNode args) {
+        args.put("take", 1);
+        ObjectNode request = request();
+        request.set("args", args);
+        return request;
+    }
+
+    /** Reject {@code select} where the caller asked for whole records back. */
+    protected final void rejectSelect(ObjectNode args) {
+        if (args.has("select")) {
+            throw new IllegalArgumentException(
+                "select returns partial rows and cannot be decoded as a full "
+                    + this.modelName
+                    + " record; use findManySelect, findFirstSelect, or findUniqueSelect instead"
+            );
+        }
+    }
+
+    /** Require {@code select} where the caller asked for a projection back. */
+    protected final void requireSelect(ObjectNode args) {
+        if (!args.has("select")) {
+            throw new IllegalArgumentException(
+                "select projection APIs require select(...); use findMany/findFirst/findUnique for full "
+                    + this.modelName
+                    + " records"
+            );
+        }
+    }
+
+    /** The chunk size a stream reads with, defaulted and checked. */
+    protected final int streamChunkSize(Integer configured, String operation) {
+        int chunkSize = configured == null ? DEFAULT_STREAM_CHUNK_SIZE : configured.intValue();
+        if (chunkSize < 1) {
+            throw new IllegalArgumentException(operation + " chunkSize must be a positive integer");
+        }
+        return chunkSize;
+    }
+
+    /** A projection row handed back as JSON, detached from the response. */
+    protected final JsonNode rawRow(JsonNode row) {
+        if (row == null || row.isNull()) {
+            return null;
+        }
+        return row.deepCopy();
+    }
+
+    /** Decode one projection row, then hand it to the caller's mapper. */
+    protected final <P, R> R mapRow(
+        JsonNode row,
+        Function<JsonNode, P> decoder,
+        Function<P, R> mapper
+    ) {
+        P projection = decoder.apply(row);
+        if (projection == null) {
+            return null;
+        }
+        Function<P, R> actualMapper = Objects.requireNonNull(mapper, "mapper");
+        return actualMapper.apply(projection);
+    }
+
+    /** A write answering with one record, or failing when the engine returns none. */
+    protected final T writeOne(
+        String operation,
+        String method,
+        Map<String, Object> eventArgs,
+        ObjectNode request,
+        Function<JsonNode, T> decoder,
+        Supplier<RuntimeException> onMissingRow
+    ) {
+        Map<String, Object> state = new HashMap<>();
+        try {
+            StopPropagation stop =
+                events().run(eventContext(operation, EventPhase.BEFORE, eventArgs, request, state, null, null));
+            if (stop != null) {
+                return this.modelType.cast(stop.resolve(null));
+            }
+            JsonNode result = rpc(method, request);
+            JsonNode row = JsonSupport.firstDataRow(result);
+            if (row == null || row.isNull()) {
+                throw onMissingRow.get();
+            }
+            T decoded = decoder.apply(row);
+            stop = events().run(eventContext(operation, EventPhase.AFTER, eventArgs, request, state, decoded, null));
+            if (stop != null) {
+                return this.modelType.cast(stop.resolve(null));
+            }
+            return decoded;
+        } catch (RuntimeException error) {
+            events().run(eventContext(operation, EventPhase.ERROR, eventArgs, request, state, null, error), false);
+            throw error;
+        }
+    }
+
+    /** A write answering with every record it touched. */
+    @SuppressWarnings("unchecked")
+    protected final List<T> writeMany(
+        String operation,
+        String method,
+        Map<String, Object> eventArgs,
+        ObjectNode request,
+        Function<JsonNode, T> decoder
+    ) {
+        Map<String, Object> state = new HashMap<>();
+        try {
+            StopPropagation stop =
+                events().run(eventContext(operation, EventPhase.BEFORE, eventArgs, request, state, null, null));
+            if (stop != null) {
+                return (List<T>) stop.resolve(List.of());
+            }
+            JsonNode result = rpc(method, request);
+            List<T> decoded = rows(result, decoder);
+            stop = events().run(eventContext(operation, EventPhase.AFTER, eventArgs, request, state, decoded, null));
+            if (stop != null) {
+                return (List<T>) stop.resolve(List.of());
+            }
+            return decoded;
+        } catch (RuntimeException error) {
+            events().run(eventContext(operation, EventPhase.ERROR, eventArgs, request, state, null, error), false);
+            throw error;
+        }
+    }
+
+    /** A write answering with how many rows it touched. */
+    protected final long writeCount(
+        String operation,
+        String method,
+        Map<String, Object> eventArgs,
+        ObjectNode request
+    ) {
+        Map<String, Object> state = new HashMap<>();
+        try {
+            StopPropagation stop =
+                events().run(eventContext(operation, EventPhase.BEFORE, eventArgs, request, state, null, null));
+            if (stop != null) {
+                return stoppedCount(stop);
+            }
+            JsonNode result = rpc(method, request);
+            long decoded = JsonSupport.count(result);
+            stop = events().run(eventContext(operation, EventPhase.AFTER, eventArgs, request, state, decoded, null));
+            if (stop != null) {
+                return stoppedCount(stop);
+            }
+            return decoded;
+        } catch (RuntimeException error) {
+            events().run(eventContext(operation, EventPhase.ERROR, eventArgs, request, state, null, error), false);
+            throw error;
+        }
+    }
+
+    private long stoppedCount(StopPropagation stop) {
+        Object stopped = stop.resolve(0L);
+        return stopped instanceof Number number ? number.longValue() : 0L;
+    }
+
+    private CrudEventContext eventContext(
+        String operation,
+        EventPhase phase,
+        Map<String, Object> args,
+        ObjectNode payload,
+        Map<String, Object> state,
+        Object result,
+        Throwable error
+    ) {
+        return new CrudEventContext(
+            this.client,
+            this.modelType,
+            this.modelName,
+            operation,
+            phase,
+            args,
+            payload,
+            result,
+            error,
+            transactionId(),
+            state
+        );
     }
 }

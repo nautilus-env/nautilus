@@ -1,0 +1,112 @@
+    private {{ dsl_name }}.FindManyArgs orEmpty({{ dsl_name }}.FindManyArgs args) {
+        return args == null ? new {{ dsl_name }}.FindManyArgs() : args;
+    }
+
+    private List<{{ model_name }}> findManyInternal({{ dsl_name }}.FindManyArgs args) {
+        {{ dsl_name }}.FindManyArgs actual = orEmpty(args);
+        ObjectNode argsNode = actual.node();
+        rejectSelect(argsNode);
+        JsonNode result = rpc("query.findMany", readRequest(argsNode, actual.chunkSize()));
+        return rows(result, {{ model_name }}::fromJsonNode);
+    }
+
+    private <R> List<R> findManySelectInternal(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        {{ dsl_name }}.FindManyArgs actual = orEmpty(args);
+        ObjectNode argsNode = actual.node();
+        requireSelect(argsNode);
+        Function<{{ projection_name }}, R> actualMapper = Objects.requireNonNull(mapper, "mapper");
+        JsonNode result = rpc("query.findMany", readRequest(argsNode, actual.chunkSize()));
+        return rows(result, row -> actualMapper.apply({{ projection_name }}.fromJsonNode(row)));
+    }
+
+    private List<JsonNode> findManySelectRawInternal({{ dsl_name }}.FindManyArgs args) {
+        {{ dsl_name }}.FindManyArgs actual = orEmpty(args);
+        ObjectNode argsNode = actual.node();
+        requireSelect(argsNode);
+        JsonNode result = rpc("query.findMany", readRequest(argsNode, actual.chunkSize()));
+        return rows(result, JsonNode::deepCopy);
+    }
+
+    private Stream<{{ model_name }}> streamManyInternal({{ dsl_name }}.FindManyArgs args) {
+        {{ dsl_name }}.FindManyArgs actual = orEmpty(args);
+        ObjectNode argsNode = actual.node();
+        rejectSelect(argsNode);
+        int chunkSize = streamChunkSize(actual.chunkSize(), "streamMany");
+        ObjectNode request = readRequest(argsNode, chunkSize);
+        return rows(streamRpc("query.findMany", request), {{ model_name }}::fromJsonNode);
+    }
+
+    private <R> Stream<R> streamManySelectInternal(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        {{ dsl_name }}.FindManyArgs actual = orEmpty(args);
+        ObjectNode argsNode = actual.node();
+        requireSelect(argsNode);
+        Function<{{ projection_name }}, R> actualMapper = Objects.requireNonNull(mapper, "mapper");
+        int chunkSize = streamChunkSize(actual.chunkSize(), "streamManySelect");
+        ObjectNode request = readRequest(argsNode, chunkSize);
+        return rows(streamRpc("query.findMany", request), row -> actualMapper.apply({{ projection_name }}.fromJsonNode(row)));
+    }
+
+    private Stream<JsonNode> streamManySelectRawInternal({{ dsl_name }}.FindManyArgs args) {
+        {{ dsl_name }}.FindManyArgs actual = orEmpty(args);
+        ObjectNode argsNode = actual.node();
+        requireSelect(argsNode);
+        int chunkSize = streamChunkSize(actual.chunkSize(), "streamManySelectRaw");
+        ObjectNode request = readRequest(argsNode, chunkSize);
+        return rows(streamRpc("query.findMany", request), JsonNode::deepCopy);
+    }
+
+    private {{ model_name }} findFirstInternal({{ dsl_name }}.FindManyArgs args) {
+        ObjectNode argsNode = orEmpty(args).node();
+        rejectSelect(argsNode);
+        JsonNode result = rpc("query.findFirst", singleRowRequest(argsNode));
+        JsonNode row = JsonSupport.firstDataRow(result);
+        return row == null || row.isNull() ? null : {{ model_name }}.fromJsonNode(row);
+    }
+
+    private <R> R findFirstSelectInternal(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        ObjectNode argsNode = orEmpty(args).node();
+        requireSelect(argsNode);
+        JsonNode result = rpc("query.findFirst", singleRowRequest(argsNode));
+        return mapRow(JsonSupport.firstDataRow(result), {{ projection_name }}::fromJsonNode, mapper);
+    }
+
+    private JsonNode findFirstSelectRawInternal({{ dsl_name }}.FindManyArgs args) {
+        ObjectNode argsNode = orEmpty(args).node();
+        requireSelect(argsNode);
+        JsonNode result = rpc("query.findFirst", singleRowRequest(argsNode));
+        return rawRow(JsonSupport.firstDataRow(result));
+    }
+
+    private {{ model_name }} findUniqueInternal({{ dsl_name }}.FindManyArgs args) {
+        {{ dsl_name }}.FindManyArgs actual = orEmpty(args);
+        ObjectNode argsNode = actual.node();
+        rejectSelect(argsNode);
+        if (argsNode.size() == 1 && argsNode.has("where")) {
+            ObjectNode request = request();
+            request.set("filter", actual.whereNode());
+            JsonNode result = rpc("query.findUnique", request);
+            JsonNode row = JsonSupport.firstDataRow(result);
+            return row == null || row.isNull() ? null : {{ model_name }}.fromJsonNode(row);
+        }
+        return findFirstInternal(actual);
+    }
+
+    private <R> R findUniqueSelectInternal(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return findFirstSelectInternal(args, mapper);
+    }
+
+    private JsonNode findUniqueSelectRawInternal({{ dsl_name }}.FindManyArgs args) {
+        return findFirstSelectRawInternal(args);
+    }

@@ -1,0 +1,96 @@
+    public static final class CreateInput implements WireSerializable {
+        private final ObjectNode node;
+
+        public CreateInput() {
+            this.node = JsonSupport.object();
+        }
+
+        public CreateInput(JsonNode raw) {
+            this.node = JsonSupport.objectNode(raw);
+        }
+
+{%- for field in create_fields %}
+        public CreateInput {{ field.name }}({{ field.java_type }} value) {
+            this.node.set("{{ field.db_name }}", JsonSupport.toJsonNode(value));
+            return this;
+        }
+
+{%- if field.raw_java_type %}
+        public CreateInput {{ field.name }}({{ field.raw_java_type }} value) {
+            return {{ field.name }}(new {{ field.java_type }}(value));
+        }
+
+{%- endif %}
+{%- endfor %}
+{%- for nested in nested_writes %}
+        /** Nested writes on the {{ nested.wire_name }} relation. */
+        public CreateInput {{ nested.method_name }}(Consumer<{{ nested.create_nested_name }}> spec) {
+            {{ nested.create_nested_name }} nested = new {{ nested.create_nested_name }}();
+            if (spec != null) {
+                spec.accept(nested);
+            }
+            this.node.set("{{ nested.wire_name }}", nested.node());
+            return this;
+        }
+
+{%- endfor %}
+{% include "dsl/serializable_tail.java.tera" %}
+    }
+
+    public static final class UpdateInput implements WireSerializable {
+        private final ObjectNode node;
+
+        public UpdateInput() {
+            this.node = JsonSupport.object();
+        }
+
+        public UpdateInput(JsonNode raw) {
+            this.node = JsonSupport.objectNode(raw);
+        }
+
+{%- for field in update_fields %}
+        public UpdateInput {{ field.name }}({{ field.java_type }} value) {
+            this.node.set("{{ field.db_name }}", JsonSupport.toJsonNode(value));
+            return this;
+        }
+
+{%- if field.raw_java_type %}
+        public UpdateInput {{ field.name }}({{ field.raw_java_type }} value) {
+            return {{ field.name }}(new {{ field.java_type }}(value));
+        }
+
+{%- endif %}
+{%- if field.accepts_arithmetic %}
+{%- for operator in ["increment", "decrement", "multiply", "divide"] %}
+        /**
+         * Let the database {{ operator }} the current {{ field.name }} by {@code value}.
+         *
+         * <p>The arithmetic is applied to whatever the row holds when the
+         * statement runs, so two concurrent updates both land where a
+         * read-modify-write in the client would lose one.
+         */
+        public UpdateInput {{ field.name }}{{ operator | capitalize }}({{ field.java_type }} value) {
+            ObjectNode operation = JsonSupport.object();
+            operation.set("{{ operator }}", JsonSupport.toJsonNode(value));
+            this.node.set("{{ field.db_name }}", operation);
+            return this;
+        }
+
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- for nested in nested_writes %}
+        /** Nested writes on the {{ nested.wire_name }} relation. */
+        public UpdateInput {{ nested.method_name }}(Consumer<{{ nested.update_nested_name }}> spec) {
+            {{ nested.update_nested_name }} nested = new {{ nested.update_nested_name }}();
+            if (spec != null) {
+                spec.accept(nested);
+            }
+            this.node.set("{{ nested.wire_name }}", nested.node());
+            return this;
+        }
+
+{%- endfor %}
+{% include "dsl/serializable_tail.java.tera" %}
+    }
+

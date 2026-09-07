@@ -1,0 +1,225 @@
+    public CompletableFuture<List<{{ model_name }}>> findMany() {
+        return async(() -> findManyInternal(new {{ dsl_name }}.FindManyArgs()));
+    }
+
+    public CompletableFuture<List<{{ model_name }}>> findMany(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return findManyInternal(args);
+        });
+    }
+
+    public CompletableFuture<List<{{ model_name }}>> findMany({{ dsl_name }}.FindManyArgs args) {
+        return async(() -> findManyInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args));
+    }
+
+    public CompletableFuture<List<{{ projection_name }}>> findManySelect(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findManySelect(spec, Function.identity());
+    }
+
+    public <R> CompletableFuture<List<R>> findManySelect(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return findManySelectInternal(args, mapper);
+        });
+    }
+
+    public CompletableFuture<List<{{ projection_name }}>> findManySelect({{ dsl_name }}.FindManyArgs args) {
+        return findManySelect(args, Function.identity());
+    }
+
+    public <R> CompletableFuture<List<R>> findManySelect(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return async(() -> findManySelectInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args, mapper));
+    }
+
+    public CompletableFuture<List<JsonNode>> findManySelectRaw(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return findManySelectRawInternal(args);
+        });
+    }
+
+    public CompletableFuture<List<JsonNode>> findManySelectRaw({{ dsl_name }}.FindManyArgs args) {
+        return async(() -> findManySelectRawInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args));
+    }
+
+    public CompletableFuture<{{ model_name }}> findFirst(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return findFirstInternal(args);
+        });
+    }
+
+    public CompletableFuture<{{ projection_name }}> findFirstSelect(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findFirstSelect(spec, Function.identity());
+    }
+
+    public <R> CompletableFuture<R> findFirstSelect(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return findFirstSelectInternal(args, mapper);
+        });
+    }
+
+    public CompletableFuture<{{ projection_name }}> findFirstSelect({{ dsl_name }}.FindManyArgs args) {
+        return findFirstSelect(args, Function.identity());
+    }
+
+    public <R> CompletableFuture<R> findFirstSelect(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return async(() -> findFirstSelectInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args, mapper));
+    }
+
+    public CompletableFuture<JsonNode> findFirstSelectRaw(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return findFirstSelectRawInternal(args);
+        });
+    }
+
+    public CompletableFuture<JsonNode> findFirstSelectRaw({{ dsl_name }}.FindManyArgs args) {
+        return async(() -> findFirstSelectRawInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args));
+    }
+
+    public CompletableFuture<{{ model_name }}> findUnique(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return findUniqueInternal(args);
+        });
+    }
+
+    public CompletableFuture<{{ projection_name }}> findUniqueSelect(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findUniqueSelect(spec, Function.identity());
+    }
+
+    public <R> CompletableFuture<R> findUniqueSelect(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return findUniqueSelectInternal(args, mapper);
+        });
+    }
+
+    public CompletableFuture<{{ projection_name }}> findUniqueSelect({{ dsl_name }}.FindManyArgs args) {
+        return findUniqueSelect(args, Function.identity());
+    }
+
+    public <R> CompletableFuture<R> findUniqueSelect(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return async(() -> findUniqueSelectInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args, mapper));
+    }
+
+    public CompletableFuture<JsonNode> findUniqueSelectRaw(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return findUniqueSelectRawInternal(args);
+        });
+    }
+
+    public CompletableFuture<JsonNode> findUniqueSelectRaw({{ dsl_name }}.FindManyArgs args) {
+        return async(() -> findUniqueSelectRawInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args));
+    }
+
+    public CompletableFuture<{{ model_name }}> findFirstOrThrow(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return async(() -> {
+            {{ model_name }} record = findFirst(spec).join();
+            if (record == null) {
+                throw new NotFoundException("findFirstOrThrow: no {{ model_name }} record found matching the given filter");
+            }
+            return record;
+        });
+    }
+
+    public CompletableFuture<{{ projection_name }}> findFirstSelectOrThrow(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findFirstSelectOrThrow(spec, Function.identity());
+    }
+
+    public <R> CompletableFuture<R> findFirstSelectOrThrow(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            R record = findFirstSelectInternal(args, mapper);
+            if (record == null) {
+                throw new NotFoundException("findFirstSelectOrThrow: no {{ model_name }} record found matching the given filter");
+            }
+            return record;
+        });
+    }
+
+    public CompletableFuture<{{ model_name }}> findUniqueOrThrow(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return async(() -> {
+            {{ model_name }} record = findUnique(spec).join();
+            if (record == null) {
+                throw new NotFoundException("findUniqueOrThrow: no {{ model_name }} record found matching the given filter");
+            }
+            return record;
+        });
+    }
+
+    public CompletableFuture<{{ projection_name }}> findUniqueSelectOrThrow(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findUniqueSelectOrThrow(spec, Function.identity());
+    }
+
+    public <R> CompletableFuture<R> findUniqueSelectOrThrow(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return async(() -> {
+            {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            R record = findUniqueSelectInternal(args, mapper);
+            if (record == null) {
+                throw new NotFoundException("findUniqueSelectOrThrow: no {{ model_name }} record found matching the given filter");
+            }
+            return record;
+        });
+    }

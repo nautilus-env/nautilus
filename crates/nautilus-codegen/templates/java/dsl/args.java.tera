@@ -1,0 +1,266 @@
+    public static final class FindManyArgs implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+        private Integer chunkSize;
+
+        public FindManyArgs where(Consumer<Where> spec) {
+            Where where = new Where();
+            if (spec != null) {
+                spec.accept(where);
+            }
+            this.node.set("where", where.node());
+            return this;
+        }
+
+        public FindManyArgs orderBy(Consumer<OrderBy> spec) {
+            OrderBy orderBy = new OrderBy();
+            if (spec != null) {
+                spec.accept(orderBy);
+            }
+            ArrayNode values = this.node.has("orderBy") && this.node.get("orderBy").isArray()
+                ? (ArrayNode) this.node.get("orderBy")
+                : JsonSupport.array();
+            values.add(orderBy.node());
+            this.node.set("orderBy", values);
+            return this;
+        }
+
+{% if vector_field_names | length > 0 %}
+        public FindManyArgs nearest(Consumer<Nearest> spec) {
+            Nearest nearest = new Nearest();
+            if (spec != null) {
+                spec.accept(nearest);
+            }
+            this.node.set("nearest", nearest.node());
+            return this;
+        }
+
+{% endif %}
+
+        public FindManyArgs take(int value) {
+            this.node.put("take", value);
+            return this;
+        }
+
+        public FindManyArgs skip(int value) {
+            this.node.put("skip", value);
+            return this;
+        }
+
+        public FindManyArgs select(Consumer<Select> spec) {
+            Select select = new Select();
+            if (spec != null) {
+                spec.accept(select);
+            }
+            this.node.set("select", select.node());
+            return this;
+        }
+
+        public FindManyArgs include(Consumer<Include> spec) {
+            Include include = new Include();
+            if (spec != null) {
+                spec.accept(include);
+            }
+            this.node.set("include", include.node());
+            return this;
+        }
+
+        public FindManyArgs cursor(String field, Object value) {
+            ObjectNode cursor = this.node.has("cursor") && this.node.get("cursor").isObject() ? (ObjectNode) this.node.get("cursor") : JsonSupport.object();
+            cursor.set(field, JsonSupport.toJsonNode(value));
+            this.node.set("cursor", cursor);
+            return this;
+        }
+
+        public FindManyArgs distinct(ScalarField... fields) {
+            ArrayNode values = JsonSupport.array();
+            for (ScalarField field : fields) {
+                values.add(field.wireName());
+            }
+            this.node.set("distinct", values);
+            return this;
+        }
+
+        public FindManyArgs chunkSize(int chunkSize) {
+            this.chunkSize = chunkSize;
+            return this;
+        }
+
+        public ObjectNode whereNode() {
+            JsonNode where = this.node.get("where");
+            return where instanceof ObjectNode objectNode ? objectNode.deepCopy() : JsonSupport.object();
+        }
+
+        public Integer chunkSize() {
+            return this.chunkSize;
+        }
+
+{% include "dsl/serializable_tail.java.tera" %}
+    }
+
+    public static final class CountArgs implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+
+        public CountArgs where(Consumer<Where> spec) {
+            Where where = new Where();
+            if (spec != null) {
+                spec.accept(where);
+            }
+            this.node.set("where", where.node());
+            return this;
+        }
+
+        public CountArgs take(int value) {
+            this.node.put("take", value);
+            return this;
+        }
+
+        public CountArgs skip(int value) {
+            this.node.put("skip", value);
+            return this;
+        }
+
+        public CountArgs cursor(String field, Object value) {
+            ObjectNode cursor = this.node.has("cursor") && this.node.get("cursor").isObject() ? (ObjectNode) this.node.get("cursor") : JsonSupport.object();
+            cursor.set(field, JsonSupport.toJsonNode(value));
+            this.node.set("cursor", cursor);
+            return this;
+        }
+
+{% include "dsl/serializable_tail.java.tera" %}
+    }
+
+    public static final class UpdateArgs implements WireSerializable {
+        private ObjectNode where = JsonSupport.object();
+        private ObjectNode data = JsonSupport.object();
+
+        public UpdateArgs where(Consumer<Where> spec) {
+            Where builder = new Where();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.where = builder.node();
+            return this;
+        }
+
+        public UpdateArgs data(Consumer<UpdateInput> spec) {
+            UpdateInput builder = new UpdateInput();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.data = builder.node();
+            return this;
+        }
+
+        public UpdateArgs data(JsonNode raw) {
+            this.data = JsonSupport.objectNode(raw);
+            return this;
+        }
+
+        public ObjectNode whereNode() {
+            return this.where.deepCopy();
+        }
+
+        public ObjectNode dataNode() {
+            return this.data.deepCopy();
+        }
+
+        @Override
+        public JsonNode toJsonNode() {
+            ObjectNode node = JsonSupport.object();
+            node.set("where", whereNode());
+            node.set("data", dataNode());
+            return node;
+        }
+    }
+
+    public static final class DeleteArgs implements WireSerializable {
+        private ObjectNode where = JsonSupport.object();
+
+        public DeleteArgs where(Consumer<Where> spec) {
+            Where builder = new Where();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.where = builder.node();
+            return this;
+        }
+
+        public ObjectNode whereNode() {
+            return this.where.deepCopy();
+        }
+
+        @Override
+        public JsonNode toJsonNode() {
+            return whereNode();
+        }
+    }
+
+    public static final class UpsertArgs implements WireSerializable {
+        private ObjectNode where = JsonSupport.object();
+        private ObjectNode create = JsonSupport.object();
+        private ObjectNode update = JsonSupport.object();
+        private ObjectNode include = JsonSupport.object();
+
+        public UpsertArgs where(Consumer<Where> spec) {
+            Where builder = new Where();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.where = builder.node();
+            return this;
+        }
+
+        public UpsertArgs create(Consumer<CreateInput> spec) {
+            CreateInput builder = new CreateInput();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.create = builder.node();
+            return this;
+        }
+
+        public UpsertArgs update(Consumer<UpdateInput> spec) {
+            UpdateInput builder = new UpdateInput();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.update = builder.node();
+            return this;
+        }
+
+        public UpsertArgs include(Consumer<Include> spec) {
+            Include builder = new Include();
+            if (spec != null) {
+                spec.accept(builder);
+            }
+            this.include = builder.node();
+            return this;
+        }
+
+        public ObjectNode whereNode() {
+            return this.where.deepCopy();
+        }
+
+        public ObjectNode createNode() {
+            return this.create.deepCopy();
+        }
+
+        public ObjectNode updateNode() {
+            return this.update.deepCopy();
+        }
+
+        public ObjectNode includeNode() {
+            return this.include.deepCopy();
+        }
+
+        @Override
+        public JsonNode toJsonNode() {
+            ObjectNode node = JsonSupport.object();
+            node.set("where", whereNode());
+            node.set("create", createNode());
+            node.set("update", updateNode());
+            node.set("include", includeNode());
+            return node;
+        }
+    }
+

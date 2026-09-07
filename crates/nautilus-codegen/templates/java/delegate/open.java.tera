@@ -1,0 +1,11 @@
+package {{ package_name }}.client;
+
+{%- for import in imports %}
+import {{ import }};
+{%- endfor %}
+
+public final class {{ name }} extends AbstractDelegate<{{ model_name }}> {
+    public {{ name }}(RpcCaller client) {
+        super(client, "{{ model_name }}", {{ model_name }}.class);
+    }
+

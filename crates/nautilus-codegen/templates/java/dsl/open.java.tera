@@ -1,0 +1,30 @@
+package {{ package_name }}.dsl;
+
+{%- for import in imports %}
+import {{ import }};
+{%- endfor %}
+
+public final class {{ name }} {
+    private {{ name }}() {
+    }
+
+    public enum ScalarField {
+{%- for field in scalar_fields %}
+{%- if loop.last %}
+        {{ field.variant_name }}("{{ field.name }}");
+{%- else %}
+        {{ field.variant_name }}("{{ field.name }}"),
+{%- endif %}
+{%- endfor %}
+
+        private final String wireName;
+
+        ScalarField(String wireName) {
+            this.wireName = wireName;
+        }
+
+        public String wireName() {
+            return this.wireName;
+        }
+    }
+

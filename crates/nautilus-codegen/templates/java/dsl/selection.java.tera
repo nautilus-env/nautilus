@@ -1,0 +1,52 @@
+    public static final class Select implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+
+{%- for field in scalar_fields %}
+        public Select {{ field.name }}() {
+            return {{ field.name }}(true);
+        }
+
+        public Select {{ field.name }}(boolean selected) {
+            this.node.put("{{ field.name }}", selected);
+            return this;
+        }
+
+{%- endfor %}
+{% include "dsl/serializable_tail.java.tera" %}
+    }
+
+    public static final class Include implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+
+{%- for rel in relation_fields %}
+        public Include {{ rel.name }}() {
+            this.node.put("{{ rel.name }}", true);
+            return this;
+        }
+
+        public Include {{ rel.name }}(Consumer<{{ rel.target_model }}Dsl.FindManyArgs> spec) {
+            {{ rel.target_model }}Dsl.FindManyArgs args = new {{ rel.target_model }}Dsl.FindManyArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            this.node.set("{{ rel.name }}", args.node());
+            return this;
+        }
+
+{%- endfor %}
+{% include "dsl/serializable_tail.java.tera" %}
+    }
+
+    public static final class OrderBy implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+
+{%- for field in order_by_fields %}
+        public OrderBy {{ field.method_name }}(SortOrder order) {
+            this.node.put("{{ field.wire_name }}", order.wireValue());
+            return this;
+        }
+
+{%- endfor %}
+{% include "dsl/serializable_tail.java.tera" %}
+    }
+

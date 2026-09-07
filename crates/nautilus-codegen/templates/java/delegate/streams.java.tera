@@ -1,0 +1,65 @@
+    /**
+     * Stream records incrementally from the engine.
+     *
+     * Prefer {@code findMany(...)} when the caller naturally wants a final
+     * {@code List<{{ model_name }}>}, such as small pages or relation-heavy
+     * reads. Prefer {@code streamMany(...)} for exports, scans, and early-exit
+     * consumers that should avoid accumulating every row in memory first.
+     *
+     * Close the returned stream early, ideally via try-with-resources, to
+     * propagate cancellation promptly to the engine.
+     */
+    public Stream<{{ model_name }}> streamMany() {
+        return streamMany(new {{ dsl_name }}.FindManyArgs());
+    }
+
+    public Stream<{{ model_name }}> streamMany(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return streamMany(args);
+    }
+
+    public Stream<{{ model_name }}> streamMany({{ dsl_name }}.FindManyArgs args) {
+        return streamManyInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args);
+    }
+
+    public Stream<{{ projection_name }}> streamManySelect(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return streamManySelect(spec, Function.identity());
+    }
+
+    public <R> Stream<R> streamManySelect(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return streamManySelect(args, mapper);
+    }
+
+    public Stream<{{ projection_name }}> streamManySelect({{ dsl_name }}.FindManyArgs args) {
+        return streamManySelect(args, Function.identity());
+    }
+
+    public <R> Stream<R> streamManySelect(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return streamManySelectInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args, mapper);
+    }
+
+    public Stream<JsonNode> streamManySelectRaw(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return streamManySelectRaw(args);
+    }
+
+    public Stream<JsonNode> streamManySelectRaw({{ dsl_name }}.FindManyArgs args) {
+        return streamManySelectRawInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args);
+    }
+

@@ -1,0 +1,65 @@
+    public static final class Where implements WireSerializable {
+        private final ObjectNode node;
+
+        public Where() {
+            this.node = JsonSupport.object();
+        }
+
+        public Where raw(JsonNode value) {
+            if (value instanceof ObjectNode objectNode) {
+                this.node.removeAll();
+                this.node.setAll(objectNode.deepCopy());
+            }
+            return this;
+        }
+
+        public Where and(Consumer<Where> spec) {
+            Where child = new Where();
+            if (spec != null) {
+                spec.accept(child);
+            }
+            Filters.and(this.node, child.node());
+            return this;
+        }
+
+        public Where or(Consumer<Where> spec) {
+            Where child = new Where();
+            if (spec != null) {
+                spec.accept(child);
+            }
+            Filters.or(this.node, child.node());
+            return this;
+        }
+
+        public Where not(Consumer<Where> spec) {
+            Where child = new Where();
+            if (spec != null) {
+                spec.accept(child);
+            }
+            Filters.not(this.node, child.node());
+            return this;
+        }
+
+{%- for field in scalar_fields %}
+        public Where {{ field.name }}({{ field.java_type }} value) {
+            Filters.equals(this.node, "{{ field.db_name }}", value);
+            return this;
+        }
+
+{%- if field.raw_java_type %}
+        public Where {{ field.name }}({{ field.raw_java_type }} value) {
+            return {{ field.name }}(new {{ field.java_type }}(value));
+        }
+
+{%- endif %}
+{%- for op in field.filter_ops %}
+        public Where {{ field.name }}{{ op.suffix_pascal }}({{ op.java_type }} value) {
+            Filters.operator(this.node, "{{ field.db_name }}", "{{ op.suffix }}", value);
+            return this;
+        }
+
+{%- endfor %}
+{%- endfor %}
+{% include "dsl/serializable_tail.java.tera" %}
+    }
+

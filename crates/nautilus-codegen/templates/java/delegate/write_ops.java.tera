@@ -1,0 +1,86 @@
+{%- if not is_view %}
+    private {{ model_name }} createInternal({{ dsl_name }}.CreateInput data) {
+        Map<String, Object> eventArgs = new HashMap<>();
+        eventArgs.put("data", data);
+        ObjectNode request = request();
+        request.set("data", data == null ? JsonSupport.object() : data.node());
+        request.put("returnData", true);
+        return writeOne(
+            "create",
+            "query.create",
+            eventArgs,
+            request,
+            {{ model_name }}::fromJsonNode,
+            () -> new NautilusException("create: engine returned no data")
+        );
+    }
+{% endif %}
+
+{%- if not is_view %}
+    private List<{{ model_name }}> createManyInternal(List<{{ dsl_name }}.CreateInput> data) {
+        Map<String, Object> eventArgs = new HashMap<>();
+        eventArgs.put("data", data);
+        ObjectNode request = request();
+        ArrayNode items = JsonSupport.array();
+        for ({{ dsl_name }}.CreateInput item : data) {
+            items.add(item.node());
+        }
+        request.set("data", items);
+        request.put("returnData", true);
+        return writeMany("createMany", "query.createMany", eventArgs, request, {{ model_name }}::fromJsonNode);
+    }
+{% endif %}
+
+{%- if not is_view %}
+    private List<{{ model_name }}> updateInternal({{ dsl_name }}.UpdateArgs args) {
+        Map<String, Object> eventArgs = new HashMap<>();
+        eventArgs.put("where", args == null ? null : args.whereNode());
+        eventArgs.put("data", args == null ? null : args.dataNode());
+        ObjectNode request = request();
+        request.set("filter", args == null ? JsonSupport.object() : args.whereNode());
+        request.set("data", args == null ? JsonSupport.object() : args.dataNode());
+        request.put("returnData", true);
+        return writeMany("update", "query.update", eventArgs, request, {{ model_name }}::fromJsonNode);
+    }
+{% endif %}
+
+{%- if not is_view %}
+    private {{ model_name }} deleteInternal({{ dsl_name }}.DeleteArgs args) {
+        Map<String, Object> eventArgs = new HashMap<>();
+        eventArgs.put("where", args == null ? null : args.whereNode());
+        ObjectNode request = request();
+        request.set("filter", args == null ? JsonSupport.object() : args.whereNode());
+        request.put("returnData", true);
+        return writeOne(
+            "delete",
+            "query.delete",
+            eventArgs,
+            request,
+            {{ model_name }}::fromJsonNode,
+            () -> new NotFoundException("delete: no {{ model_name }} record found matching the given filter")
+        );
+    }
+{% endif %}
+
+{%- if not is_view %}
+    private long deleteManyInternal({{ dsl_name }}.DeleteArgs args) {
+        Map<String, Object> eventArgs = new HashMap<>();
+        eventArgs.put("where", args == null ? null : args.whereNode());
+        ObjectNode request = request();
+        request.set("filter", args == null ? JsonSupport.object() : args.whereNode());
+        request.put("returnData", false);
+        return writeCount("deleteMany", "query.deleteMany", eventArgs, request);
+    }
+{% endif %}
+
+{%- if not is_view %}
+    private long updateManyInternal({{ dsl_name }}.UpdateArgs args) {
+        Map<String, Object> eventArgs = new HashMap<>();
+        eventArgs.put("where", args == null ? null : args.whereNode());
+        eventArgs.put("data", args == null ? null : args.dataNode());
+        ObjectNode request = request();
+        request.set("filter", args == null ? JsonSupport.object() : args.whereNode());
+        request.set("data", args == null ? JsonSupport.object() : args.dataNode());
+        return writeCount("updateMany", "query.updateMany", eventArgs, request);
+    }
+{% endif %}

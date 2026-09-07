@@ -266,4 +266,23 @@ public final class JsonSupport {
         JsonNode count = firstPresent(result, "count");
         return count == null || count.isNull() ? 0L : count.asLong();
     }
+
+    /** The array {@code key} holds on {@code node}, created on first use. */
+    public static ArrayNode entries(ObjectNode node, String key) {
+        JsonNode existing = node.get(key);
+        if (existing instanceof ArrayNode arrayNode) {
+            return arrayNode;
+        }
+        ArrayNode created = array();
+        node.set(key, created);
+        return created;
+    }
+
+    /** The {@code data} array of a nested {@code createMany}, created on first use. */
+    public static ArrayNode batchEntries(ObjectNode node, String key) {
+        JsonNode existing = node.get(key);
+        ObjectNode batch = existing instanceof ObjectNode objectNode ? objectNode : object();
+        node.set(key, batch);
+        return entries(batch, "data");
+    }
 }

@@ -1,0 +1,57 @@
+    private JsonNode aggregateInternal({{ dsl_name }}.AggregateArgs args) {
+        ObjectNode request = request();
+        request.set("args", args == null ? JsonSupport.object() : args.node());
+        JsonNode result = rpc("query.aggregate", request);
+        JsonNode row = JsonSupport.firstDataRow(result);
+        return row == null || row.isNull() ? JsonSupport.object() : row.deepCopy();
+    }
+
+    private JsonNode explainInternal({{ dsl_name }}.ExplainArgs args) {
+        ObjectNode request = request();
+        request.set("args", args == null ? JsonSupport.object() : args.node());
+        request.put("analyze", args != null && args.analyzeFlag());
+        return rpc("query.explain", request).deepCopy();
+    }
+
+    private long countInternal({{ dsl_name }}.CountArgs args) {
+        ObjectNode request = request();
+        request.set("args", args == null ? JsonSupport.object() : args.node());
+        JsonNode result = rpc("query.count", request);
+        return JsonSupport.count(result);
+    }
+
+{%- if not is_view %}
+    private {{ model_name }} upsertInternal({{ dsl_name }}.UpsertArgs args) {
+        ObjectNode request = request();
+        request.set("filter", args == null ? JsonSupport.object() : args.whereNode());
+        request.set("create", args == null ? JsonSupport.object() : args.createNode());
+        request.set("update", args == null ? JsonSupport.object() : args.updateNode());
+        request.put("returnData", true);
+        JsonNode result = rpc("query.upsert", request);
+        JsonNode row = JsonSupport.firstDataRow(result);
+        if (row == null || row.isNull()) {
+            throw new NautilusException("upsert: engine returned no data");
+        }
+        return {{ model_name }}.fromJsonNode(row);
+    }
+{% endif %}
+
+    private List<JsonNode> groupByInternal({{ dsl_name }}.GroupByArgs args) {
+        ObjectNode request = request();
+        request.set("args", args == null ? JsonSupport.object() : args.node());
+        JsonNode result = rpc("query.groupBy", request);
+        return JsonSupport.dataList(result, JsonNode::deepCopy);
+    }
+
+    private List<JsonNode> rawQueryInternal(String sql) {
+        JsonNode result = rpc("query.rawQuery", rawRequest(sql));
+        return JsonSupport.dataList(result, JsonNode::deepCopy);
+    }
+
+    private List<JsonNode> rawStmtQueryInternal(String sql, List<?> params) {
+        ObjectNode request = rawRequest(sql);
+        request.set("params", JsonSupport.toJsonNode(params));
+        JsonNode result = rpc("query.rawStmtQuery", request);
+        return JsonSupport.dataList(result, JsonNode::deepCopy);
+    }
+}

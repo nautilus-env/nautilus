@@ -34,27 +34,26 @@ pub(super) fn generate_delegate_file(config: &JavaConfig, model: &ModelIr) -> Re
         "{}.internal.NotFoundException",
         config.root_package
     ));
-    imports.insert(format!(
-        "{}.internal.NautilusException",
-        config.root_package
-    ));
     imports.insert(format!("{}.internal.RpcCaller", config.root_package));
-    imports.insert(format!("{}.events.CrudEventContext", config.root_package));
-    imports.insert(format!("{}.events.EventPhase", config.root_package));
-    imports.insert(format!("{}.events.StopPropagation", config.root_package));
     imports.insert(format!(
         "{}.model.{}",
         config.root_package, model.logical_name
     ));
     imports.insert(format!("{}.model.{}", config.root_package, projection_name));
     imports.insert("com.fasterxml.jackson.databind.JsonNode".to_string());
-    imports.insert("com.fasterxml.jackson.databind.node.ArrayNode".to_string());
     imports.insert("com.fasterxml.jackson.databind.node.ObjectNode".to_string());
-    imports.insert("java.util.HashMap".to_string());
     imports.insert("java.util.List".to_string());
-    imports.insert("java.util.Map".to_string());
     imports.insert("java.util.Objects".to_string());
     imports.insert("java.util.stream.Stream".to_string());
+    if !model.is_view {
+        imports.insert(format!(
+            "{}.internal.NautilusException",
+            config.root_package
+        ));
+        imports.insert("com.fasterxml.jackson.databind.node.ArrayNode".to_string());
+        imports.insert("java.util.HashMap".to_string());
+        imports.insert("java.util.Map".to_string());
+    }
     if config.is_async {
         imports.insert("java.util.concurrent.CompletableFuture".to_string());
     }

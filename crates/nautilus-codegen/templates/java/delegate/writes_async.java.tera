@@ -1,0 +1,79 @@
+{%- if not is_view %}
+    public CompletableFuture<{{ model_name }}> create(Consumer<{{ dsl_name }}.CreateInput> spec) {
+        return async(() -> {
+            {{ dsl_name }}.CreateInput input = new {{ dsl_name }}.CreateInput();
+            if (spec != null) {
+                spec.accept(input);
+            }
+            return createInternal(input);
+        });
+    }
+{% endif %}
+
+{%- if not is_view %}
+    public CompletableFuture<{{ model_name }}> create({{ dsl_name }}.CreateInput data) {
+        return async(() -> createInternal(data == null ? new {{ dsl_name }}.CreateInput() : data));
+    }
+{% endif %}
+
+{%- if not is_view %}
+    public CompletableFuture<List<{{ model_name }}>> createMany(List<{{ dsl_name }}.CreateInput> data) {
+        return async(() -> createManyInternal(data));
+    }
+{% endif %}
+
+{%- if not is_view %}
+    public CompletableFuture<List<{{ model_name }}>> update(Consumer<{{ dsl_name }}.UpdateArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.UpdateArgs args = new {{ dsl_name }}.UpdateArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return updateInternal(args);
+        });
+    }
+{% endif %}
+
+{%- if not is_view %}
+    public CompletableFuture<{{ model_name }}> delete(Consumer<{{ dsl_name }}.DeleteArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.DeleteArgs args = new {{ dsl_name }}.DeleteArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return deleteInternal(args);
+        });
+    }
+{% endif %}
+
+{%- if not is_view %}
+    public CompletableFuture<Long> deleteMany(Consumer<{{ dsl_name }}.DeleteArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.DeleteArgs args = new {{ dsl_name }}.DeleteArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return deleteManyInternal(args);
+        });
+    }
+{% endif %}
+
+{%- if not is_view %}
+    /**
+     * Update every {{ model_name }} row matching {@code where}, resolving to the
+     * affected-row count.
+     *
+     * <p>Unlike {@link #update}, no rows are returned: the engine runs one
+     * statement without a {@code RETURNING} clause however many rows it touches.
+     */
+    public CompletableFuture<Long> updateMany(Consumer<{{ dsl_name }}.UpdateArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.UpdateArgs args = new {{ dsl_name }}.UpdateArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return updateManyInternal(args);
+        });
+    }
+{% endif %}
+

@@ -181,6 +181,26 @@ when adding a relation or a new input type. `generate_python_model`,
 `generate_all_python_models`, and `write_python_code` keep their source-only
 behavior, sharing the same operation bodies with the modular output.
 
+Java's `templates/java/delegate.java.tera` and `dsl.java.tera` are assemblies of
+partials. `delegate/` splits the class into its constructor, the async and sync
+public surfaces, streaming, and the read, write and aggregate implementations
+behind them; `dsl/` splits the nested builders into filters, selection, vector
+search, nested writes, create/update input, operation arguments, and aggregates,
+with `serializable_tail.java.tera` carrying the accessor every node-backed
+builder ends with.
+
+A Java class cannot be split across files, so the generated delegate stays one
+class and gets shorter instead: `internal/AbstractDelegate` owns the request
+envelope, the raw-statement envelope, the select guards, the stream chunk size,
+projection decoding, and the three shapes a write follows around its CRUD events
+— one record, many records, a count. Each shape takes the operation name, the
+wire method, the event arguments, the request, and a decoder, so a delegate
+declares what it writes instead of repeating the event plumbing six times.
+`JsonSupport.entries` and `JsonSupport.batchEntries` do the same for the arrays
+a nested write appends to. Adding an operation means updating its partial, the
+`delegate.java.tera` assembly, and the base class when the new step is one every
+model spells the same way.
+
 ## Testing
 
 ```bash

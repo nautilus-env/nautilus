@@ -1,0 +1,85 @@
+    /**
+     * Aggregate over every {{ model_name }} row matching {@code where}, without a
+     * grouping key.
+     *
+     * <p>Always resolves to one object, even when the filter matches nothing:
+     * counts are then {@code 0} and the other aggregates {@code null}.
+     */
+    public CompletableFuture<JsonNode> aggregate(Consumer<{{ dsl_name }}.AggregateArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.AggregateArgs args = new {{ dsl_name }}.AggregateArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return aggregateInternal(args);
+        });
+    }
+
+    /**
+     * Ask the database to explain the statement {@link #findMany} would run.
+     *
+     * <p>Relations loaded through {@code include} are separate statements and are
+     * not part of the reported plan.
+     */
+    public CompletableFuture<JsonNode> explain(Consumer<{{ dsl_name }}.ExplainArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.ExplainArgs args = new {{ dsl_name }}.ExplainArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return explainInternal(args);
+        });
+    }
+
+    public CompletableFuture<Long> count() {
+        return async(() -> countInternal(new {{ dsl_name }}.CountArgs()));
+    }
+
+    public CompletableFuture<Long> count(Consumer<{{ dsl_name }}.CountArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.CountArgs args = new {{ dsl_name }}.CountArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return countInternal(args);
+        });
+    }
+
+{%- if not is_view %}
+    /**
+     * Create or update a {{ model_name }} in one atomic statement.
+     *
+     * <p>{@code where} must name exactly one unique constraint (or the primary
+     * key): those columns become the conflict target, and {@code create} must
+     * supply a value for each of them.
+     */
+    public CompletableFuture<{{ model_name }}> upsert(Consumer<{{ dsl_name }}.UpsertArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.UpsertArgs args = new {{ dsl_name }}.UpsertArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return upsertInternal(args);
+        });
+    }
+{% endif %}
+
+    public CompletableFuture<List<JsonNode>> groupBy(Consumer<{{ dsl_name }}.GroupByArgs> spec) {
+        return async(() -> {
+            {{ dsl_name }}.GroupByArgs args = new {{ dsl_name }}.GroupByArgs();
+            if (spec != null) {
+                spec.accept(args);
+            }
+            return groupByInternal(args);
+        });
+    }
+
+    public CompletableFuture<List<JsonNode>> rawQuery(String sql) {
+        return async(() -> rawQueryInternal(sql));
+    }
+
+    public CompletableFuture<List<JsonNode>> rawStmtQuery(String sql, List<?> params) {
+        return async(() -> rawStmtQueryInternal(sql, params));
+    }
+
+

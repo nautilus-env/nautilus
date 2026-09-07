@@ -920,6 +920,7 @@ fn test_generated_java_cud_event_api() {
     let options = generated_java_file(&java_files, "client/NautilusOptions.java");
     let nautilus = generated_java_file(&java_files, "client/Nautilus.java");
     let delegate = generated_java_file(&java_files, "client/UserDelegate.java");
+    let base_delegate = generated_java_file(&java_files, "internal/AbstractDelegate.java");
     let registry = generated_java_file(&java_files, "internal/EventRegistry.java");
 
     assert!(
@@ -953,11 +954,21 @@ fn test_generated_java_cud_event_api() {
         "expected Nautilus client construction to register configured event packages:\n{nautilus}"
     );
     assert!(
-        delegate.contains("events().run(eventContext(\"create\", EventPhase.BEFORE")
-            && delegate.contains("events().run(eventContext(\"create\", EventPhase.AFTER")
-            && delegate.contains("events().run(eventContext(\"update\", EventPhase.BEFORE")
-            && delegate.contains("events().run(eventContext(\"deleteMany\", EventPhase.ERROR"),
-        "expected Java delegate mutations to run before/after/error CRUD events:\n{delegate}"
+        delegate.contains("return writeOne(")
+            && delegate.contains("return writeMany(\"update\", \"query.update\",")
+            && delegate.contains("return writeCount(\"deleteMany\", \"query.deleteMany\","),
+        "expected Java delegate mutations to name their operation and wire method:\n{delegate}"
+    );
+    assert!(
+        base_delegate
+            .contains("eventContext(operation, EventPhase.BEFORE, eventArgs, request, state, null, null)")
+            && base_delegate
+                .contains("eventContext(operation, EventPhase.AFTER, eventArgs, request, state, decoded, null)")
+            && base_delegate.contains(
+                "eventContext(operation, EventPhase.ERROR, eventArgs, request, state, null, error), false"
+            )
+            && base_delegate.matches("EventPhase.BEFORE").count() == 3,
+        "expected every Java write shape to run before/after/error CRUD events:\n{base_delegate}"
     );
     assert!(
         registry.contains("public void registerAnnotatedPackages(String... packageNames)")
@@ -1725,6 +1736,7 @@ fn test_java_generation_exposes_stream_many_over_chunked_rpc() {
     let rpc_caller = generated_java_file(&async_files, "internal/RpcCaller.java");
     let base_client = generated_java_file(&async_files, "internal/BaseNautilusClient.java");
     let base_tx_client = generated_java_file(&async_files, "internal/BaseTransactionClient.java");
+    let base_delegate = generated_java_file(&async_files, "internal/AbstractDelegate.java");
 
     assert!(
         async_delegate.contains("public Stream<User> streamMany()")
@@ -1732,8 +1744,15 @@ fn test_java_generation_exposes_stream_many_over_chunked_rpc() {
         "expected generated Java delegates to expose streamMany():\nasync:\n{async_delegate}\n\nsync:\n{sync_delegate}"
     );
     assert!(
-        async_delegate.contains("DEFAULT_STREAM_CHUNK_SIZE = 128")
-            && async_delegate.contains("streamMany chunkSize must be a positive integer")
+        base_delegate.contains("DEFAULT_STREAM_CHUNK_SIZE = 128")
+            && base_delegate.contains(
+                "throw new IllegalArgumentException(operation + \" chunkSize must be a positive integer\");"
+            ),
+        "expected the Java base delegate to own the stream chunk size rule:\n{base_delegate}"
+    );
+    assert!(
+        async_delegate
+            .contains("int chunkSize = streamChunkSize(actual.chunkSize(), \"streamMany\");")
             && async_delegate.contains(
                 "return rows(streamRpc(\"query.findMany\", request), User::fromJsonNode);"
             ),
@@ -2285,20 +2304,23 @@ fn test_java_single_row_finds_use_dedicated_engine_methods() {
         generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
     let delegate = generated_java_file(&java_files, "client/UserDelegate.java");
 
+    let base_delegate = generated_java_file(&java_files, "internal/AbstractDelegate.java");
+
     assert!(
-        delegate.contains("JsonNode result = rpc(\"query.findFirst\", request);"),
+        delegate
+            .contains("JsonNode result = rpc(\"query.findFirst\", singleRowRequest(argsNode));"),
         "expected generated Java findFirst() to call query.findFirst:\n{delegate}"
     );
     assert!(
-        delegate.contains("request.put(\"protocolVersion\", JsonSupport.PROTOCOL_VERSION);"),
-        "expected generated Java delegates to reuse the shared protocol version constant:\n{delegate}"
+        base_delegate.contains("request.put(\"protocolVersion\", JsonSupport.PROTOCOL_VERSION);"),
+        "expected the Java base delegate to reuse the shared protocol version constant:\n{base_delegate}"
     );
     assert!(
         delegate.contains("JsonNode result = rpc(\"query.findUnique\", request);"),
         "expected generated Java findUnique() to call query.findUnique when possible:\n{delegate}"
     );
     assert!(
-        delegate.contains("if (node.size() == 1 && node.has(\"where\"))"),
+        delegate.contains("if (argsNode.size() == 1 && argsNode.has(\"where\"))"),
         "expected generated Java findUnique() to gate the unique-only fast path conservatively:\n{delegate}"
     );
     assert!(
@@ -2335,14 +2357,27 @@ fn test_java_select_uses_projection_api_instead_of_model_records() {
             && async_delegate.contains("public CompletableFuture<List<JsonNode>> findManySelectRaw("),
         "expected generated Java async delegate to expose CompletableFuture projection APIs:\n{async_delegate}"
     );
+    let base_delegate = generated_java_file(&sync_files, "internal/AbstractDelegate.java");
     assert!(
-        sync_delegate.contains("select returns partial rows and cannot be decoded as a full User record; use findManySelect, findFirstSelect, or findUniqueSelect instead")
-            && sync_delegate.contains("select projection APIs require select(...); use findMany/findFirst/findUnique for full User records"),
-        "expected generated Java delegate to reject select on model APIs and require select on projection APIs:\n{sync_delegate}"
+        base_delegate.contains("\"select returns partial rows and cannot be decoded as a full \"")
+            && base_delegate.contains(
+                "\" record; use findManySelect, findFirstSelect, or findUniqueSelect instead\""
+            )
+            && base_delegate.contains(
+                "\"select projection APIs require select(...); use findMany/findFirst/findUnique for full \""
+            ),
+        "expected the Java base delegate to own the select guards:\n{base_delegate}"
+    );
+    assert!(
+        sync_delegate.contains("rejectSelect(argsNode);")
+            && sync_delegate.contains("requireSelect(argsNode);"),
+        "expected generated Java model and projection APIs to apply the select guards:\n{sync_delegate}"
     );
     assert!(
         sync_delegate.contains("return rows(result, row -> actualMapper.apply(UserProjection.fromJsonNode(row)));")
-            && sync_delegate.contains("return mapProjectionRow(JsonSupport.firstDataRow(result), mapper);"),
+            && sync_delegate.contains(
+                "return mapRow(JsonSupport.firstDataRow(result), UserProjection::fromJsonNode, mapper);"
+            ),
         "expected generated Java projection APIs to return typed projection rows or mapped values:\n{sync_delegate}"
     );
     assert!(

@@ -1,0 +1,191 @@
+    public List<{{ model_name }}> findMany() {
+        return findMany(new {{ dsl_name }}.FindManyArgs());
+    }
+
+    public List<{{ model_name }}> findMany(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return findMany(args);
+    }
+
+    public List<{{ model_name }}> findMany({{ dsl_name }}.FindManyArgs args) {
+        return findManyInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args);
+    }
+
+    public List<{{ projection_name }}> findManySelect(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findManySelect(spec, Function.identity());
+    }
+
+    public <R> List<R> findManySelect(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return findManySelectInternal(args, mapper);
+    }
+
+    public List<{{ projection_name }}> findManySelect({{ dsl_name }}.FindManyArgs args) {
+        return findManySelect(args, Function.identity());
+    }
+
+    public <R> List<R> findManySelect(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return findManySelectInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args, mapper);
+    }
+
+    public List<JsonNode> findManySelectRaw(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return findManySelectRawInternal(args);
+    }
+
+    public List<JsonNode> findManySelectRaw({{ dsl_name }}.FindManyArgs args) {
+        return findManySelectRawInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args);
+    }
+
+    public {{ model_name }} findFirst(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return findFirstInternal(args);
+    }
+
+    public {{ projection_name }} findFirstSelect(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findFirstSelect(spec, Function.identity());
+    }
+
+    public <R> R findFirstSelect(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return findFirstSelectInternal(args, mapper);
+    }
+
+    public {{ projection_name }} findFirstSelect({{ dsl_name }}.FindManyArgs args) {
+        return findFirstSelect(args, Function.identity());
+    }
+
+    public <R> R findFirstSelect(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return findFirstSelectInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args, mapper);
+    }
+
+    public JsonNode findFirstSelectRaw(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return findFirstSelectRawInternal(args);
+    }
+
+    public JsonNode findFirstSelectRaw({{ dsl_name }}.FindManyArgs args) {
+        return findFirstSelectRawInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args);
+    }
+
+    public {{ model_name }} findUnique(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return findUniqueInternal(args);
+    }
+
+    public {{ projection_name }} findUniqueSelect(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findUniqueSelect(spec, Function.identity());
+    }
+
+    public <R> R findUniqueSelect(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return findUniqueSelectInternal(args, mapper);
+    }
+
+    public {{ projection_name }} findUniqueSelect({{ dsl_name }}.FindManyArgs args) {
+        return findUniqueSelect(args, Function.identity());
+    }
+
+    public <R> R findUniqueSelect(
+        {{ dsl_name }}.FindManyArgs args,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        return findUniqueSelectInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args, mapper);
+    }
+
+    public JsonNode findUniqueSelectRaw(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ dsl_name }}.FindManyArgs args = new {{ dsl_name }}.FindManyArgs();
+        if (spec != null) {
+            spec.accept(args);
+        }
+        return findUniqueSelectRawInternal(args);
+    }
+
+    public JsonNode findUniqueSelectRaw({{ dsl_name }}.FindManyArgs args) {
+        return findUniqueSelectRawInternal(args == null ? new {{ dsl_name }}.FindManyArgs() : args);
+    }
+
+    public {{ model_name }} findFirstOrThrow(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ model_name }} record = findFirst(spec);
+        if (record == null) {
+            throw new NotFoundException("findFirstOrThrow: no {{ model_name }} record found matching the given filter");
+        }
+        return record;
+    }
+
+    public {{ projection_name }} findFirstSelectOrThrow(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findFirstSelectOrThrow(spec, Function.identity());
+    }
+
+    public <R> R findFirstSelectOrThrow(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        R record = findFirstSelect(spec, mapper);
+        if (record == null) {
+            throw new NotFoundException("findFirstSelectOrThrow: no {{ model_name }} record found matching the given filter");
+        }
+        return record;
+    }
+
+    public {{ model_name }} findUniqueOrThrow(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        {{ model_name }} record = findUnique(spec);
+        if (record == null) {
+            throw new NotFoundException("findUniqueOrThrow: no {{ model_name }} record found matching the given filter");
+        }
+        return record;
+    }
+
+    public {{ projection_name }} findUniqueSelectOrThrow(Consumer<{{ dsl_name }}.FindManyArgs> spec) {
+        return findUniqueSelectOrThrow(spec, Function.identity());
+    }
+
+    public <R> R findUniqueSelectOrThrow(
+        Consumer<{{ dsl_name }}.FindManyArgs> spec,
+        Function<{{ projection_name }}, R> mapper
+    ) {
+        R record = findUniqueSelect(spec, mapper);
+        if (record == null) {
+            throw new NotFoundException("findUniqueSelectOrThrow: no {{ model_name }} record found matching the given filter");
+        }
+        return record;
+    }

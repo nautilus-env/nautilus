@@ -31,12 +31,88 @@ static JAVA_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(|| {
             include_str!("../../../templates/java/delegate.java.tera"),
         ),
         (
-            "_dsl_macros.tera",
-            include_str!("../../../templates/java/_dsl_macros.tera"),
+            "delegate/open.java.tera",
+            include_str!("../../../templates/java/delegate/open.java.tera"),
+        ),
+        (
+            "delegate/reads_async.java.tera",
+            include_str!("../../../templates/java/delegate/reads_async.java.tera"),
+        ),
+        (
+            "delegate/writes_async.java.tera",
+            include_str!("../../../templates/java/delegate/writes_async.java.tera"),
+        ),
+        (
+            "delegate/queries_async.java.tera",
+            include_str!("../../../templates/java/delegate/queries_async.java.tera"),
+        ),
+        (
+            "delegate/reads_sync.java.tera",
+            include_str!("../../../templates/java/delegate/reads_sync.java.tera"),
+        ),
+        (
+            "delegate/writes_sync.java.tera",
+            include_str!("../../../templates/java/delegate/writes_sync.java.tera"),
+        ),
+        (
+            "delegate/queries_sync.java.tera",
+            include_str!("../../../templates/java/delegate/queries_sync.java.tera"),
+        ),
+        (
+            "delegate/streams.java.tera",
+            include_str!("../../../templates/java/delegate/streams.java.tera"),
+        ),
+        (
+            "delegate/read_ops.java.tera",
+            include_str!("../../../templates/java/delegate/read_ops.java.tera"),
+        ),
+        (
+            "delegate/write_ops.java.tera",
+            include_str!("../../../templates/java/delegate/write_ops.java.tera"),
+        ),
+        (
+            "delegate/query_ops.java.tera",
+            include_str!("../../../templates/java/delegate/query_ops.java.tera"),
         ),
         (
             "java_dsl.tera",
             include_str!("../../../templates/java/dsl.java.tera"),
+        ),
+        (
+            "dsl/open.java.tera",
+            include_str!("../../../templates/java/dsl/open.java.tera"),
+        ),
+        (
+            "dsl/where.java.tera",
+            include_str!("../../../templates/java/dsl/where.java.tera"),
+        ),
+        (
+            "dsl/selection.java.tera",
+            include_str!("../../../templates/java/dsl/selection.java.tera"),
+        ),
+        (
+            "dsl/vector.java.tera",
+            include_str!("../../../templates/java/dsl/vector.java.tera"),
+        ),
+        (
+            "dsl/nested.java.tera",
+            include_str!("../../../templates/java/dsl/nested.java.tera"),
+        ),
+        (
+            "dsl/inputs.java.tera",
+            include_str!("../../../templates/java/dsl/inputs.java.tera"),
+        ),
+        (
+            "dsl/args.java.tera",
+            include_str!("../../../templates/java/dsl/args.java.tera"),
+        ),
+        (
+            "dsl/aggregates.java.tera",
+            include_str!("../../../templates/java/dsl/aggregates.java.tera"),
+        ),
+        (
+            "dsl/serializable_tail.java.tera",
+            include_str!("../../../templates/java/dsl/serializable_tail.java.tera"),
         ),
         (
             "java_transaction_client.tera",

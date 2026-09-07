@@ -1,0 +1,48 @@
+{% if vector_field_names | length > 0 %}
+    public enum VectorMetric {
+        L2("l2"),
+        INNER_PRODUCT("innerProduct"),
+        COSINE("cosine");
+
+        private final String wireValue;
+
+        VectorMetric(String wireValue) {
+            this.wireValue = wireValue;
+        }
+
+        public String wireValue() {
+            return this.wireValue;
+        }
+    }
+
+    public static final class Nearest implements WireSerializable {
+        private final ObjectNode node = JsonSupport.object();
+
+{%- for name in vector_field_names %}
+        public Nearest {{ name }}() {
+            this.node.put("field", "{{ name }}");
+            return this;
+        }
+
+{%- endfor %}
+        public Nearest query(List<Float> value) {
+            this.node.set("query", JsonSupport.toJsonNode(value));
+            return this;
+        }
+
+{% if has_vector_extension %}
+        public Nearest query(Vector value) {
+            this.node.set("query", JsonSupport.toJsonNode(value));
+            return this;
+        }
+
+{% endif %}
+        public Nearest metric(VectorMetric metric) {
+            this.node.put("metric", metric.wireValue());
+            return this;
+        }
+
+{% include "dsl/serializable_tail.java.tera" %}
+    }
+
+{% endif %}
