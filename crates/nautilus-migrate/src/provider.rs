@@ -1,21 +1,16 @@
-use crate::ddl::DatabaseProvider;
 use crate::error::{MigrationError, Result};
 use nautilus_core::TableName;
 use nautilus_schema::ast::StorageStrategy;
-use nautilus_schema::ir::{BasicIndexType, IndexKind};
 
+mod constraints;
+mod database;
+mod indexes;
 mod pgvector;
+mod user_types;
 
-pub(crate) struct CreateIndex<'a> {
-    pub(crate) table: &'a TableName,
-    pub(crate) name: &'a str,
-    pub(crate) columns: &'a [String],
-    pub(crate) unique: bool,
-    pub(crate) kind: &'a IndexKind,
-    pub(crate) if_not_exists: bool,
-    /// Partial-index predicate, already rendered against physical column names.
-    pub(crate) predicate: Option<&'a str>,
-}
+pub(crate) use constraints::check_constraint_name;
+pub use database::DatabaseProvider;
+pub(crate) use indexes::CreateIndex;
 
 pub(crate) struct AlterColumnType<'a> {
     pub(crate) table: &'a TableName,
@@ -74,6 +69,14 @@ impl ProviderStrategy {
         self.provider == DatabaseProvider::Postgres
     }
 
+    pub(crate) fn drop_column_sql(&self, table: &TableName, column: &str) -> String {
+        format!(
+            "ALTER TABLE {} DROP COLUMN {}",
+            self.quote_table(table),
+            self.provider.quote_identifier(column)
+        )
+    }
+
     pub(crate) fn array_storage_sql(
         &self,
         storage_strategy: Option<StorageStrategy>,
@@ -111,108 +114,6 @@ impl ProviderStrategy {
             subject,
             type_name,
         )
-    }
-
-    pub(crate) fn create_index_sql(&self, index: CreateIndex<'_>) -> String {
-        let q = |name: &str| self.provider.quote_identifier(name);
-        let unique_kw = if index.unique { "UNIQUE " } else { "" };
-
-        let opclass_suffix = match index.kind {
-            IndexKind::Pgvector(p) => pgvector::opclass_suffix(p),
-            _ => None,
-        };
-
-        let columns_sql = index
-            .columns
-            .iter()
-            .enumerate()
-            .map(|(idx, column)| {
-                let mut rendered = q(column);
-                if idx == 0 {
-                    if let Some(suffix) = opclass_suffix {
-                        rendered.push(' ');
-                        rendered.push_str(suffix);
-                    }
-                }
-                rendered
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let where_clause = match index.predicate {
-            Some(predicate) if self.provider != DatabaseProvider::Mysql => {
-                format!(" WHERE {}", predicate)
-            }
-            _ => String::new(),
-        };
-
-        if self.provider == DatabaseProvider::Mysql
-            && matches!(index.kind, IndexKind::Basic(BasicIndexType::FullText))
-        {
-            return format!(
-                "CREATE FULLTEXT INDEX {} ON {} ({})",
-                q(index.name),
-                self.quote_table(index.table),
-                columns_sql,
-            );
-        }
-
-        let using_clause = self.using_clause(index.kind);
-        let with_clause = match (self.provider, index.kind) {
-            (DatabaseProvider::Postgres, IndexKind::Pgvector(p)) => {
-                pgvector::with_clause(p.method, &p.options)
-            }
-            _ => String::new(),
-        };
-
-        match self.provider {
-            DatabaseProvider::Postgres | DatabaseProvider::Sqlite => {
-                let if_not_exists = if index.if_not_exists {
-                    " IF NOT EXISTS"
-                } else {
-                    ""
-                };
-                format!(
-                    "CREATE {}INDEX{} {} ON {}{} ({})",
-                    unique_kw,
-                    if_not_exists,
-                    q(index.name),
-                    self.quote_table(index.table),
-                    using_clause,
-                    columns_sql,
-                ) + &with_clause
-                    + &where_clause
-            }
-            DatabaseProvider::Mysql => format!(
-                "CREATE {}INDEX {} ON {} ({}){}",
-                unique_kw,
-                q(index.name),
-                self.quote_table(index.table),
-                columns_sql,
-                using_clause,
-            ),
-        }
-    }
-
-    fn using_clause(&self, kind: &IndexKind) -> String {
-        match (self.provider, kind) {
-            // Default and BTree are emitted without an explicit USING clause
-            // (BTree is the default access method on every supported DBMS).
-            (_, IndexKind::Default) => String::new(),
-            (_, IndexKind::Basic(BasicIndexType::BTree)) => String::new(),
-            (DatabaseProvider::Postgres, IndexKind::Basic(b)) => {
-                format!(" USING {}", b.as_ddl_str().to_uppercase())
-            }
-            (DatabaseProvider::Postgres, IndexKind::Pgvector(p)) => {
-                format!(" USING {}", p.method.as_ddl_str().to_uppercase())
-            }
-            (DatabaseProvider::Mysql, IndexKind::Basic(BasicIndexType::Hash)) => {
-                " USING HASH".to_string()
-            }
-            // FullText on MySQL uses dedicated `CREATE FULLTEXT INDEX` syntax,
-            // handled by the caller.
-            _ => String::new(),
-        }
     }
 
     pub(crate) fn alter_column_type_sql(
@@ -438,185 +339,4 @@ impl ProviderStrategy {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn postgres_hash_index_uses_if_not_exists_and_using_clause() {
-        let strategy = ProviderStrategy::new(DatabaseProvider::Postgres);
-        let columns = vec!["email".to_string()];
-        let kind = IndexKind::Basic(BasicIndexType::Hash);
-
-        let sql = strategy.create_index_sql(CreateIndex {
-            table: &TableName::new("User"),
-            name: "email_hash_idx",
-            columns: &columns,
-            unique: false,
-            kind: &kind,
-            if_not_exists: true,
-            predicate: None,
-        });
-
-        assert_eq!(
-            sql,
-            "CREATE INDEX IF NOT EXISTS \"email_hash_idx\" ON \"User\" USING HASH (\"email\")"
-        );
-    }
-
-    #[test]
-    fn mysql_fulltext_index_uses_native_syntax() {
-        let strategy = ProviderStrategy::new(DatabaseProvider::Mysql);
-        let columns = vec!["body".to_string()];
-        let kind = IndexKind::Basic(BasicIndexType::FullText);
-
-        let sql = strategy.create_index_sql(CreateIndex {
-            table: &TableName::new("Post"),
-            name: "body_search",
-            columns: &columns,
-            unique: false,
-            kind: &kind,
-            if_not_exists: true,
-            predicate: None,
-        });
-
-        assert_eq!(
-            sql,
-            "CREATE FULLTEXT INDEX `body_search` ON `Post` (`body`)"
-        );
-    }
-
-    #[test]
-    fn postgres_drop_table_can_include_cascade() {
-        let strategy = ProviderStrategy::new(DatabaseProvider::Postgres);
-
-        assert_eq!(
-            strategy.drop_table_sql(&TableName::new("users"), true),
-            "DROP TABLE IF EXISTS \"users\" CASCADE"
-        );
-        assert_eq!(
-            strategy.drop_table_sql(&TableName::new("users"), false),
-            "DROP TABLE IF EXISTS \"users\""
-        );
-    }
-
-    #[test]
-    fn postgres_not_null_with_default_backfills_before_constraint() {
-        let strategy = ProviderStrategy::new(DatabaseProvider::Postgres);
-
-        let plan = strategy
-            .alter_column_nullability_sql(AlterColumnNullability {
-                table: &TableName::new("User"),
-                column: "email",
-                now_required: true,
-                is_generated: false,
-                default_sql: Some("'unknown@example.com'"),
-                full_column_definition: None,
-            })
-            .unwrap();
-
-        let ProviderSqlPlan::Statements(sql) = plan else {
-            panic!("expected postgres statements plan");
-        };
-
-        assert_eq!(
-            sql,
-            vec![
-                "ALTER TABLE \"User\" ALTER COLUMN \"email\" SET DEFAULT 'unknown@example.com'"
-                    .to_string(),
-                "UPDATE \"User\" SET \"email\" = 'unknown@example.com' WHERE \"email\" IS NULL"
-                    .to_string(),
-                "ALTER TABLE \"User\" ALTER COLUMN \"email\" SET NOT NULL".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn mysql_type_rewrite_uses_modify_column() {
-        let strategy = ProviderStrategy::new(DatabaseProvider::Mysql);
-
-        let plan = strategy
-            .alter_column_type_sql(AlterColumnType {
-                table: &TableName::new("User"),
-                column: "email",
-                target_type: "VARCHAR(255)",
-                full_column_definition: Some("`email` VARCHAR(255) NOT NULL"),
-            })
-            .unwrap();
-
-        let ProviderSqlPlan::Statements(sql) = plan else {
-            panic!("expected mysql statements plan");
-        };
-
-        assert_eq!(
-            sql,
-            vec!["ALTER TABLE `User` MODIFY COLUMN `email` VARCHAR(255) NOT NULL".to_string()]
-        );
-    }
-
-    #[test]
-    fn sqlite_column_changes_require_rebuild() {
-        let strategy = ProviderStrategy::new(DatabaseProvider::Sqlite);
-
-        let type_plan = strategy
-            .alter_column_type_sql(AlterColumnType {
-                table: &TableName::new("User"),
-                column: "email",
-                target_type: "TEXT",
-                full_column_definition: None,
-            })
-            .unwrap();
-        assert!(matches!(type_plan, ProviderSqlPlan::RequiresTableRebuild));
-
-        let default_plan = strategy
-            .alter_column_default_sql(AlterColumnDefault {
-                table: &TableName::new("User"),
-                column: "email",
-                new_default: Some("'x'"),
-                preserve_implicit_default: false,
-                full_column_definition: None,
-            })
-            .unwrap();
-        assert!(matches!(
-            default_plan,
-            ProviderSqlPlan::RequiresTableRebuild
-        ));
-    }
-
-    #[test]
-    fn postgres_implicit_serial_default_is_preserved() {
-        let strategy = ProviderStrategy::new(DatabaseProvider::Postgres);
-
-        let plan = strategy
-            .alter_column_default_sql(AlterColumnDefault {
-                table: &TableName::new("User"),
-                column: "id",
-                new_default: None,
-                preserve_implicit_default: true,
-                full_column_definition: None,
-            })
-            .unwrap();
-
-        let ProviderSqlPlan::Statements(sql) = plan else {
-            panic!("expected postgres statements plan");
-        };
-        assert!(sql.is_empty());
-    }
-
-    #[test]
-    fn mysql_json_storage_and_udt_support_are_provider_aware() {
-        let mysql = ProviderStrategy::new(DatabaseProvider::Mysql);
-        let sqlite = ProviderStrategy::new(DatabaseProvider::Sqlite);
-        let postgres = ProviderStrategy::new(DatabaseProvider::Postgres);
-
-        assert_eq!(
-            mysql.array_storage_sql(Some(StorageStrategy::Json)),
-            Some("JSON")
-        );
-        assert_eq!(
-            sqlite.composite_storage_sql(Some(StorageStrategy::Json)),
-            Some("TEXT")
-        );
-        assert!(postgres.supports_user_defined_types());
-        assert!(!mysql.supports_user_defined_types());
-    }
-}
+mod tests;

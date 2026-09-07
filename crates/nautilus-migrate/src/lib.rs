@@ -21,6 +21,7 @@ mod file_store;
 mod migration;
 mod normalize;
 mod provider;
+mod reverse;
 mod serializer;
 mod tracker;
 mod utils;

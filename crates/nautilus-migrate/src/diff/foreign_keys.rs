@@ -143,7 +143,7 @@ impl TargetFkDescriptor {
     }
 }
 
-/// Convert a [`ReferentialAction`] to its SQL keyword string (upper-cased).
+/// Convert a [`ReferentialAction`](nautilus_schema::ast::ReferentialAction) to its SQL keyword string (upper-cased).
 fn fk_action_to_str(action: &nautilus_schema::ast::ReferentialAction) -> String {
     use nautilus_schema::ast::ReferentialAction;
     match action {

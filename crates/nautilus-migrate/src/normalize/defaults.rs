@@ -17,7 +17,7 @@ pub(crate) fn normalize_sqlite_default(raw: &str) -> String {
 }
 
 /// Normalise a default-value expression for comparison so that cosmetic
-/// differences don't cause false-positive [`Change::DefaultChanged`].
+/// differences don't cause false-positive [`Change::DefaultChanged`](crate::Change::DefaultChanged).
 ///
 /// Lowercases, trims whitespace, and strips a single balanced layer of outer
 /// parentheses so that enum literal casing (`'DRAFT'` vs `'draft'`) and

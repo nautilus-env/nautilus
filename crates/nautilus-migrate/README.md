@@ -441,15 +441,51 @@ message visible with `--nocapture`. On PowerShell, set the variables through
 
 ```
 nautilus-migrate
-├── ddl.rs        # SchemaIr -> CREATE/DROP TABLE SQL + type/default mapping
-├── diff.rs       # LiveSchema vs SchemaIr -> Vec<Change> + topo-sort
-├── applier.rs    # Change -> provider-specific SQL statements
-├── inspector.rs  # Live-schema introspection (Postgres / SQLite / MySQL)
+├── ddl/          # SchemaIr rendering: tables, columns, types, defaults, indexes
+│   ├── mod.rs    # DdlGenerator facade, managed objects and dependency order
+│   ├── reset.rs  # Drop/truncate from the target schema or live snapshot
+│   └── user_types.rs # Enum, composite and extension declarations
+├── change.rs     # Change variants, risk and descriptions
+├── diff/         # Comparison passes by domain; ordering.rs owns plan ordering
+├── normalize/    # Provider SQL, schema expressions and comparison forms
+├── applier/      # Forward changes by domain; mod.rs dispatches Change
+│   └── sqlite.rs # Table rebuild using the target schema and live columns
+├── reverse/      # Best-effort down SQL by domain; mod.rs dispatches Change
+│   └── snapshot.rs # Reconstruction of dropped tables and indexes
+├── provider.rs   # ProviderStrategy, column alterations and provider capabilities
+├── provider/     # Shared index, constraint and user-type SQL; DatabaseProvider
+├── apply.rs      # Ordered transaction phases and partial-application outcomes
+├── executor.rs   # Migration generation, execution, tracking and rollback
+├── inspector/   # Live-schema introspection (Postgres / SQLite / MySQL)
 ├── live.rs       # LiveSchema / LiveTable / LiveColumn snapshot types
-├── executor.rs   # Apply / rollback / diff-based migration generation
+├── serializer/  # Naming, relation reconstruction and db-pull rendering
 ├── file_store.rs # Migration file I/O (.up.sql / .down.sql pairs)
 ├── tracker.rs    # _nautilus_migrations tracking table
 ├── migration.rs  # Migration struct, SHA-256 checksum, status types
-├── serializer.rs # db-pull serialiser (LiveSchema -> .nautilus source)
 └── error.rs      # MigrationError enum
 ```
+
+`DdlGenerator` renders the target IR. `DiffApplier` uses that renderer for new
+tables, complete column definitions and SQLite rebuilds. `ChangeReverser` works
+from the previous live snapshot and reports unsupported reversals as SQL
+comments. Both directions use `ProviderStrategy` for common SQL fragments,
+including index creation/removal, constraint removal and user-type DDL.
+Reversibility and statement grouping remain decisions of the calling operation:
+MySQL's combined primary-key reversal and SQLite's unsupported down operations
+retain their existing behavior.
+
+The internal modules are private. The public `DdlGenerator`, `DatabaseProvider`,
+`DiffApplier` and `MigrationExecutor` names and methods remain available from the
+crate root.
+
+| Change being added | Implementation route | Existing checks |
+| --- | --- | --- |
+| Column type or default | `ddl/types.rs` or `ddl/defaults.rs`; comparison in `normalize/`; forward handling in `applier/columns.rs`, reversal in `reverse/columns.rs` | `ddl_tests`, `diff_tests`, `applier_tests`, `serializer_tests` |
+| Index kind or SQL option | `provider/indexes.rs` and `provider/pgvector.rs`; target metadata in `ddl/indexes.rs`, live metadata in `reverse/snapshot.rs` | `provider/tests.rs`, `ddl_tests`, `applier_tests`, snapshot reversal tests, `postgres_extensions_e2e` |
+| Structural migration operation | A `Change` variant, its `diff/` pass and ordering, then the corresponding `applier/` and `reverse/` domains | `applier_tests`, `multi_schema_tests`, executor tests; `apply_phases_e2e` if transaction requirements change |
+
+For database execution checks, `examples/bugfix-migrations` exercises repeated
+pushes, defaults and pull; `examples/views` and `examples/many-to-many` cover
+managed-object boundaries and foreign-key dependencies. Run them against
+dedicated databases. PostgreSQL/MySQL integration tests remain separate from
+the ordinary no-service test run.
