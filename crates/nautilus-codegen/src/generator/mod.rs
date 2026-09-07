@@ -16,17 +16,21 @@ use relations::{
 use templates::render;
 
 mod fields;
+mod files;
 mod keys;
 mod ordering;
 mod relations;
 mod templates;
 
+pub(crate) use files::generate_model_files;
 pub use templates::TEMPLATES;
 
 /// Generate complete code for a model (struct, impls, delegate, builders).
 ///
 /// `is_async` determines whether the generated delegate methods and internal
 /// builders use `async fn`/`.await` (`true`) or blocking sync wrappers (`false`).
+/// This source-only API keeps returning one self-contained model module;
+/// command-based generation emits the same items across included source files.
 pub fn generate_model(model: &ModelIr, ir: &SchemaIr, is_async: bool) -> Result<String> {
     let extensions = ExtensionRegistry::from_schema(ir);
     generate_model_with_registry(model, ir, is_async, &extensions)
@@ -38,6 +42,17 @@ fn generate_model_with_registry(
     is_async: bool,
     extensions: &ExtensionRegistry,
 ) -> Result<String> {
+    let context = model_context(model, ir, is_async, extensions);
+    render("model_file.tera", &context)
+        .with_context(|| format!("Failed to generate Rust model '{}'", model.logical_name))
+}
+
+fn model_context(
+    model: &ModelIr,
+    ir: &SchemaIr,
+    is_async: bool,
+    extensions: &ExtensionRegistry,
+) -> Context {
     let view = ModelView::new(model, ir, extensions);
     let mut context = Context::new();
     insert_derived_names(&mut context, &view);
@@ -96,8 +111,7 @@ fn generate_model_with_registry(
     context.insert("has_orderable_fields", &!fields.orderable.is_empty());
     context.insert("is_async", &is_async);
 
-    render("model_file.tera", &context)
-        .with_context(|| format!("Failed to generate Rust model '{}'", view.logical_name()))
+    context
 }
 
 /// Insert the `{Model}Delegate` / `{Model}FindMany` / … type names the

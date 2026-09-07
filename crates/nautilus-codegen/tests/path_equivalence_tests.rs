@@ -1,7 +1,4 @@
-use nautilus_codegen::{
-    enum_gen::generate_all_enums, generator::generate_all_models, writer::write_rust_code,
-};
-use nautilus_schema::validate_schema_source;
+use nautilus_codegen::{generate_command, GenerateOptions, InstallMode};
 use std::{fs, path::Path, process::Command};
 
 const SCHEMA: &str = include_str!("fixtures/path_equivalence/schema.nautilus");
@@ -14,15 +11,22 @@ fn generated_rust_client_and_engine_paths_agree() {
         .parent()
         .unwrap();
     let fixture = tempfile::tempdir_in(root).unwrap();
-    let ir = validate_schema_source(SCHEMA).unwrap().ir;
-    write_rust_code(
-        fixture.path().to_str().unwrap(),
-        &generate_all_models(&ir, true).unwrap(),
-        Some(generate_all_enums(&ir.enums).unwrap()),
-        None,
-        &[],
-        SCHEMA,
-        true,
+    let schema = tempfile::NamedTempFile::new_in(root).unwrap();
+    fs::write(
+        schema.path(),
+        format!(
+            "{SCHEMA}\ngenerator client {{\n  provider = \"nautilus-client-rs\"\n  interface = \"async\"\n  output = {:?}\n}}\n",
+            fixture.path().to_str().unwrap(),
+        ),
+    )
+    .unwrap();
+    generate_command(
+        schema.path(),
+        GenerateOptions {
+            standalone: true,
+            install: InstallMode::Never,
+            ..Default::default()
+        },
     )
     .unwrap();
     let manifest_path = fixture.path().join("Cargo.toml");

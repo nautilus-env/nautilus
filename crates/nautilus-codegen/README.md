@@ -143,6 +143,24 @@ preserved when sharing a new field classification. Update the relevant context
 and template, then verify `snapshot_tests` and a compiled/runtime consumer from
 `writer_tests`, `path_equivalence_tests`, or `stream_runtime_e2e_tests`.
 
+Rust's `templates/rust/delegate.tera` assembles partials under `delegate/` for
+nested and scalar input, aggregate types, filters, reads, projections, streaming,
+and individual write operations. `model/` separates imports and row decoding;
+`read/` separates ordering, builder configuration, and execution.
+
+Command-based Rust generation uses `src/generator/files.rs` to render these
+partials into `src/<model>/` alongside a short `src/<model>.rs` facade. Model
+types and columns, input, decoding, aggregate types, delegate operations, and
+query builders have separate files. The facade uses `include!` so these items
+still belong to the original Rust module: public paths and private access
+between builders and delegates stay compatible. Views omit write files, and
+sync clients omit the streaming delegate file. To add an operation, update its
+partial, the `delegate.tera` assembly, and the file layout in `files.rs`.
+
+The public `generate_model` / `generate_all_models` and `write_rust_code` APIs
+retain their complete-model strings and existing layout. Both output forms use
+the same template partials; neither writer parses generated Rust to split it.
+
 ## Testing
 
 ```bash
@@ -165,6 +183,10 @@ cargo test --locked -p nautilus-orm-codegen --test path_equivalence_tests
 ```
 
 The schema and consumer cases live in `tests/fixtures/path_equivalence/`.
+The consumer uses command-based generation, exercising publication and the
+included model files. The source-only writer remains covered by its compiled
+consumer. A small layout snapshot protects the Rust facade and emitted paths;
+the existing complete-model snapshots protect the shared partial contents.
 The generated consumer inherits the workspace lockfile and builds offline;
 its build cache lives in `target/path-equivalence/`.
 

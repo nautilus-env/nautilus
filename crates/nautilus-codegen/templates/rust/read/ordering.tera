@@ -1,0 +1,74 @@
+/// Resolve ORDER BY paths that target fields inside composite values.
+fn composite_order_expr(
+    column: &str,
+) -> Option<nautilus_core::Expr> {
+    match column {
+{%- for field in nested_order_by_fields %}
+        "{{ table_name }}__{{ field.path }}" | "{{ field.path }}" => Some(nautilus_core::Expr::composite_field(
+            "{{ table_name }}",
+            "{{ field.parent_db_name }}",
+            "{{ field.field_db_name }}",
+            "{{ field.json_key }}",
+            nautilus_core::JsonPathCast::{{ field.json_cast }},
+        )),
+{%- endfor %}
+        _ => None,
+    }
+}
+
+/// Resolve a `nearest.field` reference to the qualified pgvector column it
+/// names, accepting the logical name, the database column, and the qualified
+/// `table__column` form the wire protocol uses.
+fn vector_distance_column({% if has_vector_fields %}field{% else %}_field{% endif %}: &str) -> Option<&'static str> {
+{%- if has_vector_fields %}
+    match field {
+{%- for vector in vector_fields %}
+        {% for alias in vector.aliases %}"{{ alias }}"{% if not loop.last %} | {% endif %}{% endfor %} => Some("{{ table_name }}__{{ vector.db_name }}"),
+{%- endfor %}
+        _ => None,
+    }
+{%- else %}
+    None
+{%- endif %}
+}
+
+/// Build the ORDER BY expression for a pgvector nearest-neighbor search.
+///
+/// The restrictions mirror the engine: the search needs a positive `take` to
+/// stay bounded, and it cannot be combined with backward pagination, a cursor
+/// or `distinct`, all of which would fight the distance ordering.
+fn nearest_order_expr(
+    nearest: nautilus_core::VectorNearest,
+    take: Option<i32>,
+    has_cursor: bool,
+    has_distinct: bool,
+) -> nautilus_core::Result<nautilus_core::Expr> {
+    let Some(column) = vector_distance_column(&nearest.field) else {
+        return Err(nautilus_core::Error::InvalidQuery(format!(
+            "'nearest.field' must reference a Vector field of {{ model_name }}, got '{}'",
+            nearest.field
+        )));
+    };
+    if !matches!(take, Some(value) if value > 0) {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' requires a positive 'take' limit".to_string(),
+        ));
+    }
+    if has_cursor {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' cannot be combined with 'cursor'".to_string(),
+        ));
+    }
+    if has_distinct {
+        return Err(nautilus_core::Error::InvalidQuery(
+            "'nearest' cannot be combined with 'distinct'".to_string(),
+        ));
+    }
+
+    Ok(nautilus_core::Expr::vector_distance(
+        nearest.metric,
+        nautilus_core::Expr::column(column),
+        nautilus_core::Expr::param(nautilus_core::Value::Vector(nearest.query)),
+    ))
+}
+

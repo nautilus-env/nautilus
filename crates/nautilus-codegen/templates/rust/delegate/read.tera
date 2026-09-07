@@ -1,0 +1,147 @@
+    /// Find all {{ model_name }} records matching `args`.
+    ///
+    /// Executes immediately and returns a `Vec<{{ model_name }}>`.
+    /// Prefer this when the caller naturally wants the whole result set in
+    /// memory, such as small pages, eager-loaded relation graphs, or code that
+    /// does further in-memory sorting/grouping.
+    pub {% if is_async %}async {% endif %}fn find_many(
+        &self,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<Vec<{{ model_name }}>> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        Self::reject_select_for_model_result(&args.select)?;
+        let (engine_decode_slots, engine_row_hints) =
+            Self::engine_decode_plan_for_find_many_args(&args);
+        if let Some(rows) =
+            crate::runtime::try_find_many_via_engine::<_, {{ model_name }}>(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                &args,
+                move |row| {
+                    decode_model_row_with_hints(row, &engine_decode_slots, &engine_row_hints)
+                },
+            )
+            .await?
+        {
+            return Ok(rows);
+        }
+
+        let builder = Self::build_find_many_builder(
+            {% if is_async %}self.client.clone(){% else %}_c{% endif %},
+            args,
+        )?;
+        builder.exec().await
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Find the first {{ model_name }} record matching `args`, or `None`.
+    pub {% if is_async %}async {% endif %}fn find_first(
+        &self,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<Option<{{ model_name }}>> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        Self::reject_select_for_model_result(&args.select)?;
+        let args = nautilus_core::FindManyArgs { take: Some(1), ..args };
+        let (engine_decode_slots, engine_row_hints) =
+            Self::engine_decode_plan_for_find_many_args(&args);
+        if let Some(rows) =
+            crate::runtime::try_find_many_via_engine::<_, {{ model_name }}>(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                &args,
+                move |row| {
+                    decode_model_row_with_hints(row, &engine_decode_slots, &engine_row_hints)
+                },
+            )
+            .await?
+        {
+            return Ok(rows.into_iter().next());
+        }
+
+        let builder = Self::build_find_many_builder(
+            {% if is_async %}self.client.clone(){% else %}_c{% endif %},
+            args,
+        )?;
+        builder.exec_optional().await
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Find a single {{ model_name }} record by a unique filter, or `None` if not found.
+    ///
+    /// `args.where_` should reference a `@id` or `@unique` field for correct semantics.
+    pub {% if is_async %}async {% endif %}fn find_unique(
+        &self,
+        args: nautilus_core::FindUniqueArgs,
+    ) -> nautilus_core::Result<Option<{{ model_name }}>> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        Self::reject_select_for_model_result(&args.select)?;
+        let (engine_decode_slots, engine_row_hints) =
+            Self::engine_decode_plan_for_find_unique_args(&args);
+        if let Some(record) =
+            crate::runtime::try_find_unique_via_engine::<_, {{ model_name }}>(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                &args,
+                move |row| {
+                    decode_model_row_with_hints(row, &engine_decode_slots, &engine_row_hints)
+                },
+            )
+            .await?
+        {
+            return Ok(Some(record));
+        }
+
+        let find_args = nautilus_core::FindManyArgs {
+            where_: Some(args.where_),
+            take: Some(1),
+            select: args.select,
+            include: args.include,
+            ..Default::default()
+        };
+        let builder = Self::build_find_many_builder(
+            {% if is_async %}self.client.clone(){% else %}_c{% endif %},
+            find_args,
+        )?;
+        builder.exec_optional().await
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Find a single {{ model_name }} record by a unique filter, or return `Error::NotFound`.
+    pub {% if is_async %}async {% endif %}fn find_unique_or_throw(
+        &self,
+        args: nautilus_core::FindUniqueArgs,
+    ) -> nautilus_core::Result<{{ model_name }}> {
+        self.find_unique(args){% if is_async %}.await{% endif %}?.ok_or_else(|| {
+            nautilus_core::Error::NotFound(
+                format!("No {} record found matching the given unique filter", "{{ model_name }}")
+            )
+        })
+    }
+
+    /// Find the first {{ model_name }} record matching `args`, or return `Error::NotFound`.
+    pub {% if is_async %}async {% endif %}fn find_first_or_throw(
+        &self,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<{{ model_name }}> {
+        self.find_first(args){% if is_async %}.await{% endif %}?.ok_or_else(|| {
+            nautilus_core::Error::NotFound(
+                format!("No {} record found matching the given filter", "{{ model_name }}")
+            )
+        })
+    }
+

@@ -1,0 +1,185 @@
+{%- if not is_view %}
+/// Structured input for creating a {{ model_name }} record.
+///
+/// All fields are optional; unset fields are omitted from the INSERT.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}CreateInput {
+{%- for field in create_fields %}
+    /// {{ field.name }} column.
+    pub {{ field.name }}: Option<{{ field.rust_type }}>,
+{%- endfor %}
+{%- for nested in nested_writes %}
+    /// Nested writes on the `{{ nested.field_name }}` relation.
+    pub {{ nested.field_name }}: {{ nested.create_nested_name }},
+{%- endfor %}
+}
+
+impl {{ model_name }}CreateInput {
+    /// Whether the input names a relation, which only the engine can write.
+    pub(crate) fn has_nested_writes(&self) -> bool {
+{%- if has_nested_writes %}
+{%- for nested in nested_writes %}
+        !self.{{ nested.field_name }}.is_empty()
+{%- if not loop.last %} ||{% endif %}
+{%- endfor %}
+{%- else %}
+        false
+{%- endif %}
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut data = serde_json::Map::new();
+{%- for field in create_fields %}
+        if let Some(value) = &self.{{ field.name }} {
+            data.insert(
+                "{{ field.db_name }}".to_string(),
+{%- if field.is_optional %}
+                match value {
+                    Some(inner) => nautilus_core::Value::from(inner.clone()).to_json_plain(),
+                    None => serde_json::Value::Null,
+                },
+{%- else %}
+                nautilus_core::Value::from(value.clone()).to_json_plain(),
+{%- endif %}
+            );
+        }
+{%- endfor %}
+{%- for nested in nested_writes %}
+        if !self.{{ nested.field_name }}.is_empty() {
+            data.insert(
+                "{{ nested.wire_name }}".to_string(),
+                self.{{ nested.field_name }}.to_engine_data()?,
+            );
+        }
+{%- endfor %}
+        Ok(serde_json::Value::Object(data))
+    }
+}
+
+impl crate::runtime::nested::NestedInput for {{ model_name }}CreateInput {
+    fn to_nested_json(&self) -> nautilus_core::Result<serde_json::Value> {
+        self.to_engine_data()
+    }
+}
+
+/// Structured input for updating {{ model_name }} records.
+///
+/// All fields are optional; only set fields are included in the UPDATE.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}UpdateInput {
+{%- for field in create_fields %}
+{%- if field.accepts_arithmetic %}
+    /// {{ field.name }} column: a value to write, or arithmetic the database
+    /// applies to the row's current one.
+    pub {{ field.name }}: Option<crate::NumericUpdate<{{ field.rust_type }}, {{ field.base_rust_type }}>>,
+{%- else %}
+    /// {{ field.name }} column.
+    pub {{ field.name }}: Option<{{ field.rust_type }}>,
+{%- endif %}
+{%- endfor %}
+{%- for nested in nested_writes %}
+    /// Nested writes on the `{{ nested.field_name }}` relation.
+    pub {{ nested.field_name }}: {{ nested.update_nested_name }},
+{%- endfor %}
+}
+
+impl {{ model_name }}UpdateInput {
+    /// Whether the input names a relation, which only the engine can write.
+    pub(crate) fn has_nested_writes(&self) -> bool {
+{%- if has_nested_writes %}
+{%- for nested in nested_writes %}
+        !self.{{ nested.field_name }}.is_empty()
+{%- if not loop.last %} ||{% endif %}
+{%- endfor %}
+{%- else %}
+        false
+{%- endif %}
+    }
+
+    fn to_engine_data(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut data = serde_json::Map::new();
+{%- for field in create_fields %}
+        if let Some(value) = &self.{{ field.name }} {
+            data.insert(
+                "{{ field.db_name }}".to_string(),
+{%- if field.accepts_arithmetic %}
+                value.to_engine_json(),
+{%- elif field.is_optional %}
+                match value {
+                    Some(inner) => nautilus_core::Value::from(inner.clone()).to_json_plain(),
+                    None => serde_json::Value::Null,
+                },
+{%- else %}
+                nautilus_core::Value::from(value.clone()).to_json_plain(),
+{%- endif %}
+            );
+        }
+{%- endfor %}
+{%- for nested in nested_writes %}
+        if !self.{{ nested.field_name }}.is_empty() {
+            data.insert(
+                "{{ nested.wire_name }}".to_string(),
+                self.{{ nested.field_name }}.to_engine_data()?,
+            );
+        }
+{%- endfor %}
+        Ok(serde_json::Value::Object(data))
+    }
+
+    fn has_assignments(&self) -> bool {
+{%- for field in create_fields %}
+        self.{{ field.name }}.is_some() ||
+{%- endfor %}
+        self.has_nested_writes()
+    }
+}
+
+impl crate::runtime::nested::NestedInput for {{ model_name }}UpdateInput {
+    fn to_nested_json(&self) -> nautilus_core::Result<serde_json::Value> {
+        self.to_engine_data()
+    }
+}
+
+/// Structured arguments for updating {{ model_name }} records.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}UpdateArgs {
+    /// Optional WHERE filter — if `None`, all rows are updated.
+    pub where_: Option<nautilus_core::Expr>,
+    /// Fields to update.
+    pub data: {{ model_name }}UpdateInput,
+}
+
+/// Structured arguments for deleting {{ model_name }} records.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}DeleteArgs {
+    /// Optional WHERE filter — if `None`, all rows are deleted.
+    pub where_: Option<nautilus_core::Expr>,
+}
+
+/// Structured arguments for upserting a {{ model_name }} record.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}UpsertArgs {
+    /// WHERE filter used to look up the existing record (should target a unique field).
+    pub where_: Option<nautilus_core::Expr>,
+    /// Fields used when creating a new record (record not found).
+    pub create: {{ model_name }}CreateInput,
+    /// Fields applied when updating an existing record.
+    pub update: {{ model_name }}UpdateInput,
+    /// Whether to return the created/updated record (default: true).
+    pub return_data: bool,
+}
+
+pub type {{ model_name }}CreateEventContext =
+    crate::CrudEventContext<{{ model_name }}CreateInput, {{ model_name }}>;
+pub type {{ model_name }}CreateManyEventContext =
+    crate::CrudEventContext<Vec<{{ entry_name }}>, Vec<{{ model_name }}>>;
+pub type {{ model_name }}UpdateEventContext =
+    crate::CrudEventContext<{{ model_name }}UpdateArgs, Vec<{{ model_name }}>>;
+pub type {{ model_name }}UpdateManyEventContext =
+    crate::CrudEventContext<{{ model_name }}UpdateArgs, u64>;
+pub type {{ model_name }}DeleteEventContext =
+    crate::CrudEventContext<{{ model_name }}DeleteArgs, Option<{{ model_name }}>>;
+pub type {{ model_name }}DeleteManyEventContext =
+    crate::CrudEventContext<{{ model_name }}DeleteArgs, Vec<{{ model_name }}>>;
+{% endif %}
+

@@ -1,0 +1,95 @@
+
+/// Delegate for {{ model_name }} queries.
+///
+/// Obtained via `client.{{ table_name }}` (or the model accessor). Each method
+/// accepts a structured args object and executes the query immediately — no
+/// extra `.exec()` call is needed.
+pub struct {{ delegate_name }}<E: crate::Executor> {
+    client: crate::Client<E>,
+}
+
+impl<E> {{ delegate_name }}<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    pub(crate) fn new(client: crate::Client<E>) -> Self {
+        {{ delegate_name }} { client }
+    }
+
+    fn build_find_many_builder(
+        client: crate::Client<E>,
+        args: nautilus_core::FindManyArgs,
+    ) -> nautilus_core::Result<{{ find_many_name }}<E>> {
+        Self::reject_select_for_model_result(&args.select)?;
+        if !args.include.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "include queries require the embedded engine path in the generated Rust client"
+                    .to_string(),
+            ));
+        }
+
+        let mut builder = {{ find_many_name }}::new(client);
+        if let Some(filter) = args.where_ {
+            builder = builder.where_(filter);
+        }
+        for order in args.order_by {
+            builder = builder.order_by(order);
+        }
+        if let Some(take) = args.take {
+            builder = builder.take(take);
+        }
+        if let Some(skip) = args.skip {
+            builder = builder.skip(skip);
+        }
+        if let Some(cursor) = args.cursor {
+            builder = builder.cursor(cursor);
+        }
+        if !args.distinct.is_empty() {
+            builder = builder.distinct(args.distinct);
+        }
+        if let Some(nearest) = args.nearest {
+            builder = builder.nearest(nearest);
+        }
+
+        Ok(builder)
+    }
+
+    fn reject_select_for_model_result(
+        select: &std::collections::HashMap<String, bool>,
+    ) -> nautilus_core::Result<()> {
+        if !select.is_empty() {
+            return Err(nautilus_core::Error::InvalidQuery(
+                "select returns partial rows and cannot be decoded as a full {{ model_name }}; use find_many_select, find_first_select, or find_unique_select instead"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn engine_decode_plan_for_find_many_args(
+        args: &nautilus_core::FindManyArgs,
+    ) -> (Vec<usize>, Vec<Option<crate::ValueHint>>) {
+        Self::engine_decode_plan_for_select(&args.select)
+    }
+
+    fn engine_decode_plan_for_find_unique_args(
+        args: &nautilus_core::FindUniqueArgs,
+    ) -> (Vec<usize>, Vec<Option<crate::ValueHint>>) {
+        Self::engine_decode_plan_for_select(&args.select)
+    }
+
+    fn engine_decode_plan_for_select(
+        select: &std::collections::HashMap<String, bool>,
+    ) -> (Vec<usize>, Vec<Option<crate::ValueHint>>) {
+        let selected_fields: std::collections::HashSet<String> = select
+            .iter()
+            .filter_map(|(key, enabled)| enabled.then_some(key.clone()))
+            .collect();
+
+        (
+            projected_scalar_decode_slots(&selected_fields),
+            projected_scalar_value_hints(&selected_fields),
+        )
+    }
+

@@ -1,0 +1,4 @@
+{% include "model/imports.tera" %}
+{% for file in files %}
+include!("{{ file }}");
+{%- endfor %}

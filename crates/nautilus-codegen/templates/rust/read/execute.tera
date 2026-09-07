@@ -1,0 +1,105 @@
+impl<E> {{ find_many_name }}<E, ()>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+    /// Execute the query and return all rows.
+    pub(crate) async fn exec(self) -> nautilus_core::Result<Vec<{{ model_name }}>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, decode_slots, backward) = self.into_execution_parts()?;
+
+        let rows = crate::execute_all(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            let decoded = decode_model_row_with_hints(row, &decode_slots, &row_hints)?;
+            results.push(decoded);
+        }
+
+        // Backward pagination: DB returned rows in reversed order - restore natural order.
+        if backward {
+            results.reverse();
+        }
+
+        Ok(results)
+    }
+
+    /// Execute the query and decode at most one row.
+    pub(crate) async fn exec_optional(self) -> nautilus_core::Result<Option<{{ model_name }}>> {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, decode_slots, _backward) = self.into_execution_parts()?;
+        let row = crate::execute_optional(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let row: crate::Row = row.into();
+        Ok(Some(decode_model_row_with_hints(row, &decode_slots, &row_hints)?))
+    }
+
+    pub(crate) async fn exec_select<C>(
+        self,
+        selection: C,
+    ) -> nautilus_core::Result<Vec<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+    {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, backward) =
+            self.into_selection_execution_parts(&selection)?;
+
+        let rows = crate::execute_all(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row: crate::Row = row.into();
+            let row = normalize_projection_row(row, &row_hints)?;
+            results.push(selection.decode(&row)?);
+        }
+
+        if backward {
+            results.reverse();
+        }
+
+        Ok(results)
+    }
+
+    pub(crate) async fn exec_select_optional<C>(
+        self,
+        selection: C,
+    ) -> nautilus_core::Result<Option<C::Output>>
+    where
+        C: nautilus_core::SelectColumns,
+    {
+        use nautilus_core::*;
+        use std::convert::Into;
+
+        let (client, sql, row_hints, _backward) =
+            self.into_selection_execution_parts(&selection)?;
+        let row = crate::execute_optional(client.executor(), &sql)
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let row: crate::Row = row.into();
+        let row = normalize_projection_row(row, &row_hints)?;
+        Ok(Some(selection.decode(&row)?))
+    }
+}

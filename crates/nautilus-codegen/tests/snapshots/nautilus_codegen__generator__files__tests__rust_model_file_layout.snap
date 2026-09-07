@@ -1,0 +1,92 @@
+---
+source: crates/nautilus-codegen/src/generator/files.rs
+expression: layout
+---
+Post
+//! Post model and associated builders.
+use crate::Row;
+use futures::stream::StreamExt;
+
+include!("post/model.rs");
+include!("post/decode.rs");
+include!("post/input.rs");
+include!("post/aggregate_input.rs");
+include!("post/aggregate_output.rs");
+include!("post/write_filter.rs");
+include!("post/ordering.rs");
+include!("post/read_builder.rs");
+include!("post/read_execute.rs");
+include!("post/delegate.rs");
+include!("post/read.rs");
+include!("post/projection.rs");
+include!("post/stream.rs");
+include!("post/create.rs");
+include!("post/create_many.rs");
+include!("post/update.rs");
+include!("post/delete.rs");
+include!("post/aggregate.rs");
+include!("post/upsert.rs");
+
+User
+//! User model and associated builders.
+use crate::Row;
+use futures::stream::StreamExt;
+
+include!("user/model.rs");
+include!("user/decode.rs");
+include!("user/input.rs");
+include!("user/aggregate_input.rs");
+include!("user/aggregate_output.rs");
+include!("user/write_filter.rs");
+include!("user/ordering.rs");
+include!("user/read_builder.rs");
+include!("user/read_execute.rs");
+include!("user/delegate.rs");
+include!("user/read.rs");
+include!("user/projection.rs");
+include!("user/stream.rs");
+include!("user/create.rs");
+include!("user/create_many.rs");
+include!("user/update.rs");
+include!("user/delete.rs");
+include!("user/aggregate.rs");
+include!("user/upsert.rs");
+
+post/aggregate.rs
+post/aggregate_input.rs
+post/aggregate_output.rs
+post/create.rs
+post/create_many.rs
+post/decode.rs
+post/delegate.rs
+post/delete.rs
+post/input.rs
+post/model.rs
+post/ordering.rs
+post/projection.rs
+post/read.rs
+post/read_builder.rs
+post/read_execute.rs
+post/stream.rs
+post/update.rs
+post/upsert.rs
+post/write_filter.rs
+user/aggregate.rs
+user/aggregate_input.rs
+user/aggregate_output.rs
+user/create.rs
+user/create_many.rs
+user/decode.rs
+user/delegate.rs
+user/delete.rs
+user/input.rs
+user/model.rs
+user/ordering.rs
+user/projection.rs
+user/read.rs
+user/read_builder.rs
+user/read_execute.rs
+user/stream.rs
+user/update.rs
+user/upsert.rs
+user/write_filter.rs

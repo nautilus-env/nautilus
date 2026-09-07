@@ -1,0 +1,21 @@
+{% include "model_struct.tera" %}
+
+{% include "column_impl.tera" %}
+
+{% include "from_row_impl.tera" %}
+
+{% include "columns_struct.tera" %}
+
+{% include "delegate.tera" %}
+
+{% include "find_many.tera" %}
+
+{%- if not is_view %}
+{% include "create.tera" %}
+
+{% include "create_many.tera" %}
+
+{% include "update.tera" %}
+
+{% include "delete.tera" %}
+{% endif %}

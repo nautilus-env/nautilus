@@ -1,0 +1,7 @@
+impl<E> {{ delegate_name }}<E>
+where
+    E: crate::Executor,
+    for<'a> E::Row<'a>: Into<crate::Row>,
+{
+{{ body | safe }}
+}

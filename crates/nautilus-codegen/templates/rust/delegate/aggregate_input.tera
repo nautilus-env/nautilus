@@ -1,0 +1,380 @@
+/// Scalar fields on {{ model_name }} that can be referenced in generated aggregate APIs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum {{ model_name }}ScalarField {
+{%- for field in scalar_fields %}
+    {{ field.variant_name }},
+{%- endfor %}
+}
+
+impl {{ model_name }}ScalarField {
+    fn as_str(&self) -> &'static str {
+        match self {
+{%- for field in scalar_fields %}
+            Self::{{ field.variant_name }} => "{{ field.logical_name }}",
+{%- endfor %}
+        }
+    }
+}
+
+/// Sort direction used by {{ model_name }} `group_by()` ordering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum {{ model_name }}SortOrder {
+    Asc,
+    Desc,
+}
+
+impl {{ model_name }}SortOrder {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        }
+    }
+}
+
+/// Structured arguments for counting {{ model_name }} records.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}CountArgs {
+    /// Optional WHERE filter.
+    pub where_: Option<nautilus_core::Expr>,
+    /// Limit the counted window.
+    pub take: Option<i32>,
+    /// Offset the counted window.
+    pub skip: Option<u32>,
+    /// Optional keyset cursor for paginated counts.
+    pub cursor: Option<std::collections::HashMap<String, nautilus_core::Value>>,
+}
+
+impl {{ model_name }}CountArgs {
+    fn to_engine_args(&self) -> nautilus_core::Result<Option<serde_json::Value>> {
+        let mut args = serde_json::Map::new();
+
+        if let Some(filter) = self.where_.as_ref() {
+            args.insert(
+                "where".to_string(),
+                nautilus_core::where_expr_to_protocol_json(filter)?,
+            );
+        }
+        if let Some(take) = self.take {
+            args.insert("take".to_string(), serde_json::Value::from(take));
+        }
+        if let Some(skip) = self.skip {
+            args.insert("skip".to_string(), serde_json::Value::from(skip));
+        }
+        if let Some(cursor) = self.cursor.as_ref() {
+            args.insert("cursor".to_string(), serialize_cursor_for_engine(cursor));
+        }
+
+        Ok((!args.is_empty()).then_some(serde_json::Value::Object(args)))
+    }
+}
+
+/// Select which COUNT aggregates to return from `{{ delegate_name }}::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}CountAggregateInput {
+    pub _all: bool,
+{%- for field in scalar_fields %}
+    pub {{ field.name }}: bool,
+{%- endfor %}
+}
+
+impl {{ model_name }}CountAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+        if self._all {
+            obj.insert("_all".to_string(), serde_json::Value::Bool(true));
+        }
+{%- for field in scalar_fields %}
+        if self.{{ field.name }} {
+            obj.insert("{{ field.logical_name }}".to_string(), serde_json::Value::Bool(true));
+        }
+{%- endfor %}
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+{%- if has_numeric_fields %}
+/// Select which AVG aggregates to return from `{{ delegate_name }}::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}AvgAggregateInput {
+{%- for field in numeric_fields %}
+    pub {{ field.name }}: bool,
+{%- endfor %}
+}
+
+impl {{ model_name }}AvgAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+{%- for field in numeric_fields %}
+        if self.{{ field.name }} {
+            obj.insert("{{ field.logical_name }}".to_string(), serde_json::Value::Bool(true));
+        }
+{%- endfor %}
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// Select which SUM aggregates to return from `{{ delegate_name }}::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}SumAggregateInput {
+{%- for field in numeric_fields %}
+    pub {{ field.name }}: bool,
+{%- endfor %}
+}
+
+impl {{ model_name }}SumAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+{%- for field in numeric_fields %}
+        if self.{{ field.name }} {
+            obj.insert("{{ field.logical_name }}".to_string(), serde_json::Value::Bool(true));
+        }
+{%- endfor %}
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+{%- endif %}
+
+/// Select which MIN aggregates to return from `{{ delegate_name }}::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}MinAggregateInput {
+{%- for field in orderable_fields %}
+    pub {{ field.name }}: bool,
+{%- endfor %}
+}
+
+impl {{ model_name }}MinAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+{%- for field in orderable_fields %}
+        if self.{{ field.name }} {
+            obj.insert("{{ field.logical_name }}".to_string(), serde_json::Value::Bool(true));
+        }
+{%- endfor %}
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// Select which MAX aggregates to return from `{{ delegate_name }}::group_by`.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}MaxAggregateInput {
+{%- for field in orderable_fields %}
+    pub {{ field.name }}: bool,
+{%- endfor %}
+}
+
+impl {{ model_name }}MaxAggregateInput {
+    fn to_json(&self) -> Option<serde_json::Value> {
+        let mut obj = serde_json::Map::new();
+{%- for field in orderable_fields %}
+        if self.{{ field.name }} {
+            obj.insert("{{ field.logical_name }}".to_string(), serde_json::Value::Bool(true));
+        }
+{%- endfor %}
+        (!obj.is_empty()).then_some(serde_json::Value::Object(obj))
+    }
+}
+
+/// One ORDER BY item for `{{ delegate_name }}::group_by()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum {{ model_name }}GroupByOrderBy {
+    Field {
+        field: {{ model_name }}ScalarField,
+        direction: {{ model_name }}SortOrder,
+    },
+    CountAll({{ model_name }}SortOrder),
+    Count {
+        field: {{ model_name }}ScalarField,
+        direction: {{ model_name }}SortOrder,
+    },
+{%- if has_numeric_fields %}
+    Avg {
+        field: {{ model_name }}ScalarField,
+        direction: {{ model_name }}SortOrder,
+    },
+    Sum {
+        field: {{ model_name }}ScalarField,
+        direction: {{ model_name }}SortOrder,
+    },
+{%- endif %}
+{%- if has_orderable_fields %}
+    Min {
+        field: {{ model_name }}ScalarField,
+        direction: {{ model_name }}SortOrder,
+    },
+    Max {
+        field: {{ model_name }}ScalarField,
+        direction: {{ model_name }}SortOrder,
+    },
+{%- endif %}
+}
+
+impl {{ model_name }}GroupByOrderBy {
+    fn to_json(&self) -> serde_json::Value {
+        match self {
+            Self::Field { field, direction } => {
+                let mut obj = serde_json::Map::new();
+                obj.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                serde_json::Value::Object(obj)
+            }
+            Self::CountAll(direction) => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    "_all".to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_count".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Count { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_count".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+{%- if has_numeric_fields %}
+            Self::Avg { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_avg".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Sum { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_sum".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+{%- endif %}
+{%- if has_orderable_fields %}
+            Self::Min { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_min".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+            Self::Max { field, direction } => {
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    field.as_str().to_string(),
+                    serde_json::Value::String(direction.as_str().to_string()),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("_max".to_string(), serde_json::Value::Object(inner));
+                serde_json::Value::Object(outer)
+            }
+{%- endif %}
+        }
+    }
+}
+
+/// Structured arguments for grouping {{ model_name }} rows and computing aggregates.
+#[derive(Debug, Default, Clone)]
+pub struct {{ model_name }}GroupByArgs {
+    /// Logical field names to group by.
+    pub by: Vec<{{ model_name }}ScalarField>,
+    /// Optional pre-group WHERE filter.
+    pub where_: Option<nautilus_core::Expr>,
+    /// Optional HAVING JSON object using the protocol aggregate shape.
+    pub having: Option<serde_json::Value>,
+    /// Limit the number of returned groups.
+    pub take: Option<i32>,
+    /// Offset the returned groups.
+    pub skip: Option<u32>,
+    /// COUNT aggregation selection.
+    pub count: Option<{{ model_name }}CountAggregateInput>,
+{%- if has_numeric_fields %}
+    /// AVG aggregation selection.
+    pub avg: Option<{{ model_name }}AvgAggregateInput>,
+    /// SUM aggregation selection.
+    pub sum: Option<{{ model_name }}SumAggregateInput>,
+{%- endif %}
+    /// MIN aggregation selection.
+    pub min: Option<{{ model_name }}MinAggregateInput>,
+    /// MAX aggregation selection.
+    pub max: Option<{{ model_name }}MaxAggregateInput>,
+    /// ORDER BY items applied after grouping.
+    pub order_by: Vec<{{ model_name }}GroupByOrderBy>,
+}
+
+impl {{ model_name }}GroupByArgs {
+    fn to_engine_args(&self) -> nautilus_core::Result<serde_json::Value> {
+        let mut args = serde_json::Map::new();
+        args.insert(
+            "by".to_string(),
+            serde_json::Value::Array(
+                self.by
+                    .iter()
+                    .map(|field| serde_json::Value::String(field.as_str().to_string()))
+                    .collect(),
+            ),
+        );
+
+        if let Some(filter) = self.where_.as_ref() {
+            args.insert(
+                "where".to_string(),
+                nautilus_core::where_expr_to_protocol_json(filter)?,
+            );
+        }
+        if let Some(having) = self.having.as_ref() {
+            args.insert("having".to_string(), having.clone());
+        }
+        if let Some(take) = self.take {
+            args.insert("take".to_string(), serde_json::Value::from(take));
+        }
+        if let Some(skip) = self.skip {
+            args.insert("skip".to_string(), serde_json::Value::from(skip));
+        }
+        if let Some(count) = self.count.as_ref().and_then({{ model_name }}CountAggregateInput::to_json) {
+            args.insert("count".to_string(), count);
+        }
+{%- if has_numeric_fields %}
+        if let Some(avg) = self.avg.as_ref().and_then({{ model_name }}AvgAggregateInput::to_json) {
+            args.insert("avg".to_string(), avg);
+        }
+        if let Some(sum) = self.sum.as_ref().and_then({{ model_name }}SumAggregateInput::to_json) {
+            args.insert("sum".to_string(), sum);
+        }
+{%- endif %}
+        if let Some(min) = self.min.as_ref().and_then({{ model_name }}MinAggregateInput::to_json) {
+            args.insert("min".to_string(), min);
+        }
+        if let Some(max) = self.max.as_ref().and_then({{ model_name }}MaxAggregateInput::to_json) {
+            args.insert("max".to_string(), max);
+        }
+        if !self.order_by.is_empty() {
+            args.insert(
+                "orderBy".to_string(),
+                serde_json::Value::Array(
+                    self.order_by
+                        .iter()
+                        .map({{ model_name }}GroupByOrderBy::to_json)
+                        .collect(),
+                ),
+            );
+        }
+
+        Ok(serde_json::Value::Object(args))
+    }
+}
+

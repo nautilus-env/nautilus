@@ -1,0 +1,40 @@
+{%- if not is_view %}
+    /// Delete every {{ model_name }} record matching `args.where_`, returning
+    /// the affected-row count.
+    ///
+    /// The count-only counterpart of [`Self::delete_many`], which reads the
+    /// deleted rows back through `RETURNING`.
+    pub {% if is_async %}async {% endif %}fn delete_many_count(
+        &self,
+        args: {{ model_name }}DeleteArgs,
+    ) -> nautilus_core::Result<u64> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        let filter = match args.where_.as_ref() {
+            Some(filter) => serialize_update_filter_for_engine(Some(filter))?
+                .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+            None => serde_json::Value::Object(serde_json::Map::new()),
+        };
+        if let Some(count) =
+            crate::runtime::try_delete_many_via_engine(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                filter,
+            )
+            .await?
+        {
+            return Ok(count);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "deleteMany requires the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+{% endif %}
+

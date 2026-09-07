@@ -1,0 +1,177 @@
+    /// Aggregate over every {{ model_name }} record matching `args.where_`,
+    /// without a grouping key.
+    ///
+    /// Always resolves to one row, even when the filter matches nothing: counts
+    /// are then `0` and the other aggregates `None`.
+    pub {% if is_async %}async {% endif %}fn aggregate(
+        &self,
+        args: {{ model_name }}AggregateArgs,
+    ) -> nautilus_core::Result<{{ model_name }}AggregateOutput> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        let engine_args = args.to_engine_args()?;
+        if let Some(row) =
+            crate::runtime::try_aggregate_row_via_engine(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                engine_args,
+            )
+            .await?
+        {
+            return match row {
+                Some(row) => {{ model_name }}AggregateOutput::from_row(&row),
+                None => Ok({{ model_name }}AggregateOutput::default()),
+            };
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "aggregate queries require the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Ask the database to explain the statement [`Self::find_many`] would run
+    /// for `args`.
+    ///
+    /// `args.include` relations are loaded by separate statements and are not
+    /// part of the reported plan. `analyze` executes the statement to collect
+    /// real timings where the backend supports it.
+    pub {% if is_async %}async {% endif %}fn explain(
+        &self,
+        args: nautilus_core::FindManyArgs,
+        analyze: bool,
+    ) -> nautilus_core::Result<nautilus_protocol::ExplainResult> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        if let Some(result) =
+            crate::runtime::try_explain_via_engine(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                &args,
+                analyze,
+            )
+            .await?
+        {
+            return Ok(result);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "explain requires the embedded engine path in the generated Rust client".to_string(),
+        ))
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Group {{ model_name }} rows and compute aggregates.
+    pub {% if is_async %}async {% endif %}fn group_by(
+        &self,
+        args: {{ model_name }}GroupByArgs,
+    ) -> nautilus_core::Result<Vec<{{ model_name }}GroupByOutput>> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        let engine_args = args.to_engine_args()?;
+        if let Some(rows) =
+            crate::runtime::try_group_by_rows_via_engine(
+                {% if is_async %}&self.client{% else %}&_c{% endif %},
+                "{{ model_name }}",
+                engine_args,
+            )
+            .await?
+        {
+            let mut decoded = Vec::with_capacity(rows.len());
+            for row in &rows {
+                decoded.push({{ model_name }}GroupByOutput::from_row(row)?);
+            }
+            return Ok(decoded);
+        }
+
+        Err(nautilus_core::Error::InvalidQuery(
+            "groupBy queries require the embedded engine path in the generated Rust client"
+                .to_string(),
+        ))
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Execute a raw SQL string and return the result rows as generic maps.
+    ///
+    /// The SQL is sent to the database as-is with no parameter binding.
+    /// Prefer `raw_stmt_query` when user-supplied values are involved to avoid
+    /// SQL injection.
+    pub {% if is_async %}async {% endif %}fn raw_query(
+        &self,
+        sql: impl Into<String>,
+    ) -> nautilus_core::Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        let sql_obj = nautilus_dialect::Sql { text: sql.into(), params: vec![] };
+        let stream = {% if is_async %}self.client{% else %}_c{% endif %}.executor().execute(&sql_obj);
+        futures::pin_mut!(stream);
+        let mut results: Vec<std::collections::HashMap<String, serde_json::Value>> = Vec::new();
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result
+                .map_err(|e| nautilus_core::Error::Other(e.to_string()))?
+                .into();
+            let map = row
+                .iter()
+                .map(|(name, val)| {
+                    let json_val = val.to_json_plain();
+                    (name.to_string(), json_val)
+                })
+                .collect();
+            results.push(map);
+        }
+        Ok(results)
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }
+
+    /// Execute a raw prepared-statement query with bound parameters.
+    ///
+    /// Use `$1`, `$2`, … (PostgreSQL) or `?` (MySQL / SQLite) as placeholders.
+    /// Parameters are bound in the order they appear in the `params` slice.
+    pub {% if is_async %}async {% endif %}fn raw_stmt_query(
+        &self,
+        sql: impl Into<String>,
+        params: Vec<nautilus_core::Value>,
+    ) -> nautilus_core::Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+{%- if not is_async %}
+        let _c = self.client.clone();
+        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
+{%- endif %}
+        let sql_obj = nautilus_dialect::Sql { text: sql.into(), params };
+        let stream = {% if is_async %}self.client{% else %}_c{% endif %}.executor().execute(&sql_obj);
+        futures::pin_mut!(stream);
+        let mut results: Vec<std::collections::HashMap<String, serde_json::Value>> = Vec::new();
+        while let Some(result) = stream.next().await {
+            let row: crate::Row = result
+                .map_err(|e| nautilus_core::Error::Other(e.to_string()))?
+                .into();
+            let map = row
+                .iter()
+                .map(|(name, val)| {
+                    let json_val = val.to_json_plain();
+                    (name.to_string(), json_val)
+                })
+                .collect();
+            results.push(map);
+        }
+        Ok(results)
+{%- if not is_async %}
+        }))
+{%- endif %}
+    }

@@ -6,13 +6,13 @@ use super::{GeneratedClient, GenerationContext};
 use crate::composite_type_gen::generate_all_composite_types_with_registry;
 use crate::enum_gen::generate_all_enums;
 use crate::extension_types::generate_rust_extension_files;
-use crate::generator::generate_all_models_with_registry;
+use crate::generator::generate_model_files;
 use crate::install::Delivery;
 use crate::writer;
 use crate::InstallMode;
 
 pub(super) fn generate(ctx: &GenerationContext<'_>) -> Result<GeneratedClient> {
-    let models = generate_all_models_with_registry(ctx.ir, ctx.is_async, &ctx.registry)?;
+    let models = generate_model_files(ctx.ir, ctx.is_async, &ctx.registry)?;
     let enums_code = (!ctx.ir.enums.is_empty())
         .then(|| generate_all_enums(&ctx.ir.enums))
         .transpose()?;
@@ -28,19 +28,20 @@ pub(super) fn generate(ctx: &GenerationContext<'_>) -> Result<GeneratedClient> {
         .unwrap_or("./generated")
         .to_string();
 
-    let package = writer::rust::package(
+    let mut package = writer::rust::package(
         &output_path,
-        &models,
+        &models.facades,
         enums_code,
         composite_types_code,
         &extension_files,
         ctx.source,
         ctx.options.standalone,
     )?;
+    package.add_all("src", &models.parts);
 
     Ok(GeneratedClient {
         language: "Rust",
-        package,
+        package: package.sorted(),
         delivery: Delivery::RustCrate {
             path: output_path,
             integrate: ctx.options.install != InstallMode::Never,
