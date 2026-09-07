@@ -1,18 +1,5 @@
 {%- if not is_view %}
-fn serialize_update_filter_for_engine(
-    filter: Option<&nautilus_core::Expr>,
-) -> nautilus_core::Result<Option<serde_json::Value>> {
-    let filter_json = match filter {
-        Some(expr) => match nautilus_core::where_expr_to_protocol_json(expr) {
-            Ok(value) => value,
-            Err(nautilus_core::Error::InvalidQuery(_)) => return Ok(None),
-            Err(err) => return Err(err),
-        },
-        None => return Ok(None),
-    };
-
-    Ok(Some(filter_json))
-}
+use crate::runtime::serialize_update_filter_for_engine;
 
 fn single_record_filter_field_name(column: &str) -> Option<&'static str> {
 {%- for field in scalar_fields %}
@@ -28,45 +15,6 @@ fn single_record_filter_field_name(column: &str) -> Option<&'static str> {
     None
 }
 
-fn collect_single_record_filter_fields(
-    expr: &nautilus_core::Expr,
-    fields: &mut std::collections::HashSet<&'static str>,
-) -> bool {
-    use nautilus_core::{BinaryOp, Expr};
-
-    match expr {
-        Expr::Binary {
-            left,
-            op: BinaryOp::And,
-            right,
-        } => {
-            collect_single_record_filter_fields(left, fields)
-                && collect_single_record_filter_fields(right, fields)
-        }
-        Expr::Binary {
-            left,
-            op: BinaryOp::Eq,
-            right,
-        } => match (&**left, &**right) {
-            (Expr::Column(column), Expr::Param(_)) | (Expr::Param(_), Expr::Column(column)) => {
-                let Some(field_name) = single_record_filter_field_name(column) else {
-                    return false;
-                };
-                fields.insert(field_name)
-            }
-            _ => false,
-        },
-        _ => false,
-    }
-}
-
-fn matches_single_record_constraint(
-    fields: &std::collections::HashSet<&'static str>,
-    constraint: &[&str],
-) -> bool {
-    fields.len() == constraint.len() && constraint.iter().all(|field| fields.contains(field))
-}
-
 fn is_single_record_filter(filter: &nautilus_core::Expr) -> bool {
     const SINGLE_RECORD_CONSTRAINTS: &[&[&str]] = &[
 {%- for constraint in single_record_constraints %}
@@ -74,13 +22,10 @@ fn is_single_record_filter(filter: &nautilus_core::Expr) -> bool {
 {%- endfor %}
     ];
 
-    let mut fields = std::collections::HashSet::new();
-    if !collect_single_record_filter_fields(filter, &mut fields) {
-        return false;
-    }
-
-    SINGLE_RECORD_CONSTRAINTS
-        .iter()
-        .any(|constraint| matches_single_record_constraint(&fields, constraint))
+    crate::runtime::is_single_record_filter(
+        filter,
+        single_record_filter_field_name,
+        SINGLE_RECORD_CONSTRAINTS,
+    )
 }
 {% endif %}

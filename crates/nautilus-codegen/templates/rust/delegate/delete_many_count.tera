@@ -17,21 +17,12 @@
                 .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
             None => serde_json::Value::Object(serde_json::Map::new()),
         };
-        if let Some(count) =
-            crate::runtime::try_delete_many_via_engine(
-                {% if is_async %}&self.client{% else %}&_c{% endif %},
-                "{{ model_name }}",
-                filter,
-            )
-            .await?
-        {
-            return Ok(count);
-        }
-
-        Err(nautilus_core::Error::InvalidQuery(
-            "deleteMany requires the embedded engine path in the generated Rust client"
-                .to_string(),
-        ))
+        crate::runtime::delete_many_via_engine(
+            {% if is_async %}&self.client{% else %}&_c{% endif %},
+            "{{ model_name }}",
+            filter,
+        )
+        .await
 {%- if not is_async %}
         }))
 {%- endif %}

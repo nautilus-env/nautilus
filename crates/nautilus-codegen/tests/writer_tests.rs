@@ -382,7 +382,8 @@ fn test_write_rust_code_runtime_exposes_pool_options_for_embedded_and_direct_pat
         "runtime.rs should default connector-backed generated clients to EngineMode::Auto:\n{runtime_content}"
     );
     assert!(
-        runtime_content.contains("EngineMode::Auto => !args.include.is_empty()"),
+        runtime_content.contains("Operation::Read { has_include } => match self.engine_mode {")
+            && runtime_content.contains("EngineMode::Auto => has_include,"),
         "runtime.rs should keep simple findMany/findFirst/findUnique queries on the direct path in EngineMode::Auto:\n{runtime_content}"
     );
     assert!(
@@ -391,9 +392,23 @@ fn test_write_rust_code_runtime_exposes_pool_options_for_embedded_and_direct_pat
         "runtime.rs should reserve embedded-engine mutations for EngineMode::Always so Auto stays on the direct CRUD path:\n{runtime_content}"
     );
     assert!(
-        runtime_content.contains("fn should_try_engine_for_aggregate(&self) -> bool")
+        runtime_content.contains("Operation::NestedWrite | Operation::EngineOnly(_) => {")
             && runtime_content.contains("self.engine_mode.allows_engine()"),
         "runtime.rs should keep aggregate queries on the embedded-engine path whenever engine usage is allowed:\n{runtime_content}"
+    );
+    assert!(
+        runtime_content.contains("fn prefers_engine(&self, operation: Operation) -> bool")
+            && runtime_content.contains("async fn engine_route(")
+            && !runtime_content.contains("should_try_engine_for"),
+        "runtime.rs should decide the direct/engine route in one policy instead of a gate per call site:\n{runtime_content}"
+    );
+    assert!(
+        runtime_content
+            .contains("count queries require the embedded engine path in the generated Rust client")
+            && runtime_content.contains(
+                "deleteMany requires the embedded engine path in the generated Rust client"
+            ),
+        "runtime.rs should own the requirement each engine-only operation reports:\n{runtime_content}"
     );
     assert!(
         runtime_content.contains("handlers::handle_find_many_typed")
@@ -433,7 +448,7 @@ fn test_write_rust_code_auto_engine_mode_keeps_direct_and_engine_paths_separate(
         std::fs::read_to_string(tmp.path().join("src").join("user.rs")).expect("missing user.rs");
 
     assert!(
-        user_content.contains("include queries require the embedded engine path in the generated Rust client"),
+        user_content.contains("crate::runtime::EngineOnly::Include"),
         "generated delegates should keep include-heavy reads on the embedded engine path:\n{user_content}"
     );
     assert!(
@@ -441,15 +456,11 @@ fn test_write_rust_code_auto_engine_mode_keeps_direct_and_engine_paths_separate(
         "generated find_unique delegates should use the dedicated embedded engine fast path:\n{user_content}"
     );
     assert!(
-        user_content.contains(
-            "count queries require the embedded engine path in the generated Rust client"
-        ),
+        user_content.contains("crate::runtime::count_via_engine("),
         "generated delegates should keep count() on the embedded engine path:\n{user_content}"
     );
     assert!(
-        user_content.contains(
-            "groupBy queries require the embedded engine path in the generated Rust client"
-        ),
+        user_content.contains("crate::runtime::group_by_rows_via_engine("),
         "generated delegates should keep group_by() on the embedded engine path:\n{user_content}"
     );
 }

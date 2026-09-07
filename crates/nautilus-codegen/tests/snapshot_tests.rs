@@ -422,8 +422,8 @@ model Post {
         "expected generated delegate to treat include queries as engine-only in the local fallback:\n{user_code}"
     );
     assert!(
-        user_code.contains("include queries require the embedded engine path in the generated Rust client"),
-        "expected the fallback path to explain why include queries stay on the engine path:\n{user_code}"
+        user_code.contains("crate::runtime::EngineOnly::Include"),
+        "expected the fallback path to name include among the engine-only features:\n{user_code}"
     );
 }
 

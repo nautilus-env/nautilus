@@ -7,21 +7,12 @@
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
 {%- endif %}
-        if let Some(count) =
-            crate::runtime::try_count_via_engine(
-                {% if is_async %}&self.client{% else %}&_c{% endif %},
-                "{{ model_name }}",
-                args.to_engine_args()?,
-            )
-            .await?
-        {
-            return Ok(count);
-        }
-
-        Err(nautilus_core::Error::InvalidQuery(
-            "count queries require the embedded engine path in the generated Rust client"
-                .to_string(),
-        ))
+        crate::runtime::count_via_engine(
+            {% if is_async %}&self.client{% else %}&_c{% endif %},
+            "{{ model_name }}",
+            args.to_engine_args()?,
+        )
+        .await
 {%- if not is_async %}
         }))
 {%- endif %}

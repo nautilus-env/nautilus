@@ -118,6 +118,79 @@ impl EngineMode {
     }
 }
 
+/// One generated operation, named by the paths that can serve it.
+///
+/// Every call into the embedded engine names one of these, so
+/// [`Client::engine_route`] is the single place that chooses between the
+/// engine and the direct connector path. A new operation joins an arm here
+/// instead of restating the rule at its call site.
+///
+/// The entry points below spell the same distinction: a `try_…_via_engine`
+/// answers `None` when the direct path serves the call, while one named
+/// without `try_` has no other path and reports what it needs instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Operation {
+    /// `find_many`, `find_first`, `find_unique`. Both paths read plain rows;
+    /// only the engine loads `include` relations, which is why `Auto` sends
+    /// those queries there and keeps the rest on the direct path.
+    Read { has_include: bool },
+    /// `create`, `create_many`, `update`, `upsert` carrying scalar data.
+    /// Both paths serve them, so `Auto` keeps them on the direct one.
+    Write,
+    /// The same writes carrying nested inputs: only the engine plans the
+    /// statements a nested write expands into.
+    NestedWrite,
+    /// An operation the direct connector path does not implement at all.
+    EngineOnly(EngineOnly),
+}
+
+/// The operations no direct connector path serves, each naming itself in the
+/// error a client without an engine returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EngineOnly {
+    /// The `include` argument of a read.
+    Include,
+    Count,
+    Aggregate,
+    GroupBy,
+    Explain,
+    UpdateMany,
+    DeleteMany,
+}
+
+impl EngineOnly {
+    fn requirement(self) -> &'static str {
+        match self {
+            Self::Include => {
+                "include queries require the embedded engine path in the generated Rust client"
+            }
+            Self::Count => {
+                "count queries require the embedded engine path in the generated Rust client"
+            }
+            Self::Aggregate => {
+                "aggregate queries require the embedded engine path in the generated Rust client"
+            }
+            Self::GroupBy => {
+                "groupBy queries require the embedded engine path in the generated Rust client"
+            }
+            Self::Explain => {
+                "explain requires the embedded engine path in the generated Rust client"
+            }
+            Self::UpdateMany => {
+                "updateMany requires the embedded engine path in the generated Rust client"
+            }
+            Self::DeleteMany => {
+                "deleteMany requires the embedded engine path in the generated Rust client"
+            }
+        }
+    }
+}
+
+/// The error an engine-only operation returns when this client has no engine.
+pub(crate) fn engine_required(operation: EngineOnly) -> Error {
+    Error::InvalidQuery(operation.requirement().to_string())
+}
+
 struct EmbeddedTransactionContext {
     client: ConnectorClient<TransactionExecutor>,
     timeout: Duration,
@@ -295,20 +368,55 @@ where
         self.transaction_id.clone()
     }
 
-    fn should_try_engine_for_find_many(&self, args: &FindManyArgs) -> bool {
-        match self.engine_mode {
-            EngineMode::Always => true,
-            EngineMode::Auto => !args.include.is_empty(),
-            EngineMode::Never => false,
+    /// Whether `operation` prefers the embedded engine on this client.
+    ///
+    /// The mode is the caller's standing choice and the operation says what it
+    /// can do without an engine; `Auto` leaves on the direct connector path
+    /// everything that path serves.
+    fn prefers_engine(&self, operation: Operation) -> bool {
+        match operation {
+            Operation::Read { has_include } => match self.engine_mode {
+                EngineMode::Always => true,
+                EngineMode::Auto => has_include,
+                EngineMode::Never => false,
+            },
+            // A dialect without `RETURNING` (MySQL) cannot answer a
+            // row-returning write from the direct path at all: the statement
+            // reports no rows, so the caller would get an error on a create
+            // and an empty result on an update. The engine reads the written
+            // rows back on the connection that wrote them, so it is the only
+            // path that can serve them there.
+            Operation::Write => {
+                self.engine_mode.uses_engine_for_simple_crud()
+                    || !self.dialect().supports_returning()
+            }
+            Operation::NestedWrite | Operation::EngineOnly(_) => {
+                self.engine_mode.allows_engine()
+            }
         }
     }
 
-    fn should_try_engine_for_find_unique(&self, args: &nautilus_core::FindUniqueArgs) -> bool {
-        match self.engine_mode {
-            EngineMode::Always => true,
-            EngineMode::Auto => !args.include.is_empty(),
-            EngineMode::Never => false,
+    /// The path `operation` takes: `Some(state)` to run it on the embedded
+    /// engine, `None` to run it on the direct connector path.
+    async fn engine_route(
+        &self,
+        operation: Operation,
+    ) -> nautilus_core::Result<Option<Arc<EngineState>>> {
+        if !self.prefers_engine(operation) {
+            return Ok(None);
         }
+
+        self.engine_state().await
+    }
+
+    /// The engine an operation the direct path cannot serve has to run on.
+    async fn required_engine(
+        &self,
+        operation: EngineOnly,
+    ) -> nautilus_core::Result<Arc<EngineState>> {
+        self.engine_route(Operation::EngineOnly(operation))
+            .await?
+            .ok_or_else(|| engine_required(operation))
     }
 
     /// Snapshot the embedded engine's runtime counters.
@@ -335,25 +443,6 @@ where
         };
 
         Ok(Some(handlers::engine_metrics_typed(state.as_ref(), reset).await))
-    }
-
-    /// Gate for `create`, `update` and `delete`.
-    ///
-    /// A dialect without `RETURNING` (MySQL) cannot answer these from the
-    /// direct connector path at all: the statement reports no rows, so the
-    /// caller would get an error on a create and an empty result on an update
-    /// or a delete. The engine reads the written rows back on the connection
-    /// that wrote them, so it is the only path that can serve them there.
-    fn should_try_engine_for_mutation(&self) -> bool {
-        self.engine_mode.uses_engine_for_simple_crud() || !self.dialect().supports_returning()
-    }
-
-    /// Gate for the operations the direct connector path cannot serve at all —
-    /// `count`, `groupBy`, `aggregate`, `updateMany`, `deleteMany`, `explain`.
-    /// They only ask whether an engine may be built, not whether this mode
-    /// prefers the engine for simple CRUD.
-    fn should_try_engine_for_aggregate(&self) -> bool {
-        self.engine_mode.allows_engine()
     }
 }
 
@@ -603,11 +692,12 @@ pub(crate) async fn try_find_many_via_engine<E, M>(
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_find_many(args) {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
+    let Some(state) = client
+        .engine_route(Operation::Read {
+            has_include: !args.include.is_empty(),
+        })
+        .await?
+    else {
         return Ok(None);
     };
 
@@ -638,11 +728,12 @@ pub(crate) async fn try_find_unique_via_engine<E, M>(
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_find_unique(args) {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
+    let Some(state) = client
+        .engine_route(Operation::Read {
+            has_include: !args.include.is_empty(),
+        })
+        .await?
+    else {
         return Ok(None);
     };
 
@@ -660,21 +751,15 @@ where
     Ok(decoded.into_iter().next())
 }
 
-pub(crate) async fn try_count_via_engine<E>(
+pub(crate) async fn count_via_engine<E>(
     client: &Client<E>,
     model: &str,
     args: Option<JsonValue>,
-) -> nautilus_core::Result<Option<i64>>
+) -> nautilus_core::Result<i64>
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_aggregate() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
-        return Ok(None);
-    };
+    let state = client.required_engine(EngineOnly::Count).await?;
 
     let params = CountParams {
         protocol_version: PROTOCOL_VERSION,
@@ -683,28 +768,20 @@ where
         transaction_id: client.transaction_id(),
     };
 
-    let count = handlers::handle_count_typed(state.as_ref(), params)
+    handlers::handle_count_typed(state.as_ref(), params)
         .await
-        .map_err(map_engine_protocol_error)?;
-
-    Ok(Some(count))
+        .map_err(map_engine_protocol_error)
 }
 
-pub(crate) async fn try_group_by_rows_via_engine<E>(
+pub(crate) async fn group_by_rows_via_engine<E>(
     client: &Client<E>,
     model: &str,
     args: JsonValue,
-) -> nautilus_core::Result<Option<Vec<crate::Row>>>
+) -> nautilus_core::Result<Vec<crate::Row>>
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_aggregate() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
-        return Ok(None);
-    };
+    let state = client.required_engine(EngineOnly::GroupBy).await?;
 
     let params = GroupByParams {
         protocol_version: PROTOCOL_VERSION,
@@ -713,28 +790,20 @@ where
         transaction_id: client.transaction_id(),
     };
 
-    let rows = handlers::handle_group_by_typed(state.as_ref(), params)
+    handlers::handle_group_by_typed(state.as_ref(), params)
         .await
-        .map_err(map_engine_protocol_error)?;
-
-    Ok(Some(rows))
+        .map_err(map_engine_protocol_error)
 }
 
-pub(crate) async fn try_aggregate_row_via_engine<E>(
+pub(crate) async fn aggregate_row_via_engine<E>(
     client: &Client<E>,
     model: &str,
     args: JsonValue,
-) -> nautilus_core::Result<Option<Option<crate::Row>>>
+) -> nautilus_core::Result<Option<crate::Row>>
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_aggregate() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
-        return Ok(None);
-    };
+    let state = client.required_engine(EngineOnly::Aggregate).await?;
 
     let params = AggregateParams {
         protocol_version: PROTOCOL_VERSION,
@@ -747,28 +816,22 @@ where
         .await
         .map_err(map_engine_protocol_error)?;
 
-    Ok(Some(rows.into_iter().next()))
+    Ok(rows.into_iter().next())
 }
 
-pub(crate) async fn try_explain_via_engine<E>(
+pub(crate) async fn explain_via_engine<E>(
     client: &Client<E>,
     model: &str,
     args: &FindManyArgs,
     analyze: bool,
-) -> nautilus_core::Result<Option<ExplainResult>>
+) -> nautilus_core::Result<ExplainResult>
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_aggregate() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
-        return Ok(None);
-    };
+    let state = client.required_engine(EngineOnly::Explain).await?;
 
     let transaction_id = client.transaction_id();
-    let result = handlers::handle_explain_typed(
+    handlers::handle_explain_typed(
         state.as_ref(),
         model,
         args,
@@ -776,27 +839,19 @@ where
         transaction_id.as_deref(),
     )
     .await
-    .map_err(map_engine_protocol_error)?;
-
-    Ok(Some(result))
+    .map_err(map_engine_protocol_error)
 }
 
-pub(crate) async fn try_update_many_via_engine<E>(
+pub(crate) async fn update_many_via_engine<E>(
     client: &Client<E>,
     model: &str,
     filter: JsonValue,
     data: JsonValue,
-) -> nautilus_core::Result<Option<u64>>
+) -> nautilus_core::Result<u64>
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_aggregate() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
-        return Ok(None);
-    };
+    let state = client.required_engine(EngineOnly::UpdateMany).await?;
 
     let params = UpdateManyParams {
         protocol_version: PROTOCOL_VERSION,
@@ -811,24 +866,18 @@ where
         .await
         .map_err(map_engine_protocol_error)?;
 
-    Ok(Some(count as u64))
+    Ok(count as u64)
 }
 
-pub(crate) async fn try_delete_many_via_engine<E>(
+pub(crate) async fn delete_many_via_engine<E>(
     client: &Client<E>,
     model: &str,
     filter: JsonValue,
-) -> nautilus_core::Result<Option<u64>>
+) -> nautilus_core::Result<u64>
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_aggregate() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
-        return Ok(None);
-    };
+    let state = client.required_engine(EngineOnly::DeleteMany).await?;
 
     let params = DeleteManyParams {
         protocol_version: PROTOCOL_VERSION,
@@ -842,27 +891,44 @@ where
         .await
         .map_err(map_engine_protocol_error)?;
 
-    Ok(Some(count as u64))
+    Ok(count as u64)
+}
+
+/// The engine a row-returning write runs on, or `None` to run it on the
+/// direct connector path.
+///
+/// A write carrying nested inputs has no direct path, so a client that cannot
+/// reach an engine gets the error naming the model instead of a fallback.
+async fn write_engine<E>(
+    client: &Client<E>,
+    model: &str,
+    has_nested_writes: bool,
+) -> nautilus_core::Result<Option<Arc<EngineState>>>
+where
+    E: Executor,
+{
+    if !has_nested_writes {
+        return client.engine_route(Operation::Write).await;
+    }
+
+    client
+        .engine_route(Operation::NestedWrite)
+        .await?
+        .ok_or_else(|| nested::writes_need_engine(model))
+        .map(Some)
 }
 
 pub(crate) async fn try_create_via_engine<E, M>(
     client: &Client<E>,
     model: &str,
     data: JsonValue,
-    require_engine: bool,
+    has_nested_writes: bool,
     decode_row: impl FnMut(crate::Row) -> nautilus_core::Result<M>,
 ) -> nautilus_core::Result<Option<M>>
 where
     E: Executor,
 {
-    if !require_engine && !client.should_try_engine_for_mutation() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
-        if require_engine {
-            return Err(nested::writes_need_engine(model));
-        }
+    let Some(state) = write_engine(client, model, has_nested_writes).await? else {
         return Ok(None);
     };
 
@@ -891,11 +957,7 @@ pub(crate) async fn try_create_many_via_engine<E, M>(
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_mutation() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
+    let Some(state) = client.engine_route(Operation::Write).await? else {
         return Ok(None);
     };
 
@@ -919,20 +981,13 @@ pub(crate) async fn try_update_via_engine<E, M>(
     model: &str,
     filter: JsonValue,
     data: JsonValue,
-    require_engine: bool,
+    has_nested_writes: bool,
     decode_row: impl FnMut(crate::Row) -> nautilus_core::Result<M>,
 ) -> nautilus_core::Result<Option<Vec<M>>>
 where
     E: Executor,
 {
-    if !require_engine && !client.should_try_engine_for_mutation() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
-        if require_engine {
-            return Err(nested::writes_need_engine(model));
-        }
+    let Some(state) = write_engine(client, model, has_nested_writes).await? else {
         return Ok(None);
     };
 
@@ -963,11 +1018,7 @@ pub(crate) async fn try_upsert_via_engine<E, M>(
 where
     E: Executor,
 {
-    if !client.should_try_engine_for_mutation() {
-        return Ok(None);
-    }
-
-    let Some(state) = client.engine_state().await? else {
+    let Some(state) = client.engine_route(Operation::Write).await? else {
         return Ok(None);
     };
 
@@ -1095,6 +1146,159 @@ pub(crate) mod nested {
         Error::InvalidQuery(format!(
             "nested writes on '{model}' need the embedded engine, which this client is not configured to use"
         ))
+    }
+}
+
+pub(crate) fn serialize_cursor_for_engine(
+    cursor: &std::collections::HashMap<String, nautilus_core::Value>,
+) -> serde_json::Value {
+    serde_json::Value::Object(
+        cursor
+            .iter()
+            .map(|(key, value)| (key.clone(), value.to_json_plain()))
+            .collect(),
+    )
+}
+
+pub(crate) fn decode_optional_group_by_row_value<T>(
+    row: &crate::Row,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue,
+{
+    match row.get(key) {
+        Some(nautilus_core::Value::Null) | None => Ok(None),
+        Some(value) => <T as nautilus_core::FromValue>::from_value(value).map(Some),
+    }
+}
+
+pub(crate) fn decode_optional_group_by_object<'a>(
+    row: &'a crate::Row,
+    key: &str,
+) -> nautilus_core::Result<Option<&'a serde_json::Map<String, serde_json::Value>>> {
+    match row.get(key) {
+        Some(nautilus_core::Value::Json(serde_json::Value::Object(obj))) => Ok(Some(obj)),
+        Some(nautilus_core::Value::Null) | None => Ok(None),
+        Some(other) => Err(nautilus_core::Error::TypeError(format!(
+            "expected object-valued aggregate '{}' in groupBy output, got {:?}",
+            key, other
+        ))),
+    }
+}
+
+/// Decode one `_avg` / `_sum` entry of an aggregate result.
+///
+/// PostgreSQL computes `AVG` (and `SUM` over exact numerics) as `numeric`,
+/// which the engine puts on the wire as a JSON string so no precision is lost
+/// in transit; SQLite and MySQL send a plain JSON number. Both spellings decode
+/// into the same Rust type here.
+pub(crate) fn decode_optional_numeric_aggregate<T>(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue + std::str::FromStr,
+{
+    match obj.get(key) {
+        Some(serde_json::Value::String(text)) => text.parse::<T>().map(Some).map_err(|_| {
+            nautilus_core::Error::TypeError(format!(
+                "aggregate '{}' is not a number: {}",
+                key, text
+            ))
+        }),
+        _ => decode_optional_group_by_json_value(obj, key),
+    }
+}
+
+pub(crate) fn decode_optional_group_by_json_value<T>(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> nautilus_core::Result<Option<T>>
+where
+    T: nautilus_core::FromValue,
+{
+    match obj.get(key) {
+        Some(serde_json::Value::Null) | None => Ok(None),
+        Some(value) => <T as nautilus_core::FromValue>::from_value_owned(
+            wire_value_to_core_value(key, value),
+        )
+        .map(Some),
+    }
+}
+
+/// The engine's JSON form of a write filter, or `None` when the filter uses
+/// something the protocol cannot express.
+///
+/// A filter the protocol rejects is not an error: it means the write has to
+/// take the direct connector path, which renders the expression as SQL.
+pub(crate) fn serialize_update_filter_for_engine(
+    filter: Option<&nautilus_core::Expr>,
+) -> nautilus_core::Result<Option<JsonValue>> {
+    let filter_json = match filter {
+        Some(expr) => match nautilus_core::where_expr_to_protocol_json(expr) {
+            Ok(value) => value,
+            Err(Error::InvalidQuery(_)) => return Ok(None),
+            Err(err) => return Err(err),
+        },
+        None => return Ok(None),
+    };
+
+    Ok(Some(filter_json))
+}
+
+/// Whether `filter` pins at most one row.
+///
+/// `field_name` maps a column as a filter may spell it to the model's field
+/// name and `constraints` lists the field sets that identify a row: both are
+/// facts only the model has. Walking the expression is the same everywhere,
+/// so a filter qualifies when it is a conjunction of equalities on known
+/// columns covering exactly one of those sets.
+pub(crate) fn is_single_record_filter(
+    filter: &nautilus_core::Expr,
+    field_name: fn(&str) -> Option<&'static str>,
+    constraints: &[&[&str]],
+) -> bool {
+    let mut fields = std::collections::HashSet::new();
+    if !collect_single_record_filter_fields(filter, field_name, &mut fields) {
+        return false;
+    }
+
+    constraints.iter().any(|constraint| {
+        fields.len() == constraint.len() && constraint.iter().all(|field| fields.contains(field))
+    })
+}
+
+fn collect_single_record_filter_fields(
+    expr: &nautilus_core::Expr,
+    field_name: fn(&str) -> Option<&'static str>,
+    fields: &mut std::collections::HashSet<&'static str>,
+) -> bool {
+    use nautilus_core::{BinaryOp, Expr};
+
+    match expr {
+        Expr::Binary {
+            left,
+            op: BinaryOp::And,
+            right,
+        } => {
+            collect_single_record_filter_fields(left, field_name, fields)
+                && collect_single_record_filter_fields(right, field_name, fields)
+        }
+        Expr::Binary {
+            left,
+            op: BinaryOp::Eq,
+            right,
+        } => match (&**left, &**right) {
+            (Expr::Column(column), Expr::Param(_)) | (Expr::Param(_), Expr::Column(column)) => {
+                let Some(field) = field_name(column) else {
+                    return false;
+                };
+                fields.insert(field)
+            }
+            _ => false,
+        },
+        _ => false,
     }
 }
 

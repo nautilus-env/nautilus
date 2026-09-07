@@ -32,20 +32,13 @@
             _event_args,
             _event_payload,
             || async move {
-                match crate::runtime::try_update_many_via_engine(
+                crate::runtime::update_many_via_engine(
                     {% if is_async %}&self.client{% else %}&_c{% endif %},
                     "{{ model_name }}",
                     filter,
                     _event_data,
                 )
-                .await?
-                {
-                    Some(count) => Ok(count),
-                    None => Err(nautilus_core::Error::InvalidQuery(
-                        "updateMany requires the embedded engine path in the generated Rust client"
-                            .to_string(),
-                    )),
-                }
+                .await
             },
         )
         .await

@@ -23,9 +23,8 @@ where
     ) -> nautilus_core::Result<{{ find_many_name }}<E>> {
         Self::reject_select_for_model_result(&args.select)?;
         if !args.include.is_empty() {
-            return Err(nautilus_core::Error::InvalidQuery(
-                "include queries require the embedded engine path in the generated Rust client"
-                    .to_string(),
+            return Err(crate::runtime::engine_required(
+                crate::runtime::EngineOnly::Include,
             ));
         }
 

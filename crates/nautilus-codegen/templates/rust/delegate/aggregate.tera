@@ -12,24 +12,17 @@
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
 {%- endif %}
         let engine_args = args.to_engine_args()?;
-        if let Some(row) =
-            crate::runtime::try_aggregate_row_via_engine(
-                {% if is_async %}&self.client{% else %}&_c{% endif %},
-                "{{ model_name }}",
-                engine_args,
-            )
-            .await?
-        {
-            return match row {
-                Some(row) => {{ model_name }}AggregateOutput::from_row(&row),
-                None => Ok({{ model_name }}AggregateOutput::default()),
-            };
-        }
+        let row = crate::runtime::aggregate_row_via_engine(
+            {% if is_async %}&self.client{% else %}&_c{% endif %},
+            "{{ model_name }}",
+            engine_args,
+        )
+        .await?;
 
-        Err(nautilus_core::Error::InvalidQuery(
-            "aggregate queries require the embedded engine path in the generated Rust client"
-                .to_string(),
-        ))
+        match row {
+            Some(row) => {{ model_name }}AggregateOutput::from_row(&row),
+            None => Ok({{ model_name }}AggregateOutput::default()),
+        }
 {%- if not is_async %}
         }))
 {%- endif %}
@@ -50,21 +43,13 @@
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
 {%- endif %}
-        if let Some(result) =
-            crate::runtime::try_explain_via_engine(
-                {% if is_async %}&self.client{% else %}&_c{% endif %},
-                "{{ model_name }}",
-                &args,
-                analyze,
-            )
-            .await?
-        {
-            return Ok(result);
-        }
-
-        Err(nautilus_core::Error::InvalidQuery(
-            "explain requires the embedded engine path in the generated Rust client".to_string(),
-        ))
+        crate::runtime::explain_via_engine(
+            {% if is_async %}&self.client{% else %}&_c{% endif %},
+            "{{ model_name }}",
+            &args,
+            analyze,
+        )
+        .await
 {%- if not is_async %}
         }))
 {%- endif %}
@@ -80,25 +65,18 @@
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
 {%- endif %}
         let engine_args = args.to_engine_args()?;
-        if let Some(rows) =
-            crate::runtime::try_group_by_rows_via_engine(
-                {% if is_async %}&self.client{% else %}&_c{% endif %},
-                "{{ model_name }}",
-                engine_args,
-            )
-            .await?
-        {
-            let mut decoded = Vec::with_capacity(rows.len());
-            for row in &rows {
-                decoded.push({{ model_name }}GroupByOutput::from_row(row)?);
-            }
-            return Ok(decoded);
-        }
+        let rows = crate::runtime::group_by_rows_via_engine(
+            {% if is_async %}&self.client{% else %}&_c{% endif %},
+            "{{ model_name }}",
+            engine_args,
+        )
+        .await?;
 
-        Err(nautilus_core::Error::InvalidQuery(
-            "groupBy queries require the embedded engine path in the generated Rust client"
-                .to_string(),
-        ))
+        let mut decoded = Vec::with_capacity(rows.len());
+        for row in &rows {
+            decoded.push({{ model_name }}GroupByOutput::from_row(row)?);
+        }
+        Ok(decoded)
 {%- if not is_async %}
         }))
 {%- endif %}

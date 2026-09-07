@@ -1009,97 +1009,13 @@ impl ProductGroupByOutput {
     }
 }
 
-fn serialize_cursor_for_engine(
-    cursor: &std::collections::HashMap<String, nautilus_core::Value>,
-) -> serde_json::Value {
-    serde_json::Value::Object(
-        cursor
-            .iter()
-            .map(|(key, value)| (key.clone(), value.to_json_plain()))
-            .collect(),
-    )
-}
+use crate::runtime::{
+    decode_optional_group_by_json_value, decode_optional_group_by_object,
+    decode_optional_group_by_row_value, decode_optional_numeric_aggregate,
+    serialize_cursor_for_engine,
+};
 
-fn decode_optional_group_by_row_value<T>(
-    row: &crate::Row,
-    key: &str,
-) -> nautilus_core::Result<Option<T>>
-where
-    T: nautilus_core::FromValue,
-{
-    match row.get(key) {
-        Some(nautilus_core::Value::Null) | None => Ok(None),
-        Some(value) => <T as nautilus_core::FromValue>::from_value(value).map(Some),
-    }
-}
-
-fn decode_optional_group_by_object<'a>(
-    row: &'a crate::Row,
-    key: &str,
-) -> nautilus_core::Result<Option<&'a serde_json::Map<String, serde_json::Value>>> {
-    match row.get(key) {
-        Some(nautilus_core::Value::Json(serde_json::Value::Object(obj))) => Ok(Some(obj)),
-        Some(nautilus_core::Value::Null) | None => Ok(None),
-        Some(other) => Err(nautilus_core::Error::TypeError(format!(
-            "expected object-valued aggregate '{}' in groupBy output, got {:?}",
-            key, other
-        ))),
-    }
-}
-
-/// Decode one `_avg` / `_sum` entry of an aggregate result.
-///
-/// PostgreSQL computes `AVG` (and `SUM` over exact numerics) as `numeric`,
-/// which the engine puts on the wire as a JSON string so no precision is lost
-/// in transit; SQLite and MySQL send a plain JSON number. Both spellings decode
-/// into the same Rust type here.
-fn decode_optional_numeric_aggregate<T>(
-    obj: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> nautilus_core::Result<Option<T>>
-where
-    T: nautilus_core::FromValue + std::str::FromStr,
-{
-    match obj.get(key) {
-        Some(serde_json::Value::String(text)) => text.parse::<T>().map(Some).map_err(|_| {
-            nautilus_core::Error::TypeError(format!(
-                "aggregate '{}' is not a number: {}",
-                key, text
-            ))
-        }),
-        _ => decode_optional_group_by_json_value(obj, key),
-    }
-}
-
-fn decode_optional_group_by_json_value<T>(
-    obj: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> nautilus_core::Result<Option<T>>
-where
-    T: nautilus_core::FromValue,
-{
-    match obj.get(key) {
-        Some(serde_json::Value::Null) | None => Ok(None),
-        Some(value) => <T as nautilus_core::FromValue>::from_value_owned(
-            crate::runtime::wire_value_to_core_value(key, value),
-        )
-        .map(Some),
-    }
-}
-fn serialize_update_filter_for_engine(
-    filter: Option<&nautilus_core::Expr>,
-) -> nautilus_core::Result<Option<serde_json::Value>> {
-    let filter_json = match filter {
-        Some(expr) => match nautilus_core::where_expr_to_protocol_json(expr) {
-            Ok(value) => value,
-            Err(nautilus_core::Error::InvalidQuery(_)) => return Ok(None),
-            Err(err) => return Err(err),
-        },
-        None => return Ok(None),
-    };
-
-    Ok(Some(filter_json))
-}
+use crate::runtime::serialize_update_filter_for_engine;
 
 fn single_record_filter_field_name(column: &str) -> Option<&'static str> {
     if column == "Product__id"
@@ -1120,58 +1036,16 @@ fn single_record_filter_field_name(column: &str) -> Option<&'static str> {
     None
 }
 
-fn collect_single_record_filter_fields(
-    expr: &nautilus_core::Expr,
-    fields: &mut std::collections::HashSet<&'static str>,
-) -> bool {
-    use nautilus_core::{BinaryOp, Expr};
-
-    match expr {
-        Expr::Binary {
-            left,
-            op: BinaryOp::And,
-            right,
-        } => {
-            collect_single_record_filter_fields(left, fields)
-                && collect_single_record_filter_fields(right, fields)
-        }
-        Expr::Binary {
-            left,
-            op: BinaryOp::Eq,
-            right,
-        } => match (&**left, &**right) {
-            (Expr::Column(column), Expr::Param(_)) | (Expr::Param(_), Expr::Column(column)) => {
-                let Some(field_name) = single_record_filter_field_name(column) else {
-                    return false;
-                };
-                fields.insert(field_name)
-            }
-            _ => false,
-        },
-        _ => false,
-    }
-}
-
-fn matches_single_record_constraint(
-    fields: &std::collections::HashSet<&'static str>,
-    constraint: &[&str],
-) -> bool {
-    fields.len() == constraint.len() && constraint.iter().all(|field| fields.contains(field))
-}
-
 fn is_single_record_filter(filter: &nautilus_core::Expr) -> bool {
     const SINGLE_RECORD_CONSTRAINTS: &[&[&str]] = &[
         &["id"],
     ];
 
-    let mut fields = std::collections::HashSet::new();
-    if !collect_single_record_filter_fields(filter, &mut fields) {
-        return false;
-    }
-
-    SINGLE_RECORD_CONSTRAINTS
-        .iter()
-        .any(|constraint| matches_single_record_constraint(&fields, constraint))
+    crate::runtime::is_single_record_filter(
+        filter,
+        single_record_filter_field_name,
+        SINGLE_RECORD_CONSTRAINTS,
+    )
 }
 
 
@@ -1199,9 +1073,8 @@ where
     ) -> nautilus_core::Result<ProductFindMany<E>> {
         Self::reject_select_for_model_result(&args.select)?;
         if !args.include.is_empty() {
-            return Err(nautilus_core::Error::InvalidQuery(
-                "include queries require the embedded engine path in the generated Rust client"
-                    .to_string(),
+            return Err(crate::runtime::engine_required(
+                crate::runtime::EngineOnly::Include,
             ));
         }
 
@@ -1820,21 +1693,12 @@ where
     ) -> nautilus_core::Result<i64> {
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
-        if let Some(count) =
-            crate::runtime::try_count_via_engine(
-                &_c,
-                "Product",
-                args.to_engine_args()?,
-            )
-            .await?
-        {
-            return Ok(count);
-        }
-
-        Err(nautilus_core::Error::InvalidQuery(
-            "count queries require the embedded engine path in the generated Rust client"
-                .to_string(),
-        ))
+        crate::runtime::count_via_engine(
+            &_c,
+            "Product",
+            args.to_engine_args()?,
+        )
+        .await
         }))
     }
     /// Update every Product record matching `args.where_`, returning
@@ -1868,20 +1732,13 @@ where
             _event_args,
             _event_payload,
             || async move {
-                match crate::runtime::try_update_many_via_engine(
+                crate::runtime::update_many_via_engine(
                     &_c,
                     "Product",
                     filter,
                     _event_data,
                 )
-                .await?
-                {
-                    Some(count) => Ok(count),
-                    None => Err(nautilus_core::Error::InvalidQuery(
-                        "updateMany requires the embedded engine path in the generated Rust client"
-                            .to_string(),
-                    )),
-                }
+                .await
             },
         )
         .await
@@ -1904,21 +1761,12 @@ where
                 .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
             None => serde_json::Value::Object(serde_json::Map::new()),
         };
-        if let Some(count) =
-            crate::runtime::try_delete_many_via_engine(
-                &_c,
-                "Product",
-                filter,
-            )
-            .await?
-        {
-            return Ok(count);
-        }
-
-        Err(nautilus_core::Error::InvalidQuery(
-            "deleteMany requires the embedded engine path in the generated Rust client"
-                .to_string(),
-        ))
+        crate::runtime::delete_many_via_engine(
+            &_c,
+            "Product",
+            filter,
+        )
+        .await
         }))
     }
 
@@ -1935,24 +1783,17 @@ where
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
         let engine_args = args.to_engine_args()?;
-        if let Some(row) =
-            crate::runtime::try_aggregate_row_via_engine(
-                &_c,
-                "Product",
-                engine_args,
-            )
-            .await?
-        {
-            return match row {
-                Some(row) => ProductAggregateOutput::from_row(&row),
-                None => Ok(ProductAggregateOutput::default()),
-            };
-        }
+        let row = crate::runtime::aggregate_row_via_engine(
+            &_c,
+            "Product",
+            engine_args,
+        )
+        .await?;
 
-        Err(nautilus_core::Error::InvalidQuery(
-            "aggregate queries require the embedded engine path in the generated Rust client"
-                .to_string(),
-        ))
+        match row {
+            Some(row) => ProductAggregateOutput::from_row(&row),
+            None => Ok(ProductAggregateOutput::default()),
+        }
         }))
     }
 
@@ -1969,21 +1810,13 @@ where
     ) -> nautilus_core::Result<nautilus_protocol::ExplainResult> {
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
-        if let Some(result) =
-            crate::runtime::try_explain_via_engine(
-                &_c,
-                "Product",
-                &args,
-                analyze,
-            )
-            .await?
-        {
-            return Ok(result);
-        }
-
-        Err(nautilus_core::Error::InvalidQuery(
-            "explain requires the embedded engine path in the generated Rust client".to_string(),
-        ))
+        crate::runtime::explain_via_engine(
+            &_c,
+            "Product",
+            &args,
+            analyze,
+        )
+        .await
         }))
     }
 
@@ -1995,25 +1828,18 @@ where
         let _c = self.client.clone();
         tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async move {
         let engine_args = args.to_engine_args()?;
-        if let Some(rows) =
-            crate::runtime::try_group_by_rows_via_engine(
-                &_c,
-                "Product",
-                engine_args,
-            )
-            .await?
-        {
-            let mut decoded = Vec::with_capacity(rows.len());
-            for row in &rows {
-                decoded.push(ProductGroupByOutput::from_row(row)?);
-            }
-            return Ok(decoded);
-        }
+        let rows = crate::runtime::group_by_rows_via_engine(
+            &_c,
+            "Product",
+            engine_args,
+        )
+        .await?;
 
-        Err(nautilus_core::Error::InvalidQuery(
-            "groupBy queries require the embedded engine path in the generated Rust client"
-                .to_string(),
-        ))
+        let mut decoded = Vec::with_capacity(rows.len());
+        for row in &rows {
+            decoded.push(ProductGroupByOutput::from_row(row)?);
+        }
+        Ok(decoded)
         }))
     }
 
