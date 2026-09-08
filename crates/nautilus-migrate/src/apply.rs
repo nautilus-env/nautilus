@@ -1,19 +1,20 @@
 //! How a batch of DDL is split into phases, and what an apply leaves behind.
 //!
-//! Not every statement can share a transaction: PostgreSQL refuses
-//! `ALTER TYPE ... ADD VALUE` inside one, and MySQL commits implicitly around
-//! most DDL, so a batch is a *sequence* of phases rather than one atomic unit.
+//! PostgreSQL enum additions must commit before later statements use the new
+//! values, and MySQL commits implicitly around most DDL, so a batch is a
+//! sequence of phases rather than one atomic unit.
 //! Splitting it never reorders the statements, because a later phase routinely
 //! depends on an object an earlier one created.
 
 use crate::ddl::DatabaseProvider;
-use crate::utils::requires_own_transaction;
+pub use crate::plan::plan_apply_phases;
+use crate::plan::RollbackBehavior;
 
 /// One run of statements executed together, in plan order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyPhase {
-    /// A statement the provider refuses to run inside a transaction block. It
-    /// commits on its own and cannot be undone by a later failure.
+    /// A statement that commits before the next phase and cannot be undone by
+    /// a later failure.
     Standalone(String),
     /// A run of statements opened in a single transaction.
     Transaction(Vec<String>),
@@ -40,21 +41,6 @@ impl ApplyPhase {
             Self::Transaction(stmts) => stmts,
         }
     }
-}
-
-/// Split `statements` into phases without reordering them.
-pub fn plan_apply_phases(statements: &[String]) -> Vec<ApplyPhase> {
-    let mut phases: Vec<ApplyPhase> = Vec::new();
-    for sql in statements {
-        if requires_own_transaction(sql) {
-            phases.push(ApplyPhase::Standalone(sql.clone()));
-        } else if let Some(ApplyPhase::Transaction(run)) = phases.last_mut() {
-            run.push(sql.clone());
-        } else {
-            phases.push(ApplyPhase::Transaction(vec![sql.clone()]));
-        }
-    }
-    phases
 }
 
 /// The statement an apply stopped on.
@@ -106,7 +92,23 @@ impl ApplyOutcome {
         provider: DatabaseProvider,
         failure: ApplyFailure,
     ) -> Self {
-        let (kept, undone) = if provider.ddl_rolls_back() {
+        Self::stopped_with_rollback(
+            total,
+            committed,
+            attempted_in_phase,
+            RollbackBehavior::for_provider(provider),
+            failure,
+        )
+    }
+
+    pub(crate) fn stopped_with_rollback(
+        total: usize,
+        committed: usize,
+        attempted_in_phase: usize,
+        rollback: RollbackBehavior,
+        failure: ApplyFailure,
+    ) -> Self {
+        let (kept, undone) = if rollback == RollbackBehavior::Transactional {
             (committed, attempted_in_phase)
         } else {
             (committed + attempted_in_phase, 0)
@@ -145,7 +147,7 @@ impl ApplyOutcome {
             .collect()
     }
 
-    fn classify_range(&self, start: usize, end: usize) -> GroupStatus {
+    pub(crate) fn classify_range(&self, start: usize, end: usize) -> GroupStatus {
         if end <= self.committed {
             return GroupStatus::Applied;
         }

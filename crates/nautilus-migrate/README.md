@@ -24,9 +24,12 @@ graph TD
   schemaDiff --> changes["Vec&lt;Change&gt;"]
 
   changes --> diffApplier[DiffApplier]
-  diffApplier --> alterSql[ALTER TABLE SQL]
-
-  alterSql --> executor[MigrationExecutor]
+  diffApplier --> plan[ApplyPlan: SQL, phases, change origin, reversal]
+  plan --> push[db push]
+  push --> liveDb[(DB)]
+  plan --> files[up.sql / down.sql]
+  files --> adapter[ApplyPlan::from_sql]
+  adapter --> executor[MigrationExecutor]
   executor --> db[(DB + _nautilus_migrations)]
 ```
 
@@ -454,7 +457,9 @@ nautilus-migrate
 │   └── snapshot.rs # Reconstruction of dropped tables and indexes
 ├── provider.rs   # ProviderStrategy, column alterations and provider capabilities
 ├── provider/     # Shared index, constraint and user-type SQL; DatabaseProvider
-├── apply.rs      # Ordered transaction phases and partial-application outcomes
+├── plan/         # ApplyPlan, phase contracts, change provenance and reversal metadata
+│   └── legacy.rs # SQL-file adapter and compatibility transaction classification
+├── apply.rs      # Partial-application outcomes and SQL-only compatibility types
 ├── executor.rs   # Migration generation, execution, tracking and rollback
 ├── inspector/   # Live-schema introspection (Postgres / SQLite / MySQL)
 ├── live.rs       # LiveSchema / LiveTable / LiveColumn snapshot types
@@ -470,19 +475,38 @@ tables, complete column definitions and SQLite rebuilds. `ChangeReverser` works
 from the previous live snapshot and reports unsupported reversals as SQL
 comments. Both directions use `ProviderStrategy` for common SQL fragments,
 including index creation/removal, constraint removal and user-type DDL.
-Reversibility and statement grouping remain decisions of the calling operation:
-MySQL's combined primary-key reversal and SQLite's unsupported down operations
-retain their existing behavior.
+`DiffApplier::plan_for` adds transaction requirements to the materialized provider
+SQL and obtains typed reversal metadata from `ChangeReverser`. After dependency
+ordering, `ApplyPlan::from_changes` groups the statements into phases and records
+each source change's range. PostgreSQL enum additions commit individually;
+ordinary operations share a transaction, including the full SQLite rebuild.
+Each phase also records whether rollback can undo its DDL, so MySQL's implicit
+commits remain visible in `ApplyPlan::stopped` and `ApplyOutcome`.
+
+Both `db push` and migration generation consume this plan. Automatic/manual reversal status
+is decided where down SQL is rendered, including missing snapshots and schemas
+deliberately retained because they may contain unmanaged objects. It describes
+schema reconstruction, not recovery of dropped rows. `into_migration` exports
+the existing up/down SQL with reverse dependency order and manual placeholders.
+
+Files remain editable SQL, with unchanged checksums and no new required metadata.
+On loading, `ApplyPlan::from_sql` is the explicit compatibility boundary: it keeps
+the historical textual enum-addition rule and provider DDL rollback policy, with
+statement indices but no reconstructed change origins or reversal guarantees.
+`requires_own_transaction` and `plan_apply_phases` remain SQL-only adapters;
+generated changes never use them to rediscover their transaction requirements.
 
 The internal modules are private. The public `DdlGenerator`, `DatabaseProvider`,
 `DiffApplier` and `MigrationExecutor` names and methods remain available from the
-crate root.
+crate root. The plan types are exported for CLI and library consumers; their
+fields and the implementation modules remain private. `MigrationExecutor::apply_plan`
+executes a prepared plan without recording a named migration.
 
 | Change being added | Implementation route | Existing checks |
 | --- | --- | --- |
 | Column type or default | `ddl/types.rs` or `ddl/defaults.rs`; comparison in `normalize/`; forward handling in `applier/columns.rs`, reversal in `reverse/columns.rs` | `ddl_tests`, `diff_tests`, `applier_tests`, `serializer_tests` |
 | Index kind or SQL option | `provider/indexes.rs` and `provider/pgvector.rs`; target metadata in `ddl/indexes.rs`, live metadata in `reverse/snapshot.rs` | `provider/tests.rs`, `ddl_tests`, `applier_tests`, snapshot reversal tests, `postgres_extensions_e2e` |
-| Structural migration operation | A `Change` variant, its `diff/` pass and ordering, then the corresponding `applier/` and `reverse/` domains | `applier_tests`, `multi_schema_tests`, executor tests; `apply_phases_e2e` if transaction requirements change |
+| Structural migration operation | A `Change` variant, its `diff/` pass and ordering, then the corresponding `applier/` and `reverse/` domains; execution requirements in `DiffApplier::plan_for` | `applier_tests`, `plan_tests`, `multi_schema_tests`, executor tests; `apply_phases_e2e` covers both generated plans and SQL-only migrations |
 
 For database execution checks, `examples/bugfix-migrations` exercises repeated
 pushes, defaults and pull; `examples/views` and `examples/many-to-many` cover

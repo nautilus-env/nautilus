@@ -1,23 +1,25 @@
 use super::snapshot::create_table_sql_from_live;
 use super::{cannot_reverse, missing_snapshot, ChangeReverser};
 use crate::ddl::DatabaseProvider;
+use crate::plan::ReversalPlan;
 use nautilus_core::TableName;
 
 impl ChangeReverser<'_> {
-    pub(super) fn reverse_new_table(&self, table: &TableName) -> Vec<String> {
+    pub(super) fn reverse_new_table(&self, table: &TableName) -> ReversalPlan {
         vec![self
             .strategy
             .drop_table_sql(table, self.provider == DatabaseProvider::Postgres)]
+        .into()
     }
 
-    pub(super) fn reverse_dropped_table(&self, table: &TableName) -> Vec<String> {
+    pub(super) fn reverse_dropped_table(&self, table: &TableName) -> ReversalPlan {
         match self.live.tables.get(table) {
-            Some(live_table) => create_table_sql_from_live(live_table, self.provider),
+            Some(live_table) => create_table_sql_from_live(live_table, self.provider).into(),
             None => missing_snapshot(format!("table {} was dropped", table)),
         }
     }
 
-    pub(super) fn reverse_primary_key_change(&self, table: &TableName) -> Vec<String> {
+    pub(super) fn reverse_primary_key_change(&self, table: &TableName) -> ReversalPlan {
         let Some(live_table) = self.live.tables.get(table) else {
             return cannot_reverse(format!("PRIMARY KEY change on {}: no live snapshot", table));
         };
@@ -35,12 +37,14 @@ impl ChangeReverser<'_> {
                     self.quote_table(table),
                     pk_cols
                 ),
-            ],
+            ]
+            .into(),
             DatabaseProvider::Mysql => vec![format!(
                 "ALTER TABLE {} DROP PRIMARY KEY, ADD PRIMARY KEY ({})",
                 self.quote_table(table),
                 pk_cols,
-            )],
+            )]
+            .into(),
             DatabaseProvider::Sqlite => cannot_reverse(format!(
                 "PRIMARY KEY change on {} (SQLite requires table rebuild)",
                 table

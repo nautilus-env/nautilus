@@ -9,7 +9,9 @@ use crate::ddl::{DatabaseProvider, DdlGenerator};
 use crate::diff::Change;
 use crate::error::{MigrationError, Result};
 use crate::live::LiveSchema;
+use crate::plan::{ChangeSqlPlan, TransactionRequirement};
 use crate::provider::{ProviderSqlPlan, ProviderStrategy};
+use crate::reverse::ChangeReverser;
 use nautilus_core::TableName;
 use nautilus_schema::ir::{FieldIr, ModelIr, PostgresExtensionIr, SchemaIr};
 
@@ -26,11 +28,12 @@ use constraints::AddForeignKey;
 ///
 /// ```ignore
 /// let applier = DiffApplier::new(provider, &ddl, &schema_ir, &live);
-/// let statements: Vec<String> = changes
+/// let changes = nautilus_migrate::order_changes_for_apply(&changes, &live);
+/// let plans = changes
 ///     .iter()
-///     .flat_map(|c| applier.sql_for(c).unwrap())
+///     .map(|c| applier.plan_for(c).unwrap())
 ///     .collect();
-/// let phases = nautilus_migrate::plan_apply_phases(&statements);
+/// let plan = nautilus_migrate::ApplyPlan::from_changes(provider, plans);
 /// ```
 pub struct DiffApplier<'a> {
     provider: DatabaseProvider,
@@ -55,10 +58,29 @@ impl<'a> DiffApplier<'a> {
         }
     }
 
+    /// Generate SQL, transaction requirements and reversal metadata together.
+    pub fn plan_for(&self, change: &Change) -> Result<ChangeSqlPlan> {
+        let statements = self.sql_for(change)?;
+        let transaction = match change {
+            Change::AlterEnum {
+                removed_variants, ..
+            } if self.provider == DatabaseProvider::Postgres && removed_variants.is_empty() => {
+                TransactionRequirement::Standalone
+            }
+            _ => TransactionRequirement::Shared,
+        };
+        Ok(ChangeSqlPlan {
+            change: change.clone(),
+            statements,
+            transaction,
+            reversal: ChangeReverser::new(self.provider, self.live).reverse(change),
+        })
+    }
+
     /// Generate SQL statement(s) for a single [`Change`].
     ///
-    /// Preserve statement order and use [`crate::plan_apply_phases`] to identify
-    /// transaction boundaries. A multi-statement change is not always atomic.
+    /// SQL-only compatibility API. Use [`Self::plan_for`] to retain transaction
+    /// requirements without reclassifying the rendered text.
     pub fn sql_for(&self, change: &Change) -> Result<Vec<String>> {
         match change {
             Change::NewTable(model) => self.sql_create_table(model),

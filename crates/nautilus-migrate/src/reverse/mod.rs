@@ -1,6 +1,7 @@
 use crate::ddl::DatabaseProvider;
 use crate::diff::Change;
 use crate::live::LiveSchema;
+use crate::plan::ReversalPlan;
 use crate::provider::ProviderStrategy;
 use nautilus_core::TableName;
 
@@ -32,7 +33,7 @@ impl<'a> ChangeReverser<'a> {
 
     /// Reverse a change where the provider and live snapshot support it.
     /// Creating a schema has no reversal: it may contain unmanaged objects.
-    pub(crate) fn reverse(&self, change: &Change) -> Vec<String> {
+    pub(crate) fn reverse(&self, change: &Change) -> ReversalPlan {
         match change {
             Change::NewTable(model) => self.reverse_new_table(&crate::live::model_table(model)),
             Change::DroppedTable { name } => self.reverse_dropped_table(name),
@@ -100,7 +101,7 @@ impl<'a> ChangeReverser<'a> {
             )),
 
             Change::CreateCompositeType { name } | Change::CreateEnum { name, .. } => {
-                self.reverse_user_type(|| vec![self.drop_type_sql(name)])
+                self.reverse_user_type(|| vec![self.drop_type_sql(name)].into())
             }
             Change::DropCompositeType { name } | Change::AlterCompositeType { name, .. } => self
                 .reverse_user_type(|| {
@@ -115,9 +116,11 @@ impl<'a> ChangeReverser<'a> {
                 })
             }
             Change::CreateExtension { name, .. } => {
-                self.reverse_user_type(|| vec![self.strategy.drop_extension_sql(name)])
+                self.reverse_user_type(|| vec![self.strategy.drop_extension_sql(name)].into())
             }
-            Change::CreateSchema { .. } => Vec::new(),
+            Change::CreateSchema { .. } => {
+                self.reverse_user_type(|| ReversalPlan::manual(Vec::new()))
+            }
             Change::DropExtension { name } => self.reverse_user_type(|| {
                 cannot_reverse(format!("extension drop for '{}'; reinstall manually", name))
             }),
@@ -136,11 +139,11 @@ impl<'a> ChangeReverser<'a> {
 
     /// Run `build` only on providers with user-defined types; elsewhere the
     /// forward change was itself a no-op, so its reversal must be empty.
-    fn reverse_user_type(&self, build: impl FnOnce() -> Vec<String>) -> Vec<String> {
+    fn reverse_user_type(&self, build: impl FnOnce() -> ReversalPlan) -> ReversalPlan {
         if self.strategy.supports_user_defined_types() {
             build()
         } else {
-            Vec::new()
+            Vec::new().into()
         }
     }
 
@@ -148,9 +151,9 @@ impl<'a> ChangeReverser<'a> {
         self.strategy.drop_type_sql(name)
     }
 
-    fn reverse_foreign_key_added(&self, table: &TableName, constraint_name: &str) -> Vec<String> {
+    fn reverse_foreign_key_added(&self, table: &TableName, constraint_name: &str) -> ReversalPlan {
         match self.strategy.drop_foreign_key_sql(table, constraint_name) {
-            Some(sql) => vec![sql],
+            Some(sql) => vec![sql].into(),
             None => cannot_reverse(format!("ADD FOREIGN KEY on SQLite: {}", constraint_name)),
         }
     }
@@ -164,13 +167,13 @@ impl<'a> ChangeReverser<'a> {
     }
 }
 
-fn cannot_reverse(detail: String) -> Vec<String> {
-    vec![format!("-- Cannot auto-reverse {}", detail)]
+fn cannot_reverse(detail: String) -> ReversalPlan {
+    ReversalPlan::manual(vec![format!("-- Cannot auto-reverse {}", detail)])
 }
 
-fn missing_snapshot(detail: String) -> Vec<String> {
-    vec![format!(
+fn missing_snapshot(detail: String) -> ReversalPlan {
+    ReversalPlan::manual(vec![format!(
         "-- Cannot auto-reverse: {} (no live snapshot)",
         detail
-    )]
+    )])
 }

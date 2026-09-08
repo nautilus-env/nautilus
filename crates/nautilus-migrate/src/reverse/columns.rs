@@ -1,12 +1,13 @@
 use super::{cannot_reverse, missing_snapshot, ChangeReverser};
 use crate::ddl::DatabaseProvider;
+use crate::plan::ReversalPlan;
 use nautilus_core::TableName;
 
 impl ChangeReverser<'_> {
-    pub(super) fn reverse_added_column(&self, table: &TableName, column: &str) -> Vec<String> {
+    pub(super) fn reverse_added_column(&self, table: &TableName, column: &str) -> ReversalPlan {
         match self.provider {
             DatabaseProvider::Postgres | DatabaseProvider::Mysql => {
-                vec![self.strategy.drop_column_sql(table, column)]
+                vec![self.strategy.drop_column_sql(table, column)].into()
             }
             DatabaseProvider::Sqlite => {
                 cannot_reverse(format!("ADD COLUMN on SQLite: {}.{}", table, column))
@@ -14,7 +15,7 @@ impl ChangeReverser<'_> {
         }
     }
 
-    pub(super) fn reverse_dropped_column(&self, table: &TableName, column: &str) -> Vec<String> {
+    pub(super) fn reverse_dropped_column(&self, table: &TableName, column: &str) -> ReversalPlan {
         let missing = || missing_snapshot(format!("column {}.{} was dropped", table, column));
         let Some(live_column) = self
             .live
@@ -46,6 +47,7 @@ impl ChangeReverser<'_> {
                     not_null,
                     default_clause,
                 )]
+                .into()
             }
             DatabaseProvider::Sqlite => {
                 cannot_reverse(format!("dropped column on SQLite: {}.{}", table, column))
@@ -59,7 +61,7 @@ impl ChangeReverser<'_> {
         &self,
         table: &TableName,
         column: &str,
-    ) -> Vec<String> {
+    ) -> ReversalPlan {
         if self.provider != DatabaseProvider::Mysql {
             return cannot_reverse(format!("AUTO_INCREMENT change: {}.{}", table, column));
         }
@@ -92,6 +94,7 @@ impl ChangeReverser<'_> {
             not_null,
             auto_increment,
         )]
+        .into()
     }
 
     pub(super) fn reverse_type_change(
@@ -99,9 +102,10 @@ impl ChangeReverser<'_> {
         table: &TableName,
         column: &str,
         from: &str,
-    ) -> Vec<String> {
+    ) -> ReversalPlan {
         self.strategy
             .reverse_column_type_sql(table, column, from)
+            .map(ReversalPlan::from)
             .unwrap_or_else(|| {
                 cannot_reverse(format!(
                     "TYPE change on {}.{} (was {})",
@@ -115,9 +119,10 @@ impl ChangeReverser<'_> {
         table: &TableName,
         column: &str,
         now_required: bool,
-    ) -> Vec<String> {
+    ) -> ReversalPlan {
         self.strategy
             .reverse_nullability_change_sql(table, column, now_required)
+            .map(ReversalPlan::from)
             .unwrap_or_else(|| cannot_reverse(format!("nullability change: {}.{}", table, column)))
     }
 
@@ -126,9 +131,10 @@ impl ChangeReverser<'_> {
         table: &TableName,
         column: &str,
         from: Option<&str>,
-    ) -> Vec<String> {
+    ) -> ReversalPlan {
         self.strategy
             .reverse_default_change_sql(table, column, from)
+            .map(ReversalPlan::from)
             .unwrap_or_else(|| cannot_reverse(format!("DEFAULT change: {}.{}", table, column)))
     }
 }

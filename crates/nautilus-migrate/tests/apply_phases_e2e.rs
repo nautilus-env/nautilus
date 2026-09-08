@@ -6,7 +6,13 @@
 //! while MySQL commits implicitly around DDL so the very first statement of a
 //! transaction is already durable.
 
-use nautilus_migrate::{DatabaseProvider, Migration, MigrationExecutor};
+mod common;
+
+use nautilus_core::TableName;
+use nautilus_migrate::{
+    ApplyPlan, Change, DatabaseProvider, DdlGenerator, DiffApplier, LiveSchema, Migration,
+    MigrationExecutor,
+};
 use sqlx::{AnyPool, Row};
 
 fn postgres_url() -> String {
@@ -68,10 +74,50 @@ async fn table_exists(pool: &AnyPool, provider: DatabaseProvider, name: &str) ->
         .expect("existence probe returns a boolean")
 }
 
+fn generated_failure_plan(
+    provider: DatabaseProvider,
+    table: &str,
+    enum_name: Option<&str>,
+) -> ApplyPlan {
+    let schema = common::parse(&format!("model Kept {{ id Int @id @@map(\"{table}\") }}")).unwrap();
+    let live = LiveSchema::default();
+    let ddl = DdlGenerator::new(provider);
+    let applier = DiffApplier::new(provider, &ddl, &schema, &live);
+    let mut changes = Vec::new();
+    if let Some(name) = enum_name {
+        changes.push(Change::AlterEnum {
+            name: name.into(),
+            added_variants: vec!["blue".into()],
+            removed_variants: vec![],
+        });
+    }
+    changes.push(Change::NewTable(schema.models["Kept"].clone()));
+    changes.push(Change::IndexAdded {
+        table: TableName::new(format!("{table}_missing")),
+        columns: vec!["id".into()],
+        unique: false,
+        kind: nautilus_schema::ir::IndexKind::Default,
+        index_name: None,
+        predicate: None,
+    });
+    ApplyPlan::from_changes(
+        provider,
+        changes
+            .iter()
+            .map(|c| applier.plan_for(c).unwrap())
+            .collect(),
+    )
+}
+
 #[tokio::test]
 #[ignore = "requires a running PostgreSQL instance (run `docker compose up -d` first)"]
 async fn postgres_reports_a_committed_phase_before_the_failure(
 ) -> Result<(), Box<dyn std::error::Error>> {
+    postgres_failure(false).await?;
+    postgres_failure(true).await
+}
+
+async fn postgres_failure(generated: bool) -> Result<(), Box<dyn std::error::Error>> {
     let Some(pool) = connect(&postgres_url()).await else {
         return skip_missing_prerequisite("cannot connect to PostgreSQL");
     };
@@ -107,7 +153,17 @@ async fn postgres_reports_a_committed_phase_before_the_failure(
         vec![],
     );
 
-    let outcome = executor.apply_migration_reporting(&migration).await?;
+    let outcome = if generated {
+        executor
+            .apply_plan(&generated_failure_plan(
+                DatabaseProvider::Postgres,
+                &table,
+                Some(&enum_name),
+            ))
+            .await?
+    } else {
+        executor.apply_migration_reporting(&migration).await?
+    };
 
     assert!(outcome.failure.is_some(), "the third statement must fail");
     assert_eq!(outcome.committed, 1, "the ADD VALUE phase is durable");
@@ -149,6 +205,11 @@ async fn postgres_reports_a_committed_phase_before_the_failure(
 #[ignore = "requires a running MySQL instance (run `docker compose up -d` first)"]
 async fn mysql_reports_ddl_that_implicitly_committed_before_the_failure(
 ) -> Result<(), Box<dyn std::error::Error>> {
+    mysql_failure(false).await?;
+    mysql_failure(true).await
+}
+
+async fn mysql_failure(generated: bool) -> Result<(), Box<dyn std::error::Error>> {
     let Some(pool) = connect(&mysql_url()).await else {
         return skip_missing_prerequisite("cannot connect to MySQL");
     };
@@ -177,7 +238,17 @@ async fn mysql_reports_ddl_that_implicitly_committed_before_the_failure(
         vec![],
     );
 
-    let outcome = executor.apply_migration_reporting(&migration).await?;
+    let outcome = if generated {
+        executor
+            .apply_plan(&generated_failure_plan(
+                DatabaseProvider::Mysql,
+                &kept,
+                None,
+            ))
+            .await?
+    } else {
+        executor.apply_migration_reporting(&migration).await?
+    };
 
     assert!(outcome.failure.is_some(), "the second statement must fail");
     assert_eq!(

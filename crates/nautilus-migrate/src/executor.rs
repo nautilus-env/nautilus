@@ -1,11 +1,11 @@
 use crate::applier::DiffApplier;
-use crate::apply::{plan_apply_phases, ApplyFailure, ApplyOutcome, ApplyPhase};
+use crate::apply::{ApplyFailure, ApplyOutcome};
 use crate::ddl::{DatabaseProvider, DdlGenerator};
 use crate::diff::{order_changes_for_apply, Change};
 use crate::error::{MigrationError, Result};
 use crate::live::LiveSchema;
 use crate::migration::Migration;
-use crate::reverse::ChangeReverser;
+use crate::plan::{ApplyPlan, TransactionRequirement};
 use crate::tracker::MigrationTracker;
 use nautilus_schema::ir::SchemaIr;
 use sqlx::AnyPool;
@@ -63,21 +63,12 @@ impl MigrationExecutor {
         let provider = self.generator.provider();
         let applier = DiffApplier::new(provider, &self.generator, schema, live);
 
-        let mut up_sql: Vec<String> = Vec::new();
-        let mut down_groups: Vec<Vec<String>> = Vec::new();
-
-        let reverser = ChangeReverser::new(provider, live);
         let ordered_changes = order_changes_for_apply(changes, live);
-
-        for change in &ordered_changes {
-            let stmts = applier.sql_for(change)?;
-            up_sql.extend(stmts);
-            down_groups.push(reverser.reverse(change));
-        }
-
-        let down_sql: Vec<String> = down_groups.into_iter().rev().flatten().collect();
-
-        Ok(Migration::new(name, up_sql, down_sql))
+        let plans = ordered_changes
+            .iter()
+            .map(|change| applier.plan_for(change))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(ApplyPlan::from_changes(provider, plans).into_migration(name))
     }
 
     /// Apply a migration (run "up" direction).
@@ -171,36 +162,36 @@ impl MigrationExecutor {
 
     /// Run `statements` phase by phase, stopping at the first failure.
     async fn run_phases(&self, statements: &[String]) -> Result<ApplyOutcome> {
-        let provider = self.generator.provider();
-        let total = statements.len();
-        let mut committed = 0;
+        let plan = ApplyPlan::from_sql(self.generator.provider(), statements);
+        self.apply_plan(&plan).await
+    }
 
-        for phase in plan_apply_phases(statements) {
-            match phase {
-                ApplyPhase::Standalone(sql) => {
-                    if let Err(e) = self.execute_sql(&sql).await {
-                        return Ok(ApplyOutcome::stopped(
-                            total,
-                            committed,
+    /// Execute a prepared plan without migration tracking. Generated callers
+    /// retain their metadata; SQL-only migrations enter through `from_sql`.
+    pub async fn apply_plan(&self, plan: &ApplyPlan) -> Result<ApplyOutcome> {
+        for phase in plan.phases() {
+            let stmts = &plan.statements()[phase.statement_range()];
+            match phase.transaction() {
+                TransactionRequirement::Standalone => {
+                    let sql = &stmts[0];
+                    if let Err(e) = self.execute_sql(sql).await {
+                        return Ok(plan.stopped(
+                            phase,
                             0,
-                            provider,
                             ApplyFailure {
-                                statement: sql,
+                                statement: sql.clone(),
                                 message: e.to_string(),
                             },
                         ));
                     }
-                    committed += 1;
                 }
-                ApplyPhase::Transaction(stmts) => {
+                TransactionRequirement::Shared => {
                     let mut tx = self.begin().await?;
                     for (attempted, sql) in stmts.iter().enumerate() {
                         if let Err(e) = self.execute_sql_in_tx(&mut tx, sql).await {
-                            return Ok(ApplyOutcome::stopped(
-                                total,
-                                committed,
+                            return Ok(plan.stopped(
+                                phase,
                                 attempted,
-                                provider,
                                 ApplyFailure {
                                     statement: sql.clone(),
                                     message: e.to_string(),
@@ -209,12 +200,11 @@ impl MigrationExecutor {
                         }
                     }
                     commit(tx).await?;
-                    committed += stmts.len();
                 }
             }
         }
 
-        Ok(ApplyOutcome::committed_all(total))
+        Ok(ApplyOutcome::committed_all(plan.statements().len()))
     }
 
     async fn begin(&self) -> Result<sqlx::Transaction<'_, sqlx::Any>> {

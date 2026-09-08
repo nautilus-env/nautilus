@@ -1,5 +1,6 @@
 use super::snapshot::create_index_sql_from_live;
 use super::ChangeReverser;
+use crate::plan::ReversalPlan;
 use crate::provider::CreateIndex;
 use nautilus_core::TableName;
 use nautilus_schema::ir::IndexKind;
@@ -10,11 +11,11 @@ impl ChangeReverser<'_> {
         table: &TableName,
         columns: &[String],
         index_name: Option<&str>,
-    ) -> Vec<String> {
+    ) -> ReversalPlan {
         let index_name = index_name
             .map(|name| name.to_string())
             .unwrap_or_else(|| format!("idx_{}_{}", table, columns.join("_")));
-        vec![self.strategy.drop_index_sql(table, &index_name)]
+        vec![self.strategy.drop_index_sql(table, &index_name)].into()
     }
 
     pub(super) fn reverse_index_dropped(
@@ -23,14 +24,14 @@ impl ChangeReverser<'_> {
         columns: &[String],
         unique: bool,
         index_name: &str,
-    ) -> Vec<String> {
+    ) -> ReversalPlan {
         if let Some(live_index) = self
             .live
             .tables
             .get(table)
             .and_then(|t| t.indexes.iter().find(|i| i.name == *index_name))
         {
-            return vec![create_index_sql_from_live(table, live_index, self.provider)];
+            return vec![create_index_sql_from_live(table, live_index, self.provider)].into();
         }
 
         vec![self.strategy.create_index_sql(CreateIndex {
@@ -42,5 +43,6 @@ impl ChangeReverser<'_> {
             if_not_exists: true,
             predicate: None,
         })]
+        .into()
     }
 }

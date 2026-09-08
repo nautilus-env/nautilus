@@ -20,6 +20,7 @@ mod executor;
 mod file_store;
 mod migration;
 mod normalize;
+mod plan;
 mod provider;
 mod reverse;
 mod serializer;
@@ -45,6 +46,10 @@ pub use live::{
     LiveSchema, LiveTable,
 };
 pub use migration::{Migration, MigrationDirection, MigrationStatus};
+pub use plan::{
+    ApplyPlan, ChangeSqlPlan, PlannedChange, PlannedPhase, ReversalPlan, RollbackBehavior,
+    TransactionRequirement,
+};
 pub use serializer::{
     serialize_live_schema, serialize_live_schema_with_options, PullNameCase, PullNamingOptions,
 };

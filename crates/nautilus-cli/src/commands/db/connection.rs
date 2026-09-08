@@ -2,8 +2,9 @@
 
 use anyhow::{bail, Context};
 use nautilus_migrate::{
-    order_changes_for_apply, plan_apply_phases, ApplyFailure, ApplyOutcome, ApplyPhase, Change,
-    ChangeRisk, DatabaseProvider, DiffApplier, GroupStatus, LiveSchema, SchemaInspector,
+    order_changes_for_apply, ApplyFailure, ApplyOutcome, ApplyPlan, Change, ChangeRisk,
+    DatabaseProvider, DiffApplier, GroupStatus, LiveSchema, SchemaInspector,
+    TransactionRequirement,
 };
 use nautilus_schema::{discover_schema_paths_in_current_dir, ir::SchemaIr, SchemaSet};
 use std::path::{Path, PathBuf};
@@ -164,7 +165,7 @@ impl Connection {
     ///
     /// On any error the transaction is rolled back and the error is returned —
     /// as far as the provider allows, since MySQL commits implicitly around most
-    /// DDL. Batches of generated DDL go through [`Self::apply_statements`],
+    /// DDL. Batches of generated DDL go through [`Self::apply_plan`],
     /// which phases them and reports what survived.
     pub async fn execute_in_transaction(&self, stmts: &[String]) -> anyhow::Result<()> {
         with_pool!(self, pool => {
@@ -183,8 +184,7 @@ impl Connection {
 
     /// Execute SQL statements one at a time, each committing on its own.
     ///
-    /// Used for the statements a transaction cannot carry — see
-    /// [`nautilus_migrate::requires_own_transaction`].
+    /// Used for standalone phases in an [`ApplyPlan`].
     pub async fn execute_each(&self, stmts: &[String]) -> anyhow::Result<()> {
         with_pool!(self, pool => {
             for sql in stmts {
@@ -233,41 +233,27 @@ impl Connection {
     /// Run `statements` in the order given, opening a transaction around each
     /// run of statements that can share one.
     ///
-    /// A statement listed by [`nautilus_migrate::requires_own_transaction`]
-    /// commits on its own and splits the run it sits in, rather than being
-    /// hoisted ahead of the statements it depends on. On MySQL most DDL commits
-    /// implicitly, so a phase there is a transaction in name only; the returned
-    /// [`ApplyOutcome`] accounts for both.
-    pub async fn apply_statements(
-        &self,
-        statements: &[String],
-        provider: DatabaseProvider,
-    ) -> ApplyOutcome {
-        let total = statements.len();
-        let mut committed = 0;
-
-        for phase in plan_apply_phases(statements) {
-            let failure = match &phase {
-                ApplyPhase::Standalone(sql) => self
-                    .execute_each(std::slice::from_ref(sql))
-                    .await
-                    .err()
-                    .map(|e| PhaseFailure {
+    /// The plan carries transaction boundaries and provider rollback behavior.
+    pub async fn apply_plan(&self, plan: &ApplyPlan) -> ApplyOutcome {
+        for phase in plan.phases() {
+            let stmts = &plan.statements()[phase.statement_range()];
+            let failure = match phase.transaction() {
+                TransactionRequirement::Standalone => {
+                    self.execute_each(stmts).await.err().map(|e| PhaseFailure {
                         attempted: 0,
-                        statement: sql.clone(),
+                        statement: stmts[0].clone(),
                         message: format!("{e:#}"),
-                    }),
-                ApplyPhase::Transaction(stmts) => self.execute_transaction_phase(stmts).await.err(),
+                    })
+                }
+                TransactionRequirement::Shared => self.execute_transaction_phase(stmts).await.err(),
             };
 
             match failure {
-                None => committed += phase.len(),
+                None => {}
                 Some(failure) => {
-                    return ApplyOutcome::stopped(
-                        total,
-                        committed,
+                    return plan.stopped(
+                        phase,
                         failure.attempted,
-                        provider,
                         ApplyFailure {
                             statement: failure.statement,
                             message: failure.message,
@@ -277,7 +263,7 @@ impl Connection {
             }
         }
 
-        ApplyOutcome::committed_all(total)
+        ApplyOutcome::committed_all(plan.statements().len())
     }
 
     /// Execute a raw SQL script inside a single transaction.
@@ -496,32 +482,28 @@ pub async fn apply_changes(
             .collect::<Vec<_>>(),
         live,
     );
-    let mut change_stmts: Vec<(String, Vec<String>)> = Vec::new();
+    let mut plans = Vec::new();
     for change in &ordered_changes {
         let label = change_display_name(change);
-        let stmts = applier
-            .sql_for(change)
+        let plan = applier
+            .plan_for(change)
             .map_err(|e| anyhow::anyhow!("SQL generation failed for {}: {}", label, e))?;
-        change_stmts.push((label, stmts));
+        plans.push(plan);
     }
 
-    let all_stmts: Vec<String> = change_stmts
-        .iter()
-        .flat_map(|(_, stmts)| stmts.iter().cloned())
-        .collect();
-    let group_sizes: Vec<usize> = change_stmts.iter().map(|(_, s)| s.len()).collect();
+    let plan = ApplyPlan::from_changes(provider, plans);
 
     let sp = tui::spinner("Applying…");
-    let outcome = conn.apply_statements(&all_stmts, provider).await;
-    let statuses = outcome.classify_groups(&group_sizes);
+    let outcome = conn.apply_plan(&plan).await;
+    let statuses = plan.classify_changes(&outcome);
 
     let Some(failure) = &outcome.failure else {
         tui::spinner_ok(sp, "All changes committed");
-        for (label, _) in &change_stmts {
-            tui::print_ok(label);
+        for change in plan.changes() {
+            tui::print_ok(&change_display_name(change.change()));
         }
         return Ok(AppliedChanges {
-            applied: change_stmts.len(),
+            applied: plan.changes().len(),
             failed: 0,
             partial: false,
         });
@@ -530,11 +512,13 @@ pub async fn apply_changes(
     tui::spinner_err(sp, phase_summary(&outcome));
 
     let mut applied = 0;
-    for ((label, stmts), status) in change_stmts.iter().zip(&statuses) {
+    for (change, status) in plan.changes().iter().zip(&statuses) {
+        let label = change_display_name(change.change());
+        let stmts = &plan.statements()[change.statement_range()];
         match status {
             GroupStatus::Applied => {
                 applied += 1;
-                tui::print_ok(label);
+                tui::print_ok(&label);
             }
             GroupStatus::RolledBack => tui::print_err_line(&format!("{label} (rolled back)")),
             GroupStatus::NotAttempted => tui::print_err_line(&format!("{label} (not attempted)")),
@@ -555,7 +539,7 @@ pub async fn apply_changes(
 
     Ok(AppliedChanges {
         applied,
-        failed: change_stmts.len() - applied,
+        failed: plan.changes().len() - applied,
         partial: outcome.left_partial_state(),
     })
 }

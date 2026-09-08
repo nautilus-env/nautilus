@@ -3,7 +3,8 @@ mod common;
 
 use nautilus_migrate::live::{LiveColumn, LiveTable};
 use nautilus_migrate::{
-    change_risk, Change, ChangeRisk, DatabaseProvider, DdlGenerator, DiffApplier, LiveSchema,
+    change_risk, ApplyPlan, Change, ChangeRisk, DatabaseProvider, DdlGenerator, DiffApplier,
+    LiveSchema, RollbackBehavior, TransactionRequirement,
 };
 
 #[test]
@@ -234,13 +235,22 @@ fn drop_column_sqlite_triggers_rebuild() {
     let ddl = DdlGenerator::new(DatabaseProvider::Sqlite);
     let applier = DiffApplier::new(DatabaseProvider::Sqlite, &ddl, &ir, &live);
 
-    let stmts = applier
-        .sql_for(&Change::DroppedColumn {
+    let change = applier
+        .plan_for(&Change::DroppedColumn {
             table: TableName::new("User".to_string()),
             column: "old".to_string(),
         })
         .unwrap();
-
+    let plan = ApplyPlan::from_changes(DatabaseProvider::Sqlite, vec![change]);
+    let stmts = plan.statements();
+    assert_eq!(plan.phases().len(), 1);
+    assert_eq!(plan.phases()[0].statement_range(), 0..5);
+    assert_eq!(
+        plan.phases()[0].transaction(),
+        TransactionRequirement::Shared
+    );
+    assert_eq!(plan.phases()[0].rollback(), RollbackBehavior::Transactional);
+    assert!(!plan.changes()[0].reversal().is_automatic());
     assert_eq!(stmts.len(), 5);
     assert!(stmts[0].contains("DROP TABLE IF EXISTS"));
     assert!(stmts[0].contains("__tmp_User"));
