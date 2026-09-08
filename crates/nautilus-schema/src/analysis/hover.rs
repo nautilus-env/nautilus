@@ -1,6 +1,6 @@
 //! Hover documentation for `.nautilus` schema files.
 
-use super::{analyze, span_contains, AnalysisResult};
+use super::{analyze, catalog, span_contains, AnalysisResult};
 use crate::ast::{
     ComputedKind, Declaration, FieldAttribute, FieldModifier, FieldType, ModelAttribute, Schema,
 };
@@ -780,44 +780,9 @@ fn field_type_name(ft: &FieldType) -> String {
     }
 }
 
-fn field_type_description(ft: &FieldType) -> &'static str {
-    match ft {
-        FieldType::String => "UTF-8 text string.  Maps to `VARCHAR` / `TEXT` in SQL.",
-        FieldType::Boolean => "Boolean value (`true` / `false`).  Maps to `BOOLEAN`.",
-        FieldType::Int => "32-bit signed integer.  Maps to `INTEGER`.",
-        FieldType::BigInt => "64-bit signed integer.  Maps to `BIGINT`.",
-        FieldType::Float => "64-bit IEEE 754 float.  Maps to `DOUBLE PRECISION`.",
-        FieldType::Decimal { .. } => "Exact-precision decimal number.  Maps to `NUMERIC(p, s)`.",
-        FieldType::DateTime => "Date and time with timezone.  Maps to `TIMESTAMPTZ`.",
-        FieldType::Bytes => "Raw binary data.  Maps to `BYTEA` / `BLOB`.",
-        FieldType::Json => "JSON document.  Maps to `JSONB` (Postgres) or `JSON` (MySQL/SQLite).",
-        FieldType::Uuid => "Universally unique identifier.  Maps to `UUID`.",
-        FieldType::Citext => {
-            "Case-insensitive text column (PostgreSQL only). Requires the `citext` extension and maps to `CITEXT`."
-        }
-        FieldType::Hstore => {
-            "Key/value text map column (PostgreSQL only). Requires the `hstore` extension and maps to `HSTORE`."
-        }
-        FieldType::Ltree => {
-            "Label tree path column (PostgreSQL only). Requires the `ltree` extension and maps to `LTREE`."
-        }
-        FieldType::Geometry => {
-            "Planar spatial column (PostgreSQL only). Requires the `postgis` extension and maps to `GEOMETRY`."
-        }
-        FieldType::Geography => {
-            "Geodetic spatial column (PostgreSQL only). Requires the `postgis` extension and maps to `GEOGRAPHY`."
-        }
-        FieldType::Vector { .. } => {
-            "Dense embedding vector column (PostgreSQL only). Requires the `vector` extension and maps to `VECTOR(n)`."
-        }
-        FieldType::Jsonb => "JSONB document (PostgreSQL only).  Maps to `JSONB`.",
-        FieldType::Xml => "XML document (PostgreSQL only).  Maps to `XML`.",
-        FieldType::Char { .. } => {
-            "Fixed-length character column.  Maps to `CHAR(n)` (PostgreSQL and MySQL)."
-        }
-        FieldType::VarChar { .. } => {
-            "Variable-length character column.  Maps to `VARCHAR(n)` (PostgreSQL and MySQL)."
-        }
-        FieldType::UserType(_) => "Reference to another model or enum.",
+fn field_type_description(ft: &FieldType) -> String {
+    match catalog::scalar_doc(ft) {
+        Some(doc) => doc.documentation(),
+        None => "Reference to another model or enum.".to_string(),
     }
 }

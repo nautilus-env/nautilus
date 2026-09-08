@@ -1,6 +1,6 @@
 //! Completion suggestions for `.nautilus` schema files.
 
-use super::{analyze, span_contains, AnalysisResult};
+use super::{analyze, catalog, span_contains, AnalysisResult};
 use crate::ast::Declaration;
 use crate::token::{Token, TokenKind};
 use crate::validator::KNOWN_POSTGRES_EXTENSIONS;
@@ -784,127 +784,19 @@ fn index_argument_completions(provider: Option<&str>) -> Vec<CompletionItem> {
 }
 
 fn scalar_type_completions(provider: Option<&str>) -> Vec<CompletionItem> {
-    let pg = matches!(provider, Some("postgresql") | None);
-    let pg_or_mysql = matches!(provider, Some("postgresql") | Some("mysql") | None);
-
-    let mut items = vec![
-        CompletionItem::new(
-            "String",
-            CompletionKind::Type,
-            Some("UTF-8 text -> VARCHAR / TEXT".to_string()),
-        ),
-        CompletionItem::new(
-            "Boolean",
-            CompletionKind::Type,
-            Some("true / false -> BOOLEAN".to_string()),
-        ),
-        CompletionItem::new(
-            "Int",
-            CompletionKind::Type,
-            Some("32-bit integer -> INTEGER".to_string()),
-        ),
-        CompletionItem::new(
-            "BigInt",
-            CompletionKind::Type,
-            Some("64-bit integer -> BIGINT".to_string()),
-        ),
-        CompletionItem::new(
-            "Float",
-            CompletionKind::Type,
-            Some("64-bit float -> DOUBLE PRECISION".to_string()),
-        ),
-        CompletionItem::new(
-            "Decimal",
-            CompletionKind::Type,
-            Some("Exact decimal -> NUMERIC".to_string()),
-        ),
-        CompletionItem::new(
-            "DateTime",
-            CompletionKind::Type,
-            Some("Timestamp with time zone -> TIMESTAMPTZ".to_string()),
-        ),
-        CompletionItem::new(
-            "Bytes",
-            CompletionKind::Type,
-            Some("Binary data -> BYTEA".to_string()),
-        ),
-        CompletionItem::new(
-            "Json",
-            CompletionKind::Type,
-            Some("JSON document -> JSONB".to_string()),
-        ),
-        CompletionItem::new(
-            "Uuid",
-            CompletionKind::Type,
-            Some("UUID -> UUID".to_string()),
-        ),
-    ];
-
-    if pg {
-        items.push(CompletionItem::new(
-            "Citext",
-            CompletionKind::Type,
-            Some("Case-insensitive text -> CITEXT (PostgreSQL + citext extension)".to_string()),
-        ));
-        items.push(CompletionItem::new(
-            "Hstore",
-            CompletionKind::Type,
-            Some("Key/value text map -> HSTORE (PostgreSQL + hstore extension)".to_string()),
-        ));
-        items.push(CompletionItem::new(
-            "Ltree",
-            CompletionKind::Type,
-            Some("Label tree path -> LTREE (PostgreSQL + ltree extension)".to_string()),
-        ));
-        items.push(CompletionItem::new(
-            "Geometry",
-            CompletionKind::Type,
-            Some("Planar spatial value -> GEOMETRY (PostgreSQL + PostGIS extension)".to_string()),
-        ));
-        items.push(CompletionItem::new(
-            "Geography",
-            CompletionKind::Type,
-            Some(
-                "Geodetic spatial value -> GEOGRAPHY (PostgreSQL + PostGIS extension)".to_string(),
+    catalog::SCALAR_TYPES
+        .iter()
+        .filter(|doc| doc.supported_by(provider))
+        .map(|doc| match doc.snippet {
+            Some(snippet) => CompletionItem::with_snippet(
+                doc.label,
+                snippet,
+                CompletionKind::Type,
+                Some(doc.detail()),
             ),
-        ));
-        items.push(CompletionItem::with_snippet(
-            "Vector(dim)",
-            "Vector(${1:1536})",
-            CompletionKind::Type,
-            Some(
-                "Dense embedding vector -> VECTOR(dim) (PostgreSQL + pgvector extension)"
-                    .to_string(),
-            ),
-        ));
-        items.push(CompletionItem::new(
-            "Jsonb",
-            CompletionKind::Type,
-            Some("JSONB document -> JSONB (PostgreSQL only)".to_string()),
-        ));
-        items.push(CompletionItem::new(
-            "Xml",
-            CompletionKind::Type,
-            Some("XML document -> XML (PostgreSQL only)".to_string()),
-        ));
-    }
-
-    if pg_or_mysql {
-        items.push(CompletionItem::with_snippet(
-            "Char(n)",
-            "Char(${1:n})",
-            CompletionKind::Type,
-            Some("Fixed-length string -> CHAR(n) (PostgreSQL and MySQL)".to_string()),
-        ));
-        items.push(CompletionItem::with_snippet(
-            "VarChar(n)",
-            "VarChar(${1:n})",
-            CompletionKind::Type,
-            Some("Variable-length string -> VARCHAR(n) (PostgreSQL and MySQL)".to_string()),
-        ));
-    }
-
-    items
+            None => CompletionItem::new(doc.label, CompletionKind::Type, Some(doc.detail())),
+        })
+        .collect()
 }
 
 fn field_attribute_completions() -> Vec<CompletionItem> {
