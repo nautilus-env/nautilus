@@ -7,7 +7,7 @@ use nautilus_core::TableName;
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::{ModelIr, ResolvedFieldType};
 
-use crate::conversion::to_snake_case;
+use super::naming::to_snake_case;
 use crate::filter::{JoinTableInfo, RelationInfo, RelationMap};
 use crate::metadata::model_table;
 

@@ -55,5 +55,7 @@ pub use methods::{
     QUERY_UPDATE_MANY, QUERY_UPSERT, REQUEST_CANCEL, SCHEMA_VALIDATE, TRANSACTION_BATCH,
     TRANSACTION_COMMIT, TRANSACTION_ROLLBACK, TRANSACTION_START,
 };
-pub use version::{ProtocolVersion, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
+pub use version::{
+    check_protocol_version, ProtocolVersion, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
+};
 pub use wire::{RpcError, RpcId, RpcRequest, RpcResponse};

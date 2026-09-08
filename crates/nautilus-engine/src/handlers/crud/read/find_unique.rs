@@ -12,14 +12,14 @@ use std::sync::Arc;
 use nautilus_connector::Row;
 use nautilus_core::{Expr, Select, SelectCapacity, SelectItem};
 use nautilus_dialect::Sql;
-use nautilus_protocol::{FindUniqueParams, ProtocolError, RpcRequest};
+use nautilus_protocol::{check_protocol_version, FindUniqueParams, ProtocolError, RpcRequest};
 use nautilus_schema::ir::ModelIr;
 use serde_json::value::RawValue;
 use serde_json::Value as JsonValue;
 
 use super::find_many::execute_find_many_typed;
 use super::plan::find_unique_plan_key;
-use crate::conversion::{check_protocol_version, normalize_rows_with_hints, ValueHint};
+use crate::conversion::{normalize_rows_with_hints, ValueHint};
 use crate::filter::qualify_filter_columns;
 use crate::handlers::crud::common::{
     ensure_unique_filter, parse_and_qualify_model_filter, wrap_data_result,

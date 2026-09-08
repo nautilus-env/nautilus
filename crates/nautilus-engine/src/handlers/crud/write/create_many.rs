@@ -8,7 +8,7 @@
 
 use nautilus_connector::Row;
 use nautilus_core::{Insert, InsertCapacity, Value};
-use nautilus_protocol::{CreateManyParams, ProtocolError, RpcRequest};
+use nautilus_protocol::{check_protocol_version, CreateManyParams, ProtocolError, RpcRequest};
 use nautilus_schema::ir::{FieldIr, ModelIr, ResolvedFieldType};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
@@ -16,7 +16,6 @@ use super::input::{
     ensure_known_data_keys, field_input_value, row_field_json, should_omit_server_default,
     FieldInputMode,
 };
-use crate::conversion::check_protocol_version;
 use crate::handlers::crud::common::{
     execute_mutation_result, wrap_count_result, wrap_mutation_result, MutationResultData,
 };

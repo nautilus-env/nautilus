@@ -9,13 +9,14 @@
 
 use nautilus_connector::Row;
 use nautilus_core::{Update, UpdateCapacity};
-use nautilus_protocol::{ProtocolError, RpcRequest, UpdateManyParams, UpdateParams};
+use nautilus_protocol::{
+    check_protocol_version, ProtocolError, RpcRequest, UpdateManyParams, UpdateParams,
+};
 use nautilus_schema::ir::ModelIr;
 use serde_json::Value as JsonValue;
 
 use super::input::{ensure_known_data_keys, update_assignments};
 use super::read_back::updated_rows_filter;
-use crate::conversion::check_protocol_version;
 use crate::handlers::crud::common::{
     ensure_single_record_filter, execute_mutation_result, parse_optional_model_filter,
     wrap_count_result, wrap_mutation_result, MutationResultData,

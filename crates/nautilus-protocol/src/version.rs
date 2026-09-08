@@ -13,8 +13,8 @@ pub const MIN_PROTOCOL_VERSION: u32 = 1;
 /// Protocol version wrapper with validation.
 ///
 /// Provides structured version checking as an alternative to comparing
-/// against [`PROTOCOL_VERSION`] directly. The engine currently validates
-/// versions inline, but consumers that prefer a typed wrapper can use this.
+/// against [`PROTOCOL_VERSION`] directly; [`check_protocol_version`] is the
+/// plain-`u32` entry point built on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProtocolVersion(u32);
 
@@ -46,6 +46,14 @@ impl ProtocolVersion {
             })
         }
     }
+}
+
+/// Verify that a request's protocol version is within the supported range.
+///
+/// Accepts any version from [`MIN_PROTOCOL_VERSION`] up to
+/// [`PROTOCOL_VERSION`] (inclusive).
+pub fn check_protocol_version(version: u32) -> Result<()> {
+    ProtocolVersion::new(version).validate()
 }
 
 impl From<u32> for ProtocolVersion {

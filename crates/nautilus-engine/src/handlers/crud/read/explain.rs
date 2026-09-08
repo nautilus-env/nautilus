@@ -8,13 +8,14 @@
 use nautilus_connector::Row;
 use nautilus_dialect::Sql;
 use nautilus_migrate::DatabaseProvider;
-use nautilus_protocol::{ExplainParams, ExplainResult, ProtocolError, RpcRequest};
+use nautilus_protocol::{
+    check_protocol_version, ExplainParams, ExplainResult, ProtocolError, RpcRequest,
+};
 use nautilus_schema::ir::ModelIr;
 use serde_json::value::RawValue;
 use serde_json::Value as JsonValue;
 
 use super::plan::build_find_many_plan;
-use crate::conversion::check_protocol_version;
 use crate::filter::{QueryArgs, SchemaContext};
 use crate::handlers::crud::common::wrap_result;
 use crate::handlers::{get_model_or_error, parse_params};

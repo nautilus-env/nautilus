@@ -2,6 +2,7 @@
 //! query paths.
 
 mod fields;
+mod naming;
 mod relations;
 
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ pub(crate) use fields::{
     build_db_to_logical_map, build_field_type_map, build_logical_to_db_map, field_value_hint,
     PrimaryKeyFieldMetadata, ScalarFieldMetadata,
 };
+pub use naming::to_snake_case;
 pub(crate) use relations::build_relation_map;
 
 /// The physical table a model reads and writes, schema-qualified when the model

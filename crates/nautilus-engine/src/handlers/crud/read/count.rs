@@ -6,10 +6,9 @@
 
 use nautilus_core::{Expr, Select, SelectCapacity, SelectItem, Value};
 use nautilus_dialect::Sql;
-use nautilus_protocol::{CountParams, ProtocolError, RpcRequest};
+use nautilus_protocol::{check_protocol_version, CountParams, ProtocolError, RpcRequest};
 use serde_json::value::RawValue;
 
-use crate::conversion::check_protocol_version;
 use crate::filter::{QueryArgs, SchemaContext};
 use crate::handlers::crud::common::{qualify_model_filter, wrap_count_result};
 use crate::handlers::{get_model_or_error, parse_params};

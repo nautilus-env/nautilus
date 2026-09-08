@@ -19,10 +19,10 @@ use tokio::time::MissedTickBehavior;
 
 use nautilus_protocol::wire::{err, ok};
 use nautilus_protocol::{
-    RequestCancelParams, RequestCancelResult, RpcId, RpcRequest, RpcResponse, REQUEST_CANCEL,
+    check_protocol_version, RequestCancelParams, RequestCancelResult, RpcId, RpcRequest,
+    RpcResponse, REQUEST_CANCEL,
 };
 
-use crate::conversion::check_protocol_version;
 use crate::handlers;
 use crate::state::EngineState;
 

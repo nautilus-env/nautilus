@@ -6,9 +6,10 @@
 //! runs, on its transaction, since afterwards they are gone.
 
 use nautilus_core::{Delete, DeleteCapacity};
-use nautilus_protocol::{DeleteManyParams, DeleteParams, ProtocolError, RpcRequest};
+use nautilus_protocol::{
+    check_protocol_version, DeleteManyParams, DeleteParams, ProtocolError, RpcRequest,
+};
 
-use crate::conversion::check_protocol_version;
 use crate::handlers::crud::common::{
     ensure_single_record_filter, execute_mutation_result, parse_optional_model_filter,
     wrap_count_result, wrap_mutation_result, MutationResultData,

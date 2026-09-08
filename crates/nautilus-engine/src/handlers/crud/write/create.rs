@@ -7,13 +7,12 @@
 
 use nautilus_connector::Row;
 use nautilus_core::{Insert, InsertCapacity};
-use nautilus_protocol::{CreateParams, ProtocolError, RpcRequest};
+use nautilus_protocol::{check_protocol_version, CreateParams, ProtocolError, RpcRequest};
 use nautilus_schema::ir::ModelIr;
 use serde_json::Value as JsonValue;
 
 use super::input::{ensure_known_data_keys, insert_columns};
 use super::read_back::inserted_row_filter;
-use crate::conversion::check_protocol_version;
 use crate::handlers::crud::common::{
     execute_mutation_result, wrap_count_result, wrap_mutation_result, MutationResultData,
 };

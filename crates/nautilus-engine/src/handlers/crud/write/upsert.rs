@@ -7,13 +7,12 @@
 
 use nautilus_connector::Row;
 use nautilus_core::{Insert, InsertCapacity, OnConflict};
-use nautilus_protocol::{ProtocolError, RpcRequest, UpsertParams};
+use nautilus_protocol::{check_protocol_version, ProtocolError, RpcRequest, UpsertParams};
 use nautilus_schema::ir::{FieldIr, ModelIr};
 use serde_json::Value as JsonValue;
 
 use super::input::{insert_columns, update_assignments};
 use super::read_back::read_back_upserted_row;
-use crate::conversion::check_protocol_version;
 use crate::handlers::crud::common::{
     execute_mutation_result, matching_unique_constraint, protocol_filter_body, wrap_count_result,
     wrap_mutation_result, MutationResultData,

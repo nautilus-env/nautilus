@@ -52,7 +52,7 @@ pub(super) fn relation_field<'a>(
         };
         (field.logical_name == key
             || field.db_name == key
-            || crate::conversion::to_snake_case(&field.logical_name) == key)
+            || crate::metadata::to_snake_case(&field.logical_name) == key)
             .then_some((field, relation))
     })
 }

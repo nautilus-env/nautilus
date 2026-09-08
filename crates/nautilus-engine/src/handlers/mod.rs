@@ -9,21 +9,20 @@
 use nautilus_core::ColumnMarker;
 use nautilus_protocol::wire::{err, ok};
 use nautilus_protocol::{
-    AggregateParams, CountParams, CreateManyParams, CreateParams, DeleteManyParams,
-    EngineMetricsParams, GroupByParams, HandshakeParams, HandshakeResult, ProtocolError, RpcError,
-    RpcRequest, RpcResponse, SchemaValidateParams, SchemaValidateResult, UpdateManyParams,
-    UpdateParams, UpsertParams, ENGINE_HANDSHAKE, ENGINE_METRICS, PROTOCOL_VERSION,
-    QUERY_AGGREGATE, QUERY_COUNT, QUERY_CREATE, QUERY_CREATE_MANY, QUERY_DELETE, QUERY_DELETE_MANY,
-    QUERY_EXPLAIN, QUERY_FIND_FIRST, QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY, QUERY_FIND_UNIQUE,
-    QUERY_FIND_UNIQUE_OR_THROW, QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT, QUERY_UPDATE,
-    QUERY_UPDATE_MANY, QUERY_UPSERT, SCHEMA_VALIDATE, TRANSACTION_BATCH, TRANSACTION_COMMIT,
-    TRANSACTION_ROLLBACK, TRANSACTION_START,
+    check_protocol_version, AggregateParams, CountParams, CreateManyParams, CreateParams,
+    DeleteManyParams, EngineMetricsParams, GroupByParams, HandshakeParams, HandshakeResult,
+    ProtocolError, RpcError, RpcRequest, RpcResponse, SchemaValidateParams, SchemaValidateResult,
+    UpdateManyParams, UpdateParams, UpsertParams, ENGINE_HANDSHAKE, ENGINE_METRICS,
+    PROTOCOL_VERSION, QUERY_AGGREGATE, QUERY_COUNT, QUERY_CREATE, QUERY_CREATE_MANY, QUERY_DELETE,
+    QUERY_DELETE_MANY, QUERY_EXPLAIN, QUERY_FIND_FIRST, QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY,
+    QUERY_FIND_UNIQUE, QUERY_FIND_UNIQUE_OR_THROW, QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT,
+    QUERY_UPDATE, QUERY_UPDATE_MANY, QUERY_UPSERT, SCHEMA_VALIDATE, TRANSACTION_BATCH,
+    TRANSACTION_COMMIT, TRANSACTION_ROLLBACK, TRANSACTION_START,
 };
 use nautilus_schema::ir::{FieldIr, ModelIr};
 use nautilus_schema::{analyze, Severity};
 use tokio::sync::mpsc;
 
-use crate::conversion::check_protocol_version;
 use crate::state::EngineState;
 
 mod crud;

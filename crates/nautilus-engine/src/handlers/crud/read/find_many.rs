@@ -9,7 +9,8 @@ use std::sync::Arc;
 use nautilus_connector::Row;
 use nautilus_dialect::Sql;
 use nautilus_protocol::{
-    FindFirstParams, FindManyParams, ProtocolError, RpcId, RpcRequest, RpcResponse,
+    check_protocol_version, FindFirstParams, FindManyParams, ProtocolError, RpcId, RpcRequest,
+    RpcResponse,
 };
 use nautilus_schema::ir::ModelIr;
 use serde_json::value::RawValue;
@@ -17,7 +18,7 @@ use tokio::sync::mpsc;
 
 use super::plan::{build_find_many_plan, find_many_cache_request};
 use super::stream;
-use crate::conversion::{check_protocol_version, normalize_rows_with_hints};
+use crate::conversion::normalize_rows_with_hints;
 use crate::filter::{QueryArgs, SchemaContext};
 use crate::handlers::crud::common::wrap_data_result;
 use crate::handlers::crud::include::hydrate_rows_with_includes;
