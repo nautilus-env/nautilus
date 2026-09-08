@@ -12,7 +12,30 @@ pub(crate) fn scalar_to_rust_type(scalar: &ScalarType, extensions: &ExtensionReg
     extensions
         .type_for_scalar(scalar)
         .map(|ty| ty.rust_type_path())
-        .unwrap_or_else(|| scalar.rust_type().to_string())
+        .unwrap_or_else(|| native_rust_type(scalar).to_string())
+}
+
+/// The Rust type a scalar maps to when no extension wrapper claims it.
+fn native_rust_type(scalar: &ScalarType) -> &'static str {
+    match scalar {
+        ScalarType::String => "String",
+        ScalarType::Boolean => "bool",
+        ScalarType::Int => "i32",
+        ScalarType::BigInt => "i64",
+        ScalarType::Float => "f64",
+        ScalarType::Decimal { .. } => "rust_decimal::Decimal",
+        ScalarType::DateTime => "chrono::NaiveDateTime",
+        ScalarType::Bytes => "Vec<u8>",
+        ScalarType::Json => "serde_json::Value",
+        ScalarType::Uuid => "uuid::Uuid",
+        ScalarType::Citext | ScalarType::Ltree => "String",
+        ScalarType::Hstore => "std::collections::BTreeMap<String, Option<String>>",
+        ScalarType::Geometry => "nautilus_core::Geometry",
+        ScalarType::Geography => "nautilus_core::Geography",
+        ScalarType::Vector { .. } => "Vec<f32>",
+        ScalarType::Jsonb => "serde_json::Value",
+        ScalarType::Xml | ScalarType::Char { .. } | ScalarType::VarChar { .. } => "String",
+    }
 }
 
 /// Get the base Rust type for a field without optional / nullability wrappers.
