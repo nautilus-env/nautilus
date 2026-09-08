@@ -1,4 +1,17 @@
-use super::*;
+//! The steps the CRUD handlers share once a statement has been built: running
+//! it, shaping the result a method answers with, and the filter forms several
+//! methods accept.
+
+use nautilus_connector::Row;
+use nautilus_core::Expr;
+use nautilus_dialect::Sql;
+use nautilus_protocol::ProtocolError;
+use nautilus_schema::ir::ModelIr;
+use serde_json::Value as JsonValue;
+
+use crate::conversion::{normalize_rows_with_hints, rows_to_raw_json, ValueHint};
+use crate::filter::qualify_filter_columns;
+use crate::state::EngineState;
 
 pub(super) enum MutationResultData {
     Count(usize),

@@ -1,9 +1,22 @@
+//! The `aggregate` and `groupBy` methods: the aggregate functions a request
+//! may ask for, and the grouped select they are rendered into.
+
 use std::collections::HashMap;
 
-use nautilus_schema::ir::ScalarType;
+use nautilus_core::{Expr, Select, SelectCapacity, SelectItem, Value};
+use nautilus_protocol::{
+    check_protocol_version, AggregateParams, GroupByParams, ProtocolError, RpcRequest,
+};
+use nautilus_schema::ir::{FieldIr, ModelIr, ResolvedFieldType, ScalarType};
+use serde_json::Value as JsonValue;
+
+use nautilus_connector::Row;
 
 use super::common::wrap_data_result;
-use super::*;
+use crate::conversion::ValueHint;
+use crate::filter::{parse_group_by_order_by, parse_having, qualify_filter_columns};
+use crate::handlers::{get_model_or_error, parse_params};
+use crate::state::EngineState;
 
 /// Which scalar types an aggregate function accepts.
 ///

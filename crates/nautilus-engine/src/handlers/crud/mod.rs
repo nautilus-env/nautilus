@@ -1,20 +1,6 @@
 //! CRUD query handlers: findMany, findFirst, findUnique, create, createMany, update, delete
 //! and their `*OrThrow` variants.
 
-use nautilus_connector::Row;
-use nautilus_core::{Expr, Select, SelectCapacity, SelectItem, Value};
-use nautilus_dialect::Sql;
-use nautilus_protocol::{
-    check_protocol_version, AggregateParams, GroupByParams, ProtocolError, RpcRequest,
-};
-use nautilus_schema::ir::{FieldIr, ModelIr, ResolvedFieldType};
-use serde_json::Value as JsonValue;
-
-use super::{get_model_or_error, parse_params};
-use crate::conversion::{json_to_value, normalize_rows_with_hints, rows_to_raw_json, ValueHint};
-use crate::filter::{parse_group_by_order_by, parse_having, qualify_filter_columns};
-use crate::state::EngineState;
-
 mod aggregation;
 mod common;
 pub(crate) mod include;

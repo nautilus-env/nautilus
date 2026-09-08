@@ -1,5 +1,12 @@
+//! The `rawQuery` and `rawStmtQuery` methods: SQL the caller wrote, run as
+//! given.
+
+use nautilus_protocol::{check_protocol_version, ProtocolError, RpcRequest};
+
 use super::common::wrap_data_result;
-use super::*;
+use crate::conversion::json_to_value;
+use crate::handlers::parse_params;
+use crate::state::EngineState;
 
 /// Handle `query.rawQuery`.
 pub(in crate::handlers) async fn handle_raw_query(
