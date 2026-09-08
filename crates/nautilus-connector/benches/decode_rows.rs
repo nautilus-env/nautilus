@@ -4,7 +4,7 @@
 //! the same batch entry point the executors use (`decode_rows`). SQLite is the
 //! only backend whose rows can be produced without a running server; the
 //! PostgreSQL-specific column-plan classification is covered by unit tests in
-//! `postgres_stream.rs`, while this bench tracks the per-row cost the decode
+//! the PostgreSQL decode modules, while this bench tracks the per-row cost the decode
 //! loop shares across backends (column names, NULL checks, value extraction).
 
 use std::hint::black_box;
