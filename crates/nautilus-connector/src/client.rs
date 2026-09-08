@@ -82,31 +82,10 @@ where
     }
 }
 
-async fn set_transaction_isolation(
-    tx_executor: &crate::transaction::TransactionExecutor,
-    isolation_level: Option<crate::IsolationLevel>,
-) -> Result<()> {
-    let Some(isolation_level) = isolation_level else {
-        return Ok(());
-    };
-
-    let sql = nautilus_dialect::Sql {
-        text: format!(
-            "SET TRANSACTION ISOLATION LEVEL {}",
-            isolation_level.as_sql()
-        ),
-        params: vec![],
-    };
-
-    crate::execute_all(tx_executor, &sql).await?;
-    Ok(())
-}
-
 async fn drive_transaction<F, Fut, T, D>(
     tx_executor: crate::transaction::TransactionExecutor,
     dialect: D,
     opts: TransactionOptions,
-    set_isolation_after_begin: bool,
     f: F,
 ) -> Result<T>
 where
@@ -115,14 +94,7 @@ where
     T: Send + 'static,
     D: Dialect + Send + Sync + 'static,
 {
-    let TransactionOptions {
-        timeout,
-        isolation_level,
-    } = opts;
-
-    if set_isolation_after_begin {
-        set_transaction_isolation(&tx_executor, isolation_level).await?;
-    }
+    let TransactionOptions { timeout, .. } = opts;
 
     let tx_client = Client::new(dialect, tx_executor);
 
@@ -211,22 +183,13 @@ impl Client<crate::postgres::PgExecutor> {
         Fut: Future<Output = Result<T>> + Send,
         T: Send + 'static,
     {
-        let sqlx_tx = self
-            .executor()
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| Error::connection(e, "Failed to begin transaction"))?;
-        let tx_executor = crate::transaction::TransactionExecutor::postgres(sqlx_tx);
-
-        drive_transaction(
-            tx_executor,
-            nautilus_dialect::PostgresDialect,
-            opts,
-            true,
-            f,
+        let tx_executor = crate::transaction::TransactionExecutor::begin_postgres(
+            self.executor().pool(),
+            opts.isolation_level,
         )
-        .await
+        .await?;
+
+        drive_transaction(tx_executor, nautilus_dialect::PostgresDialect, opts, f).await
     }
 }
 
@@ -279,7 +242,7 @@ impl Client<crate::mysql::MysqlExecutor> {
         )
         .await?;
 
-        drive_transaction(tx_executor, nautilus_dialect::MysqlDialect, opts, false, f).await
+        drive_transaction(tx_executor, nautilus_dialect::MysqlDialect, opts, f).await
     }
 }
 
@@ -331,15 +294,10 @@ impl Client<crate::sqlite::SqliteExecutor> {
         Fut: Future<Output = Result<T>> + Send,
         T: Send + 'static,
     {
-        let sqlx_tx = self
-            .executor()
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| Error::connection(e, "Failed to begin transaction"))?;
-        let tx_executor = crate::transaction::TransactionExecutor::sqlite(sqlx_tx);
+        let tx_executor =
+            crate::transaction::TransactionExecutor::begin_sqlite(self.executor().pool()).await?;
 
-        drive_transaction(tx_executor, nautilus_dialect::SqliteDialect, opts, false, f).await
+        drive_transaction(tx_executor, nautilus_dialect::SqliteDialect, opts, f).await
     }
 }
 

@@ -3,8 +3,8 @@
 
 use std::time::{Duration, Instant};
 
-use nautilus_connector::{execute_all, Client, TransactionExecutor};
-use nautilus_dialect::{MysqlDialect, PostgresDialect, Sql, SqliteDialect};
+use nautilus_connector::{Client, TransactionExecutor};
+use nautilus_dialect::{MysqlDialect, PostgresDialect, SqliteDialect};
 use nautilus_protocol::ProtocolError;
 
 use crate::state::{DatabaseClient, EngineState};
@@ -78,50 +78,25 @@ impl EngineState {
         timeout: Duration,
         isolation_level: Option<nautilus_protocol::IsolationLevel>,
     ) -> Result<(), ProtocolError> {
+        let isolation = isolation_level.map(connector_isolation_level);
         let tx_client = match &self.client {
             DatabaseClient::Postgres(c) => {
-                let sqlx_tx = c.executor().pool().begin().await.map_err(|e| {
-                    ProtocolError::TransactionFailed(format!("BEGIN failed: {}", e))
-                })?;
-                let tx_exec = TransactionExecutor::postgres(sqlx_tx);
-                if let Some(iso) = isolation_level {
-                    let iso_sql = format!("SET TRANSACTION ISOLATION LEVEL {}", iso.as_sql());
-                    let sql = Sql {
-                        text: iso_sql,
-                        params: vec![],
-                    };
-                    execute_all(&tx_exec, &sql).await.map_err(|e| {
-                        ProtocolError::TransactionFailed(format!("SET ISOLATION failed: {}", e))
-                    })?;
-                }
+                let tx_exec = TransactionExecutor::begin_postgres(c.executor().pool(), isolation)
+                    .await
+                    .map_err(|e| ProtocolError::TransactionFailed(e.to_string()))?;
                 Client::new(PostgresDialect, tx_exec)
             }
             DatabaseClient::Mysql(c) => {
-                let isolation = isolation_level.map(|level| match level {
-                    nautilus_protocol::IsolationLevel::ReadUncommitted => {
-                        nautilus_connector::IsolationLevel::ReadUncommitted
-                    }
-                    nautilus_protocol::IsolationLevel::ReadCommitted => {
-                        nautilus_connector::IsolationLevel::ReadCommitted
-                    }
-                    nautilus_protocol::IsolationLevel::RepeatableRead => {
-                        nautilus_connector::IsolationLevel::RepeatableRead
-                    }
-                    nautilus_protocol::IsolationLevel::Serializable => {
-                        nautilus_connector::IsolationLevel::Serializable
-                    }
-                });
                 let tx_exec = TransactionExecutor::begin_mysql(c.executor().pool(), isolation)
                     .await
                     .map_err(|e| ProtocolError::TransactionFailed(e.to_string()))?;
                 Client::new(MysqlDialect, tx_exec)
             }
             DatabaseClient::Sqlite(c) => {
-                let sqlx_tx = c.executor().pool().begin().await.map_err(|e| {
-                    ProtocolError::TransactionFailed(format!("BEGIN failed: {}", e))
-                })?;
-                let tx_exec = TransactionExecutor::sqlite(sqlx_tx);
-                // SQLite doesn't support SET TRANSACTION ISOLATION LEVEL
+                // SQLite has no SET TRANSACTION ISOLATION LEVEL to apply.
+                let tx_exec = TransactionExecutor::begin_sqlite(c.executor().pool())
+                    .await
+                    .map_err(|e| ProtocolError::TransactionFailed(e.to_string()))?;
                 Client::new(SqliteDialect, tx_exec)
             }
         };
@@ -287,5 +262,25 @@ impl EngineState {
             expired.insert(id.to_string(), Instant::now());
         }
         let _ = active.client.executor().rollback().await;
+    }
+}
+
+/// Map the protocol's isolation level onto the connector's.
+fn connector_isolation_level(
+    level: nautilus_protocol::IsolationLevel,
+) -> nautilus_connector::IsolationLevel {
+    match level {
+        nautilus_protocol::IsolationLevel::ReadUncommitted => {
+            nautilus_connector::IsolationLevel::ReadUncommitted
+        }
+        nautilus_protocol::IsolationLevel::ReadCommitted => {
+            nautilus_connector::IsolationLevel::ReadCommitted
+        }
+        nautilus_protocol::IsolationLevel::RepeatableRead => {
+            nautilus_connector::IsolationLevel::RepeatableRead
+        }
+        nautilus_protocol::IsolationLevel::Serializable => {
+            nautilus_connector::IsolationLevel::Serializable
+        }
     }
 }
