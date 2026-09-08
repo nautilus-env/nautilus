@@ -13,7 +13,7 @@ use crate::ast::FieldType;
 use crate::ir::{DatabaseProvider, ScalarType};
 
 /// One scalar type as the language surfaces it.
-pub(super) struct ScalarTypeDoc {
+pub(in crate::analysis) struct ScalarTypeDoc {
     /// The name written in a schema, and the completion label.
     pub label: &'static str,
     /// LSP snippet inserted instead of the label, for a type with arguments.
@@ -37,7 +37,7 @@ impl ScalarTypeDoc {
     ///
     /// An unknown or absent provider offers everything: the schema being
     /// edited may not have named its datasource yet.
-    pub(super) fn supported_by(&self, provider: Option<&str>) -> bool {
+    pub(in crate::analysis) fn supported_by(&self, provider: Option<&str>) -> bool {
         let Some(provider) = provider else {
             return true;
         };
@@ -48,12 +48,12 @@ impl ScalarTypeDoc {
     }
 
     /// The one-line detail shown next to a completion item.
-    pub(super) fn detail(&self) -> String {
+    pub(in crate::analysis) fn detail(&self) -> String {
         format!("{} -> {}{}", self.summary, self.sql, self.availability())
     }
 
     /// The documentation shown on hover.
-    pub(super) fn documentation(&self) -> String {
+    pub(in crate::analysis) fn documentation(&self) -> String {
         let mapping = self
             .mapping
             .map(str::to_string)
@@ -91,7 +91,7 @@ fn quoted_sql(sql: &str) -> String {
 }
 
 /// Every scalar type the language accepts, in the order completion offers them.
-pub(super) const SCALAR_TYPES: &[ScalarTypeDoc] = &[
+pub(in crate::analysis) const SCALAR_TYPES: &[ScalarTypeDoc] = &[
     ScalarTypeDoc {
         label: "String",
         snippet: None,
@@ -278,7 +278,7 @@ pub(super) const SCALAR_TYPES: &[ScalarTypeDoc] = &[
 ];
 
 /// The catalog entry describing a parsed field type, when it names a scalar.
-pub(super) fn scalar_doc(field_type: &FieldType) -> Option<&'static ScalarTypeDoc> {
+pub(in crate::analysis) fn scalar_doc(field_type: &FieldType) -> Option<&'static ScalarTypeDoc> {
     let label = match field_type {
         FieldType::String => "String",
         FieldType::Boolean => "Boolean",

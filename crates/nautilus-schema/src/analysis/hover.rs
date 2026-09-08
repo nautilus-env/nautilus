@@ -192,100 +192,9 @@ pub fn hover_with_analysis(
 
 /// Hover documentation for datasource/generator config fields.
 pub fn config_field_hover(key: &str) -> String {
-    match key {
-        "provider" => concat!(
-            "**provider**  \n",
-            "Specifies the database provider or code-generator target.  \n\n",
-            "Datasource values: `\"postgresql\"`, `\"mysql\"`, `\"sqlite\"`  \n",
-            "Generator values: `\"nautilus-client-rs\"`, `\"nautilus-client-py\"`, `\"nautilus-client-js\"`, `\"nautilus-client-java\"`",
-        ).to_string(),
-        "url" => concat!(
-            "**url**  \n",
-            "Database connection URL.  \n\n",
-            "Supports the `env(\"VAR\")` helper to read from environment variables.",
-        ).to_string(),
-        "direct_url" => concat!(
-            "**direct_url**  \n",
-            "Optional direct database connection URL for admin tooling.  \n\n",
-            "Use this for migrations, introspection, and schema management when `url` points at a pooled or proxied connection.  \n\n",
-            "Supports the `env(\"VAR\")` helper to read from environment variables.",
-        ).to_string(),
-        "extensions" => concat!(
-            "**extensions**  \n",
-            "Optional PostgreSQL-only array of extension names to ensure installed before schema DDL runs.  \n\n",
-            "Accepts bare identifiers like `pg_trgm` and string literals like `\"uuid-ossp\"`.  \n\n",
-            "Example: `extensions = [pg_trgm, pgcrypto, \"uuid-ossp\"]`",
-        ).to_string(),
-        "preserve_extensions" => concat!(
-            "**preserve_extensions**  \n",
-            "Optional PostgreSQL-only boolean.  \n\n",
-            "When `true`, Nautilus creates missing declared extensions but does not propose dropping live extensions that are absent from `extensions`.  \n\n",
-            "Default: `false`.",
-        ).to_string(),
-        "schemas" => [
-            "**schemas**  \n",
-            "PostgreSQL-only, non-empty array of unique schema names that this datasource spans. Every entry must be a non-empty string literal.  \n\n",
-            "When `schemas` is present, every model and view must use `@@schema(\"...\")` with one of the declared names; Nautilus does not choose an implicit default.  \n\n",
-            "Migrations create missing declared schemas before their tables but never drop a schema. `db pull` introspects exactly the schemas listed here.  \n\n",
-            "**Example:**  \n",
-            "```  \n",
-            "datasource db {  \n",
-            "  provider = \"postgresql\"  \n",
-            "  url      = env(\"DATABASE_URL\")  \n",
-            "  schemas  = [\"public\", \"analytics\"]  \n",
-            "}  \n\n",
-            "model Event {  \n",
-            "  id Int @id  \n",
-            "  @@schema(\"analytics\")  \n",
-            "}  \n",
-            "```",
-        ].concat(),
-        "output" => concat!(
-            "**output**  \n",
-            "Output directory path for generated client files.  \n\n",
-            "Relative paths are resolved from the schema file location.",
-        ).to_string(),
-        "interface" => concat!(
-            "**interface**  \n",
-            "Controls whether the generated client uses a synchronous or asynchronous API.  \n\n",
-            "- `\"sync\"` *(default)* — blocking API; safe to call from any context.  \n",
-            "- `\"async\"` — `async/await` API; requires an async runtime.",
-        ).to_string(),
-        "recursive_type_depth" => concat!(
-            "**recursive_type_depth**  \n",
-            "*(Python client only)* Depth of recursive include TypedDicts generated for the Python client.  \n\n",
-            "Default: `5`.  \n\n",
-            "Each depth level adds a `{Model}IncludeRecursive{N}` type and the corresponding  \n",
-            "`FindMany{Target}ArgsFrom{Source}Recursive{N}` typed-dict classes.  \n",
-            "At the maximum depth the `include` field is omitted to prevent infinite type recursion.  \n\n",
-            "Example: `recursive_type_depth = 3`",
-        ).to_string(),
-        "package" => concat!(
-            "**package**  \n",
-            "*(Java client only)* Root Java package for the generated client sources.  \n\n",
-            "Example: `package = \"com.acme.db\"`",
-        )
-        .to_string(),
-        "group_id" => concat!(
-            "**group_id**  \n",
-            "*(Java client only)* Maven `groupId` used in the generated `pom.xml`.  \n\n",
-            "Example: `group_id = \"com.acme\"`",
-        )
-        .to_string(),
-        "artifact_id" => concat!(
-            "**artifact_id**  \n",
-            "*(Java client only)* Maven `artifactId` used in the generated `pom.xml`.  \n\n",
-            "Example: `artifact_id = \"db-client\"`",
-        )
-        .to_string(),
-        "mode" => concat!(
-            "**mode**  \n",
-            "*(Java client only)* Controls the Java packaging output.  \n\n",
-            "- `\"maven\"` *(default)* — generate the Maven module layout under `output/`.  \n",
-            "- `\"jar\"` — generate the Maven module layout and also build a plain Java jar bundle under `output/dist/`.",
-        )
-        .to_string(),
-        other => format!("**{other}**"),
+    match catalog::config_field(key) {
+        Some(doc) => doc.documentation(),
+        None => format!("**{key}**"),
     }
 }
 
@@ -368,129 +277,30 @@ fn find_paren_end(tokens: &[Token], lparen_idx: usize) -> Option<usize> {
 }
 
 fn field_attr_hover_text(name: &str, ast: Option<&Schema>, offset: usize) -> String {
-    match name {
-        "id" => "**@id**  \nMarks this field as the primary key of the model.".to_string(),
-        "unique" => "**@unique**  \nAdds a `UNIQUE` constraint on this column.".to_string(),
-        "default" => [
-            "**@default(expr)**  ",
-            "Sets the default value for this field when not explicitly provided.  \n",
-            "Common expressions: `autoincrement()`, `now()`, `uuid()`, `uuidv7()`,",
-            " enum variants, or literal values.",
-        ].concat(),
-        "map" => "**@map(\"name\")** \nMaps this field to a different physical column name in the database.".to_string(),
-        "store" => [
-            "**@store(json)**  \n",
-            "Stores this array field as a JSON value in the database.  \n",
-            "Useful for databases without native array support (MySQL, SQLite).",
-        ].concat(),
-        "updatedAt" => [
-            "**@updatedAt**  \n",
-            "Marks this `DateTime` field to be automatically set to the current timestamp ",
-            "on every CREATE and UPDATE operation.  \n",
-            "The framework manages this value — it is excluded from all user-input types.",
-        ].concat(),
-        "computed" => [
-            "**@computed(expr, Stored | Virtual)**  \n",
-            "Declares a database-generated (computed) column.  \n\n",
-            "- `expr` — raw SQL expression evaluated by the database (e.g. `price * quantity`, ",
-            "`first_name || ' ' || last_name`)  \n",
-            "- `Stored` — value is computed on write and persisted physically  \n",
-            "- `Virtual` — value is computed on read (not supported on PostgreSQL)  \n\n",
-            "Maps to SQL `GENERATED ALWAYS AS (expr) STORED` (PostgreSQL / MySQL) or ",
-            "`AS (expr) STORED` (SQLite).  \n",
-            "Computed fields are **read-only** — they are excluded from all create/update input types.",
-        ].concat(),
-        "check" => [
-            "**@check(expr)**  \n",
-            "Adds a SQL `CHECK` constraint on this column.  \n\n",
-            "The boolean expression can use SQL-style operators: ",
-            "`=`, `!=`, `<`, `>`, `<=`, `>=`, `AND`, `OR`, `NOT`, `IN`.  \n\n",
-            "Field-level `@check` can only reference the decorated field itself.  \n",
-            "Use `@@check` at the model level to reference multiple fields.  \n\n",
-            "**Examples:**  \n",
-            "```  \n",
-            "age    Int  @check(age >= 0 AND age <= 150)  \n",
-            "status Status @check(status IN [ACTIVE, PENDING])  \n",
-            "```",
-        ].concat(),
-        "ignore" => [
-            "**@ignore**  \n",
-            "Marks a database column as unmanaged by Nautilus. The field is omitted from generated clients and every migration; the column is never created, altered, or dropped.  \n\n",
-            "An ignored field cannot use `@id`, `@unique`, or `@relation`, and cannot be referenced by `@@id`, `@@unique`, or `@@index`. A required ignored field without `@default` requires the whole model to be `@@ignore`.  \n\n",
-            "`db pull` adds `@ignore` when a database column type has no Nautilus representation, preserving that column without mapping it to an incorrect type.  \n\n",
-            "**Example:**  \n",
-            "```  \n",
-            "model Device {  \n",
-            "  id     Int     @id  \n",
-            "  uptime String? @ignore  \n",
-            "}  \n",
-            "```",
-        ].concat(),
-        "relation" => {
-            let base = concat!(
-                "**@relation**  \n",
-                "Defines an explicit foreign-key relation between two models."
-            );
-            if let Some(schema) = ast {
-                if let Some(extra) = relation_hover_details(schema, offset) {
-                    return format!("{base}  \n\n{extra}");
-                }
+    let Some(doc) = catalog::field_attribute(name) else {
+        return format!("**@{name}**");
+    };
+    let text = doc.documentation();
+
+    // The relation attribute says more once the schema around it is known.
+    if name == "relation" {
+        if let Some(schema) = ast {
+            if let Some(extra) = relation_hover_details(schema, offset) {
+                return format!(
+                    "{text}  
+
+{extra}"
+                );
             }
-            base.to_string()
         }
-        other => format!("**@{other}**"),
     }
+    text
 }
 
 fn model_attr_hover_text(name: &str) -> String {
-    match name {
-        "map"    => "**@@map(\"name\")** \nMaps this declaration to a different physical name in the database — the table name for a model, or the SQL composite type name for a `type`.".to_string(),
-        "schema" => [
-            "**@@schema(\"name\")**  \n",
-            "Selects the PostgreSQL schema that contains this model's table or this view.  \n\n",
-            "The name must be listed in the datasource's `schemas = [...]` field. When that field is present, every model and view must declare `@@schema`; Nautilus does not choose an implicit default.  \n\n",
-            "PostgreSQL only — MySQL and SQLite do not support this attribute.  \n\n",
-            "**Example:**  \n",
-            "```  \n",
-            "datasource db {  \n",
-            "  provider = \"postgresql\"  \n",
-            "  schemas  = [\"public\", \"analytics\"]  \n",
-            "}  \n\n",
-            "model Event {  \n",
-            "  id Int @id  \n",
-            "  @@schema(\"analytics\")  \n",
-            "}  \n",
-            "```",
-        ].concat(),
-        "id"     => "**@@id([fields])**  \nDefines a composite primary key spanning multiple fields.".to_string(),
-        "unique" => "**@@unique([fields])**  \nDefines a composite unique constraint spanning multiple fields.".to_string(),
-        "index"  => "**@@index([fields], type?, opclass?, m?, ef_construction?, lists?, name?, map?)**  \nCreates a database index on the listed fields.  \n\nOptional arguments:  \n- `type:` — index access method: `BTree` (default, all DBs), `Hash` (PG/MySQL), `Gin` / `Gist` / `Brin` / `Hnsw` / `Ivfflat` (PostgreSQL only), `FullText` (MySQL only)  \n- `opclass:` — pgvector operator class for `Hnsw` / `Ivfflat`: `vector_l2_ops`, `vector_ip_ops`, `vector_cosine_ops`  \n- `m:` / `ef_construction:` — pgvector HNSW build parameters  \n- `lists:` — pgvector IVFFlat build parameter  \n- `name:` — logical developer name (ignored in DDL)  \n- `map:` — physical DDL index name override  \n\n**Examples:**  \n```  \n@@index([email])  \n@@index([email], type: Hash)  \n@@index([content], type: Gin)  \n@@index([embedding], type: Hnsw, opclass: vector_cosine_ops, m: 16, ef_construction: 64)  \n```".to_string(),
-        "ignore" => [
-            "**@@ignore**  \n",
-            "Marks a database table as unmanaged by Nautilus. The model is omitted from generated clients and every migration; its table is never created, altered, or dropped.  \n\n",
-            "A managed model cannot declare a relation to an ignored model. Mark that relation field with `@ignore`, or remove `@@ignore` from its target.  \n\n",
-            "`db pull` adds `@@ignore` when a table cannot be represented safely, such as when its primary key or a required column without a default has an unsupported database type.  \n\n",
-            "**Example:**  \n",
-            "```  \n",
-            "model LegacyAudit {  \n",
-            "  id   Int    @id  \n",
-            "  span String @ignore  \n\n",
-            "  @@map(\"legacy_audit\")  \n",
-            "  @@ignore  \n",
-            "}  \n",
-            "```",
-        ].concat(),
-        "check"  => [
-            "**@@check(expr)**  \n",
-            "Adds a table-level SQL `CHECK` constraint.  \n\n",
-            "Unlike field-level `@check`, the expression can reference any scalar field in the model.  \n\n",
-            "**Example:**  \n",
-            "```  \n",
-            "@@check(start_date < end_date)  \n",
-            "@@check(age > 18 OR status IN [MINOR])  \n",
-            "```",
-        ].concat(),
-        other    => format!("**@@{other}**"),
+    match catalog::model_attribute(name) {
+        Some(doc) => doc.documentation(),
+        None => format!("**@@{name}**"),
     }
 }
 
