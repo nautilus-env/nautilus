@@ -6,6 +6,7 @@
 mod composites;
 mod declarations;
 mod defaults;
+mod fields;
 mod index;
 mod ir_builder;
 mod many_to_many;
