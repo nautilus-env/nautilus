@@ -110,6 +110,16 @@ mod tests {
     }
 
     #[test]
+    fn test_readme_tracks_current_protocol_version() {
+        let readme = std::fs::read_to_string(format!("{}/README.md", env!("CARGO_MANIFEST_DIR")))
+            .expect("failed to read crate README");
+
+        assert!(readme.contains(&format!("Current version: **{}**", PROTOCOL_VERSION)));
+        assert!(readme.contains("All client requests must include `protocolVersion: 1`"));
+        assert!(!readme.contains("When protocol version 2 is released:"));
+    }
+
+    #[test]
     fn test_version_error_message() {
         let version = ProtocolVersion::new(5);
         let result = version.validate();

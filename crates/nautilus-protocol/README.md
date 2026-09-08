@@ -14,21 +14,23 @@ The crate contains typed request/response structs, method-name constants, and st
 
 ## Method matrix
 
-| Category | Methods |
-| --- | --- |
-| Handshake | `engine.handshake` |
-| Reads | `query.findMany`, `query.findFirst`, `query.findUnique`, `query.findFirstOrThrow`, `query.findUniqueOrThrow` |
-| Writes | `query.create`, `query.createMany`, `query.update`, `query.upsert`, `query.delete` |
-| Aggregation | `query.count`, `query.groupBy` |
-| Raw SQL | `query.rawQuery`, `query.rawStmtQuery` |
-| Transactions | `transaction.start`, `transaction.commit`, `transaction.rollback`, `transaction.batch` |
-| Schema | `schema.validate` |
+Each family has its own module under `src/methods/` and its own test file; `methods/mod.rs` re-exports every name, so the public paths do not mention the modules.
+
+| Category | Module | Methods |
+| --- | --- | --- |
+| Engine | `engine` | `engine.handshake`, `engine.metrics`, `request.cancel` |
+| Reads | `read` | `query.findMany`, `query.findFirst`, `query.findUnique`, `query.findFirstOrThrow`, `query.findUniqueOrThrow`, `query.explain` |
+| Writes | `write` | `query.create`, `query.createMany`, `query.update`, `query.updateMany`, `query.upsert`, `query.delete`, `query.deleteMany` |
+| Aggregation | `aggregate` | `query.count`, `query.groupBy`, `query.aggregate` |
+| Raw SQL | `raw` | `query.rawQuery`, `query.rawStmtQuery` |
+| Transactions | `transaction` | `transaction.start`, `transaction.commit`, `transaction.rollback`, `transaction.batch` |
+| Schema | `schema` | `schema.validate` |
 
 ## Important cross-method fields
 
 - `protocolVersion`: required on all public requests
 - `transactionId`: optional on supported read/write methods
-- `returnData`: optional on mutation methods, defaults to `true`
+- `returnData`: optional on the row-returning mutations, defaults to `true`; `query.updateMany` and `query.deleteMany` accept it and ignore it, since they always answer with a count
 - `chunkSize`: optional on `query.findMany`; lets the engine emit partial responses
 
 ## Minimal request example
