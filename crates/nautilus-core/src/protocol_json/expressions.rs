@@ -77,7 +77,13 @@ pub(super) fn like_operator_and_value(
         })
     };
 
-    if pattern.starts_with('%') && pattern.ends_with('%') && pattern.len() >= 2 {
+    let ends_with_wildcard = if escaped {
+        trailing_percent_is_wildcard(pattern)
+    } else {
+        pattern.ends_with('%')
+    };
+
+    if pattern.starts_with('%') && ends_with_wildcard && pattern.len() >= 2 {
         return Ok((Some("contains"), term(&pattern[1..pattern.len() - 1])));
     }
 
@@ -85,11 +91,24 @@ pub(super) fn like_operator_and_value(
         return Ok((Some("endsWith"), term(stripped)));
     }
 
-    if let Some(stripped) = pattern.strip_suffix('%') {
-        return Ok((Some("startsWith"), term(stripped)));
+    if ends_with_wildcard {
+        return Ok((Some("startsWith"), term(&pattern[..pattern.len() - 1])));
     }
 
     Ok((Some("like"), JsonValue::String(pattern.to_string())))
+}
+
+/// Whether the final `%` of an escaped pattern is the operator's wildcard
+/// rather than a `%` the search term itself contains.
+///
+/// A term keeps its own `%` as `\%`, so the last one is a wildcard unless an
+/// odd number of `\` precedes it. The leading `%` needs no such test: nothing
+/// can escape the first character of the pattern.
+fn trailing_percent_is_wildcard(pattern: &str) -> bool {
+    let Some(term) = pattern.strip_suffix('%') else {
+        return false;
+    };
+    term.chars().rev().take_while(|c| *c == '\\').count() % 2 == 0
 }
 
 /// Undo the `\` escaping the engine applies to a literal substring search term.
@@ -141,6 +160,15 @@ mod tests {
             (Some("startsWith"), json!(r"c:\dir"))
         );
         assert_eq!(like(r"%50\%%", false), (Some("contains"), json!(r"50\%")));
+    }
+
+    /// A term ending in `%` escapes it, so the pattern ends in `\%` and that
+    /// last `%` closes the term instead of opening a wildcard.
+    #[test]
+    fn an_escaped_trailing_percent_is_not_the_operator_wildcard() {
+        assert_eq!(like(r"%\%", true), (Some("endsWith"), json!("%")));
+        assert_eq!(like(r"\%%", true), (Some("startsWith"), json!("%")));
+        assert_eq!(like(r"%\\%", true), (Some("contains"), json!(r"\")));
     }
 
     #[test]
