@@ -1,5 +1,16 @@
+//! The `orderBy` argument, for a plain read and for a grouped aggregate, plus
+//! the small numeric parsers `take` and `skip` share with it.
+
+use std::collections::HashMap;
+
+use serde_json::Value as JsonValue;
+
+use nautilus_core::{BinaryOp, Expr, OrderBy, OrderDir};
+use nautilus_protocol::ProtocolError;
+use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
+
+use super::types::FieldTypeMap;
 use super::where_filter::{combine_conditions, parse_field_operators};
-use super::*;
 
 pub(super) fn parse_order_by(
     order_value: &JsonValue,

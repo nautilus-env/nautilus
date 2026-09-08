@@ -1,6 +1,55 @@
-use std::borrow::Cow;
+//! The schema an argument parser can reach while it walks a payload.
+//!
+//! [`SchemaContext`] carries what is known about the models at the top of a
+//! request; the nested contexts below narrow it to one relation as the
+//! `include` and `where` parsers descend into it.
 
-use super::*;
+use std::borrow::Cow;
+use std::collections::HashMap;
+
+use nautilus_protocol::ProtocolError;
+use nautilus_schema::ir::ModelIr;
+
+use super::types::{FieldTypeMap, RelationInfo, RelationMap};
+use crate::state::EngineState;
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct SchemaContext<'a> {
+    models: Option<&'a HashMap<String, ModelIr>>,
+    state: Option<&'a EngineState>,
+}
+
+impl<'a> SchemaContext<'a> {
+    pub(crate) const fn none() -> Self {
+        Self {
+            models: None,
+            state: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn with_models(models: &'a HashMap<String, ModelIr>) -> Self {
+        Self {
+            models: Some(models),
+            state: None,
+        }
+    }
+
+    pub(crate) fn with_state(state: &'a EngineState) -> Self {
+        Self {
+            models: Some(state.models()),
+            state: Some(state),
+        }
+    }
+
+    pub(super) const fn models(self) -> Option<&'a HashMap<String, ModelIr>> {
+        self.models
+    }
+
+    pub(super) const fn state(self) -> Option<&'a EngineState> {
+        self.state
+    }
+}
 
 pub(super) struct NestedIncludeContext<'a> {
     pub(super) relations: Cow<'a, RelationMap>,

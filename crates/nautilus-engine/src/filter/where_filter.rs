@@ -1,5 +1,17 @@
-use super::context::relation_filter_context;
-use super::*;
+//! The `where` argument: the JSON filter object compiled into an [`Expr`],
+//! including the relation predicates that become EXISTS subqueries.
+
+use std::collections::HashMap;
+
+use serde_json::Value as JsonValue;
+
+use nautilus_core::{BinaryOp, Expr, Select, Value};
+use nautilus_protocol::ProtocolError;
+use nautilus_schema::ir::ResolvedFieldType;
+
+use super::context::{relation_filter_context, SchemaContext};
+use super::types::{FieldTypeMap, RelationInfo, RelationMap};
+use crate::conversion::{json_to_value, json_to_value_field};
 
 pub(crate) fn parse_where_filter(
     where_value: &JsonValue,

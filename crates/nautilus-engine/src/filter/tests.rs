@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use super::*;
 use nautilus_core::{BinaryOp, Expr, OrderDir, Value, VectorMetric};
+use nautilus_protocol::ProtocolError;
 use nautilus_schema::validate_schema_source;
 use serde_json::json;
 
