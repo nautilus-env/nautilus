@@ -1,6 +1,6 @@
 # nautilus-core
 
-The foundational query AST and type system for the Nautilus ORM. Every other crate in the workspace depends on this one — it defines the language that queries, dialects, connectors, and the code generator all speak.
+The foundational query AST and type system for the Nautilus ORM. It defines the values and query structures shared by dialects, connectors, the engine, and generated Rust clients.
 
 ---
 
@@ -22,7 +22,8 @@ The foundational query AST and type system for the Nautilus ORM. Every other cra
 
 | Item | Description |
 |------|-------------|
-| `Value` | Unified column value enum (`Null`, `Bool`, `I32`, `I64`, `F64`, `Text`, `Bytes`, `Uuid`, `DateTime`, `Decimal`, `Json`, `Array`, `Array2D`) |
+| `Value` | Column values: null, numeric scalars, strings, bytes, UUIDs, datetimes, JSON, arrays, enums, composites, and PostgreSQL extension values |
+| `PlainValueRef` | Serializes a borrowed `Value` as plain wire JSON without building an intermediate JSON tree |
 | `Expr` | Expression AST: comparisons, boolean logic, `IN`, `IS NULL`, `EXISTS`, `json_build_object`, raw `Literal` |
 | `Column<T>` | Typed column reference; carries table name, column name, and a `PhantomData<T>` for builder methods like `.eq()`, `.gt()`, `.contains()` |
 | `ColumnMarker` | Lightweight marker used by the codegen layer for reflection without a type parameter |
@@ -47,15 +48,15 @@ graph LR
   core[nautilus-core]
   dialect[nautilus-dialect]
   connector[nautilus-connector]
-  codegen[nautilus-codegen]
+  migrate[nautilus-migrate]
   engine[nautilus-engine]
-  lsp[nautilus-lsp]
+  client[generated Rust client]
 
   dialect -->|renders AST -> SQL| core
   connector -->|executes queries| core
-  codegen -->|inspects ColumnMarker / SelectColumns| core
+  migrate -->|renders schema expressions| core
   engine -->|composes FindUniqueArgs / FindManyArgs| core
-  lsp -->|reads schema metadata| core
+  client -->|builds queries and decodes values| core
 ```
 
 The dependency is strictly one-way: `nautilus-core` has **no knowledge** of SQL dialects, database drivers, or network transports.
@@ -63,6 +64,20 @@ The dependency is strictly one-way: `nautilus-core` has **no knowledge** of SQL 
 ---
 
 ## Design Notes
+
+### Where value behavior lives
+
+| Module | Responsibility |
+|--------|----------------|
+| `value/mod.rs`, `value/wrappers.rs` | Internal `Value` variants and textual `Geometry` / `Geography` wrappers; existing public paths are re-exported by the facade |
+| `value/conversions.rs` | Rust-to-`Value` conversions, including optional values and arrays |
+| `value/tagged.rs` | Tagged serde encoding by reference and decoding through an owned representation |
+| `value/plain.rs` | Plain JSON trees, borrowed `PlainValueRef` serialization, and internal JSON-to-`Value` inference |
+| `value/scalar_text.rs` | Shared datetime parsing/formatting and borrowed string encodings for decimal, UUID, and bytes |
+| `column/from_value/mod.rs` | Public `FromValue` and `ExtensionScalar` contracts |
+| `column/from_value/{scalars,collections,extensions}.rs` | Column decoding, including owned conversions and JSON storage alternatives |
+
+To add a value variant, define it in `value/mod.rs`, its Rust conversions in `conversions.rs`, and both wire representations in `tagged.rs` and `plain.rs`. Add column decoding in the corresponding `from_value` module. Extend the shared serialization samples in `value/test_values.rs` and the tagged round-trip cases; tests for each codec and decoder live beside their implementation. Public conversion examples remain in `tests/value_conversions.rs`. The `value_serde` benchmark covers tagged encoding/decoding and plain JSON trees; the engine's `rows_json` benchmark exercises borrowed row serialization.
 
 ### Query builders are fallible at build time, not at execution time
 
@@ -72,7 +87,7 @@ All `*Builder::build()` methods validate the query (required fields present, col
 
 `Value` now serializes through an explicit tagged representation, so variants such as `Decimal`, `DateTime`, `Uuid`, `Bytes`, `Enum`, and `Array2D` round-trip without collapsing into plain strings or nested arrays. This serde form works with any format that can represent tagged enums.
 
-When a caller specifically needs the historic untagged JSON shape used on transport and raw-query paths, use `Value::to_json_plain()` together with `json_to_value_ref`. That plain JSON conversion is intentionally lossy for string-backed typed values (`Decimal`, `DateTime`, `Uuid`, `Bytes`, `Enum`) because JSON itself carries no schema.
+Transport and raw-query paths use `Value::to_json_plain()` when they need an owned JSON tree, or `PlainValueRef(&value)` to serialize directly by reference. String-backed types such as `Decimal`, `DateTime`, `Uuid`, `Bytes`, and `Enum` lose their type identity in this representation because JSON carries no schema. `json_to_value_ref` is the crate-internal reverse conversion; schema-aware reconstruction belongs to the engine and connectors.
 
 ### `Array2D` is a connector-level concern
 

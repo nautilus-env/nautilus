@@ -1,11 +1,8 @@
 ﻿//! Benchmarks for `Value` serialization paths.
 //!
-//! Covers the two hot conversions called per cell on the wire paths:
-//! - the tagged serde representation (`impl Serialize for Value`, used for
-//!   params and transaction payloads), which today round-trips through an
-//!   owned `SerdeValue` mirror (deep clones);
-//! - `to_json_plain`, used by the engine row serializer, which today builds
-//!   an owned `serde_json::Value` tree per cell.
+//! Covers tagged encoding by reference, tagged decoding into owned values,
+//! and `to_json_plain` building a JSON tree. The engine's `rows_json` benchmark
+//! covers borrowed plain serialization through `PlainValueRef`.
 
 use std::collections::BTreeMap;
 use std::hint::black_box;
