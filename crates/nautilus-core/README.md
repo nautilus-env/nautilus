@@ -79,6 +79,17 @@ The dependency is strictly one-way: `nautilus-core` has **no knowledge** of SQL 
 
 To add a value variant, define it in `value/mod.rs`, its Rust conversions in `conversions.rs`, and both wire representations in `tagged.rs` and `plain.rs`. Add column decoding in the corresponding `from_value` module. Extend the shared serialization samples in `value/test_values.rs` and the tagged round-trip cases; tests for each codec and decoder live beside their implementation. Public conversion examples remain in `tests/value_conversions.rs`. The `value_serde` benchmark covers tagged encoding/decoding and plain JSON trees; the engine's `rows_json` benchmark exercises borrowed row serialization.
 
+### Where the engine payload is written
+
+| Module | Responsibility |
+|--------|----------------|
+| `protocol_json/mod.rs` | Facade re-exporting the three public conversions |
+| `protocol_json/args.rs` | `FindManyArgs` and its `include` entries written as the request object |
+| `protocol_json/filters.rs` | A filter `Expr` written as the `where` object, including relation predicates and `AND` / `OR` flattening |
+| `protocol_json/expressions.rs` | Column references and value operands, including the LIKE pattern that carries a substring operator |
+
+To add an argument, write it in `args.rs` and count it in the capacity helper; to add a filter operator, map it in `filters.rs` and add its operand handling to `expressions.rs`. The engine has to accept what is produced: `nautilus-engine`'s `filter` module parses the payload back, and its round-trip test is the contract between the two.
+
 ### Query builders are fallible at build time, not at execution time
 
 All `*Builder::build()` methods validate the query (required fields present, column/value counts match, etc.) and return `Result<Ast>` eagerly. This means invalid queries are caught before they reach the connector or the dialect renderer.

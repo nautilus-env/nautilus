@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use super::*;
-use nautilus_core::{BinaryOp, Expr, OrderDir, Value, VectorMetric};
+use nautilus_core::{
+    find_many_args_to_protocol_json, BinaryOp, Expr, FindManyArgs, OrderBy, OrderDir, Value,
+    VectorMetric,
+};
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::validate_schema_source;
 use serde_json::json;
@@ -564,4 +567,96 @@ fn prisma_spelling_of_an_argument_names_the_engine_spelling() {
     )
     .expect_err("an underscore-prefixed args key should fail");
     assert!(err.to_string().contains("did you mean 'take'?"));
+}
+
+/// The Rust client hands the engine the payload `nautilus_core` builds from its
+/// typed arguments, so that payload has to parse back here unchanged: the
+/// `orderBy` list in the order it was written, a LIKE pattern with the escaping
+/// it left with, and a relation predicate still reaching the child model.
+#[test]
+fn typed_arguments_round_trip_through_the_args_parser() {
+    let schema = r#"
+model User {
+  id    Int    @id @default(autoincrement())
+  name  String
+  posts Post[]
+}
+
+model Post {
+  id        Int     @id @default(autoincrement())
+  published Boolean
+  authorId  Int     @map("author_id")
+  author    User    @relation(fields: [authorId], references: [id])
+}
+"#;
+    let (relations, field_types, models) = user_query_context(schema);
+    let pattern = r"%50\%\_off%";
+    let typed = FindManyArgs {
+        where_: Some(
+            Expr::column("User__name")
+                .like_escape(Expr::param(Value::String(pattern.to_string())))
+                .and(Expr::relation_some(
+                    "posts",
+                    "User",
+                    "Post",
+                    "author_id",
+                    "id",
+                    Expr::column("Post__published").eq(Expr::param(true)),
+                )),
+        ),
+        order_by: vec![
+            OrderBy::new("User__name", OrderDir::Asc),
+            OrderBy::new("User__id", OrderDir::Desc),
+        ],
+        take: Some(5),
+        skip: Some(2),
+        ..Default::default()
+    };
+
+    let payload = find_many_args_to_protocol_json(&typed).expect("typed args should serialize");
+    let parsed = QueryArgs::parse_with_context(
+        Some(payload),
+        &relations,
+        &field_types,
+        SchemaContext::with_models(&models),
+    )
+    .expect("the serialized payload should parse");
+
+    assert_eq!(parsed.take, Some(5));
+    assert_eq!(parsed.skip, Some(2));
+    assert_eq!(
+        parsed
+            .order_by
+            .iter()
+            .map(|order| (order.column.as_str(), order.direction))
+            .collect::<Vec<_>>(),
+        vec![("name", OrderDir::Asc), ("id", OrderDir::Desc)]
+    );
+
+    let filter = parsed.filter.as_ref().expect("filter missing");
+    let (like, relation) = match filter {
+        Expr::Binary {
+            left,
+            op: BinaryOp::And,
+            right,
+        } => (left.as_ref(), right.as_ref()),
+        other => panic!("unexpected filter shape: {other:?}"),
+    };
+
+    match like {
+        Expr::Binary {
+            left,
+            op: BinaryOp::LikeEscape,
+            right,
+        } => {
+            assert!(matches!(left.as_ref(), Expr::Column(name) if name == "name"));
+            assert!(
+                matches!(right.as_ref(), Expr::Param(Value::String(round_tripped)) if round_tripped == pattern)
+            );
+        }
+        other => panic!("unexpected substring predicate: {other:?}"),
+    }
+
+    assert!(matches!(relation, Expr::Exists(_)));
+    assert!(expr_contains_column(relation, "Post__published"));
 }
