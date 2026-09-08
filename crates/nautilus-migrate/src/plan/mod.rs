@@ -130,6 +130,31 @@ impl ApplyPlan {
         plan
     }
 
+    /// Order `changes` for apply, generate the SQL of each one, and collect
+    /// them into a plan.
+    ///
+    /// This is the whole road from a diff to something runnable: every caller
+    /// that has a [`crate::DiffApplier`] and a list of changes wants exactly
+    /// these three steps, in this order.
+    ///
+    /// # Errors
+    ///
+    /// Returns the generation error of the first change whose SQL cannot be
+    /// produced, naming that change.
+    pub fn for_changes(
+        provider: DatabaseProvider,
+        applier: &crate::DiffApplier<'_>,
+        live: &crate::LiveSchema,
+        changes: &[Change],
+    ) -> crate::error::Result<Self> {
+        let ordered = crate::order_changes_for_apply(changes, live);
+        let plans = ordered
+            .iter()
+            .map(|change| applier.plan_for(change))
+            .collect::<crate::error::Result<Vec<_>>>()?;
+        Ok(Self::from_changes(provider, plans))
+    }
+
     /// SQL in dependency order, including comment placeholders from SQL files.
     pub fn statements(&self) -> &[String] {
         &self.statements

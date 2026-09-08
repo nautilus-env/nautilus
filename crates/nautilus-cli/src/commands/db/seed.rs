@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use anyhow::Context;
 
-use super::connection::{detect_provider, obfuscate_url, resolve_url, Connection};
+use crate::context::database::{detect_provider, obfuscate_url, resolve_url, Connection};
 use crate::tui;
 
 /// Execute `nautilus db seed <file>` — run a SQL seed script against the database.

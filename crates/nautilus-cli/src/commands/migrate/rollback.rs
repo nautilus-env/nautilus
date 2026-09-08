@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use super::shared::MigrateContext;
+use crate::context::MigrateContext;
 use crate::tui;
 
 /// Execute `nautilus migrate rollback`.

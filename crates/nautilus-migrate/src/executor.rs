@@ -1,7 +1,7 @@
 use crate::applier::DiffApplier;
 use crate::apply::{ApplyFailure, ApplyOutcome};
 use crate::ddl::{DatabaseProvider, DdlGenerator};
-use crate::diff::{order_changes_for_apply, Change};
+use crate::diff::Change;
 use crate::error::{MigrationError, Result};
 use crate::live::LiveSchema;
 use crate::migration::Migration;
@@ -63,12 +63,7 @@ impl MigrationExecutor {
         let provider = self.generator.provider();
         let applier = DiffApplier::new(provider, &self.generator, schema, live);
 
-        let ordered_changes = order_changes_for_apply(changes, live);
-        let plans = ordered_changes
-            .iter()
-            .map(|change| applier.plan_for(change))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(ApplyPlan::from_changes(provider, plans).into_migration(name))
+        Ok(ApplyPlan::for_changes(provider, &applier, live, changes)?.into_migration(name))
     }
 
     /// Apply a migration (run "up" direction).

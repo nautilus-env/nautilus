@@ -1,7 +1,7 @@
 use anyhow::{bail, Context};
 use nautilus_migrate::DdlGenerator;
 
-use super::connection::DbContext;
+use crate::context::DbContext;
 use crate::tui;
 
 /// Execute `nautilus db drop` — drop all tables without recreating them.

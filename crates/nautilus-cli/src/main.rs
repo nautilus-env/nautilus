@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 
 mod commands;
+mod context;
 mod github_release;
 mod local_paths;
 #[cfg(test)]

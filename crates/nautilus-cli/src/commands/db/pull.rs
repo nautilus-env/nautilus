@@ -3,9 +3,9 @@ use nautilus_migrate::{serialize_live_schema_with_options, PullNamingOptions, Sc
 use nautilus_schema::parse_schema_source_with_recovery;
 use std::path::{Path, PathBuf};
 
-use super::connection::{
-    detect_provider, load_dotenv_for_schema, maybe_resolve_schema_path, obfuscate_url,
-    parse_and_validate_schema, resolve_db_url, resolve_url,
+use crate::context::database::{detect_provider, obfuscate_url, resolve_db_url, resolve_url};
+use crate::context::schema::{
+    load_dotenv_for_schema, maybe_resolve_schema_path, parse_and_validate_schema,
 };
 use crate::tui;
 

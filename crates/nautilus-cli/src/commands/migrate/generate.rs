@@ -2,7 +2,7 @@ use anyhow::Context;
 use chrono::Utc;
 use nautilus_migrate::SchemaDiff;
 
-use super::shared::MigrateContext;
+use crate::context::MigrateContext;
 use crate::tui;
 
 /// Execute `nautilus migrate generate`.

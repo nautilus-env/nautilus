@@ -1,7 +1,7 @@
 use anyhow::Context;
 use console::style;
 
-use super::shared::MigrateContext;
+use crate::context::MigrateContext;
 use crate::tui;
 
 /// Execute `nautilus migrate status`.

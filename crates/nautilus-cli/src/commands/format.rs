@@ -4,7 +4,7 @@ use nautilus_schema::{
 };
 use std::path::{Path, PathBuf};
 
-use crate::commands::db::connection::resolve_schema_path;
+use crate::context::schema::resolve_schema_path;
 use crate::tui;
 
 /// Execute `nautilus format` — reformat `.nautilus` schema files in-place.

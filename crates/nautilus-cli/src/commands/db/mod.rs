@@ -1,7 +1,6 @@
 use clap::{Subcommand, ValueEnum};
 use nautilus_migrate::{PullNameCase, PullNamingOptions};
 
-pub mod connection;
 mod drop;
 mod pull;
 mod push;

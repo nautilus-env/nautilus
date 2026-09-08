@@ -1,7 +1,7 @@
 use anyhow::Context;
 use nautilus_migrate::{Change, ChangeRisk, SchemaDiff};
 
-use super::connection::DbContext;
+use crate::context::DbContext;
 use crate::tui;
 
 /// Execute `nautilus db status` — show pending changes without applying them.

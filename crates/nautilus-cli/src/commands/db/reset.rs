@@ -3,7 +3,8 @@ use std::time::Instant;
 use anyhow::{bail, Context};
 use nautilus_migrate::{DdlGenerator, DiffApplier, SchemaDiff};
 
-use super::connection::{apply_changes, DbContext};
+use crate::context::report::apply_changes;
+use crate::context::DbContext;
 use crate::tui;
 
 /// Execute `nautilus db reset` — drop all tables then re-push the schema.

@@ -3,7 +3,6 @@ use clap::Subcommand;
 pub mod apply;
 pub mod generate;
 pub mod rollback;
-mod shared;
 pub mod status;
 
 /// Manage versioned SQL migration files.
