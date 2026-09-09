@@ -123,6 +123,9 @@ jobs:
           INSTA_UPDATE: 'no'
         run: cargo test --locked -p nautilus-orm-codegen --test snapshot_tests --test writer_tests --test path_equivalence_tests
 
+      - name: Test Studio lifecycle
+        run: 'cargo test --locked -p nautilus-orm commands::studio::'
+
   codegen-e2e:
     name: Codegen runtime end-to-end
     runs-on: ubuntu-latest

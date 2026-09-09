@@ -105,6 +105,25 @@ plain Java bundle at `output/dist/{artifact_id}.jar` plus `output/dist/lib/*.jar
 - The Python shim command is intentionally separate from code generation. It exists to make the installed CLI reachable from Python as `python -m nautilus`; it does not install or publish generated ORM clients.
 - `nautilus studio` looks up the latest GitHub Release for `STUDIO_GITHUB_REPO`, downloads the ZIP asset for the current platform named `nautilus-orm-studio-${tag}-${os}.zip` (`windows`, `linux`, or `macos`), extracts it into the local Nautilus data directory, installs runtime dependencies from the packaged `package-lock.json`, and launches Next from the project directory where `nautilus studio` was invoked while pointing it at the cached Studio app.
 
+## Studio implementation
+
+`commands/studio/mod.rs` validates the arguments and coordinates the workflow.
+Its private modules own the following steps:
+
+| Module | Responsibility |
+| --- | --- |
+| `release.rs` | GitHub release lookup through `github_release`, platform asset naming and selection, ZIP download |
+| `install.rs` | Cache location through `local_paths`, ZIP extraction, app root discovery, installed version, npm dependency installation and uninstall |
+| `process.rs` | Node/npm availability, Next launch from the project directory, command status and Ctrl+C termination |
+
+To change release packaging, update asset selection in `release.rs` and archive
+layout discovery in `install.rs`. To change how Studio starts or stops, update
+`process.rs`; npm installation uses the same command runner.
+
+`cargo test --locked -p nautilus-orm commands::studio::` checks platform selection,
+argument validation, local package discovery and child-process lifecycle without
+network, Node or npm. CI also runs these tests on Windows and macOS.
+
 ## Main dependencies
 
 - `nautilus-schema` for parsing, validation, and formatting
