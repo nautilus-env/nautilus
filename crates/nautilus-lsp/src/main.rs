@@ -31,13 +31,17 @@
 #![forbid(unsafe_code)]
 
 mod backend;
+mod capabilities;
 mod convert;
+mod diagnostics;
 mod document;
+mod documents;
 mod import_completion;
+#[cfg(test)]
+mod test_support;
 mod workspace;
 
 use backend::Backend;
-use dashmap::DashMap;
 use tower_lsp::{LspService, Server};
 
 #[tokio::main]
@@ -45,11 +49,7 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend {
-        client,
-        docs: DashMap::new(),
-        published: DashMap::new(),
-    });
+    let (service, socket) = LspService::new(Backend::new);
 
     Server::new(stdin, stdout, socket).serve(service).await;
 }

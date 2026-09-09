@@ -58,7 +58,10 @@ The server speaks stdio and is designed to be launched by an editor integration 
 
 | Module | Purpose |
 | --- | --- |
-| `backend` | `tower-lsp` server implementation |
+| `backend` | `tower-lsp` request handlers, and the analyse/publish/refresh sequence |
+| `capabilities` | What the server advertises at `initialize` |
+| `documents` | The open documents and the schema each is analysed inside |
+| `diagnostics` | Publishing and clearing squiggles per file |
 | `document` | Cached source + analysis per open document |
 | `import_completion` | Filesystem-backed completion for import paths |
 | `workspace` | The open file assembled with the files it imports |

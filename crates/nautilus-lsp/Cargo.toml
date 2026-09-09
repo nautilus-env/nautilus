@@ -27,6 +27,7 @@ dashmap = "6"
 
 [dev-dependencies]
 futures = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 tower-service = "0.3"
 
 [lints]
