@@ -1,4 +1,7 @@
-/// Supported database providers
+use nautilus_schema::ir::DatabaseProvider as SchemaDatabaseProvider;
+
+/// Migration backend and its SQL capabilities. Converts to and from the schema's
+/// provider identity without passing through a string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DatabaseProvider {
     /// PostgreSQL
@@ -9,24 +12,42 @@ pub enum DatabaseProvider {
     Mysql,
 }
 
-impl DatabaseProvider {
-    /// Parse a datasource `provider` string from a `.nautilus` schema.
-    pub fn from_schema_provider(provider: &str) -> Option<Self> {
+impl From<SchemaDatabaseProvider> for DatabaseProvider {
+    fn from(provider: SchemaDatabaseProvider) -> Self {
         match provider {
-            "postgresql" | "postgres" => Some(Self::Postgres),
-            "sqlite" => Some(Self::Sqlite),
-            "mysql" => Some(Self::Mysql),
-            _ => None,
+            SchemaDatabaseProvider::Postgres => Self::Postgres,
+            SchemaDatabaseProvider::Mysql => Self::Mysql,
+            SchemaDatabaseProvider::Sqlite => Self::Sqlite,
         }
+    }
+}
+
+impl From<DatabaseProvider> for SchemaDatabaseProvider {
+    fn from(provider: DatabaseProvider) -> Self {
+        match provider {
+            DatabaseProvider::Postgres => Self::Postgres,
+            DatabaseProvider::Mysql => Self::Mysql,
+            DatabaseProvider::Sqlite => Self::Sqlite,
+        }
+    }
+}
+
+impl DatabaseProvider {
+    /// Parse a canonical datasource provider or the legacy `postgres` alias.
+    /// The alias is accepted here without extending the schema language.
+    pub fn from_schema_provider(provider: &str) -> Option<Self> {
+        if provider == "postgres" {
+            return Some(SchemaDatabaseProvider::Postgres.into());
+        }
+        provider
+            .parse::<SchemaDatabaseProvider>()
+            .ok()
+            .map(Self::from)
     }
 
     /// Return the canonical `.nautilus` datasource provider string.
     pub fn schema_provider_name(self) -> &'static str {
-        match self {
-            Self::Postgres => "postgresql",
-            Self::Sqlite => "sqlite",
-            Self::Mysql => "mysql",
-        }
+        SchemaDatabaseProvider::from(self).as_str()
     }
 
     /// The delimiter this provider wraps identifiers in: double quotes for

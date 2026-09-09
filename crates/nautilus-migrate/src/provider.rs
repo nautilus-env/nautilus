@@ -330,11 +330,7 @@ impl ProviderStrategy {
     }
 
     fn provider_name(&self) -> &'static str {
-        match self.provider {
-            DatabaseProvider::Postgres => "PostgreSQL",
-            DatabaseProvider::Sqlite => "SQLite",
-            DatabaseProvider::Mysql => "MySQL",
-        }
+        nautilus_schema::ir::DatabaseProvider::from(self.provider).display_name()
     }
 }
 

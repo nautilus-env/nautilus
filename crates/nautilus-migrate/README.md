@@ -502,6 +502,15 @@ crate root. The plan types are exported for CLI and library consumers; their
 fields and the implementation modules remain private. `MigrationExecutor::apply_plan`
 executes a prepared plan without recording a named migration.
 
+`nautilus_schema::ir::DatabaseProvider` owns canonical datasource names and their
+parsing. The migration `DatabaseProvider` keeps its existing public type and SQL
+capabilities; exhaustive `From` implementations in `provider/database.rs` convert
+in both directions. Use those conversions for typed values. The string adapter
+`from_schema_provider` additionally accepts the legacy `postgres` alias, which
+`schema_provider_name` normalizes to `postgresql`. Schema validation still accepts
+only the canonical names. Adding a provider requires updating both enums and their
+conversions; quoting and DDL capabilities stay in migrate and the dialects.
+
 | Change being added | Implementation route | Existing checks |
 | --- | --- | --- |
 | Column type or default | `ddl/types.rs` or `ddl/defaults.rs`; comparison in `normalize/`; forward handling in `applier/columns.rs`, reversal in `reverse/columns.rs` | `ddl_tests`, `diff_tests`, `applier_tests`, `serializer_tests` |

@@ -62,6 +62,29 @@ fn serialises_single_table() {
 }
 
 #[test]
+fn pulled_datasources_round_trip_through_typed_providers() {
+    for (provider, url, name) in [
+        (
+            DatabaseProvider::Postgres,
+            "postgres://localhost/db",
+            "postgresql",
+        ),
+        (DatabaseProvider::Mysql, "mysql://localhost/db", "mysql"),
+        (DatabaseProvider::Sqlite, "sqlite:test.db", "sqlite"),
+    ] {
+        let output = serialize_live_schema(&LiveSchema::default(), provider, url);
+        let datasource = common::parse(&output).unwrap().datasource.unwrap();
+        assert_eq!(datasource.provider, name);
+        assert_eq!(datasource.url, url);
+        let parsed = datasource
+            .provider
+            .parse::<nautilus_schema::ir::DatabaseProvider>()
+            .unwrap();
+        assert_eq!(DatabaseProvider::from(parsed), provider);
+    }
+}
+
+#[test]
 fn serialises_postgres_extensions_in_datasource_block() {
     let mut live = LiveSchema::default();
     live.extensions.insert(

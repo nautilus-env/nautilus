@@ -80,6 +80,13 @@ in the current directory.
 - `request.cancel` aborts the engine-side task only; the statement keeps running on the database. Use `--statement-timeout-ms` to bound it server-side.
 - The engine owns schema-aware field mapping, relation hydration for includes, mutation-side `@updatedAt`, transaction timeout handling, and aggregate/raw-query execution.
 
+The engine maps protocol isolation levels to connector levels through the
+exhaustive `connector_isolation_level` function in `state/transactions.rs`.
+Adding a level requires updating that boundary, the protocol's wire contract,
+and the connector's SQL handling. The connector stays independent of the
+protocol; `tests/mysql_transaction_tests.rs` checks every protocol level against
+the server's effective isolation.
+
 ## Diagnostics
 
 Diagnostics are emitted on stderr through `tracing`; stdout is reserved for the
