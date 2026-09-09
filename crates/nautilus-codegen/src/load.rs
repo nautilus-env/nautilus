@@ -1,7 +1,7 @@
 //! Getting from a schema path to the IR a client is generated from.
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use nautilus_schema::ir::{ResolvedFieldType, SchemaIr};
 use nautilus_schema::{parse_schema_source, SchemaSet};
@@ -11,11 +11,18 @@ use crate::report;
 /// Auto-detect the first `.nautilus` file in the current directory, or return
 /// `schema` as-is if explicitly provided.
 pub fn resolve_schema_path(schema: Option<PathBuf>) -> Result<PathBuf> {
+    let current_dir = std::env::current_dir().context("Failed to resolve the current directory")?;
+    resolve_schema_path_in(&current_dir, schema)
+}
+
+/// Auto-detect the first `.nautilus` file in `dir`, or return `schema` as-is if
+/// explicitly provided.
+pub fn resolve_schema_path_in(dir: &Path, schema: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(path) = schema {
         return Ok(path);
     }
 
-    let nautilus_files = nautilus_schema::discover_schema_paths_in_current_dir()
+    let nautilus_files = nautilus_schema::discover_schema_paths(dir)
         .context("Failed to inspect current directory for .nautilus schema files")?;
 
     if nautilus_files.is_empty() {

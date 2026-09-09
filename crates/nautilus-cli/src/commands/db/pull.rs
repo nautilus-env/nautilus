@@ -4,6 +4,7 @@ use nautilus_schema::parse_schema_source_with_recovery;
 use std::path::{Path, PathBuf};
 
 use crate::context::database::{detect_provider, obfuscate_url, resolve_db_url, resolve_url};
+use crate::context::environment::CommandEnv;
 use crate::context::schema::{
     load_dotenv_for_schema, maybe_resolve_schema_path, parse_and_validate_schema,
 };
@@ -19,8 +20,9 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     tui::print_header("db pull");
 
-    let database_url = resolve_database_url_for_pull(schema_arg.as_deref(), db_url_arg)?;
-    let datasource_url_expr = datasource_url_expression(schema_arg.as_deref());
+    let mut env = CommandEnv::from_process();
+    let database_url = resolve_database_url_for_pull(schema_arg.as_deref(), db_url_arg, &mut env)?;
+    let datasource_url_expr = datasource_url_expression(schema_arg.as_deref(), &env);
 
     let provider = detect_provider(&database_url)?;
     let sp = tui::spinner(&format!(
@@ -28,7 +30,7 @@ pub async fn run(
         obfuscate_url(&database_url)
     ));
     let live = SchemaInspector::new(provider, &database_url)
-        .with_schemas(datasource_schemas(schema_arg.as_deref()))
+        .with_schemas(datasource_schemas(schema_arg.as_deref(), &env))
         .inspect()
         .await
         .context("Failed to inspect live schema")?;
@@ -94,10 +96,10 @@ pub async fn run(
 /// and a pulled schema is a file people commit. The source schema's own
 /// `env("NAME")` reference is reused when there is one so the pulled file keeps
 /// pointing at the same variable, otherwise `DATABASE_URL` is assumed.
-fn datasource_url_expression(schema_arg: Option<&str>) -> String {
+fn datasource_url_expression(schema_arg: Option<&str>, env: &CommandEnv) -> String {
     const DEFAULT: &str = "env(\"DATABASE_URL\")";
 
-    let Ok(Some(path)) = maybe_resolve_schema_path(schema_arg) else {
+    let Ok(Some(path)) = maybe_resolve_schema_path(schema_arg, env) else {
         return DEFAULT.to_string();
     };
     let Ok(schema_ir) = parse_and_validate_schema(&path) else {
@@ -120,8 +122,8 @@ fn datasource_url_expression(schema_arg: Option<&str>) -> String {
 /// `db pull` has to be told which schemas to scan: the connection alone only
 /// names one. When there is no readable schema file the list is empty and the
 /// pull stays single-schema, exactly as before.
-fn datasource_schemas(schema_arg: Option<&str>) -> Vec<String> {
-    let Ok(Some(path)) = maybe_resolve_schema_path(schema_arg) else {
+fn datasource_schemas(schema_arg: Option<&str>, env: &CommandEnv) -> Vec<String> {
+    let Ok(Some(path)) = maybe_resolve_schema_path(schema_arg, env) else {
         return Vec::new();
     };
     let Ok(schema_ir) = parse_and_validate_schema(&path) else {
@@ -144,46 +146,50 @@ fn env_reference_name(url: &str) -> Option<&str> {
 fn resolve_database_url_for_pull(
     schema_arg: Option<&str>,
     db_url_arg: Option<String>,
+    env: &mut CommandEnv,
 ) -> anyhow::Result<String> {
     if let Some(raw) = db_url_arg.as_deref() {
-        return resolve_url(raw);
+        return resolve_url(raw, env);
     }
 
-    let schema_path = prepare_schema_env_for_pull(schema_arg)?;
+    let schema_path = prepare_schema_env_for_pull(schema_arg, env)?;
 
     if let Some(path) = schema_path.as_deref() {
         if let Ok(schema_ir) = parse_and_validate_schema(path) {
-            return resolve_db_url(None, &schema_ir);
+            return resolve_db_url(None, &schema_ir, env);
         }
     }
 
     let raw_url = schema_path
         .as_deref()
-        .and_then(|path| resolve_url_from_schema_path(path, "direct_url"))
-        .or_else(|| std::env::var("DATABASE_URL").ok())
+        .and_then(|path| resolve_url_from_schema_path(path, "direct_url", env))
+        .or_else(|| env.var("DATABASE_URL"))
         .or_else(|| {
             schema_path
                 .as_deref()
-                .and_then(|path| resolve_url_from_schema_path(path, "url"))
+                .and_then(|path| resolve_url_from_schema_path(path, "url", env))
         })
         .context(
             "No database URL found. \
             Use --database-url, set DATABASE_URL, or add a datasource direct_url/url to your schema file.",
         )?;
 
-    resolve_url(&raw_url)
+    resolve_url(&raw_url, env)
 }
 
-fn prepare_schema_env_for_pull(schema_arg: Option<&str>) -> anyhow::Result<Option<PathBuf>> {
-    let schema_path = maybe_resolve_schema_path(schema_arg)?;
+fn prepare_schema_env_for_pull(
+    schema_arg: Option<&str>,
+    env: &mut CommandEnv,
+) -> anyhow::Result<Option<PathBuf>> {
+    let schema_path = maybe_resolve_schema_path(schema_arg, env)?;
     let dotenv_anchor = schema_path
         .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    load_dotenv_for_schema(&dotenv_anchor);
+        .unwrap_or_else(|| env.current_dir().to_path_buf());
+    load_dotenv_for_schema(&dotenv_anchor, env);
     Ok(schema_path)
 }
 
-fn resolve_url_from_schema_path(path: &Path, field_name: &str) -> Option<String> {
+fn resolve_url_from_schema_path(path: &Path, field_name: &str, env: &CommandEnv) -> Option<String> {
     let set = nautilus_schema::SchemaSet::load_path(path).ok()?;
     let ast = parse_schema_source_with_recovery(set.source()).ok()?.ast;
     ast.datasource()
@@ -197,7 +203,7 @@ fn resolve_url_from_schema_path(path: &Path, field_name: &str) -> Option<String>
                     nautilus_schema::ast::Literal::String(var, _),
                 )) = args.first()
                 {
-                    std::env::var(var).ok()
+                    env.var(var)
                 } else {
                     None
                 }
@@ -231,7 +237,7 @@ fn next_available_path(base: &std::path::Path) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::resolve_database_url_for_pull;
-    use crate::test_support::{lock_process_env, lock_working_dir, CurrentDirGuard, EnvVarGuard};
+    use crate::context::environment::CommandEnv;
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;
 
@@ -254,12 +260,9 @@ model User {{
 
     #[test]
     fn resolve_database_url_for_pull_loads_dotenv_next_to_schema() {
-        let _env_lock = lock_process_env();
-        let _db_url_guard = EnvVarGuard::unset("DATABASE_URL");
         let env_key = "NAUTILUS_PULL_SCHEMA_DIR_URL";
-        let _env_guard = EnvVarGuard::unset(env_key);
-
         let project = TempDir::new().expect("temp dir");
+        let working_dir = TempDir::new().expect("working temp dir");
         let schema_path = write_schema(project.path(), env_key);
         std::fs::write(
             project.path().join(".env"),
@@ -267,7 +270,8 @@ model User {{
         )
         .expect("failed to write dotenv");
 
-        let url = resolve_database_url_for_pull(schema_path.to_str(), None)
+        let mut env = CommandEnv::fixed(working_dir.path());
+        let url = resolve_database_url_for_pull(schema_path.to_str(), None, &mut env)
             .expect("expected db pull URL from schema directory dotenv");
 
         assert_eq!(url, "sqlite:./from-schema-dir.db");
@@ -275,11 +279,7 @@ model User {{
 
     #[test]
     fn resolve_database_url_for_pull_falls_back_to_cwd_dotenv() {
-        let _cwd_lock = lock_working_dir();
-        let _db_url_guard = EnvVarGuard::unset("DATABASE_URL");
         let env_key = "NAUTILUS_PULL_CWD_URL";
-        let _env_guard = EnvVarGuard::unset(env_key);
-
         let schema_dir = TempDir::new().expect("schema temp dir");
         let cwd_dir = TempDir::new().expect("cwd temp dir");
         let schema_path = write_schema(schema_dir.path(), env_key);
@@ -290,9 +290,8 @@ model User {{
         )
         .expect("failed to write cwd dotenv");
 
-        let _dir_guard = CurrentDirGuard::set(cwd_dir.path());
-
-        let url = resolve_database_url_for_pull(schema_path.to_str(), None)
+        let mut env = CommandEnv::fixed(cwd_dir.path());
+        let url = resolve_database_url_for_pull(schema_path.to_str(), None, &mut env)
             .expect("expected db pull URL from cwd dotenv");
 
         assert_eq!(url, "sqlite:./from-cwd.db");
@@ -300,10 +299,7 @@ model User {{
 
     #[test]
     fn resolve_database_url_for_pull_auto_detects_first_nautilus_file() {
-        let _cwd_lock = lock_working_dir();
-        let _db_url_guard = EnvVarGuard::unset("DATABASE_URL");
         let project = TempDir::new().expect("temp dir");
-        let _dir_guard = CurrentDirGuard::set(project.path());
 
         std::fs::write(
             project.path().join("zeta.nautilus"),
@@ -332,7 +328,8 @@ model Post {
         )
         .expect("failed to write alpha schema");
 
-        let url = resolve_database_url_for_pull(None, None)
+        let mut env = CommandEnv::fixed(project.path());
+        let url = resolve_database_url_for_pull(None, None, &mut env)
             .expect("expected db pull URL from auto-detected schema");
 
         assert_eq!(url, "sqlite:./alpha.db");
@@ -340,10 +337,7 @@ model Post {
 
     #[test]
     fn resolve_database_url_for_pull_prefers_direct_url_from_schema() {
-        let _env_lock = lock_process_env();
         let env_key = "NAUTILUS_PULL_DIRECT_URL";
-        let _db_url_guard = EnvVarGuard::unset("DATABASE_URL");
-        let _env_guard = EnvVarGuard::unset(env_key);
         let project = TempDir::new().expect("temp dir");
         let schema_path = project.path().join("schema.nautilus");
         std::fs::write(
@@ -368,7 +362,8 @@ model User {{
         )
         .expect("failed to write dotenv");
 
-        let url = resolve_database_url_for_pull(schema_path.to_str(), None)
+        let mut env = CommandEnv::fixed(project.path());
+        let url = resolve_database_url_for_pull(schema_path.to_str(), None, &mut env)
             .expect("expected db pull URL from direct_url");
 
         assert_eq!(url, "postgres://direct/admin");
@@ -376,10 +371,7 @@ model User {{
 
     #[test]
     fn resolve_database_url_for_pull_recovers_datasource_from_parse_errors() {
-        let _env_lock = lock_process_env();
         let env_key = "NAUTILUS_PULL_RECOVERY_DIRECT_URL";
-        let _db_url_guard = EnvVarGuard::unset("DATABASE_URL");
-        let _env_guard = EnvVarGuard::unset(env_key);
         let project = TempDir::new().expect("temp dir");
         let schema_path = project.path().join("schema.nautilus");
         std::fs::write(
@@ -404,7 +396,8 @@ model User {{
         )
         .expect("failed to write dotenv");
 
-        let url = resolve_database_url_for_pull(schema_path.to_str(), None)
+        let mut env = CommandEnv::fixed(project.path());
+        let url = resolve_database_url_for_pull(schema_path.to_str(), None, &mut env)
             .expect("expected db pull URL from recovered datasource");
 
         assert_eq!(url, "postgres://direct/admin");

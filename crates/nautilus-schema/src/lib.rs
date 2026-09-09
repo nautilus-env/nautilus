@@ -164,14 +164,26 @@ pub fn discover_schema_paths_in_current_dir() -> std::io::Result<Vec<PathBuf>> {
     discover_schema_paths(&current_dir)
 }
 
-/// Resolve `env(VAR_NAME)` syntax in a connection URL.
+/// Resolve `env(VAR_NAME)` syntax in a connection URL against the process environment.
 ///
 /// If `raw` matches the pattern `env(...)`, the value of the named
 /// environment variable is returned.  Otherwise `raw` is returned as-is.
 pub fn resolve_env_url(raw: &str) -> std::result::Result<String, String> {
+    resolve_env_url_with(raw, |var| std::env::var(var).ok())
+}
+
+/// Resolve `env(VAR_NAME)` syntax in a connection URL against `lookup`.
+///
+/// Callers that already hold the values a command was configured with — a
+/// `.env` file, a fixture — pass them here instead of going through the
+/// process environment.
+pub fn resolve_env_url_with(
+    raw: &str,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> std::result::Result<String, String> {
     if raw.starts_with("env(") && raw.ends_with(')') {
         let var = &raw[4..raw.len() - 1];
-        std::env::var(var).map_err(|_| format!("environment variable '{}' is not set", var))
+        lookup(var).ok_or_else(|| format!("environment variable '{}' is not set", var))
     } else {
         Ok(raw.to_string())
     }

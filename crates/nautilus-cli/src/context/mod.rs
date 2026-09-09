@@ -7,6 +7,7 @@
 //! a migration executor and file store for `migrate`.
 
 pub mod database;
+pub mod environment;
 pub mod report;
 pub mod schema;
 
@@ -18,6 +19,7 @@ use std::path::PathBuf;
 
 use crate::tui;
 use database::{detect_provider, inspector_for, obfuscate_url, resolve_db_url, Connection};
+use environment::CommandEnv;
 use schema::{load_dotenv_for_schema, parse_and_validate_schema, resolve_schema_path};
 
 /// Everything a `nautilus db` subcommand typically needs after loading the
@@ -41,9 +43,10 @@ impl DbContext {
         schema_arg: Option<String>,
         db_url_arg: Option<String>,
     ) -> anyhow::Result<Self> {
-        let schema_path = resolve_schema_path(schema_arg)?;
+        let mut env = CommandEnv::from_process();
+        let schema_path = resolve_schema_path(schema_arg, &env)?;
 
-        load_dotenv_for_schema(&schema_path);
+        load_dotenv_for_schema(&schema_path, &mut env);
 
         let sp = tui::spinner("Parsing schema…");
         let schema_ir = parse_and_validate_schema(&schema_path)?;
@@ -65,7 +68,7 @@ impl DbContext {
             ),
         );
 
-        let database_url = resolve_db_url(db_url_arg, &schema_ir)?;
+        let database_url = resolve_db_url(db_url_arg, &schema_ir, &env)?;
 
         let sp = tui::spinner("Connecting to database…");
         let provider = detect_provider(&database_url)?;
@@ -105,13 +108,14 @@ impl MigrateContext {
         db_url_arg: Option<String>,
         migrations_dir_arg: Option<String>,
     ) -> anyhow::Result<Self> {
-        let schema_path = resolve_schema_path(schema_arg)?;
+        let mut env = CommandEnv::from_process();
+        let schema_path = resolve_schema_path(schema_arg, &env)?;
 
-        load_dotenv_for_schema(&schema_path);
+        load_dotenv_for_schema(&schema_path, &mut env);
 
         let schema_ir = parse_and_validate_schema(&schema_path)?;
 
-        let database_url = resolve_db_url(db_url_arg, &schema_ir)?;
+        let database_url = resolve_db_url(db_url_arg, &schema_ir, &env)?;
         let provider = detect_provider(&database_url)?;
 
         sqlx::any::install_default_drivers();

@@ -28,11 +28,20 @@ pub use state::EngineState;
 pub fn resolve_schema_path_arg(
     schema_path: Option<String>,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let current_dir = std::env::current_dir()?;
+    resolve_schema_path_arg_in(&current_dir, schema_path)
+}
+
+/// Resolve the schema path against `dir` rather than the process directory.
+fn resolve_schema_path_arg_in(
+    dir: &std::path::Path,
+    schema_path: Option<String>,
+) -> Result<String, Box<dyn std::error::Error>> {
     if let Some(path) = schema_path {
         return Ok(path);
     }
 
-    let nautilus_files = nautilus_schema::discover_schema_paths_in_current_dir()?;
+    let nautilus_files = nautilus_schema::discover_schema_paths(dir)?;
     let schema_path = nautilus_files.first().cloned().ok_or(
         "No .nautilus schema file found in current directory.\n\n\
          Hint: Pass --schema <path> or create a .nautilus file in the current directory.",
@@ -73,6 +82,7 @@ pub async fn run_engine(
 ) -> Result<(), Box<dyn std::error::Error>> {
     observability::init();
 
+    let env_database_url = std::env::var("DATABASE_URL").ok();
     let schema = nautilus_schema::SchemaSet::load_path(std::path::Path::new(&schema_path))?;
     let validated_ir = schema.validate().map_err(|e| schema.format_error(&e))?.ir;
     // Migrations read the full schema so `@@ignore`d tables are left alone
@@ -95,7 +105,11 @@ pub async fn run_engine(
                 )
             })?;
 
-        let migration_url = resolve_engine_migration_url(database_url.as_deref(), &schema_ir)?;
+        let migration_url = resolve_engine_migration_url(
+            database_url.as_deref(),
+            &schema_ir,
+            env_database_url.as_deref(),
+        )?;
         let generator = DdlGenerator::new(db_provider);
         let statements = generator.generate_create_tables(&validated_ir)?;
         let migration_state = EngineState::new_with_engine_pool_options(
@@ -110,7 +124,11 @@ pub async fn run_engine(
         tracing::info!("migrations applied successfully");
     }
 
-    let runtime_url = resolve_engine_runtime_url(database_url.as_deref(), &schema_ir)?;
+    let runtime_url = resolve_engine_runtime_url(
+        database_url.as_deref(),
+        &schema_ir,
+        env_database_url.as_deref(),
+    )?;
 
     // When no explicit --database-url override is given, pass the schema's direct_url
     // so raw SQL queries can bypass poolers (e.g. PgBouncer) that reject prepared statements.
@@ -169,10 +187,11 @@ pub async fn run_engine_from_cli() -> Result<(), Box<dyn std::error::Error>> {
 fn resolve_engine_runtime_url(
     database_url_arg: Option<&str>,
     schema_ir: &SchemaIr,
+    env_database_url: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let raw_url = database_url_arg
         .map(str::to_string)
-        .or_else(|| std::env::var("DATABASE_URL").ok())
+        .or_else(|| env_database_url.map(str::to_string))
         .or_else(|| {
             schema_ir
                 .datasource
@@ -189,6 +208,7 @@ fn resolve_engine_runtime_url(
 fn resolve_engine_migration_url(
     database_url_arg: Option<&str>,
     schema_ir: &SchemaIr,
+    env_database_url: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     if let Some(raw) = database_url_arg {
         return resolve_datasource_url(raw);
@@ -202,8 +222,8 @@ fn resolve_engine_migration_url(
         }
     }
 
-    if let Ok(raw) = std::env::var("DATABASE_URL") {
-        return resolve_datasource_url(&raw);
+    if let Some(raw) = env_database_url {
+        return resolve_datasource_url(raw);
     }
 
     if let Some(raw) = datasource
@@ -227,11 +247,10 @@ fn resolve_datasource_url(raw: &str) -> Result<String, Box<dyn std::error::Error
 mod tests {
     use super::{
         resolve_datasource_url, resolve_engine_migration_url, resolve_engine_runtime_url,
-        resolve_schema_path_arg,
+        resolve_schema_path_arg_in,
     };
     use nautilus_schema::validate_schema_source;
-    use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, OnceLock};
+    use std::path::Path;
     use tempfile::TempDir;
 
     /// A datasource that names both a pooled runtime URL and a direct
@@ -248,66 +267,15 @@ model User {
 }
 "#;
 
-    struct EnvVarGuard {
-        key: &'static str,
-        old: Option<String>,
-    }
-
-    impl EnvVarGuard {
-        fn unset(key: &'static str) -> Self {
-            let old = std::env::var(key).ok();
-            std::env::remove_var(key);
-            Self { key, old }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            match &self.old {
-                Some(value) => {
-                    std::env::set_var(self.key, value);
-                }
-                None => {
-                    std::env::remove_var(self.key);
-                }
-            }
-        }
-    }
-
     fn parse_schema_ir(source: &str) -> nautilus_schema::ir::SchemaIr {
         validate_schema_source(source)
             .expect("schema should validate")
             .ir
     }
 
-    fn working_dir_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    struct CurrentDirGuard {
-        original: PathBuf,
-    }
-
-    impl CurrentDirGuard {
-        fn set(path: &Path) -> Self {
-            let original = std::env::current_dir().expect("current dir should exist");
-            std::env::set_current_dir(path).expect("failed to switch current dir");
-            Self { original }
-        }
-    }
-
-    impl Drop for CurrentDirGuard {
-        fn drop(&mut self) {
-            std::env::set_current_dir(&self.original).expect("failed to restore current dir");
-        }
-    }
-
     #[test]
     fn resolve_schema_path_arg_auto_detects_first_nautilus_file() {
-        let _cwd_lock = working_dir_lock().lock().expect("cwd lock");
         let temp_dir = TempDir::new().expect("temp dir");
-        let _dir_guard = CurrentDirGuard::set(temp_dir.path());
 
         std::fs::write(
             temp_dir.path().join("zeta.nautilus"),
@@ -320,7 +288,8 @@ model User {
         )
         .expect("failed to write alpha schema");
 
-        let resolved = resolve_schema_path_arg(None).expect("schema should auto-resolve");
+        let resolved =
+            resolve_schema_path_arg_in(temp_dir.path(), None).expect("schema should auto-resolve");
         assert_eq!(
             Path::new(&resolved)
                 .file_name()
@@ -331,11 +300,10 @@ model User {
 
     #[test]
     fn resolve_schema_path_arg_errors_when_no_nautilus_files_exist() {
-        let _cwd_lock = working_dir_lock().lock().expect("cwd lock");
         let temp_dir = TempDir::new().expect("temp dir");
-        let _dir_guard = CurrentDirGuard::set(temp_dir.path());
 
-        let err = resolve_schema_path_arg(None).expect_err("missing schema should fail");
+        let err = resolve_schema_path_arg_in(temp_dir.path(), None)
+            .expect_err("missing schema should fail");
         assert!(
             err.to_string()
                 .contains("No .nautilus schema file found in current directory"),
@@ -345,19 +313,27 @@ model User {
 
     #[test]
     fn runtime_url_prefers_datasource_url() {
-        let _env_guard = EnvVarGuard::unset("DATABASE_URL");
         let schema_ir = parse_schema_ir(POOLED_AND_DIRECT_SCHEMA);
 
-        let url = resolve_engine_runtime_url(None, &schema_ir).expect("expected runtime url");
+        let url = resolve_engine_runtime_url(None, &schema_ir, None).expect("expected runtime url");
         assert_eq!(url, "postgres://pooled/runtime");
     }
 
     #[test]
-    fn migration_url_prefers_direct_url() {
-        let _env_guard = EnvVarGuard::unset("DATABASE_URL");
+    fn runtime_url_prefers_the_environment_over_the_datasource() {
         let schema_ir = parse_schema_ir(POOLED_AND_DIRECT_SCHEMA);
 
-        let url = resolve_engine_migration_url(None, &schema_ir).expect("expected migration url");
+        let url = resolve_engine_runtime_url(None, &schema_ir, Some("postgres://env/runtime"))
+            .expect("expected runtime url");
+        assert_eq!(url, "postgres://env/runtime");
+    }
+
+    #[test]
+    fn migration_url_prefers_direct_url() {
+        let schema_ir = parse_schema_ir(POOLED_AND_DIRECT_SCHEMA);
+
+        let url = resolve_engine_migration_url(None, &schema_ir, Some("postgres://env/admin"))
+            .expect("expected migration url");
         assert_eq!(url, "postgres://direct/admin");
     }
 

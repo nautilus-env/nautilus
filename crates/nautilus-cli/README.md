@@ -105,6 +105,25 @@ plain Java bundle at `output/dist/{artifact_id}.jar` plus `output/dist/lib/*.jar
 - The Python shim command is intentionally separate from code generation. It exists to make the installed CLI reachable from Python as `python -m nautilus`; it does not install or publish generated ORM clients.
 - `nautilus studio` looks up the latest GitHub Release for `STUDIO_GITHUB_REPO`, downloads the ZIP asset for the current platform named `nautilus-orm-studio-${tag}-${os}.zip` (`windows`, `linux`, or `macos`), extracts it into the local Nautilus data directory, installs runtime dependencies from the packaged `package-lock.json`, and launches Next from the project directory where `nautilus studio` was invoked while pointing it at the cached Studio app.
 
+## Command configuration
+
+`context/environment.rs` holds `CommandEnv`: the working directory and the
+environment variables a command was invoked with. Each command entry point
+builds one from the process, and everything downstream — schema auto-detection,
+`.env` loading, `env("NAME")` expansion and database URL resolution — reads it
+instead of the process. A `.env` entry is still exported, so anything the
+command starts inherits it, but a shell export always wins over the file.
+
+| Step | Owner |
+| --- | --- |
+| Working directory, variable reads, `.env` export | `context/environment.rs` |
+| Schema path, `.env` discovery and parsing, validation | `context/schema.rs` |
+| Admin URL precedence (flag, `direct_url`, `DATABASE_URL`, `url`) and connections | `context/database.rs` |
+
+To add a configuration value read from the environment, add it to `CommandEnv`
+rather than calling `std::env` from a command: the resolvers stay testable
+against a fixed environment, and the tests need no process-global locks.
+
 ## Studio implementation
 
 `commands/studio/mod.rs` validates the arguments and coordinates the workflow.

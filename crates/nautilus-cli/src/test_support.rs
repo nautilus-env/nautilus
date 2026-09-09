@@ -1,28 +1,17 @@
+//! Helpers for the few tests that still have to move process-global state.
+//!
+//! Configuration resolvers take a [`crate::context::environment::CommandEnv`]
+//! and need none of this. What remains is for code that reads the working
+//! directory itself — client generation writing to a path relative to it.
+
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tokio::sync::{Mutex, MutexGuard};
 
-fn working_dir_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-pub(crate) fn lock_working_dir() -> MutexGuard<'static, ()> {
-    working_dir_lock().blocking_lock()
-}
-
+/// Serialise the tests that switch the process working directory.
 pub(crate) async fn lock_working_dir_async() -> MutexGuard<'static, ()> {
-    working_dir_lock().lock().await
-}
-
-/// Serialise a test that mutates process-global environment variables.
-///
-/// [`EnvVarGuard`] restores the previous value on drop, so two tests running
-/// concurrently can hand each other a variable one of them had just unset.
-/// This shares the working-directory mutex: both guard process-wide state, and
-/// one lock keeps the acquisition order trivially consistent.
-pub(crate) fn lock_process_env() -> MutexGuard<'static, ()> {
-    working_dir_lock().blocking_lock()
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(())).lock().await
 }
 
 pub(crate) struct CurrentDirGuard {
@@ -40,32 +29,6 @@ impl CurrentDirGuard {
 impl Drop for CurrentDirGuard {
     fn drop(&mut self) {
         std::env::set_current_dir(&self.original).expect("failed to restore current dir");
-    }
-}
-
-pub(crate) struct EnvVarGuard {
-    key: String,
-    original: Option<String>,
-}
-
-impl EnvVarGuard {
-    pub(crate) fn unset(key: &str) -> Self {
-        let original = std::env::var(key).ok();
-        std::env::remove_var(key);
-        Self {
-            key: key.to_string(),
-            original,
-        }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    fn drop(&mut self) {
-        if let Some(value) = &self.original {
-            std::env::set_var(&self.key, value);
-        } else {
-            std::env::remove_var(&self.key);
-        }
     }
 }
 

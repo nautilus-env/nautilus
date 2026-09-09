@@ -50,7 +50,7 @@ use std::path::Path;
 
 use nautilus_schema::SchemaSet;
 
-pub use load::{parse_schema, resolve_schema_path};
+pub use load::{parse_schema, resolve_schema_path, resolve_schema_path_in};
 
 /// Options controlling code generation behaviour.
 #[derive(Debug, Clone, Default)]

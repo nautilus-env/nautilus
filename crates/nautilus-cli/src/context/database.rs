@@ -13,33 +13,39 @@ use nautilus_migrate::{
 };
 use nautilus_schema::ir::SchemaIr;
 
+use crate::context::environment::CommandEnv;
+
 /// Resolve an admin/database-tooling URL from (in order): explicit flag,
 /// datasource `direct_url`, `DATABASE_URL` env var, or datasource `url`.
 ///
 /// This mirrors Prisma-style behavior where CLI/admin flows can prefer a
 /// direct connection while runtime traffic continues to use the pooled `url`.
-pub fn resolve_db_url(db_url_arg: Option<String>, schema_ir: &SchemaIr) -> anyhow::Result<String> {
+pub fn resolve_db_url(
+    db_url_arg: Option<String>,
+    schema_ir: &SchemaIr,
+    env: &CommandEnv,
+) -> anyhow::Result<String> {
     if let Some(raw) = db_url_arg.as_deref() {
-        return resolve_url(raw);
+        return resolve_url(raw, env);
     }
 
     let datasource = schema_ir.datasource.as_ref();
 
     if let Some(raw) = datasource.and_then(|ds| ds.direct_url.as_deref()) {
-        if let Ok(url) = resolve_url(raw) {
+        if let Ok(url) = resolve_url(raw, env) {
             return Ok(url);
         }
     }
 
-    if let Ok(raw) = std::env::var("DATABASE_URL") {
-        return resolve_url(&raw);
+    if let Some(raw) = env.var("DATABASE_URL") {
+        return resolve_url(&raw, env);
     }
 
     if let Some(raw) = datasource
         .filter(|ds| !ds.url.is_empty())
         .map(|ds| ds.url.as_str())
     {
-        return resolve_url(raw);
+        return resolve_url(raw, env);
     }
 
     bail!(
@@ -248,9 +254,11 @@ fn postgres_connect_options(url: &str) -> anyhow::Result<sqlx::postgres::PgConne
         .context("Invalid PostgreSQL URL")
 }
 
-/// Unwrap `env(VAR)` syntax; otherwise return the URL as-is.
-pub fn resolve_url(raw: &str) -> anyhow::Result<String> {
-    nautilus_schema::resolve_env_url(raw).map_err(|msg| anyhow::anyhow!(msg))
+/// Unwrap `env(VAR)` syntax against the command environment; otherwise return
+/// the URL as-is.
+pub fn resolve_url(raw: &str, env: &CommandEnv) -> anyhow::Result<String> {
+    nautilus_schema::resolve_env_url_with(raw, |key| env.var(key))
+        .map_err(|msg| anyhow::anyhow!(msg))
 }
 
 /// Infer the [`DatabaseProvider`] from a connection URL prefix.
@@ -298,7 +306,7 @@ pub fn inspector_for(
 #[cfg(test)]
 mod tests {
     use super::{postgres_connect_options, resolve_db_url};
-    use crate::test_support::{lock_process_env, EnvVarGuard};
+    use crate::context::environment::CommandEnv;
     use nautilus_schema::validate_schema_source;
 
     fn parse_schema_ir(source: &str) -> nautilus_schema::ir::SchemaIr {
@@ -318,8 +326,6 @@ mod tests {
 
     #[test]
     fn resolve_db_url_prefers_direct_url_for_admin_flows() {
-        let _env_lock = lock_process_env();
-        let _env_guard = EnvVarGuard::unset("DATABASE_URL");
         let schema_ir = parse_schema_ir(
             r#"
 datasource db {
@@ -334,14 +340,13 @@ model User {
 "#,
         );
 
-        let url = resolve_db_url(None, &schema_ir).expect("expected database url");
+        let url = resolve_db_url(None, &schema_ir, &CommandEnv::fixed("."))
+            .expect("expected database url");
         assert_eq!(url, "postgres://direct/admin");
     }
 
     #[test]
     fn resolve_db_url_falls_back_to_runtime_url_when_direct_url_missing() {
-        let _env_lock = lock_process_env();
-        let _env_guard = EnvVarGuard::unset("DATABASE_URL");
         let schema_ir = parse_schema_ir(
             r#"
 datasource db {
@@ -355,14 +360,13 @@ model User {
 "#,
         );
 
-        let url = resolve_db_url(None, &schema_ir).expect("expected database url");
+        let url = resolve_db_url(None, &schema_ir, &CommandEnv::fixed("."))
+            .expect("expected database url");
         assert_eq!(url, "postgres://pooled/runtime");
     }
 
     #[test]
     fn resolve_db_url_falls_back_to_runtime_url_when_direct_url_env_is_unset() {
-        let _env_lock = lock_process_env();
-        let _env_guard = EnvVarGuard::unset("DATABASE_URL");
         let schema_ir = parse_schema_ir(
             r#"
 datasource db {
@@ -377,7 +381,8 @@ model User {
 "#,
         );
 
-        let url = resolve_db_url(None, &schema_ir).expect("expected database url");
+        let url = resolve_db_url(None, &schema_ir, &CommandEnv::fixed("."))
+            .expect("expected database url");
         assert_eq!(url, "postgres://pooled/runtime");
     }
 }

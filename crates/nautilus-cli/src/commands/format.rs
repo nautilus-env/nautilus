@@ -4,6 +4,7 @@ use nautilus_schema::{
 };
 use std::path::{Path, PathBuf};
 
+use crate::context::environment::CommandEnv;
 use crate::context::schema::resolve_schema_path;
 use crate::tui;
 
@@ -18,7 +19,7 @@ use crate::tui;
 pub async fn run(schema_arg: Option<String>) -> anyhow::Result<()> {
     tui::print_header("format");
 
-    let schema_path = resolve_schema_path(schema_arg)?;
+    let schema_path = resolve_schema_path(schema_arg, &CommandEnv::from_process())?;
     let targets = format_targets(&schema_path)?;
 
     let mut formatted_count = 0usize;

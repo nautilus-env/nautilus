@@ -3,6 +3,7 @@ use std::time::Instant;
 use anyhow::Context;
 
 use crate::context::database::{detect_provider, obfuscate_url, resolve_url, Connection};
+use crate::context::environment::CommandEnv;
 use crate::tui;
 
 /// Execute `nautilus db seed <file>` — run a SQL seed script against the database.
@@ -14,14 +15,13 @@ use crate::tui;
 pub async fn run(file: String, db_url_arg: Option<String>) -> anyhow::Result<()> {
     tui::print_header("db seed");
 
-    let raw_url = db_url_arg
-        .or_else(|| std::env::var("DATABASE_URL").ok())
-        .context(
-            "No database URL found. \
+    let env = CommandEnv::from_process();
+    let raw_url = db_url_arg.or_else(|| env.var("DATABASE_URL")).context(
+        "No database URL found. \
             Use --database-url or set the DATABASE_URL environment variable.",
-        )?;
+    )?;
 
-    let database_url = resolve_url(&raw_url)?;
+    let database_url = resolve_url(&raw_url, &env)?;
 
     let sp = tui::spinner("Connecting to database…");
     let provider = detect_provider(&database_url)?;
