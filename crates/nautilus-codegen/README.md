@@ -234,6 +234,24 @@ every run. Line endings are normalized to LF, file selection uses logical names,
 and fixtures use fixed paths. The suite also checks individual API contracts;
 `writer_tests` compiles a generated Rust client and an events macro consumer.
 
+The `snapshot_tests` target loads feature modules from `tests/snapshot/`:
+models, clients, inputs, queries, relations, writes, streaming, runtime options,
+events, filters, extensions, vector search and imports. Cases for different
+languages share a feature module. Run one group with, for example:
+
+```bash
+cargo test --locked -p nautilus-orm-codegen --test snapshot_tests snapshot::relations::
+```
+
+Test function names are unchanged; fully qualified names now start with
+`snapshot::<feature>::`. Explicit snapshot names keep the existing baseline
+filenames independent of the module layout. The snapshot macro scopes its
+settings to each assertion, preserving parallel execution. Reusable schemas
+live in `tests/fixtures/schemas/`; Rust and Java nested-write cases share
+`nested_writes.nautilus`, with Java's generator configuration added by its test.
+The [workspace test map](../../TESTING.md) locates related schema, SQL and engine
+cases and explains which runtime consumers to run alongside source assertions.
+
 `path_equivalence_tests` generates an async Rust client, compiles its consumer,
 and runs it against isolated SQLite databases using the engine's existing
 `tests/common` fixture. It compares RPC, embedded dispatch, typed handlers and

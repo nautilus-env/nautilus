@@ -1,5 +1,5 @@
 ---
-source: crates/nautilus-codegen/tests/snapshot_tests.rs
+source: crates/nautilus-codegen/tests/snapshot/clients.rs
 expression: snapshot_value
 ---
 """User model and related types."""

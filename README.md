@@ -29,6 +29,9 @@ This repository currently includes:
 | [crates/nautilus-lsp](crates/nautilus-lsp/README.md) | LSP server for schema files |
 | [tools/vscode-nautilus-schema](tools/vscode-nautilus-schema/README.md) | VS Code extension wiring syntax + LSP |
 
+See the [test map](TESTING.md) to find schema, SQL, engine and generated-client
+coverage for a feature, along with fixture locations and focused test commands.
+
 ### Dependency graph
 
 ```mermaid

@@ -1,5 +1,5 @@
 ---
-source: crates/nautilus-codegen/tests/snapshot_tests.rs
+source: crates/nautilus-codegen/tests/snapshot/models.rs
 expression: snapshot_value
 ---
 """Post model and related types."""
