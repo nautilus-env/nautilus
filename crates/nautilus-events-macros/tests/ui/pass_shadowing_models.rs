@@ -1,5 +1,11 @@
-//! Sync and async handlers, several hooks on one function, and the default
-//! phase and priority next to explicit ones.
+//! Models named after types the expansion itself writes.
+//!
+//! A schema is free to have a model called `Box`, `Option` or `Vec`, and the
+//! `#[events]` module imports it next to the registrations. Every path the
+//! expansion writes is absolute so the model never captures one: `Box::pin`
+//! would otherwise resolve to the model here. The same rule covers the `u64`
+//! an `UpdateMany` handler stops with, which this stub cannot show apart from
+//! a model of that name because `IntoEventResult` is generic over the type.
 
 mod fake_client {
     use std::any::Any;
@@ -71,27 +77,27 @@ mod fake_client {
     }
 }
 
-pub struct User;
 pub struct Ctx;
+
+pub struct Box;
+pub struct Option;
+pub struct Vec;
 
 #[nautilus_events_macros::events(client_crate = crate::fake_client)]
 mod hooks {
-    use super::{Ctx, User};
-    use crate::fake_client::EventPhase;
+    use super::{Box, Ctx, Option, Vec};
 
-    #[nautilus_events_macros::on_create(User)]
+    #[nautilus_events_macros::on_create(Box)]
     fn audit_create(_ctx: &mut Ctx) {}
 
-    #[nautilus_events_macros::on_update(User, phase = EventPhase::After, priority = 7)]
-    async fn audit_update(_ctx: &mut Ctx) {}
-
-    #[nautilus_events_macros::on_delete(User)]
-    #[nautilus_events_macros::on_delete_many(User, priority = 3)]
+    #[nautilus_events_macros::on_delete(Option)]
     fn audit_delete(_ctx: &mut Ctx) {}
 
-    #[nautilus_events_macros::on_create_many(User)]
-    #[nautilus_events_macros::on_update_many(User)]
-    async fn audit_bulk(_ctx: &mut Ctx) {}
+    #[nautilus_events_macros::on_update(Vec)]
+    async fn audit_update(_ctx: &mut Ctx) {}
+
+    #[nautilus_events_macros::on_update_many(Vec)]
+    fn audit_update_many(_ctx: &mut Ctx) {}
 }
 
 fn main() {

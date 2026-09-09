@@ -35,8 +35,6 @@ mod vendor {
 
         pub trait Executor {}
 
-        pub struct Never;
-
         pub struct Events;
 
         macro_rules! hook {
