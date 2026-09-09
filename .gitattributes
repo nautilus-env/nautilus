@@ -5,3 +5,5 @@
 crates/nautilus-codegen/tests/snapshots/*.snap text eol=lf whitespace=-blank-at-eol
 crates/nautilus-codegen/templates/**/*.tera whitespace=-blank-at-eol,-blank-at-eof
 crates/nautilus-events-macros/tests/ui/*.stderr text eol=lf whitespace=-blank-at-eol
+crates/nautilus-codegen/templates/js/runtime/* text eol=lf
+tools/js-runtime/* text eol=lf

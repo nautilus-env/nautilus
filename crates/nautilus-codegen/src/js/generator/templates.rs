@@ -8,6 +8,26 @@ pub static JS_TEMPLATES: std::sync::LazyLock<Tera> = std::sync::LazyLock::new(||
     let mut tera = Tera::default();
     tera.add_raw_templates(vec![
         (
+            "model/codec.js.tera",
+            include_str!("../../../templates/js/model/codec.js.tera"),
+        ),
+        (
+            "model/delegate.js.tera",
+            include_str!("../../../templates/js/model/delegate.js.tera"),
+        ),
+        (
+            "model/input.d.ts.tera",
+            include_str!("../../../templates/js/model/input.d.ts.tera"),
+        ),
+        (
+            "model/events.d.ts.tera",
+            include_str!("../../../templates/js/model/events.d.ts.tera"),
+        ),
+        (
+            "model/delegate.d.ts.tera",
+            include_str!("../../../templates/js/model/delegate.d.ts.tera"),
+        ),
+        (
             "model.js.tera",
             include_str!("../../../templates/js/model.js.tera"),
         ),

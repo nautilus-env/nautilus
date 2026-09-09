@@ -417,6 +417,48 @@ fn generate_js_client_fixture(output_dir: &Path, schema_path: &str) {
     .expect("failed to write generated js client");
 }
 
+#[test]
+fn generated_js_declarations_compile() {
+    if !commands_available(&["node"]) {
+        return;
+    }
+    let dependencies = workspace_root().join("tools/js-runtime/node_modules");
+    let tsc = dependencies.join("typescript/bin/tsc");
+    if !tsc.is_file() {
+        skip_missing_prerequisite("run npm ci in tools/js-runtime to install TypeScript");
+        return;
+    }
+
+    let fixture = tempfile::tempdir().expect("failed to create TypeScript fixture");
+    generate_js_client_fixture(&fixture.path().join("jsclient"), "schema.nautilus");
+    fs::write(fixture.path().join("package.json"), JS_PACKAGE_JSON)
+        .expect("failed to write TypeScript fixture package.json");
+    let consumer = fixture.path().join("consumer.ts");
+    fs::write(
+        &consumer,
+        include_str!("fixtures/stream_runtime_e2e/js_type_consumer.ts"),
+    )
+    .expect("failed to write TypeScript consumer");
+    run_checked(
+        Command::new("node")
+            .arg(tsc)
+            .args([
+                "--noEmit",
+                "--strict",
+                "--target",
+                "ES2020",
+                "--module",
+                "NodeNext",
+                "--types",
+                "node",
+                "--typeRoots",
+            ])
+            .arg(dependencies.join("@types"))
+            .arg(consumer),
+        "generated TypeScript declarations",
+    );
+}
+
 fn java_test_classpath() -> Option<OsString> {
     if let Some(explicit) = env::var_os("NAUTILUS_JAVA_TEST_CLASSPATH") {
         if !explicit.is_empty() {

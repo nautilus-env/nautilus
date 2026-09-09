@@ -206,6 +206,22 @@ a nested write appends to. Adding an operation means updating its partial, the
 `delegate.java.tera` assembly, and the base class when the new step is one every
 model spells the same way.
 
+JavaScript's `model.js.tera` and `model.d.ts.tera` assemble partials under
+`templates/js/model/`. Runtime row/input codecs and delegate operations have
+separate owners; declarations separate model/input types, events, and query
+arguments/delegates. Both outputs consume the same field and relation contexts.
+Only JavaScript and declarations are rendered: the unused parallel TypeScript
+templates have been removed.
+
+The static runtime in `templates/js/runtime/` has one TypeScript source per
+module. Its JavaScript and declaration artifacts are generated during
+development with the pinned compiler in [tools/js-runtime](../../tools/js-runtime/README.md)
+and checked for drift in CI. Change runtime logic and signatures in the `.ts`
+source, regenerate, and review both artifacts. Cargo embeds the results, so
+building and using the Rust generator needs no Node toolchain. Output paths,
+ES module imports, protocol substitution and the public client APIs remain the
+same.
+
 ## Testing
 
 ```bash
@@ -278,6 +294,11 @@ They require `sqlite3`, Python 3 (`python3` or `python`), Node, Java 21 or newer
 and the Jackson jars listed by `java_test_classpath` in
 `tests/stream_runtime_e2e_tests.rs`. Put those jars in
 `target/test-jars/jackson-<version>/` or set `NAUTILUS_JAVA_TEST_CLASSPATH`.
+The TypeScript consumer test also requires `npm ci` in `tools/js-runtime`;
+it uses that pinned compiler and Node type definitions rather than a global
+installation. It checks the generated declarations in strict mode, including
+event contexts, selected fields, streaming, transactions and metrics, and
+ensures invalid field access and inputs are rejected.
 
 ```bash
 NAUTILUS_REQUIRE_E2E=1 cargo test --locked -p nautilus-orm-codegen \

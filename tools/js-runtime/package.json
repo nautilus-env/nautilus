@@ -1,0 +1,13 @@
+{
+  "name": "nautilus-js-runtime-build",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node generate.mjs --write",
+    "check": "node generate.mjs --check"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.0",
+    "typescript": "5.8.3"
+  }
+}

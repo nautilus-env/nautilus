@@ -1,25 +1,23 @@
-// Runtime file — do not edit manually.
-
 export interface NautilusErrorDetails {
   code?: number;
   data?: unknown;
 }
 
 export class NautilusError extends Error {
-  readonly code?: number;
-  readonly data?: unknown;
+  declare readonly code?: number;
+  declare readonly data?: unknown;
 
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message);
     this.name = 'NautilusError';
     this.code = details?.code;
     this.data = details?.data;
-    // Restore prototype chain for instanceof checks in transpiled code.
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
 export class ProtocolError extends NautilusError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'ProtocolError';
@@ -28,6 +26,7 @@ export class ProtocolError extends NautilusError {
 }
 
 export class HandshakeError extends NautilusError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'HandshakeError';
@@ -36,6 +35,7 @@ export class HandshakeError extends NautilusError {
 }
 
 export class ValidationError extends NautilusError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'ValidationError';
@@ -44,6 +44,7 @@ export class ValidationError extends NautilusError {
 }
 
 export class QueryError extends NautilusError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'QueryError';
@@ -52,6 +53,7 @@ export class QueryError extends NautilusError {
 }
 
 export class DatabaseError extends NautilusError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'DatabaseError';
@@ -60,6 +62,7 @@ export class DatabaseError extends NautilusError {
 }
 
 export class ConnectionError extends DatabaseError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'ConnectionError';
@@ -68,6 +71,7 @@ export class ConnectionError extends DatabaseError {
 }
 
 export class ConstraintViolationError extends DatabaseError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'ConstraintViolationError';
@@ -76,6 +80,7 @@ export class ConstraintViolationError extends DatabaseError {
 }
 
 export class UniqueConstraintError extends ConstraintViolationError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'UniqueConstraintError';
@@ -84,6 +89,7 @@ export class UniqueConstraintError extends ConstraintViolationError {
 }
 
 export class ForeignKeyConstraintError extends ConstraintViolationError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'ForeignKeyConstraintError';
@@ -92,6 +98,7 @@ export class ForeignKeyConstraintError extends ConstraintViolationError {
 }
 
 export class CheckConstraintError extends ConstraintViolationError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'CheckConstraintError';
@@ -100,6 +107,7 @@ export class CheckConstraintError extends ConstraintViolationError {
 }
 
 export class NullConstraintError extends ConstraintViolationError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'NullConstraintError';
@@ -108,6 +116,7 @@ export class NullConstraintError extends ConstraintViolationError {
 }
 
 export class DeadlockError extends DatabaseError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'DeadlockError';
@@ -116,6 +125,7 @@ export class DeadlockError extends DatabaseError {
 }
 
 export class SerializationError extends DatabaseError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'SerializationError';
@@ -124,6 +134,7 @@ export class SerializationError extends DatabaseError {
 }
 
 export class QueryTimeoutError extends DatabaseError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'QueryTimeoutError';
@@ -132,6 +143,7 @@ export class QueryTimeoutError extends DatabaseError {
 }
 
 export class NotFoundError extends DatabaseError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'NotFoundError';
@@ -140,6 +152,7 @@ export class NotFoundError extends DatabaseError {
 }
 
 export class InternalError extends NautilusError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'InternalError';
@@ -148,6 +161,7 @@ export class InternalError extends NautilusError {
 }
 
 export class TransactionError extends NautilusError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'TransactionError';
@@ -156,6 +170,7 @@ export class TransactionError extends NautilusError {
 }
 
 export class TransactionTimeoutError extends TransactionError {
+
   constructor(message: string, details?: NautilusErrorDetails) {
     super(message, details);
     this.name = 'TransactionTimeoutError';
@@ -163,24 +178,11 @@ export class TransactionTimeoutError extends TransactionError {
   }
 }
 
-/**
- * Map a numeric error code from the engine to the correct error subclass.
- *
- * Code ranges (mirrors the Python implementation):
- *  1000–1999  Validation errors
- *  2000–2999  Query errors
- *  3000–3999  Database errors
- *    3001  ConnectionError
- *    3002  ConstraintViolationError
- *    3003  QueryTimeoutError
- *    3004  NotFoundError
- *    3005  UniqueConstraintError
- *    3006  ForeignKeyConstraintError
- *    3007  CheckConstraintError
- *  4001–4004  Transaction errors (4002 = timeout)
- *  9000–9999  Internal errors
- */
-export function errorFromCode(code: number, message: string, data?: unknown): NautilusError {
+export function errorFromCode(
+  code: number,
+  message: string,
+  data?: unknown,
+): NautilusError {
   const details = { code, data };
   if (code >= 1000 && code < 2000) return new ValidationError(`[${code}] ${message}`, details);
   if (code >= 2000 && code < 3000) return new QueryError(`[${code}] ${message}`, details);

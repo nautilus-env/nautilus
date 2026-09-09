@@ -1,19 +1,7 @@
-// Runtime file — do not edit manually.
-
+import type { Writable, Readable } from 'stream';
 import * as cp   from 'child_process';
 import * as fs   from 'fs';
 import * as path from 'path';
-import { Writable, Readable } from 'stream';
-
-const BINARY_NAME        = process.platform === 'win32' ? 'nautilus.exe'        : 'nautilus';
-const LEGACY_BINARY_NAME = process.platform === 'win32' ? 'nautilus-engine.exe' : 'nautilus-engine';
-const NPM_PACKAGE        = 'nautilus-orm';
-const NPX_BIN            = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const NPM_BIN            = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
-type ResolvedEngine =
-  | { kind: 'binary'; path: string }
-  | { kind: 'npx' };
 
 export interface EnginePoolOptions {
   maxConnections?: number;
@@ -26,33 +14,29 @@ export interface EnginePoolOptions {
   maxConcurrentRequests?: number;
 }
 
-/**
- * Manages the `nautilus engine serve` subprocess.
- *
- * The engine reads JSON-RPC requests from stdin (newline-delimited) and writes
- * JSON-RPC responses to stdout (also newline-delimited).
- *
- * Stderr is drained into an internal buffer to prevent pipe deadlock on
- * Windows and to provide diagnostic output when the process exits unexpectedly.
- */
+const BINARY_NAME        = process.platform === 'win32' ? 'nautilus.exe'        : 'nautilus';
+const LEGACY_BINARY_NAME = process.platform === 'win32' ? 'nautilus-engine.exe' : 'nautilus-engine';
+
 export class EngineProcess {
-  private proc: cp.ChildProcess | null = null;
-  private stderrChunks: Buffer[] = [];
+  /** @internal */
+  declare private proc: cp.ChildProcessWithoutNullStreams | null;
+  /** @internal */
+  declare private stderrChunks: Buffer[];
+  /** @internal */
+  declare private enginePath: string | undefined;
+  /** @internal */
+  declare private migrate: boolean;
+  /** @internal */
+  declare private poolOptions: EnginePoolOptions;
 
-  constructor(
-    private readonly enginePath?: string,
-    private readonly migrate: boolean = false,
-    private readonly poolOptions: EnginePoolOptions = {},
-  ) {}
+  constructor(enginePath?: string, migrate = false, poolOptions: EnginePoolOptions = {}) {
+    this.enginePath = enginePath;
+    this.migrate = migrate;
+    this.poolOptions = poolOptions;
+    this.proc = null;
+    this.stderrChunks = [];
+  }
 
-  // Public interface
-
-  /**
-   * Spawn the engine process.
-   *
-   * Loads `.env` file (walks up from schema dir, then CWD —
-   * and the Python client behaviour), then executes the nautilus binary.
-   */
   spawn(schemaPath: string): void {
     if (this.proc) {
       throw new Error('Engine process is already running');
@@ -61,48 +45,26 @@ export class EngineProcess {
     this.stderrChunks = [];
     this._loadDotenv(schemaPath);
 
-    const serveArgs = [
-      'engine', 'serve',
-      '--schema', schemaPath,
-      ...(this.migrate ? ['--migrate'] : []),
-      ...this._poolArgs(),
-    ];
+    const resolved = this.enginePath ?? this._findEngine(schemaPath);
+    const isLegacy = path.basename(resolved).startsWith('nautilus-engine');
+    const poolArgs = this._poolArgs();
 
-    let command: string;
-    let args: string[];
+    const args = isLegacy
+      ? ['--schema', schemaPath, ...(this.migrate ? ['--migrate'] : []), ...poolArgs]
+      : ['engine', 'serve', '--schema', schemaPath, ...(this.migrate ? ['--migrate'] : []), ...poolArgs];
 
-    if (this.enginePath) {
-      const isLegacy = path.basename(this.enginePath).startsWith('nautilus-engine');
-      command = this.enginePath;
-      args = isLegacy
-        ? ['--schema', schemaPath, ...(this.migrate ? ['--migrate'] : [])]
-        : serveArgs;
-    } else {
-      const resolved = this._findEngine();
-      if (resolved.kind === 'npx') {
-        command = NPX_BIN;
-        args    = [NPM_PACKAGE, ...serveArgs];
-      } else {
-        const isLegacy = path.basename(resolved.path).startsWith('nautilus-engine');
-        command = resolved.path;
-        args = isLegacy
-          ? ['--schema', schemaPath, ...(this.migrate ? ['--migrate'] : [])]
-          : serveArgs;
-      }
-    }
-
-    this.proc = cp.spawn(command, args, {
+    this.proc = cp.spawn(resolved, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    // Drain stderr to prevent pipe deadlock.
-    this.proc.stderr!.on('data', (chunk: Buffer) => {
+    this.proc.stderr.on('data', (chunk) => {
       this.stderrChunks.push(chunk);
     });
   }
 
+  /** @internal */
   private _poolArgs(): string[] {
-    const args: string[] = [];
+    const args = [];
 
     if (this.poolOptions.maxConnections != null) {
       args.push('--max-connections', String(this.poolOptions.maxConnections));
@@ -124,10 +86,7 @@ export class EngineProcess {
     }
 
     if (this.poolOptions.testBeforeAcquire != null) {
-      args.push(
-        '--test-before-acquire',
-        String(this.poolOptions.testBeforeAcquire),
-      );
+      args.push('--test-before-acquire', String(this.poolOptions.testBeforeAcquire));
     }
     if (this.poolOptions.statementCacheCapacity != null) {
       args.push(
@@ -167,19 +126,12 @@ export class EngineProcess {
     return Buffer.concat(this.stderrChunks).toString('utf8');
   }
 
-  /**
-   * Gracefully terminate the engine:
-   *   1. Close stdin (signals EOF to the engine)
-   *   2. Send SIGTERM and wait up to 5 s
-   *   3. Force-kill with SIGKILL if still running
-   */
   async terminate(): Promise<void> {
     const proc = this.proc;
     if (!proc) return;
     this.proc = null;
 
-    return new Promise<void>((resolve) => {
-      // Already dead.
+    return new Promise((resolve) => {
       if (proc.exitCode !== null || proc.killed) {
         resolve();
         return;
@@ -189,14 +141,11 @@ export class EngineProcess {
       proc.once('exit', cleanup);
       proc.once('error', cleanup);
 
-      // Close stdin to let the engine shut down cleanly.
       try { proc.stdin?.end(); } catch { /* ignore */ }
 
-      // Signal after a brief pause.
       const timer = setTimeout(() => {
         try { proc.kill('SIGTERM'); } catch { /* ignore */ }
 
-        // Force-kill if still alive after 5 s.
         const forceTimer = setTimeout(() => {
           try { proc.kill('SIGKILL'); } catch { /* ignore */ }
         }, 5000);
@@ -205,20 +154,11 @@ export class EngineProcess {
     });
   }
 
-  // Private helpers
-
-  /**
-   * Walk up from the schema directory (and then from CWD) looking for a
-   * `.env` file.  Reads the first one found and injects `KEY=VALUE` pairs
-   * into `process.env`, without overwriting existing variables.
-   *
-   * This mirrors the behaviour of the Python `_engine.py`.
-   */
+  /** @internal */
   private _loadDotenv(schemaPath: string): void {
-    const dirs: string[] = [];
-    const seen = new Set<string>();
+    const dirs = [];
+    const seen = new Set();
 
-    // Walk up from schema directory.
     let dir = path.resolve(path.dirname(schemaPath));
     while (true) {
       if (!seen.has(dir)) { dirs.push(dir); seen.add(dir); }
@@ -227,7 +167,6 @@ export class EngineProcess {
       dir = parent;
     }
 
-    // Also check CWD.
     const cwd = process.cwd();
     if (!seen.has(cwd)) dirs.push(cwd);
 
@@ -235,7 +174,7 @@ export class EngineProcess {
       const envPath = path.join(d, '.env');
       if (!fs.existsSync(envPath)) continue;
 
-      let content: string;
+      let content;
       try { content = fs.readFileSync(envPath, 'utf8'); } catch { continue; }
 
       for (const line of content.split('\n')) {
@@ -247,7 +186,6 @@ export class EngineProcess {
         const key   = trimmed.slice(0, eqIdx).trim();
         let   value = trimmed.slice(eqIdx + 1).trim();
 
-        // Strip surrounding quotes.
         if (
           value.length >= 2 &&
           ((value[0] === '"'  && value[value.length - 1] === '"') ||
@@ -261,78 +199,82 @@ export class EngineProcess {
         }
       }
 
-      break; // Use only the first .env found.
+      break;
     }
   }
 
-  /**
-   * Locate the `nautilus` (or `nautilus-engine`) binary.
-   *
-   * Search order:
-   * 1. System PATH (`nautilus` then `nautilus-engine`).
-   * 2. `node_modules/.bin/nautilus` — walks up from CWD (local npm install).
-   * 3. `npx nautilus-orm` — if the package is installed globally or locally.
-   */
-  private _findEngine(): ResolvedEngine {
+  /** @internal */
+  private _findEngine(schemaPath: string): string {
+    const local = this._findWorkspaceBinary(schemaPath);
+    if (local) return local;
+
     for (const name of [BINARY_NAME, LEGACY_BINARY_NAME]) {
       const found = this._which(name);
-      if (found) return { kind: 'binary', path: found };
+      if (found) return found;
     }
-
-    const localBin = this._findInNodeModules();
-    if (localBin) return { kind: 'binary', path: localBin };
-
-    if (this._isInstalledViaNpm()) return { kind: 'npx' };
-
     throw new Error(
-      `nautilus binary not found.\n` +
-      `Install it with: npm install nautilus-orm  (or -g for global)\n` +
-      `Or: cargo install nautilus-cli`,
+      `nautilus binary not found in PATH.\n` +
+      `Install it with: cargo install nautilus-cli\n` +
+      `Or add the compiled binary to your PATH before running nautilus generate.`,
     );
   }
 
-  /**
-   * Walk up from CWD looking for `node_modules/.bin/nautilus[.exe]`
-   * (covers local npm installs).
-   */
-  private _findInNodeModules(): string | null {
-    let dir = process.cwd();
-    while (true) {
-      const candidate = path.join(dir, 'node_modules', '.bin', BINARY_NAME);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
-      } catch { /* not found */ }
-      const parent = path.dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
+  /** @internal */
+  private _findWorkspaceBinary(schemaPath: string): string | null {
+    for (const root of this._searchRoots(schemaPath)) {
+      for (const buildDir of ['debug', 'release']) {
+        for (const name of [BINARY_NAME, LEGACY_BINARY_NAME]) {
+          const candidate = path.join(root, 'target', buildDir, name);
+          try {
+            fs.accessSync(candidate, fs.constants.X_OK);
+            return candidate;
+          } catch { /* keep searching */ }
+        }
+      }
     }
     return null;
   }
 
-  /**
-   * Returns `true` when `nautilus-orm` is listed as an installed npm package
-   * (local or global). Uses `npm ls` — no subprocess is spawned if npm is
-   * absent.
-   */
-  private _isInstalledViaNpm(): boolean {
-    try {
-      for (const extra of [[], ['-g']] as string[][]) {
-        const result = cp.spawnSync(
-          NPM_BIN,
-          ['ls', '--depth=0', '--json', NPM_PACKAGE, ...extra],
-          { encoding: 'utf8', timeout: 5000 },
-        );
-        if (result.status === 0 && result.stdout) {
-          const data = JSON.parse(result.stdout) as { dependencies?: Record<string, unknown> };
-          if (data.dependencies && NPM_PACKAGE in data.dependencies) return true;
+  /** @internal */
+  private _searchRoots(schemaPath?: string): string[] {
+    const roots = [];
+    const seen = new Set();
+
+    if (schemaPath) {
+      let dir = path.resolve(path.dirname(schemaPath));
+      while (true) {
+        if (!seen.has(dir)) {
+          roots.push(dir);
+          seen.add(dir);
         }
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
       }
-    } catch { /* npm not available */ }
-    return false;
+    }
+
+    const cwd = process.cwd();
+    if (!seen.has(cwd)) {
+      roots.push(cwd);
+    }
+
+    return roots;
   }
 
+  /** @internal */
   private _which(name: string): string | null {
+    // On Windows, delegate to `where.exe` so that the system PATH (not the
+    // bash-mangled PATH exposed by Git Bash) is searched correctly.
+    if (process.platform === 'win32') {
+      try {
+        const result = cp.spawnSync('where.exe', [name], { encoding: 'utf8' });
+        if (result.status === 0 && result.stdout) {
+          const first = result.stdout.trim().split(/\r?\n/)[0];
+          if (first) return first;
+        }
+      } catch { /* where.exe not available — fall through to manual search */ }
+    }
+
     const envPath = process.env['PATH'] ?? '';
     const sep     = process.platform === 'win32' ? ';' : ':';
     for (const dir of envPath.split(sep)) {

@@ -150,6 +150,12 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Verify distributed JavaScript runtime
+        working-directory: tools/js-runtime
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
+
       - name: Resolve Java release from the code generator
         id: java-release
         run: |

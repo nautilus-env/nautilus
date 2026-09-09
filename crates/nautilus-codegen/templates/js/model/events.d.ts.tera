@@ -1,0 +1,131 @@
+export interface {{ model_name }}CreateEventArgs {
+  data: {{ model_name }}CreateInput;
+  returnData: boolean;
+}
+
+export interface {{ model_name }}CreateManyEventArgs {
+  data: {{ model_name }}CreateInput[];
+  returnData: boolean;
+}
+
+export interface {{ model_name }}UpdateEventArgs {
+  where?: {{ model_name }}WhereInput;
+  data: {{ model_name }}UpdateInput;
+  returnData: boolean;
+}
+
+export interface {{ model_name }}UpdateManyEventArgs {
+  where?: {{ model_name }}WhereInput;
+  data: {{ model_name }}UpdateInput;
+}
+
+export interface {{ model_name }}DeleteEventArgs {
+  where: {{ model_name }}WhereInput;
+  returnData: boolean;
+}
+
+export interface {{ model_name }}DeleteManyEventArgs {
+  where?: {{ model_name }}WhereInput;
+  returnData: boolean;
+}
+
+export interface {{ model_name }}CreateEventPayload {
+  protocolVersion: string;
+  model: '{{ model_name }}';
+  data: Record<string, unknown>;
+  returnData: boolean;
+}
+
+export interface {{ model_name }}CreateManyEventPayload {
+  protocolVersion: string;
+  model: '{{ model_name }}';
+  data: Record<string, unknown>[];
+  returnData: boolean;
+}
+
+export interface {{ model_name }}UpdateEventPayload {
+  protocolVersion: string;
+  model: '{{ model_name }}';
+  filter: Record<string, unknown>;
+  data: Record<string, unknown>;
+  returnData: boolean;
+}
+
+export interface {{ model_name }}UpdateManyEventPayload {
+  protocolVersion: string;
+  model: '{{ model_name }}';
+  filter: Record<string, unknown>;
+  data: Record<string, unknown>;
+}
+
+export interface {{ model_name }}DeleteEventPayload {
+  protocolVersion: string;
+  model: '{{ model_name }}';
+  filter: Record<string, unknown>;
+  returnData: boolean;
+}
+
+export type {{ model_name }}DeleteManyEventPayload = {{ model_name }}DeleteEventPayload;
+
+export type {{ model_name }}CreateEventContext = CrudEventContext<
+  ModelEventToken,
+  'create',
+  {{ model_name }}CreateEventArgs,
+  {{ model_name }}CreateEventPayload,
+  {{ model_name }}Model | null
+>;
+export type {{ model_name }}CreateManyEventContext = CrudEventContext<
+  ModelEventToken,
+  'createMany',
+  {{ model_name }}CreateManyEventArgs,
+  {{ model_name }}CreateManyEventPayload,
+  {{ model_name }}Model[]
+>;
+export type {{ model_name }}UpdateEventContext = CrudEventContext<
+  ModelEventToken,
+  'update',
+  {{ model_name }}UpdateEventArgs,
+  {{ model_name }}UpdateEventPayload,
+  {{ model_name }}Model[] | number
+>;
+export type {{ model_name }}UpdateManyEventContext = CrudEventContext<
+  ModelEventToken,
+  'updateMany',
+  {{ model_name }}UpdateManyEventArgs,
+  {{ model_name }}UpdateManyEventPayload,
+  number
+>;
+export type {{ model_name }}DeleteEventContext = CrudEventContext<
+  ModelEventToken,
+  'delete',
+  {{ model_name }}DeleteEventArgs,
+  {{ model_name }}DeleteEventPayload,
+  {{ model_name }}Model | null
+>;
+export type {{ model_name }}DeleteManyEventContext = CrudEventContext<
+  ModelEventToken,
+  'deleteMany',
+  {{ model_name }}DeleteManyEventArgs,
+  {{ model_name }}DeleteManyEventPayload,
+  {{ model_name }}Model[] | number
+>;
+
+export type {{ model_name }}EventContext =
+  | {{ model_name }}CreateEventContext
+  | {{ model_name }}CreateManyEventContext
+  | {{ model_name }}UpdateEventContext
+  | {{ model_name }}UpdateManyEventContext
+  | {{ model_name }}DeleteEventContext
+  | {{ model_name }}DeleteManyEventContext;
+
+export interface {{ model_name }}EventContexts extends ModelEventContexts {
+  create: {{ model_name }}CreateEventContext;
+  createMany: {{ model_name }}CreateManyEventContext;
+  update: {{ model_name }}UpdateEventContext;
+  updateMany: {{ model_name }}UpdateManyEventContext;
+  delete: {{ model_name }}DeleteEventContext;
+  deleteMany: {{ model_name }}DeleteManyEventContext;
+}
+
+export declare const {{ model_name }}: ModelEventToken<{{ model_name }}EventContexts>;
+

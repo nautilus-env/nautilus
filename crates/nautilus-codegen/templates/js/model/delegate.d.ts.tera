@@ -1,0 +1,246 @@
+export interface {{ model_name }}CountAggregateInput {
+  _all?: boolean;
+{%- for f in scalar_fields %}
+  {{ f.name }}?: boolean;
+{%- endfor %}
+}
+
+{%- if has_numeric_fields %}
+export interface {{ model_name }}AvgAggregateInput {
+{%- for f in numeric_fields %}
+  {{ f.name }}?: boolean;
+{%- endfor %}
+}
+export interface {{ model_name }}SumAggregateInput {
+{%- for f in numeric_fields %}
+  {{ f.name }}?: boolean;
+{%- endfor %}
+}
+{%- endif %}
+
+export interface {{ model_name }}MinAggregateInput {
+{%- for f in orderable_fields %}
+  {{ f.name }}?: boolean;
+{%- endfor %}
+}
+
+export interface {{ model_name }}MaxAggregateInput {
+{%- for f in orderable_fields %}
+  {{ f.name }}?: boolean;
+{%- endfor %}
+}
+
+export interface {{ model_name }}GroupByOutput {
+{%- for f in scalar_fields %}
+  {{ f.name }}?: {{ f.ts_type }};
+{%- endfor %}
+  _count?: Record<string, number>;
+  _avg?:   Record<string, number>;
+  _sum?:   Record<string, unknown>;
+  _min?:   Record<string, unknown>;
+  _max?:   Record<string, unknown>;
+}
+
+export interface {{ model_name }}AggregateOutput {
+  _count?: Record<string, number>;
+  _avg?:   Record<string, number | null>;
+  _sum?:   Record<string, unknown>;
+  _min?:   Record<string, unknown>;
+  _max?:   Record<string, unknown>;
+}
+
+export interface {{ model_name }}ExplainOutput {
+  sql:    string;
+  params: unknown[];
+  plan:   Record<string, unknown>[];
+}
+
+export interface {{ model_name }}FindManyArgs {
+  where?:    {{ model_name }}WhereInput;
+  orderBy?:  {{ model_name }}OrderByInput | {{ model_name }}OrderByInput[];
+{%- if has_vector_fields %}
+  nearest?:  {{ model_name }}NearestInput;
+{%- endif %}
+  take?:     number;
+  skip?:     number;
+  select?:   {{ model_name }}SelectInput;
+  include?:  {% if has_includes %}{{ model_name }}IncludeInput{% else %}Record<string, unknown>{% endif %};
+  cursor?:   Record<string, unknown>;
+  distinct?: string[];
+  chunkSize?: number;
+}
+
+export interface {{ model_name }}FindFirstArgs {
+  where?:   {{ model_name }}WhereInput;
+  orderBy?: {{ model_name }}OrderByInput | {{ model_name }}OrderByInput[];
+{%- if has_vector_fields %}
+  nearest?: {{ model_name }}NearestInput;
+{%- endif %}
+  select?:  {{ model_name }}SelectInput;
+  include?: {% if has_includes %}{{ model_name }}IncludeInput{% else %}Record<string, unknown>{% endif %};
+}
+
+export interface {{ model_name }}FindUniqueArgs {
+  where:    {{ model_name }}WhereInput;
+  select?:  {{ model_name }}SelectInput;
+  include?: {% if has_includes %}{{ model_name }}IncludeInput{% else %}Record<string, unknown>{% endif %};
+}
+
+export declare class {{ delegate_name }} {
+  client: NautilusClient;
+  constructor(client: NautilusClient);
+
+  /**
+   * Fetch every matching row and resolve a final in-memory array.
+   *
+   * Prefer this for small or medium result sets, eager-loaded reads, and any
+   * downstream path that already wants the whole collection before continuing.
+   */
+  findMany(args?: Omit<{{ model_name }}FindManyArgs, 'select'> & { select?: undefined }): Promise<{{ model_name }}Model[]>;
+  findMany<const S extends {{ model_name }}SelectInput>(args: Omit<{{ model_name }}FindManyArgs, 'select'> & { select: S }): Promise<Array<{{ model_name }}Selected<S>>>;
+
+  /**
+   * Yield matching rows incrementally as an async iterable.
+   *
+   * Prefer this for exports, scans, and `for await ... of` pipelines where
+   * keeping client memory flatter matters more than receiving one final array.
+   * The underlying request keeps a pooled connection busy until iteration
+   * finishes or the iterable is closed.
+   */
+  streamMany(args?: Omit<{{ model_name }}FindManyArgs, 'select'> & { select?: undefined }): AsyncIterable<{{ model_name }}Model>;
+  streamMany<const S extends {{ model_name }}SelectInput>(args: Omit<{{ model_name }}FindManyArgs, 'select'> & { select: S }): AsyncIterable<{{ model_name }}Selected<S>>;
+
+  findFirst(args?: Omit<{{ model_name }}FindFirstArgs, 'select'> & { select?: undefined }): Promise<{{ model_name }}Model | null>;
+  findFirst<const S extends {{ model_name }}SelectInput>(args: Omit<{{ model_name }}FindFirstArgs, 'select'> & { select: S }): Promise<{{ model_name }}Selected<S> | null>;
+
+  findUnique(args: Omit<{{ model_name }}FindUniqueArgs, 'select'> & { select?: undefined }): Promise<{{ model_name }}Model | null>;
+  findUnique<const S extends {{ model_name }}SelectInput>(args: Omit<{{ model_name }}FindUniqueArgs, 'select'> & { select: S }): Promise<{{ model_name }}Selected<S> | null>;
+
+  findUniqueOrThrow(args: Omit<{{ model_name }}FindUniqueArgs, 'select'> & { select?: undefined }): Promise<{{ model_name }}Model>;
+  findUniqueOrThrow<const S extends {{ model_name }}SelectInput>(args: Omit<{{ model_name }}FindUniqueArgs, 'select'> & { select: S }): Promise<{{ model_name }}Selected<S>>;
+
+  findFirstOrThrow(args?: Omit<{{ model_name }}FindFirstArgs, 'select'> & { select?: undefined }): Promise<{{ model_name }}Model>;
+  findFirstOrThrow<const S extends {{ model_name }}SelectInput>(args: Omit<{{ model_name }}FindFirstArgs, 'select'> & { select: S }): Promise<{{ model_name }}Selected<S>>;
+
+{%- if not is_view %}
+  create(args: {
+    data:        {{ model_name }}CreateInput;
+    returnData?: boolean;
+  }): Promise<{{ model_name }}Model | null>;
+{% endif %}
+
+{%- if not is_view %}
+  createMany(args: {
+    data:        {{ model_name }}CreateInput[];
+    returnData?: boolean;
+  }): Promise<{{ model_name }}Model[]>;
+{% endif %}
+
+{%- if not is_view %}
+  update(args: {
+    where?:      {{ model_name }}WhereInput;
+    data:        {{ model_name }}UpdateInput;
+    returnData?: boolean;
+  }): Promise<{{ model_name }}Model[] | number>;
+{% endif %}
+
+{%- if not is_view %}
+  delete(args: {
+    where:       {{ model_name }}WhereInput;
+    returnData?: boolean;
+  }): Promise<{{ model_name }}Model | null>;
+{% endif %}
+
+{%- if not is_view %}
+  deleteMany(args?: {
+    where?:      {{ model_name }}WhereInput;
+    returnData?: boolean;
+  }): Promise<{{ model_name }}Model[] | number>;
+{% endif %}
+
+{%- if not is_view %}
+  /**
+   * Update every row matching `where` and resolve to the affected-row count.
+   *
+   * Unlike {@link update}, no rows are returned: the engine runs one statement
+   * without a RETURNING clause however many rows it touches.
+   */
+  updateMany(args: {
+    where?: {{ model_name }}WhereInput;
+    data:   {{ model_name }}UpdateInput;
+  }): Promise<number>;
+{% endif %}
+
+  /**
+   * Aggregate over every row matching `where`, without a grouping key.
+   *
+   * Always resolves to one object, even when the filter matches nothing:
+   * counts are then `0` and the other aggregates `null`.
+   */
+  aggregate(args?: {
+    where?: {{ model_name }}WhereInput;
+    count?: boolean | {{ model_name }}CountAggregateInput;
+{%- if has_numeric_fields %}
+    avg?:   {{ model_name }}AvgAggregateInput;
+    sum?:   {{ model_name }}SumAggregateInput;
+{%- endif %}
+    min?:   {{ model_name }}MinAggregateInput;
+    max?:   {{ model_name }}MaxAggregateInput;
+  }): Promise<{{ model_name }}AggregateOutput>;
+
+  /**
+   * Ask the database to explain the statement a {@link findMany} with these
+   * arguments would run.
+   *
+   * `include` relations are loaded by separate statements and are not part of
+   * the reported plan. `analyze` executes the query to collect real timings.
+   */
+  explain(args?: {{ model_name }}FindManyArgs & { analyze?: boolean }): Promise<{{ model_name }}ExplainOutput>;
+
+  count(args?: {
+    where?:  {{ model_name }}WhereInput;
+    take?:   number;
+    skip?:   number;
+    cursor?: Record<string, unknown>;
+  }): Promise<number>;
+
+  /** Execute a raw SQL string and return result rows as generic objects. */
+  rawQuery(sql: string): Promise<Record<string, unknown>[]>;
+
+  /** Execute a raw prepared-statement query with bound parameters. */
+  rawStmtQuery(sql: string, params?: unknown[]): Promise<Record<string, unknown>[]>;
+
+{%- if not is_view %}
+  /**
+   * Create or update a {{ model_name }} in one atomic statement.
+   *
+   * `where` must name exactly one unique constraint (or the primary key):
+   * those columns become the conflict target, and `data.create` must supply a
+   * value for each of them.
+   */
+  upsert(args: {
+    where:       {{ model_name }}WhereInput;
+    data:        {{ model_name }}UpsertInput;
+    include?:    {% if has_includes %}{{ model_name }}IncludeInput{% else %}Record<string, unknown>{% endif %};
+    returnData?: boolean;
+  }): Promise<{{ model_name }}Model | null>;
+{% endif %}
+
+  groupBy(args: {
+    by:      {{ model_name }}ScalarFieldKeys[];
+    where?:  {{ model_name }}WhereInput;
+    having?: Record<string, unknown>;
+    take?:   number;
+    skip?:   number;
+    count?:  boolean | {{ model_name }}CountAggregateInput;
+{%- if has_numeric_fields %}
+    avg?:    {{ model_name }}AvgAggregateInput;
+    sum?:    {{ model_name }}SumAggregateInput;
+{%- endif %}
+    min?:    {{ model_name }}MinAggregateInput;
+    max?:    {{ model_name }}MaxAggregateInput;
+    order?:  Record<string, SortOrder> | Record<string, SortOrder>[];
+  }): Promise<{{ model_name }}GroupByOutput[]>;
+}
+
+export type { NautilusClient };

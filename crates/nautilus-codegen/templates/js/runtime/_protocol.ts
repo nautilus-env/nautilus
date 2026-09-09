@@ -1,5 +1,3 @@
-// Runtime file — do not edit manually.
-
 export interface JsonRpcRequest {
   jsonrpc: '2.0';
   id?: number;
@@ -21,3 +19,6 @@ export interface JsonRpcResponse {
   /** True when this response is a partial chunk of a larger streamed result. */
   partial?: boolean;
 }
+
+/** Rust generation replaces this placeholder with nautilus_protocol::PROTOCOL_VERSION. */
+export const PROTOCOL_VERSION: 0 = 0;
