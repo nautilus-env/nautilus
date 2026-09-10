@@ -33,15 +33,14 @@ use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 ///
 /// ## Example
 ///
-/// ```rust,ignore
-/// use nautilus_connector::PgExecutor;
+/// ```no_run
+/// use nautilus_connector::{ConnectorResult, PgExecutor};
 ///
-/// #[tokio::main]
-/// async fn main() -> nautilus_core::Result<()> {
-///     let executor = PgExecutor::new("postgres://user:pass@localhost/mydb").await?;
-///     // Use executor to run queries...
-///     Ok(())
-/// }
+/// # async fn example() -> ConnectorResult<()> {
+/// let executor = PgExecutor::new("postgres://user:pass@localhost/mydb").await?;
+/// # let _ = executor;
+/// # Ok(())
+/// # }
 /// ```
 pub struct PgExecutor {
     pool: PgPool,

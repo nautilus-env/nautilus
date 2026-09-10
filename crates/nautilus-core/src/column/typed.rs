@@ -383,13 +383,6 @@ impl<T> From<Column<T>> for ColumnMarker {
     }
 }
 
-/// Trait for extracting column metadata from selections.
-///
-/// This trait enables the query builder to convert typed column references
-/// into selection descriptors and decode row data into typed tuples.
-///
-/// Note: This trait is implemented for tuples only. Single-column selections
-/// must use tuple syntax: `.select(|u| (u.id(),))` not `.select(|u| u.id())`.
 /// Trait for selecting typed column sets from a query.
 ///
 /// `SelectColumns` connects typed `Column<T>` references to the `RowAccess`
@@ -399,9 +392,10 @@ impl<T> From<Column<T>> for ColumnMarker {
 ///
 /// # Implementations
 ///
-/// Implementations are provided for tuples of 1–8 `Column<T>` elements.
-/// Queries returning more than 8 columns should use a struct implementing
-/// [`FromRow`](crate::column) instead.
+/// Implementations are provided for tuples of 1–8 `Column<T>` elements, so a
+/// single-column selection still needs tuple syntax: `.select(|u| (u.id(),))`,
+/// not `.select(|u| u.id())`.  Queries returning more than 8 columns should
+/// use a struct implementing [`FromRow`](crate::column) instead.
 pub trait SelectColumns {
     /// The decoded Rust type that corresponds to this selection.
     ///

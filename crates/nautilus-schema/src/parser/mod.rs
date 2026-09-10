@@ -2,20 +2,27 @@
 //!
 //! This module provides a parser that transforms a stream of tokens into an AST.
 //!
-//! # Example
+//! [`crate::parse_schema_source`] runs the lexer and this parser together;
+//! construct [`Parser`] directly only when the token stream comes from
+//! somewhere else.
 //!
-//! ```ignore
-//! use nautilus_schema::{Lexer, Parser};
+//! ```
+//! use nautilus_schema::{Lexer, Parser, TokenKind};
 //!
-//! let source = r#"
-//!     model User {
-//!       id    Int    @id
-//!       email String @unique
+//! let source = "model User { id Int @id }";
+//! let mut lexer = Lexer::new(source);
+//! let mut tokens = Vec::new();
+//! loop {
+//!     let token = lexer.next_token().unwrap();
+//!     let eof = matches!(token.kind, TokenKind::Eof);
+//!     tokens.push(token);
+//!     if eof {
+//!         break;
 //!     }
-//! "#;
+//! }
 //!
-//! let tokens = Lexer::new(source).collect::<Result<Vec<_>, _>>().unwrap();
 //! let schema = Parser::new(&tokens, source).parse_schema().unwrap();
+//! assert_eq!(schema.declarations.len(), 1);
 //! ```
 
 mod declarations;

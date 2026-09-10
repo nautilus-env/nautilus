@@ -14,15 +14,14 @@ use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions};
 ///
 /// ## Example
 ///
-/// ```rust,ignore
-/// use nautilus_connector::MysqlExecutor;
+/// ```no_run
+/// use nautilus_connector::{ConnectorResult, MysqlExecutor};
 ///
-/// #[tokio::main]
-/// async fn main() -> nautilus_core::Result<()> {
-///     let executor = MysqlExecutor::new("mysql://user:pass@localhost/mydb").await?;
-///     // Use executor to run queries...
-///     Ok(())
-/// }
+/// # async fn example() -> ConnectorResult<()> {
+/// let executor = MysqlExecutor::new("mysql://user:pass@localhost/mydb").await?;
+/// # let _ = executor;
+/// # Ok(())
+/// # }
 /// ```
 pub struct MysqlExecutor {
     pool: MySqlPool,

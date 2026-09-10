@@ -1,49 +1,36 @@
 #![forbid(unsafe_code)]
 //! Database executors and connection management for Nautilus ORM.
 //!
-//! This crate provides the execution layer for Nautilus, enabling SQL queries
-//! to be run against real databases. It defines the `Executor` trait and provides
-//! concrete implementations for supported databases.
-//!
-//! ## Architecture
-//!
-//! - `Executor` trait: Abstract interface for query execution
-//! - `Row`: Database result representation with hybrid access (positional + named)
-//! - `PgExecutor`: PostgreSQL implementation using sqlx
-//! - `MysqlExecutor`: MySQL implementation using sqlx
-//! - `SqliteExecutor`: SQLite implementation using sqlx
+//! [`Executor`] is the interface the rest of the workspace runs SQL through;
+//! `sqlx` pools back the three implementations, one per supported provider.
+//! A [`Row`] reads by position or by name.
 //!
 //! ## Example
 //!
-//! ```rust,ignore
-//! use nautilus_connector::{execute_all, Executor, PgExecutor, ConnectorResult};
+//! ```no_run
+//! use futures::StreamExt;
+//! use nautilus_connector::{execute_all, ConnectorResult, Executor, PgExecutor};
+//! use nautilus_core::{ColumnMarker, RowAccess, Select};
 //! use nautilus_dialect::{Dialect, PostgresDialect};
-//! use nautilus_core::select::SelectBuilder;
 //!
-//! #[tokio::main]
-//! async fn main() -> ConnectorResult<()> {
-//!     // Create executor
-//!     let executor = PgExecutor::new("postgres://localhost/mydb").await?;
-//!     let dialect = PostgresDialect;
-//!     
-//!     // Build query
-//!     let select = SelectBuilder::new("users")
-//!         .columns(vec!["id", "name"])
-//!         .build()?;
-//!     
-//!     // Render and execute
-//!     let sql = dialect.render_select(&select)?;
-//!     let rows = execute_all(&executor, &sql).await?;
-//!     
-//!     // Access results
-//!     for row in rows {
-//!         let id = row.get("id");
-//!         let name = row.get("name");
-//!         println!("User: {:?}, {:?}", id, name);
-//!     }
-//!     
-//!     Ok(())
+//! # async fn example() -> ConnectorResult<()> {
+//! let executor = PgExecutor::new("postgres://localhost/mydb").await?;
+//! let select = Select::from_table("users")
+//!     .item(ColumnMarker::new("users", "id").into())
+//!     .item(ColumnMarker::new("users", "name").into())
+//!     .build()?;
+//! let sql = PostgresDialect.render_select(&select)?;
+//!
+//! let mut stream = executor.execute(&sql);
+//! while let Some(row) = stream.next().await {
+//!     println!("{:?}", row?.get("name"));
 //! }
+//!
+//! for row in execute_all(&executor, &sql).await? {
+//!     println!("{:?}", row.get("id"));
+//! }
+//! # Ok(())
+//! # }
 //! ```
 
 #![warn(missing_docs)]

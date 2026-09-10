@@ -243,11 +243,6 @@ fn parse_by_fields(args: Option<&serde_json::Value>) -> Result<Vec<String>, Prot
     Ok(by_fields)
 }
 
-/// Build the `(alias, expression)` pairs for every requested aggregate.
-///
-/// Aliases carry the aggregate kind (`_count__`, `_avg_`, …) so
-/// [`shape_group_row`] can fold the flat result columns back into the nested
-/// `_count` / `_avg` / … objects the clients expect.
 /// The shape an aggregate column should decode to, regardless of what the
 /// backend answers with.
 ///
@@ -279,6 +274,11 @@ fn aggregate_hint(model: &ModelIr, agg_key: &str, field_name: &str) -> Option<Va
     }
 }
 
+/// Build the `(alias, expression, hint)` triple for every requested aggregate.
+///
+/// Aliases carry the aggregate kind (`_count__`, `_avg_`, …) so
+/// [`shape_group_row`] can fold the flat result columns back into the nested
+/// `_count` / `_avg` / … objects the clients expect.
 fn build_aggregate_items(
     model: &ModelIr,
     args: Option<&serde_json::Value>,

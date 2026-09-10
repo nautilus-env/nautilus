@@ -1,13 +1,12 @@
 //! Top-level analysis API for `.nautilus` schema files.
 //!
-//! This module exposes a stable public contract that editor tooling (LSP servers,
-//! CLI linters, etc.) can call without duplicating parsing or validation logic.
+//! Editor tooling — LSP servers, CLI linters — calls in here instead of
+//! driving the lexer, parser and validator itself.
 //!
-//! # Quick Start
-//!
-//! ```ignore
+//! ```
 //! use nautilus_schema::analysis::analyze;
 //!
+//! # let source = "model User { id Int @id }";
 //! let result = analyze(source);
 //! for diag in &result.diagnostics {
 //!     println!("{:?} — {}", diag.severity, diag.message);

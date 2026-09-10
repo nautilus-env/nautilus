@@ -1,11 +1,12 @@
-//! `RowAccess` trait for abstracting row data access with lifetime support.
+//! Row access abstracted over the lifetime of the underlying buffer.
 
 use crate::value::Value;
 
-/// Trait for abstracting row data access with lifetime support.
+/// Reads values out of a database row by position or by name.
 ///
-/// This trait allows both borrowed and owned row implementations,
-/// enabling database-specific optimizations while maintaining a common interface.
+/// The `'row` lifetime lets an implementation hand back a reference into a
+/// buffer it still owns, so a backend need not copy every value to satisfy
+/// the common interface.
 pub trait RowAccess<'row> {
     /// Get a value by column position (0-indexed).
     ///

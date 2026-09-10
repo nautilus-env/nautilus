@@ -1,12 +1,12 @@
 //! Visitor pattern for traversing the AST.
 //!
-//! This module provides a trait-based visitor pattern for flexible AST traversal.
-//! Implement the [`Visitor`] trait to define custom operations on AST nodes.
+//! Implement [`Visitor`] to act on the nodes you care about and call the
+//! matching `walk_*` free function to keep descending into the rest.
 //!
-//! # Example
-//!
-//! ```ignore
-//! use nautilus_schema::{visitor::Visitor, ast::*};
+//! ```
+//! use nautilus_schema::ast::ModelDecl;
+//! use nautilus_schema::visitor::{walk_model, Visitor};
+//! use nautilus_schema::Result;
 //!
 //! struct ModelCounter {
 //!     count: usize,

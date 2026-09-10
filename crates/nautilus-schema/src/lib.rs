@@ -13,37 +13,9 @@
 //!
 //! # Quick Start
 //!
-//! The [`analyze`] function runs the full pipeline in one call and collects all
-//! diagnostics:
-//!
-//! ```ignore
-//! use nautilus_schema::analyze;
-//!
-//! let result = analyze(source);
-//! for diag in &result.diagnostics {
-//!     eprintln!("{:?} — {}", diag.severity, diag.message);
-//! }
-//! if let Some(ir) = &result.ir {
-//!     println!("{} models validated", ir.models.len());
-//! }
-//! ```
-//!
-//! # Visitor Pattern
-//!
-//! The [`visitor`] module provides a trait-based visitor for flexible AST traversal:
-//!
-//! ```ignore
-//! use nautilus_schema::{visitor::{Visitor, walk_model}, ast::*, Result};
-//!
-//! struct ModelCounter { count: usize }
-//!
-//! impl Visitor for ModelCounter {
-//!     fn visit_model(&mut self, model: &ModelDecl) -> Result<()> {
-//!         self.count += 1;
-//!         walk_model(self, model)
-//!     }
-//! }
-//! ```
+//! [`analyze`] runs the whole pipeline in one call and collects every
+//! diagnostic; [`visitor`] walks an [`ast::Schema`] node by node.  Both
+//! modules carry a worked example.
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]

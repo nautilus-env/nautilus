@@ -3,12 +3,11 @@
 use crate::Row;
 use nautilus_core::{Column, FromValue, Result, SelectColumns};
 
-/// Trait for decoding database rows into Rust types.
+/// Decodes a whole [`Row`] into a tuple or struct.
 ///
-/// This trait enables type-safe conversion from `Row` to tuples or structs.
-/// Implementations use positional decoding (`get_by_pos`) for performance.
-/// The return type uses [`nautilus_core::Result`] so that struct impls can
-/// return type / missing-field errors without a connector dependency.
+/// Implementations read positionally (`get_by_pos`) rather than by name.  The
+/// error type is [`nautilus_core::Result`] so a struct impl can report a wrong
+/// type or a missing field without depending on this crate.
 pub trait FromRow: Sized {
     /// Decode a row into this type.
     ///

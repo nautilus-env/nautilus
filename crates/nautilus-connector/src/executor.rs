@@ -10,61 +10,15 @@ use nautilus_dialect::Sql;
 
 /// Trait for executing SQL queries against a database.
 ///
-/// This trait uses Generic Associated Types (GAT) to enable:
-/// - Database-specific row types with lifetime support
-/// - A uniform row stream interface across backends
-/// - Zero-copy optimizations where applicable
-///
-/// Implementors are responsible for:
-/// - Managing database connections (pooling, lifecycle)
-/// - Binding parameters from `Sql.params` to the query
-/// - Executing the query and returning a buffered stream of results
-/// - Decoding database rows into types implementing `RowAccess`
-/// - Mapping database errors to `nautilus_core::Error`
-///
-/// ## Thread Safety
-///
-/// Executors must be `Send + Sync` to allow sharing across async tasks.
-///
-/// ## Example
-///
-/// ```rust,ignore
-/// use nautilus_connector::{execute_all, Executor, PgExecutor};
-/// use nautilus_dialect::{Dialect, PostgresDialect};
-/// use nautilus_core::select::SelectBuilder;
-/// use futures::stream::StreamExt;
-///
-/// async fn example() -> nautilus_core::Result<()> {
-///     let executor = PgExecutor::new("postgres://localhost/mydb").await?;
-///     let dialect = PostgresDialect;
-///     
-///     let select = SelectBuilder::new("users")
-///         .columns(vec!["id", "name"])
-///         .build()?;
-///     
-///     let sql = dialect.render_select(&select)?;
-///     
-///     // Buffered stream API
-///     let mut stream = executor.execute(&sql);
-///     while let Some(row) = stream.next().await {
-///         let row = row?;
-///         println!("{:?}", row);
-///     }
-///     
-///     // Or materialize all rows
-///     let rows = execute_all(&executor, &sql).await?;
-///     for row in rows {
-///         println!("{:?}", row);
-///     }
-///     
-///     Ok(())
-/// }
-/// ```
+/// An implementor owns the connection pool, binds `Sql.params` in order,
+/// and reports failures as [`ConnectorError`](crate::ConnectorError).  Rows
+/// stay a generic associated type, so a backend hands back its own row
+/// representation; the crate-level example shows the two ways to consume them.
 pub trait Executor: Send + Sync {
     /// The row type returned by this executor.
     ///
-    /// This associated type allows database-specific row implementations
-    /// that can borrow data or provide specialized access methods.
+    /// Left associated so a backend can borrow out of its own buffer instead
+    /// of copying every value into a shared representation.
     type Row<'conn>: RowAccess<'conn> + Send
     where
         Self: 'conn;
@@ -79,21 +33,9 @@ pub trait Executor: Send + Sync {
 
     /// Execute a SQL query and return a stream of rows.
     ///
-    /// ## Parameters
-    ///
-    /// - `sql`: The SQL query with placeholders and bound parameters
-    ///
-    /// ## Returns
-    ///
-    /// A buffered stream that yields already-fetched rows one at a time.
-    /// Current implementations complete the database fetch before the first
-    /// item is yielded.
-    ///
-    /// ## Errors
-    ///
-    /// Individual stream items may be `Err` if:
-    /// - `ConnectorError::Database`: Query execution failed
-    /// - `ConnectorError::RowDecode`: Failed to decode a database value
+    /// The stream is buffered: current implementations complete the database
+    /// fetch before the first item is yielded.  An item is `Err` when the
+    /// query failed (`Database`) or a value would not decode (`RowDecode`).
     fn execute<'conn>(&'conn self, sql: &'conn Sql) -> Self::RowStream<'conn>;
 
     /// Execute a mutation SQL, drain its results, then execute a fetch SQL
@@ -103,14 +45,8 @@ pub trait Executor: Send + Sync {
     /// such as `LAST_INSERT_ID()` must be read on the connection that
     /// performed the INSERT.
     ///
-    /// ## Parameters
-    ///
-    /// - `mutation`: The INSERT / UPDATE / DELETE statement to execute first
-    /// - `fetch`: The SELECT statement whose rows are returned
-    ///
-    /// ## Returns
-    ///
-    /// A buffered stream of rows produced by the `fetch` query.
+    /// The returned stream carries the rows of `fetch`; the rows of `mutation`
+    /// are drained and discarded.
     fn execute_and_fetch<'conn>(
         &'conn self,
         mutation: &'conn Sql,
@@ -130,10 +66,8 @@ pub trait Executor: Send + Sync {
     /// This is the entry point used by codegen-emitted `stream_many` APIs and
     /// by the engine's row-by-row streaming path.
     ///
-    /// ## Parameters
-    ///
-    /// - `sql`: The SQL query, taken by value so the worker can own its text
-    ///   and parameters for the lifetime of the stream.
+    /// `sql` is taken by value so the worker owns its text and parameters for
+    /// the lifetime of the stream.
     fn execute_owned(&self, sql: Sql) -> RowStream<'static>;
 
     /// Execute a SQL query and materialize all rows into a vector.
@@ -206,41 +140,11 @@ pub trait Executor: Send + Sync {
     }
 }
 
-/// Execute a SQL query and materialize all rows into a Vec.
+/// Execute a SQL query and materialize all rows into a vector.
 ///
-/// This is a convenience helper that collects the stream into a vector
-/// for cases where you need all rows immediately or want random access.
-///
-/// ## Parameters
-///
-/// - `executor`: The executor to run the query against
-/// - `sql`: The SQL query with placeholders and bound parameters
-///
-/// ## Returns
-///
-/// - `Ok(Vec<E::Row<'conn>>)`: All rows successfully fetched and decoded
-/// - `Err(Error)`: Connection, execution, or decoding error
-///
-/// ## Errors
-///
-/// - `ConnectorError::Connection`: Failed to acquire database connection
-/// - `ConnectorError::Database`: Query execution failed
-/// - `ConnectorError::RowDecode`: Failed to decode a row
-///
-/// ## Example
-///
-/// ```rust,ignore
-/// use nautilus_connector::{execute_all, PgExecutor};
-/// use nautilus_dialect::Sql;
-///
-/// async fn example(executor: &PgExecutor, sql: &Sql) -> nautilus_core::Result<()> {
-///     let rows = execute_all(executor, sql).await?;
-///     for row in rows {
-///         println!("Row: {:?}", row);
-///     }
-///     Ok(())
-/// }
-/// ```
+/// Fails on the first error the stream reports: no connection
+/// (`Connection`), a rejected query (`Database`) or a value that would not
+/// decode (`RowDecode`).
 pub async fn execute_all<'conn, E>(
     executor: &'conn E,
     sql: &'conn Sql,

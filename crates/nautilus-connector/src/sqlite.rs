@@ -14,18 +14,15 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 ///
 /// ## Example
 ///
-/// ```rust,ignore
-/// use nautilus_connector::SqliteExecutor;
+/// ```no_run
+/// use nautilus_connector::{ConnectorResult, SqliteExecutor};
 ///
-/// #[tokio::main]
-/// async fn main() -> nautilus_core::Result<()> {
-///     // File-based database
-///     let executor = SqliteExecutor::new("sqlite:mydb.db").await?;
-///     // Or in-memory database
-///     let executor = SqliteExecutor::new("sqlite::memory:").await?;
-///     // Use executor to run queries...
-///     Ok(())
-/// }
+/// # async fn example() -> ConnectorResult<()> {
+/// let on_disk = SqliteExecutor::new("sqlite:mydb.db").await?;
+/// let in_memory = SqliteExecutor::new("sqlite::memory:").await?;
+/// # let _ = (on_disk, in_memory);
+/// # Ok(())
+/// # }
 /// ```
 pub struct SqliteExecutor {
     pool: SqlitePool,

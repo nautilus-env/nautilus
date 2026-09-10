@@ -7,20 +7,11 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use nautilus_schema::{Lexer, Parser};
+//! ```
+//! let source = "model User { id Int @id email String @unique }";
+//! let schema = nautilus_schema::parse_schema_source(source).unwrap();
 //!
-//! let source = r#"
-//!     model User {
-//!       id    Int    @id @default(autoincrement())
-//!       email String @unique
-//!     }
-//! "#;
-//!
-//! let tokens = Lexer::new(source).collect::<Result<Vec<_>, _>>().unwrap();
-//! let schema = Parser::new(&tokens).parse_schema().unwrap();
-//!
-//! println!("Found {} declarations", schema.declarations.len());
+//! assert_eq!(schema.declarations.len(), 1);
 //! ```
 
 mod attributes;

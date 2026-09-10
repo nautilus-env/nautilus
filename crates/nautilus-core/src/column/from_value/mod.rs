@@ -6,10 +6,10 @@ mod scalars;
 
 use crate::{Result, Value};
 
-/// Trait for converting database values to Rust types.
+/// Decodes one [`Value`] into a Rust type.
 ///
-/// This trait enables type-safe decoding of individual column values
-/// during row deserialization in the selection API.
+/// Implemented per scalar, collection and extension type; the selection API
+/// calls it once per column while deserializing a row.
 pub trait FromValue: Sized {
     /// Convert a Value reference to this type.
     ///

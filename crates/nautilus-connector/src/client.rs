@@ -10,13 +10,11 @@ use nautilus_dialect::Dialect;
 
 use crate::Executor;
 
-/// A Client holding both a Dialect (for SQL rendering) and an Executor (for query execution).
+/// A dialect for rendering SQL paired with an executor that runs it.
 ///
-/// The Client uses `Arc` internally, making it cheap to clone and thread-safe.
-/// This allows the same client to be shared across multiple parts of your application.
-///
-/// The Client is generic over the Executor type to work around limitations with
-/// trait objects and Generic Associated Types (GATs).
+/// Both halves are held behind `Arc`, so a clone shares one pool and one
+/// dialect across tasks.  The executor stays a type parameter rather than a
+/// trait object because `Executor` has a generic associated type.
 ///
 /// # Example
 ///
@@ -41,9 +39,7 @@ impl<E> Client<E>
 where
     E: Executor,
 {
-    /// Creates a new Client from a dialect and an executor.
-    ///
-    /// This is the generic constructor that works with any Dialect and Executor implementation.
+    /// Creates a client from any dialect and executor pair.
     ///
     /// # Example
     ///
@@ -122,14 +118,7 @@ where
 
 /// Convenience constructors for specific database backends.
 impl Client<crate::postgres::PgExecutor> {
-    /// Creates a new PostgreSQL client.
-    ///
-    /// This is a convenience constructor that creates both a PostgresDialect
-    /// and a PgExecutor, then wraps them in a Client.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - PostgreSQL connection string (e.g., "postgres://user:pass@localhost/db")
+    /// Connects to `url` and pairs the pool with `PostgresDialect`.
     ///
     /// # Example
     ///
@@ -195,14 +184,7 @@ impl Client<crate::postgres::PgExecutor> {
 
 /// Convenience constructor for MySQL.
 impl Client<crate::mysql::MysqlExecutor> {
-    /// Creates a new MySQL client.
-    ///
-    /// This is a convenience constructor that creates both a MysqlDialect
-    /// and a MysqlExecutor, then wraps them in a Client.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - MySQL connection string (e.g., "mysql://user:pass@localhost/db")
+    /// Connects to `url` and pairs the pool with `MysqlDialect`.
     ///
     /// # Example
     ///
@@ -248,14 +230,8 @@ impl Client<crate::mysql::MysqlExecutor> {
 
 /// Convenience constructor for SQLite.
 impl Client<crate::sqlite::SqliteExecutor> {
-    /// Creates a new SQLite client.
-    ///
-    /// This is a convenience constructor that creates both a SqliteDialect
-    /// and a SqliteExecutor, then wraps them in a Client.
-    ///
-    /// # Arguments
-    ///
-    /// * `url` - SQLite connection URL (e.g., `sqlite:mydb.db` or `sqlite::memory:`)
+    /// Connects to `url` — a file as `sqlite:mydb.db` or `sqlite::memory:` —
+    /// and pairs the pool with `SqliteDialect`.
     ///
     /// # Example
     ///

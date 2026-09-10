@@ -26,7 +26,6 @@ pub(crate) fn integrate_package(output_path: &str, schema_path: &Path) -> Result
 
     let workspace_dir = workspace_toml_path.parent().unwrap();
 
-    // Resolve the output path to an absolute path (it may be relative to cwd).
     let output_absolute = if Path::new(output_path).is_absolute() {
         PathBuf::from(output_path)
     } else {
@@ -47,26 +46,20 @@ pub(crate) fn integrate_package(output_path: &str, schema_path: &Path) -> Result
     let member_path: String = if let Ok(rel) = cleaned_output.strip_prefix(workspace_dir) {
         rel.to_string_lossy().replace('\\', "/")
     } else {
-        // Fall back to the absolute path (unusual, but don't panic).
+        // An output outside the workspace: keep it absolute rather than panic.
         cleaned_output.to_string_lossy().replace('\\', "/")
     };
 
     if content.contains(&member_path) {
     } else {
-        // Find the closing bracket of the `members = [...]` array and insert
-        // our entry before it. We handle both single-line and multi-line forms.
-        //
-        // Strategy: find "members" key, then find the matching `]` and inject.
+        // Injecting before the array's `]` keeps both the single-line and the
+        // multi-line spelling of `members = [...]` intact.
         if let Some(members_pos) = content.find("members") {
-            // Find the `[` that opens the array.
             if let Some(bracket_open) = content[members_pos..].find('[') {
                 let open_abs = members_pos + bracket_open;
-                // Find the matching `]`.
                 if let Some(bracket_close) = content[open_abs..].find(']') {
                     let close_abs = open_abs + bracket_close;
-                    // Insert before the closing bracket, with a trailing comma.
                     let insert = format!(",\n    \"{}\"", member_path);
-                    // If the array is empty we don't want a leading comma.
                     let inner = content[open_abs + 1..close_abs].trim();
                     let insert = if inner.is_empty() {
                         format!("\n    \"{}\"", member_path)
@@ -77,7 +70,6 @@ pub(crate) fn integrate_package(output_path: &str, schema_path: &Path) -> Result
                 }
             }
         } else {
-            // No `members` key at all — append a new one.
             content.push_str(&format!("\nmembers = [\n    \"{}\"]\n", member_path));
         }
 
