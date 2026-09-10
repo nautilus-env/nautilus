@@ -8,6 +8,8 @@ generated client compiles or that a database accepts its SQL.
 
 Paths below are relative to the repository root. The table points to existing
 coverage, not a requirement to add the same assertion at every layer.
+The [contributor guide](CONTRIBUTING.md) identifies implementation owners and
+the routes for adding a scalar type, query operation or schema attribute.
 
 | Feature | Schema | SQL and migrations | Engine | Generated clients |
 | --- | --- | --- | --- | --- |

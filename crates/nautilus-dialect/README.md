@@ -33,6 +33,12 @@ let sql = PostgresDialect.render_select(&select)?;
 
 ## Architecture
 
+The [contributor guide](../../CONTRIBUTING.md#add-a-query-operation) follows a
+query operation from its protocol contract through the core AST to rendering
+and execution. Schema DDL belongs to migrate; identifier escaping is shared
+through `nautilus_core::ident`. The [test map](../../TESTING.md) links SQL,
+provider and generated-client checks.
+
 The crate is organized as follows:
 
 - **`lib.rs`** — Facade: the modules below and the public `Dialect`, `Sql`,

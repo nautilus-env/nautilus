@@ -1,8 +1,8 @@
 //! Boolean expression parser for `@check` and `@@check` constraint attributes.
 //!
-//! The parser operates on tokens already produced by the schema [`Lexer`] and
+//! The parser operates on tokens already produced by the schema [`Lexer`](crate::Lexer) and
 //! builds a small AST ([`BoolExpr`]) via recursive descent with operator
-//! precedence climbing.  The AST implements [`Display`] so it can be
+//! precedence climbing.  The AST implements [`Display`](std::fmt::Display) so it can be
 //! round-tripped back to SQL-compatible text.
 
 use std::fmt;

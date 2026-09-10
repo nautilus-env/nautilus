@@ -52,7 +52,7 @@ impl<'a> Parser<'a> {
     ///
     /// These are non-fatal: the parser managed to continue past them by
     /// skipping to the next top-level declaration.  Call this after
-    /// [`parse_schema`] to collect the full set of parse diagnostics.
+    /// [`Self::parse_schema`] to collect the full set of parse diagnostics.
     pub fn take_errors(&mut self) -> Vec<SchemaError> {
         std::mem::take(&mut self.recovered_errors)
     }

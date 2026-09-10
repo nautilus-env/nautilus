@@ -107,6 +107,12 @@ plain Java bundle at `output/dist/{artifact_id}.jar` plus `output/dist/lib/*.jar
 
 ## Command configuration
 
+Commands coordinate schema, migration, generation and engine services. The
+[contributor guide](../../CONTRIBUTING.md) identifies the owners for new types,
+query operations and schema attributes. Put reusable semantics in those crates
+and keep CLI argument handling and presentation here; use the
+[test map](../../TESTING.md) for coverage beyond the command boundary.
+
 `context/environment.rs` holds `CommandEnv`: the working directory and the
 environment variables a command was invoked with. Each command entry point
 builds one from the process, and everything downstream — schema auto-detection,

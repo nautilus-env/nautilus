@@ -20,6 +20,7 @@ This repository currently includes:
 | [crates/nautilus-cli](crates/nautilus-cli/README.md) | `nautilus` CLI (`generate`, `validate`, `format`, `db`, `migrate`, `engine`, `python`, `studio`) |
 | [crates/nautilus-schema](crates/nautilus-schema/README.md) | Lexer, parser, validator, formatter, editor analysis for `.nautilus` |
 | [crates/nautilus-codegen](crates/nautilus-codegen/README.md) | Rust / Python / JS / Java client generation |
+| [crates/nautilus-events-macros](crates/nautilus-events-macros/README.md) | Attribute parsing, diagnostics and registration code for generated Rust client events |
 | [crates/nautilus-engine](crates/nautilus-engine/README.md) | JSON-RPC engine runtime |
 | [crates/nautilus-protocol](crates/nautilus-protocol/README.md) | Wire-format types and method contracts |
 | [crates/nautilus-core](crates/nautilus-core/README.md) | Query AST, expressions, typed columns, values |
@@ -29,10 +30,15 @@ This repository currently includes:
 | [crates/nautilus-lsp](crates/nautilus-lsp/README.md) | LSP server for schema files |
 | [tools/vscode-nautilus-schema](tools/vscode-nautilus-schema/README.md) | VS Code extension wiring syntax + LSP |
 
-See the [test map](TESTING.md) to find schema, SQL, engine and generated-client
-coverage for a feature, along with fixture locations and focused test commands.
+See the [contributor guide](CONTRIBUTING.md) for the modules involved in adding
+a scalar type, query operation or schema attribute. The [test map](TESTING.md)
+links each feature to its coverage, fixtures and focused test commands.
 
 ### Dependency graph
+
+Arrows point from a crate to its direct workspace dependencies in
+`[dependencies]`; development dependencies and generated packages are excluded.
+Node labels use the source-directory names from the table above.
 
 ```mermaid
 graph LR
@@ -41,25 +47,40 @@ graph LR
   connector[nautilus-connector]
   schema[nautilus-schema]
   codegen[nautilus-codegen]
+  events[nautilus-events-macros]
   migrate[nautilus-migrate]
   lsp[nautilus-lsp]
   protocol[nautilus-protocol]
   engine[nautilus-engine]
-  cli[nautilus-orm]
+  cli[nautilus-cli]
 
   dialect --> core
   connector --> dialect
   connector --> core
 
   codegen --> schema
+  codegen --> protocol
   migrate --> schema
+  migrate --> core
   lsp --> schema
-  cli --> schema
 
   engine --> connector
   engine --> protocol
+  engine --> core
+  engine --> dialect
+  engine --> migrate
+  engine --> schema
+
+  cli --> schema
+  cli --> codegen
+  cli --> migrate
   cli --> engine
 ```
+
+`nautilus-events-macros` has no workspace dependencies. Generated Rust clients
+depend on it for attribute expansion and on the runtime crates listed in their
+[manifest template](crates/nautilus-codegen/templates/rust/Cargo.toml.tpl).
+Those emitted dependencies are separate from the generator's own dependencies.
 
 ## Installation
 

@@ -1,11 +1,11 @@
 //! RPC request dispatch.
 //!
 //! [`handle_request`] and [`handle_request_inline`] answer a request that
-//! arrived over the wire; [`dispatch`] is the routing table they and
-//! [`transactions::handle_transaction_batch`] share. The handlers themselves
-//! live in [`crud`] for the model methods, [`service`] for the methods about
-//! the engine and [`transactions`] for the transaction lifecycle, while
-//! [`embedded`] holds the in-process entry points of the Rust client.
+//! arrived over the wire; `dispatch` is the routing table they and
+//! `transactions::handle_transaction_batch` share. The handlers themselves
+//! live in `crud` for the model methods, `service` for the methods about
+//! the engine and `transactions` for the transaction lifecycle, while
+//! `embedded` holds the in-process entry points of the Rust client.
 
 use nautilus_protocol::wire::{err, ok};
 use nautilus_protocol::{

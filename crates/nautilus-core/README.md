@@ -65,6 +65,11 @@ The dependency is strictly one-way: `nautilus-core` has **no knowledge** of SQL 
 
 ## Design Notes
 
+The [contributor guide](../../CONTRIBUTING.md) connects changes to values and
+query builders with schema validation, SQL rendering, execution and client
+generation. Use the [test map](../../TESTING.md) for the contracts across those
+boundaries.
+
 ### Where value behavior lives
 
 | Module | Responsibility |

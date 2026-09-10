@@ -9,7 +9,7 @@ use super::Parser;
 
 impl<'a> Parser<'a> {
     /// Collects SQL expression tokens until a top-level comma or closing paren,
-    /// then parses them into a validated [`SqlExpr`] tree.
+    /// then parses them into a validated [`SqlExpr`](crate::sql_expr::SqlExpr) tree.
     pub(super) fn parse_sql_expr(&mut self) -> Result<crate::sql_expr::SqlExpr> {
         if self.pos >= self.tokens.len() {
             return Err(SchemaError::Parse(
@@ -55,7 +55,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Collects boolean expression tokens until a top-level closing paren,
-    /// then parses them into a validated [`BoolExpr`] tree.
+    /// then parses them into a validated [`BoolExpr`](crate::bool_expr::BoolExpr) tree.
     pub(super) fn parse_bool_expr(&mut self) -> Result<crate::bool_expr::BoolExpr> {
         self.parse_bool_expr_until(false)
     }

@@ -67,6 +67,18 @@ The stable wire contract uses ordinary JSON values plus a few conventions:
 
 The exact conversion code is intentionally kept out of this crate so the method/type layer stays transport-focused.
 
+## Implementation owners
+
+`src/methods/` owns method names and payloads; `wire.rs` owns request/response
+envelopes, `error.rs` owns stable errors, and `version.rs` owns compatibility
+checks. This crate has no workspace runtime dependencies. Engine conversion
+and generated-client codecs implement the values carried by those contracts.
+
+The [query-operation route](../../CONTRIBUTING.md#add-a-query-operation) connects
+a new method to dispatch, typed adapters, SQL execution and generated APIs.
+Update the relevant family under `tests/` and use the
+[test map](../../TESTING.md) for execution and client coverage.
+
 ## Error model
 
 - JSON-RPC transport and parse errors still use standard JSON-RPC error envelopes.

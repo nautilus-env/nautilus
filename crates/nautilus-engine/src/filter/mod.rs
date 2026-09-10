@@ -1,8 +1,8 @@
 //! Query arguments: the components the planner consumes and the two ways a
 //! request produces them.
 //!
-//! [`types`] holds the shapes, [`json_args`] reads the JSON `args` object of a
-//! request and [`typed_args`] adapts the Rust client's typed arguments; the
+//! `types` holds the shapes, `json_args` reads the JSON `args` object of a
+//! request and `typed_args` adapts the Rust client's typed arguments; the
 //! remaining modules own one argument each — `where`, `orderBy`, `include` and
 //! `select` — plus the checks that span several of them.
 

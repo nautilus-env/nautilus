@@ -8,10 +8,10 @@ It loads a validated schema, connects to a database, and serves requests on stdi
 
 | Category | Methods |
 | --- | --- |
-| Handshake | `engine.handshake` |
-| Reads | `query.findMany`, `query.findFirst`, `query.findUnique`, `query.findFirstOrThrow`, `query.findUniqueOrThrow` |
-| Writes | `query.create`, `query.createMany`, `query.update`, `query.upsert`, `query.delete` |
-| Aggregation | `query.count`, `query.groupBy` |
+| Engine | `engine.handshake`, `engine.metrics`, `request.cancel` |
+| Reads | `query.findMany`, `query.findFirst`, `query.findUnique`, `query.findFirstOrThrow`, `query.findUniqueOrThrow`, `query.explain` |
+| Writes | `query.create`, `query.createMany`, `query.update`, `query.updateMany`, `query.upsert`, `query.delete`, `query.deleteMany` |
+| Aggregation | `query.count`, `query.groupBy`, `query.aggregate` |
 | Raw SQL | `query.rawQuery`, `query.rawStmtQuery` |
 | Transactions | `transaction.start`, `transaction.commit`, `transaction.rollback`, `transaction.batch` |
 | Schema | `schema.validate` |
@@ -103,14 +103,28 @@ rollback.
 
 ## Main modules
 
+Paths below are relative to `src/`.
+
 | Module | Responsibility |
 | --- | --- |
-| `args` | Standalone binary CLI parsing |
-| `handlers` | RPC routing and method handlers |
-| `filter` | JSON query args -> `nautilus-core` expressions |
-| `observability` | Log subscriber setup and the slow-statement threshold |
-| `state` | Schema metadata, connector client, transaction registry |
-| `transport` | Stdin/stdout request loop |
+| `args.rs`, `pool_options.rs` | Standalone arguments and pool/runtime options |
+| `handlers/mod.rs`, `handlers/request.rs`, `handlers/embedded.rs` | Wire dispatch, request/model resolution and Rust in-process adapters |
+| `handlers/service.rs`, `handlers/transactions.rs` | Handshake, metrics, schema validation and transaction request handlers |
+| `handlers/crud/read/` | Shared planning and ordering, buffered reads, streaming, count and explain |
+| `handlers/crud/write/` | Per-operation writes, shared input rules and same-connection read-back |
+| `handlers/crud/nested/` | Operation parsing, relation binding and execution for owning, inverse and many-to-many relations |
+| `handlers/crud/include.rs`, `handlers/crud/aggregation.rs`, `handlers/crud/raw.rs` | Relation hydration, aggregate/group queries and raw execution |
+| `filter/` | JSON and typed argument adapters, shared checks, predicates, ordering and includes |
+| `metadata/` | Cached field hints, logical/physical names and relation maps |
+| `conversion/` | Request values, row normalization/serialization, extensions and composite literals |
+| `state/` | State construction, database clients, statement execution and transaction lifetime |
+| `plan_cache.rs`, `metrics.rs`, `observability.rs` | Cached read plans, measurements and tracing configuration |
+| `transport.rs` | Stdin/stdout concurrency, response delivery and request cancellation |
+
+The [query-operation route](../../CONTRIBUTING.md#add-a-query-operation) connects
+these owners to protocol types, SQL rendering and generated client APIs. Shared
+scalar coercions live in the connector; the engine maps their errors to its
+protocol contract. Metadata construction does not depend on request handlers.
 
 Runtime equivalence with generated Rust clients is tested by codegen's
 [`path_equivalence_tests`](../nautilus-codegen/tests/path_equivalence_tests.rs),

@@ -27,7 +27,7 @@ pub enum EmbeddedResponse {
 
 /// Time one in-process call and fold it into the per-method counters.
 ///
-/// The typed and embedded entry points bypass [`dispatch`], so without this the
+/// The typed and embedded entry points bypass [`super::dispatch`], so without this the
 /// counters would only ever see requests that arrived over the wire and
 /// `engine.metrics` would read as empty for an embedded Rust client.
 async fn recorded<T, F>(state: &EngineState, method: &str, call: F) -> Result<T, ProtocolError>

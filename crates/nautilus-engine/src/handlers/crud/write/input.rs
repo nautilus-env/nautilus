@@ -256,7 +256,7 @@ pub(super) fn field_input_value(
 }
 
 /// Convert a single field's JSON input into a [`Value`], routing PostgreSQL
-/// native composite-type fields through [`json_to_value_composite`] so they bind
+/// native composite-type fields through [`json_to_value_composite`](crate::conversion::json_to_value_composite) so they bind
 /// as a record literal instead of an untyped text/JSON value. On backends that
 /// store composites as JSON, the regular [`json_to_value_field`] path is used.
 fn convert_field_input(

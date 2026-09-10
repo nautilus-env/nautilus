@@ -7,7 +7,7 @@
 1. Lex source text into typed tokens with spans.
 2. Parse tokens into a syntax tree.
 3. Validate the tree into a resolved `SchemaIr`.
-4. Reuse that result for formatting and editor tooling.
+4. Format from the AST and source; serve editor features from the analysis bundle.
 
 ## Main public APIs
 
@@ -33,8 +33,6 @@
 - defaults such as `autoincrement()`, `uuid()`, `uuidv7()` (PostgreSQL), `now()`
 - relation metadata including `fields`, `references`, and referential actions
 - indexes, unique constraints, checks, and computed fields
-
-## Minimal usage
 
 ## PostgreSQL extensions
 
@@ -115,6 +113,20 @@ println!("validated {} model(s)", ir.models.len());
 
 ## References
 
+Paths below are relative to `src/`. Syntax and resolved data have separate
+owners; Rust/Python/JS/Java output type mappings belong to codegen.
+
+| Responsibility | Owner |
+| --- | --- |
+| Tokens and source spans | `lexer.rs`, `token.rs`, `span.rs` |
+| Syntax tree | `ast/`: configuration, models, types, attributes and expressions |
+| Parsing and recovery | `parser/`: declarations, fields/attributes, expressions and token handling |
+| Semantic rules | `validator/`: names, fields, models, defaults, relations, indexes, views, composites and configuration |
+| Resolved schema and lowering | `ir/` defines `SchemaIr`; `validator/ir_builder/` constructs configuration, entities and fields |
+| Formatting | `formatter.rs`, consuming the AST and source |
+| Completion and hover documentation | `analysis/catalog/`; cursor context and argument suggestions in `analysis/completion/` |
+| Multi-file loading and diagnostics | `schema_set.rs`, `analysis/mod.rs`, `diagnostic.rs` |
+
 Validation passes are registered once in
 `validator/mod.rs::SchemaValidator::run_validation_passes`. Both `validate_schema`
 and `analyze` use that order and stop after name conflicts. The former returns
@@ -123,7 +135,8 @@ pass in its domain module under `validator/` and register it in that shared
 sequence before IR construction.
 
 - [GRAMMAR.md](GRAMMAR.md) for the language grammar
-- `tests/` for parser, validator, formatter, analysis, and IR coverage
+- [Contributor guide](../../CONTRIBUTING.md) for scalar and attribute changes across storage, runtime and clients
+- [Test map](../../TESTING.md) for parser, validator, formatter, analysis and IR coverage
 
 ## Testing
 

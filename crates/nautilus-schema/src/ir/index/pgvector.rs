@@ -1,7 +1,7 @@
 //! pgvector-specific index payload.
 //!
 //! This module owns every piece of state that only makes sense inside an
-//! [`IndexKind::Pgvector`] variant: the access method (`Hnsw` vs `Ivfflat`),
+//! [`IndexKind::Pgvector`](super::IndexKind::Pgvector) variant: the access method (`Hnsw` vs `Ivfflat`),
 //! the operator class on the indexed column, and the build-time `WITH (...)`
 //! parameters. Keeping it isolated lets the rest of the IR remain
 //! provider-agnostic and gives future extensions (PostGIS, full-text-ranked,

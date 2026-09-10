@@ -3,8 +3,7 @@
 //! This module defines the complete AST structure for representing parsed schemas.
 //! All nodes include [`Span`] information for precise error diagnostics.
 //!
-//! The AST supports the Visitor pattern via the [`accept`](Schema::accept) methods,
-//! allowing flexible traversal and transformation operations.
+//! Traverse the AST through [`Visitor::visit_schema`](crate::visitor::Visitor::visit_schema).
 //!
 //! # Example
 //!

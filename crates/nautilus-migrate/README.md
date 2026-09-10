@@ -442,6 +442,11 @@ message visible with `--nocapture`. On PowerShell, set the variables through
 
 ## Architecture
 
+The [contributor guide](../../CONTRIBUTING.md) connects scalar and attribute
+changes to the schema, runtime and generated clients. Use the
+[test map](../../TESTING.md) to locate coverage across those boundaries; the
+table below identifies the migration-specific modification routes.
+
 ```
 nautilus-migrate
 ├── ddl/          # SchemaIr rendering: tables, columns, types, defaults, indexes

@@ -100,6 +100,18 @@ java -cp ".;db\dist\nautilus-client.jar;db\dist\lib\*" Main
 
 ## Template layout
 
+The [contributor guide](../../CONTRIBUTING.md) follows new scalar types, query
+operations and schema attributes from their semantic owner to these backends.
+The generator itself depends on schema and protocol; runtime dependencies in
+an emitted client manifest are separate.
+
+Generation starts in `src/load.rs` with schema preparation. `src/client/`
+assembles a `GeneratedPackage` in memory using the language backend and the
+layout in `src/writer/`; `src/package.rs` owns relative paths and deterministic
+file order. `src/publish.rs` stages and replaces the output tree. `src/install/`
+coordinates publication and optional installation, `src/java/bundle.rs` owns
+Java compilation/downloads, and `src/report.rs` presents the outcome.
+
 | Area | Location |
 | --- | --- |
 | Rust templates | `templates/rust/` |

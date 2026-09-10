@@ -4,7 +4,7 @@
 //! `@@index(...)` arguments and the indexed field's type, what is the
 //! resulting [`IndexKind`] and what diagnostics should we report?".
 //! The validator uses it to surface errors; the IR builder uses it to
-//! produce the final [`IndexIr::kind`] and ignores the diagnostics.
+//! produce the final [`IndexIr::kind`](crate::ir::IndexIr::kind) and ignores the diagnostics.
 
 use crate::ast::{FieldType, Ident};
 use crate::bool_expr::BoolExpr;

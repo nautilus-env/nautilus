@@ -30,7 +30,7 @@ pub struct ModelIr {
     /// Table-level CHECK constraint expressions (SQL strings).
     pub check_constraints: Vec<String>,
     /// Whether the model carries `@@ignore` — the table exists but Nautilus
-    /// does not manage it. See [`SchemaIr::without_ignored`].
+    /// does not manage it. See [`SchemaIr::without_ignored`](super::SchemaIr::without_ignored).
     pub is_ignored: bool,
     /// Whether this block was declared as a `view`.
     ///
@@ -38,7 +38,7 @@ pub struct ModelIr {
     /// DDL for it and rejects every write method against it.
     pub is_view: bool,
     /// Whether Nautilus synthesised this model as the join table of an
-    /// implicit many-to-many relation. See [`ManyToManyJoinIr`].
+    /// implicit many-to-many relation. See [`ManyToManyJoinIr`](super::ManyToManyJoinIr).
     pub is_join_table: bool,
     /// Span of the model declaration.
     pub span: Span,
@@ -105,7 +105,7 @@ pub struct FieldIr {
     /// Column-level CHECK constraint expression (SQL string). `None` for unconstrained fields.
     pub check: Option<String>,
     /// Whether the field carries `@ignore` — the column exists but Nautilus
-    /// does not manage it. See [`SchemaIr::without_ignored`].
+    /// does not manage it. See [`SchemaIr::without_ignored`](super::SchemaIr::without_ignored).
     pub is_ignored: bool,
     /// Span of the field declaration.
     pub span: Span,

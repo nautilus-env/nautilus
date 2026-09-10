@@ -1,9 +1,9 @@
 //! Lightweight SQL expression parser for `@computed` and future attribute
 //! expressions.
 //!
-//! The parser operates on tokens already produced by the schema [`Lexer`] and
+//! The parser operates on tokens already produced by the schema [`Lexer`](crate::Lexer) and
 //! builds a small AST ([`SqlExpr`]) via recursive descent with operator
-//! precedence climbing.  The AST implements [`Display`] so it can be
+//! precedence climbing.  The AST implements [`Display`](std::fmt::Display) so it can be
 //! round-tripped back to SQL text.
 
 use std::fmt;

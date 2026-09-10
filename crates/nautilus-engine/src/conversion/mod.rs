@@ -1,8 +1,8 @@
 //! Conversion between the wire JSON and the internal [`nautilus_core::Value`].
 //!
-//! Each direction has its own module: [`input`] builds query values from the
-//! request, [`normalize`] applies the schema hints to a decoded row,
-//! [`serialize`] writes rows back out as JSON, and [`composite`] owns the
+//! Each direction has its own module: `input` builds query values from the
+//! request, `normalize` applies the schema hints to a decoded row,
+//! `serialize` writes rows back out as JSON, and `composite` owns the
 //! PostgreSQL record literal on both sides. This file is only the facade.
 
 mod composite;

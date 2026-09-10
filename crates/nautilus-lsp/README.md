@@ -56,6 +56,12 @@ The server speaks stdio and is designed to be launched by an editor integration 
 
 ## Internal layout
 
+Language rules and shared completion/hover catalogs belong to schema. Follow
+the [scalar](../../CONTRIBUTING.md#add-a-scalar-type) or
+[attribute](../../CONTRIBUTING.md#add-a-schema-attribute) route there; these
+modules own document lifecycle and LSP adaptation. The
+[test map](../../TESTING.md) links language analysis and feature coverage.
+
 | Module | Purpose |
 | --- | --- |
 | `backend` | `tower-lsp` request handlers, and the analyse/publish/refresh sequence |

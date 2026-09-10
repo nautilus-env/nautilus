@@ -35,13 +35,35 @@ let rows = execute_all(client.executor(), &sql).await?;
 let users: Vec<User> = rows.iter().map(User::from_row).collect::<Result<_>>()?;
 ```
 
+## Implementation owners
+
+Paths below are relative to `src/`. The connector depends on core and dialect;
+schema-aware field metadata and protocol errors belong to the engine.
+
+| Responsibility | Owner |
+| --- | --- |
+| Executor contract, row access and stream type | `executor.rs`, `row.rs`, `row_stream.rs`, `from_row.rs` |
+| Dialect/executor pairing and client transactions | `client.rs` |
+| PostgreSQL binding and executor | `postgres/bind.rs`, `postgres/mod.rs` |
+| PostgreSQL classification and decoding | `postgres/decode_plan.rs`, `decode.rs`, `arrays.rs`, `composite.rs`, `binary.rs`, `vector.rs`; streaming in `postgres/stream.rs` |
+| MySQL and SQLite binding/decoding | `mysql.rs`, `mysql_stream.rs`, `sqlite.rs`, `sqlite_stream.rs` |
+| Shared scalar coercions and row hints | `value_hint/scalar.rs`, `value_hint/mod.rs` |
+| Transaction opening, handle lifetime and execution | `transaction/mod.rs`, `transaction/handle.rs`, `transaction/execute.rs` |
+| MySQL isolation preparation and cancellation cleanup | `transaction/mysql.rs` |
+
+For a new database type, follow the
+[scalar route](../../CONTRIBUTING.md#add-a-scalar-type) through binding, decoding,
+engine hints and client output. Preserve per-statement PostgreSQL classification
+and shared column names when extending a codec. The [test map](../../TESTING.md)
+links provider round-trips and the consumers of normalized values.
+
 ## Design notes
 
 ### Single `RowStream` type
-All three backends share one `RowStream<'conn>` struct (`src/row_stream.rs`), a thin `Pin<Box<dyn Stream>>` newtype. The per-backend names (`PgRowStream`, `MysqlRowStream`, `SqliteRowStream`) are type aliases defined in the respective `*_stream.rs` modules for readability at call sites. The lifetime parameter lets pool-backed executors borrow the rendered `Sql` instead of cloning it before wrapping the buffered rows in the uniform stream API.
+All three backends share one `RowStream<'conn>` struct (`src/row_stream.rs`), a thin `Pin<Box<dyn Stream>>` newtype. The per-backend names (`PgRowStream`, `MysqlRowStream`, `SqliteRowStream`) are type aliases in `postgres/stream.rs`, `mysql_stream.rs` and `sqlite_stream.rs`. The lifetime parameter lets pool-backed executors borrow the rendered `Sql` instead of cloning it before wrapping the buffered rows in the uniform stream API.
 
 ### Value binding
-`bind_value` in each executor module maps every `nautilus_core::Value` variant to the appropriate `sqlx` parameter type. Common notes:
+`bind_value` in `postgres/bind.rs`, `mysql.rs` and `sqlite.rs` maps every `nautilus_core::Value` variant to the appropriate `sqlx` parameter type. Common notes:
 - `DateTime` is bound as ISO 8601 (`%Y-%m-%dT%H:%M:%S%.f`) for all three backends, preserving sub-second precision.
 - `Decimal` is bound as its canonical string representation; all three databases accept it for numeric columns.
 - `Array` and `Array2D` are serialised to JSON via the shared `utils::value_to_json` helper. PostgreSQL's `Array` arm additionally handles homogeneous typed arrays natively (e.g., `Vec<i64>`), and now rejects typed arrays that contain `NULL` or mixed element variants instead of silently dropping them.
