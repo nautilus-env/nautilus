@@ -56,7 +56,9 @@ pub enum MigrationError {
     /// A migration stopped part-way and the database kept some of its
     /// statements, so it is neither the old schema nor the new one.
     #[error(
-        "Migration '{name}' stopped on `{statement}`: {message}.          {committed} of {total} statement(s) are committed and were not rolled back,          and the migration is not recorded; reconcile the database before retrying"
+        "Migration '{name}' stopped on `{statement}`: {message}. \
+         {committed} of {total} statement(s) are committed and were not rolled back; \
+         reconcile the database before retrying"
     )]
     PartiallyApplied {
         /// Migration that stopped.
@@ -75,5 +77,29 @@ pub enum MigrationError {
 impl From<sqlx::Error> for MigrationError {
     fn from(err: sqlx::Error) -> Self {
         MigrationError::Database(err.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MigrationError;
+
+    #[test]
+    fn partially_applied_message_is_single_spaced() {
+        let error = MigrationError::PartiallyApplied {
+            name: "002_unique_email".to_string(),
+            statement: "CREATE UNIQUE INDEX \"User_email_key\" ON \"User\" (\"email\")".to_string(),
+            message: "duplicate key value".to_string(),
+            committed: 1,
+            total: 3,
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "Migration '002_unique_email' stopped on \
+             `CREATE UNIQUE INDEX \"User_email_key\" ON \"User\" (\"email\")`: duplicate key value. \
+             1 of 3 statement(s) are committed and were not rolled back; \
+             reconcile the database before retrying"
+        );
     }
 }
