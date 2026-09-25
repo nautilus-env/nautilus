@@ -90,6 +90,33 @@ pub enum ScalarType {
 }
 
 impl ScalarType {
+    /// Returns the Rust type name for this scalar type, as generated clients
+    /// used it before the mapping moved to the Rust generator.
+    #[deprecated(
+        note = "the Rust type of a scalar is an output mapping owned by nautilus-codegen; use `nautilus_codegen::type_helpers::field_to_rust_type` for a field"
+    )]
+    pub fn rust_type(&self) -> &'static str {
+        match self {
+            ScalarType::String => "String",
+            ScalarType::Boolean => "bool",
+            ScalarType::Int => "i32",
+            ScalarType::BigInt => "i64",
+            ScalarType::Float => "f64",
+            ScalarType::Decimal { .. } => "rust_decimal::Decimal",
+            ScalarType::DateTime => "chrono::NaiveDateTime",
+            ScalarType::Bytes => "Vec<u8>",
+            ScalarType::Json => "serde_json::Value",
+            ScalarType::Uuid => "uuid::Uuid",
+            ScalarType::Citext | ScalarType::Ltree => "String",
+            ScalarType::Hstore => "std::collections::BTreeMap<String, Option<String>>",
+            ScalarType::Geometry => "nautilus_core::Geometry",
+            ScalarType::Geography => "nautilus_core::Geography",
+            ScalarType::Vector { .. } => "Vec<f32>",
+            ScalarType::Jsonb => "serde_json::Value",
+            ScalarType::Xml | ScalarType::Char { .. } | ScalarType::VarChar { .. } => "String",
+        }
+    }
+
     /// Returns `true` when this scalar type is supported by the given database provider.
     pub fn supported_by(self, provider: DatabaseProvider) -> bool {
         match self {

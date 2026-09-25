@@ -28,9 +28,9 @@ only what the crate exports and making a module public does not expose its
 contents by accident. Benchmarks reach internals through a `#[doc(hidden)]`
 `bench` module, which is not public API. Check generated clients and benchmarks
 before changing an existing export, including one hidden from rustdoc. To
-restrict or remove one, deprecate it first and name its replacement, such as the
-accessors that replace the `EngineState` fields; the removal waits for a major
-release.
+restrict or remove one, deprecate it first and name its replacement, an accessor
+as for the `EngineState` fields or an adapter as for `ScalarType::rust_type`;
+the removal waits for a major release.
 
 ## Add a scalar type
 
