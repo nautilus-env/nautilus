@@ -1,5 +1,4 @@
-//! Macros for SELECT: the statement body, its ORDER BY clause, and the
-//! projection of a partition-window subquery.
+//! Macros for SELECT: the statement body and its ORDER BY clause.
 
 /// Render the `ORDER BY` clause of a SELECT, prefixed by `$prefix`.
 ///
@@ -69,48 +68,6 @@ macro_rules! render_order_by_clause_mut {
     }};
 }
 
-/// Render the outer projection of a partition-window subquery: the inner select
-/// list referenced by alias, so the row-number column stays internal and the
-/// result keeps exactly the columns an unwindowed render would return.
-macro_rules! render_window_projection_mut {
-    ($ctx:expr, $select:expr, $quote:expr) => {{
-        let mut first = true;
-        for item in $select.items.iter() {
-            if !first {
-                $ctx.sql.push_str(", ");
-            }
-            first = false;
-            match item {
-                nautilus_core::SelectItem::Column(col) => {
-                    crate::ident::push_column_alias(&mut $ctx.sql, col, $quote);
-                }
-                nautilus_core::SelectItem::Computed { alias, .. } => {
-                    crate::ident::push_quoted_identifier(&mut $ctx.sql, alias, $quote);
-                }
-            }
-        }
-        for join in $select.joins.iter() {
-            for item in join.items.iter() {
-                if !first {
-                    $ctx.sql.push_str(", ");
-                }
-                first = false;
-                match item {
-                    nautilus_core::SelectItem::Column(col) => {
-                        crate::ident::push_column_alias(&mut $ctx.sql, col, $quote);
-                    }
-                    nautilus_core::SelectItem::Computed { alias, .. } => {
-                        crate::ident::push_quoted_identifier(&mut $ctx.sql, alias, $quote);
-                    }
-                }
-            }
-        }
-        if first {
-            $ctx.sql.push('*');
-        }
-    }};
-}
-
 /// Render the body of a SELECT: projection, source, joins, filters, grouping,
 /// ordering and paging, including the partition-window rewrite.
 macro_rules! render_select_body_core_mut {
@@ -123,7 +80,7 @@ macro_rules! render_select_body_core_mut {
 
         if partition_window.is_some() {
             $ctx.sql.push_str("SELECT ");
-            $crate::macros::select::render_window_projection_mut!($ctx, $select, $quote);
+            crate::clauses::push_window_projection(&mut $ctx.sql, $select, $quote);
             $ctx.sql.push_str(" FROM (");
         }
 
@@ -342,4 +299,3 @@ macro_rules! render_select_body_core_mut {
 
 pub(crate) use render_order_by_clause_mut;
 pub(crate) use render_select_body_core_mut;
-pub(crate) use render_window_projection_mut;

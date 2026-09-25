@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 #![warn(unreachable_pub)]
 
+mod clauses;
 mod dialect;
 mod expr;
 mod ident;

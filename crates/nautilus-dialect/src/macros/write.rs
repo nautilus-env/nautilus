@@ -1,32 +1,5 @@
 //! Macros for the statements that change rows: INSERT, UPDATE and DELETE, with
-//! the RETURNING, assignment and ON CONFLICT clauses they share.
-
-/// Append `RETURNING col1 AS alias1, ...` when `$returning` is non-empty.
-///
-/// All render paths consume the AST by value (moving bound values out instead of
-/// cloning them), so the rendering macros take `&mut` and are the single source of
-/// truth for SQL generation. The borrowed `Dialect::render_*` entry points simply
-/// clone the AST once and delegate here.
-macro_rules! render_returning_mut {
-    ($ctx:expr, $returning:expr, $quote:expr) => {{
-        if !$returning.is_empty() {
-            $ctx.sql.push_str(" RETURNING ");
-            for (i, col) in $returning.iter().enumerate() {
-                if i > 0 {
-                    $ctx.sql.push_str(", ");
-                }
-                crate::ident::push_qualified_identifier(
-                    &mut $ctx.sql,
-                    &col.table,
-                    &col.name,
-                    $quote,
-                );
-                $ctx.sql.push_str(" AS ");
-                crate::ident::push_column_alias(&mut $ctx.sql, col, $quote);
-            }
-        }
-    }};
-}
+//! the assignment and ON CONFLICT clauses they share.
 
 /// Render the body of an INSERT, including its conflict clause and RETURNING.
 macro_rules! render_insert_body_mut {
@@ -71,7 +44,7 @@ macro_rules! render_insert_body_mut {
         }
 
         if $supports_returning {
-            $crate::macros::write::render_returning_mut!($ctx, $insert.returning, $quote);
+            crate::clauses::push_returning(&mut $ctx.sql, &$insert.returning, $quote);
         }
     }};
 }
@@ -164,7 +137,7 @@ macro_rules! render_update_body_mut {
         }
 
         if $supports_returning {
-            $crate::macros::write::render_returning_mut!($ctx, $update.returning, $quote);
+            crate::clauses::push_returning(&mut $ctx.sql, &$update.returning, $quote);
         }
     }};
 }
@@ -181,7 +154,7 @@ macro_rules! render_delete_body_mut {
         }
 
         if $supports_returning {
-            $crate::macros::write::render_returning_mut!($ctx, $delete.returning, $quote);
+            crate::clauses::push_returning(&mut $ctx.sql, &$delete.returning, $quote);
         }
     }};
 }
@@ -190,5 +163,4 @@ pub(crate) use render_assignment_mut;
 pub(crate) use render_delete_body_mut;
 pub(crate) use render_insert_body_mut;
 pub(crate) use render_on_conflict_body_mut;
-pub(crate) use render_returning_mut;
 pub(crate) use render_update_body_mut;
