@@ -79,7 +79,7 @@ impl EngineState {
         isolation_level: Option<nautilus_protocol::IsolationLevel>,
     ) -> Result<(), ProtocolError> {
         let isolation = isolation_level.map(connector_isolation_level);
-        let tx_client = match &self.client {
+        let tx_client = match self.client() {
             DatabaseClient::Postgres(c) => {
                 let tx_exec = TransactionExecutor::begin_postgres(c.executor().pool(), isolation)
                     .await
@@ -108,7 +108,7 @@ impl EngineState {
         };
 
         self.expired_transactions.lock().await.remove(&id);
-        self.transactions.lock().await.insert(id, active);
+        self.transaction_registry().lock().await.insert(id, active);
         Ok(())
     }
 
@@ -130,7 +130,7 @@ impl EngineState {
         };
 
         self.expired_transactions.lock().await.remove(&id);
-        self.transactions.lock().await.insert(id, active);
+        self.transaction_registry().lock().await.insert(id, active);
     }
 
     /// Remove a previously registered external transaction without committing it.
@@ -138,7 +138,7 @@ impl EngineState {
     /// The caller remains responsible for committing or rolling back the actual
     /// database transaction.
     pub async fn unregister_external_transaction(&self, id: &str) {
-        self.transactions.lock().await.remove(id);
+        self.transaction_registry().lock().await.remove(id);
         self.expired_transactions.lock().await.remove(id);
     }
 
@@ -174,7 +174,7 @@ impl EngineState {
 
     /// Expire (rollback + remove) a timed-out transaction.
     async fn expire_transaction(&self, id: &str) {
-        if let Some(active) = self.transactions.lock().await.remove(id) {
+        if let Some(active) = self.transaction_registry().lock().await.remove(id) {
             self.expire_active_transaction(id, active).await;
         }
     }
@@ -182,7 +182,7 @@ impl EngineState {
     /// Reap all timed-out transactions. Called periodically by the engine.
     pub async fn reap_expired_transactions(&self) {
         let expired: Vec<(String, ActiveTransaction)> = {
-            let mut txs = self.transactions.lock().await;
+            let mut txs = self.transaction_registry().lock().await;
             let expired_ids: Vec<String> = txs
                 .iter()
                 .filter(|(_, tx)| tx.created_at.elapsed() > tx.timeout)
@@ -228,7 +228,7 @@ impl EngineState {
         }
 
         let lookup = {
-            let txs = self.transactions.lock().await;
+            let txs = self.transaction_registry().lock().await;
             match txs.get(id) {
                 Some(active) if active.created_at.elapsed() > active.timeout => {
                     TransactionLookup::TimedOut
@@ -249,7 +249,7 @@ impl EngineState {
     }
 
     async fn take_transaction(&self, id: &str) -> Result<ActiveTransaction, ProtocolError> {
-        match self.transactions.lock().await.remove(id) {
+        match self.transaction_registry().lock().await.remove(id) {
             Some(active) => Ok(active),
             None => Err(self.transaction_lookup_error(id).await),
         }

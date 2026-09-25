@@ -134,7 +134,7 @@ async fn execute_create_many(
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build insert: {}", e)))?;
 
     let sql = state
-        .dialect
+        .dialect()
         .render_insert_owned(insert)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 

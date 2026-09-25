@@ -2,6 +2,7 @@
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
+#![warn(unreachable_pub)]
 
 mod dialect;
 mod expr;

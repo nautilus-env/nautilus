@@ -218,21 +218,23 @@ pub(super) fn build_find_many_plan(
     }
 
     let distinct_fallback =
-        (!distinct.is_empty() && !state.dialect.supports_distinct_on()).then(|| DistinctFallback {
-            columns: distinct
-                .iter()
-                .map(|column| {
-                    format!(
-                        "{}__{}",
-                        model.db_name,
-                        logical_to_db
-                            .get(column.as_str())
-                            .map_or(column.as_str(), String::as_str)
-                    )
-                })
-                .collect(),
-            skip: skip.unwrap_or(0),
-            take,
+        (!distinct.is_empty() && !state.dialect().supports_distinct_on()).then(|| {
+            DistinctFallback {
+                columns: distinct
+                    .iter()
+                    .map(|column| {
+                        format!(
+                            "{}__{}",
+                            model.db_name,
+                            logical_to_db
+                                .get(column.as_str())
+                                .map_or(column.as_str(), String::as_str)
+                        )
+                    })
+                    .collect(),
+                skip: skip.unwrap_or(0),
+                take,
+            }
         });
 
     if distinct_fallback.is_none() {
@@ -273,7 +275,7 @@ pub(super) fn build_find_many_plan(
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build query: {}", e)))?;
 
     let sql = state
-        .dialect
+        .dialect()
         .render_select_owned(select)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 

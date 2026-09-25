@@ -52,7 +52,7 @@ async fn update_rows(
 
     let assignments = update_assignments(state, model, data_obj)?;
 
-    let returns_inline = return_data && state.dialect.supports_returning();
+    let returns_inline = return_data && state.dialect().supports_returning();
 
     let mut builder = Update::table(crate::metadata::model_table(model))
         .with_capacity(UpdateCapacity {
@@ -74,7 +74,7 @@ async fn update_rows(
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build update: {}", e)))?;
 
     let sql = state
-        .dialect
+        .dialect()
         .render_update_owned(update)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 

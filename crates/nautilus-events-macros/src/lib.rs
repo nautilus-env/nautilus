@@ -6,6 +6,8 @@
 //! a handler in silence, `expand` writes the registrations, and `operation`
 //! holds what differs between the six events.
 
+#![warn(unreachable_pub)]
+
 mod args;
 mod expand;
 mod operation;

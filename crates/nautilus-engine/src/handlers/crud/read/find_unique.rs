@@ -76,7 +76,7 @@ fn build_scalar_select(
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build query: {}", e)))?;
 
     let sql = state
-        .dialect
+        .dialect()
         .render_select_owned(select)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 

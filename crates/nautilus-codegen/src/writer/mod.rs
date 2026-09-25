@@ -1,9 +1,8 @@
 //! Turning what a backend generated into the files of a client.
 //!
-//! Each language module lays its output out as a
-//! [`GeneratedPackage`](crate::package::GeneratedPackage) — the paths and
-//! contents of every file, and nothing else — so a client can be generated and
-//! inspected without a directory to put it in. The `write_*_code` entry points
+//! Each language module lays its output out as a `GeneratedPackage` — the
+//! paths and contents of every file, and nothing else — so a client can be
+//! generated and inspected without a directory to put it in. The `write_*_code` entry points
 //! here are that layout followed by one publish, which is the only step that
 //! touches the disk.
 

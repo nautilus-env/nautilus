@@ -23,8 +23,14 @@ generated client runtime.
 
 Keep new implementation modules private or `pub(crate)` and preserve existing
 public paths through their facades. A filesystem module split does not require
-a new public API. Check generated clients and benchmarks before changing an
-existing export, including one hidden from rustdoc.
+a new public API. Every library root warns on `unreachable_pub`, so `pub` marks
+only what the crate exports and making a module public does not expose its
+contents by accident. Benchmarks reach internals through a `#[doc(hidden)]`
+`bench` module, which is not public API. Check generated clients and benchmarks
+before changing an existing export, including one hidden from rustdoc. To
+restrict or remove one, deprecate it first and name its replacement, such as the
+accessors that replace the `EngineState` fields; the removal waits for a major
+release.
 
 ## Add a scalar type
 

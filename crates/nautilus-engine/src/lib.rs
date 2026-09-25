@@ -3,6 +3,7 @@
 //! The binary (`nautilus-engine` / `nautilus engine serve`) is a thin shell over this crate.
 
 #![forbid(unsafe_code)]
+#![warn(unreachable_pub)]
 
 pub mod args;
 pub mod conversion;
@@ -22,6 +23,15 @@ use nautilus_schema::ir::SchemaIr;
 pub use args::CliArgs;
 pub use pool_options::EnginePoolOptions;
 pub use state::EngineState;
+
+/// Include-hydration helpers re-exported for the criterion benches only.
+/// Not part of the public engine API.
+#[doc(hidden)]
+pub mod bench {
+    pub use crate::handlers::crud::include::{
+        build_include_values, group_key, GroupKey, IncludeProjection,
+    };
+}
 
 /// Resolve the schema path, auto-detecting the first `.nautilus` file in the
 /// current working directory when `--schema` is omitted.

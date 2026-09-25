@@ -34,6 +34,7 @@
 //! ```
 
 #![warn(missing_docs)]
+#![warn(unreachable_pub)]
 
 /// Generate `execute_affected` for a pool-backed executor.
 ///

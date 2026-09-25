@@ -33,21 +33,21 @@ pub(crate) struct FieldView<'a> {
 }
 
 impl FieldView<'_> {
-    pub fn logical_name(&self) -> &str {
+    pub(crate) fn logical_name(&self) -> &str {
         &self.field.logical_name
     }
 
-    pub fn snake_name(&self) -> String {
+    pub(crate) fn snake_name(&self) -> String {
         self.field.logical_name.to_snake_case()
     }
 
-    pub fn is_enum(&self) -> bool {
+    pub(crate) fn is_enum(&self) -> bool {
         matches!(self.field.field_type, ResolvedFieldType::Enum { .. })
     }
 
     /// `true` for a single (non-array) column whose value is a JSON-like
     /// object, which the clients must pass through unflattened.
-    pub fn is_object_valued(&self) -> bool {
+    pub(crate) fn is_object_valued(&self) -> bool {
         !self.field.is_array
             && matches!(
                 self.field.field_type,
@@ -59,7 +59,7 @@ impl FieldView<'_> {
 
     /// The scalar type when the field can take part in numeric aggregates
     /// (`_avg` / `_sum`), `None` otherwise.
-    pub fn numeric_scalar(&self) -> Option<&ScalarType> {
+    pub(crate) fn numeric_scalar(&self) -> Option<&ScalarType> {
         match &self.field.field_type {
             ResolvedFieldType::Scalar(
                 scalar @ (ScalarType::Int
@@ -71,15 +71,15 @@ impl FieldView<'_> {
         }
     }
 
-    pub fn is_orderable(&self) -> bool {
+    pub(crate) fn is_orderable(&self) -> bool {
         is_orderable_model_field(self.field)
     }
 
-    pub fn is_database_generated(&self) -> bool {
+    pub(crate) fn is_database_generated(&self) -> bool {
         is_database_generated(self.field)
     }
 
-    pub fn requires_create_value(&self) -> bool {
+    pub(crate) fn requires_create_value(&self) -> bool {
         self.field.is_required
             && self.field.default_value.is_none()
             && !self.field.is_updated_at
@@ -87,7 +87,7 @@ impl FieldView<'_> {
     }
 
     /// Arithmetic updates operate on a numeric value, never on an array.
-    pub fn accepts_arithmetic(&self) -> bool {
+    pub(crate) fn accepts_arithmetic(&self) -> bool {
         !self.field.is_array && self.numeric_scalar().is_some()
     }
 }
@@ -123,25 +123,25 @@ impl RelationView<'_> {
     ///
     /// The two key columns are in `fields_db` and `references_db` like any
     /// other relation; what this adds is the table the links live in.
-    pub fn join(&self) -> Option<&ManyToManyJoinIr> {
+    pub(crate) fn join(&self) -> Option<&ManyToManyJoinIr> {
         self.relation.join.as_ref()
     }
 }
 
 impl<'a> RelationView<'a> {
-    pub fn logical_name(&self) -> &str {
+    pub(crate) fn logical_name(&self) -> &str {
         &self.field.logical_name
     }
 
-    pub fn snake_name(&self) -> String {
+    pub(crate) fn snake_name(&self) -> String {
         self.field.logical_name.to_snake_case()
     }
 
-    pub fn target_model_name(&self) -> &str {
+    pub(crate) fn target_model_name(&self) -> &str {
         &self.relation.target_model
     }
 
-    pub fn is_array(&self) -> bool {
+    pub(crate) fn is_array(&self) -> bool {
         self.field.is_array
     }
 
@@ -149,13 +149,13 @@ impl<'a> RelationView<'a> {
     ///
     /// The owning side has to write the related row before its own, since the
     /// key it stores points at it; the inverse side is the other way round.
-    pub fn is_owning(&self) -> bool {
+    pub(crate) fn is_owning(&self) -> bool {
         !self.relation.fields.is_empty()
     }
 
     /// The resolved target together with this view, for the backends that can
     /// only emit a relation whose target model exists.
-    pub fn resolved_target(&self) -> Option<&'a ModelIr> {
+    pub(crate) fn resolved_target(&self) -> Option<&'a ModelIr> {
         self.target
     }
 }
@@ -170,7 +170,7 @@ pub(crate) struct DottedOrderBy {
 
 impl DottedOrderBy {
     /// The wire form the engine expects: `parent.child`.
-    pub fn path(&self) -> String {
+    pub(crate) fn path(&self) -> String {
         format!("{}.{}", self.parent, self.child)
     }
 }
@@ -201,7 +201,11 @@ pub(crate) struct ModelView<'a> {
 }
 
 impl<'a> ModelView<'a> {
-    pub fn new(model: &'a ModelIr, ir: &'a SchemaIr, extensions: &ExtensionRegistry) -> Self {
+    pub(crate) fn new(
+        model: &'a ModelIr,
+        ir: &'a SchemaIr,
+        extensions: &ExtensionRegistry,
+    ) -> Self {
         let primary_key_fields = model.primary_key.fields();
 
         let mut enum_imports = BTreeSet::new();
@@ -270,27 +274,29 @@ impl<'a> ModelView<'a> {
         }
     }
 
-    pub fn logical_name(&self) -> &str {
+    pub(crate) fn logical_name(&self) -> &str {
         &self.model.logical_name
     }
 
-    pub fn snake_name(&self) -> String {
+    pub(crate) fn snake_name(&self) -> String {
         self.model.logical_name.to_snake_case()
     }
 
-    pub fn db_name(&self) -> &str {
+    pub(crate) fn db_name(&self) -> &str {
         &self.model.db_name
     }
 
     /// The relations whose target model exists in the schema.
-    pub fn resolved_relations(&self) -> impl Iterator<Item = (&RelationView<'a>, &'a ModelIr)> {
+    pub(crate) fn resolved_relations(
+        &self,
+    ) -> impl Iterator<Item = (&RelationView<'a>, &'a ModelIr)> {
         self.relations
             .iter()
             .filter_map(|relation| relation.resolved_target().map(|target| (relation, target)))
     }
 
     /// The extension type modules to import, sorted by module name.
-    pub fn extension_import_views(&self) -> Vec<ExtensionImportView> {
+    pub(crate) fn extension_import_views(&self) -> Vec<ExtensionImportView> {
         self.extension_imports
             .iter()
             .map(|(module, types)| {

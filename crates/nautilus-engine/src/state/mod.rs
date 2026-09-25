@@ -35,15 +35,21 @@ pub struct EngineState {
     /// Cached per-model metadata reused by the hot query paths.
     model_metadata: HashMap<String, ModelMetadata>,
     /// The full validated schema IR.
+    #[deprecated(note = "read it through `EngineState::schema`; the field will become private")]
     pub schema: SchemaIr,
     /// SQL dialect renderer.
+    #[deprecated(note = "read it through `EngineState::dialect`; the field will become private")]
     pub dialect: Arc<dyn Dialect + Send + Sync>,
     /// Database connection (pooled / proxied URL).
+    #[deprecated(note = "read it through `EngineState::client`; the field will become private")]
     pub client: DatabaseClient,
     /// Optional direct connection that bypasses poolers like PgBouncer.
     /// Used for raw SQL queries when `direct_url` is configured in the schema.
     direct_client: Option<DatabaseClient>,
     /// Active interactive transactions, keyed by transaction ID.
+    #[deprecated(
+        note = "open and close transactions through the `EngineState` transaction methods; the registry will become private"
+    )]
     pub transactions: Arc<Mutex<HashMap<String, ActiveTransaction>>>,
     /// Recently expired interactive transactions, kept briefly so late follow-up
     /// calls still report a timeout instead of an unknown transaction.
@@ -138,7 +144,8 @@ impl EngineState {
             None
         };
 
-        Ok(EngineState {
+        #[allow(deprecated)]
+        let state = EngineState {
             model_metadata,
             schema,
             dialect,
@@ -151,12 +158,37 @@ impl EngineState {
             slow_query_threshold: crate::observability::slow_query_threshold(),
             provider,
             metrics: EngineMetrics::default(),
-        })
+        };
+        Ok(state)
+    }
+
+    /// The validated schema this state serves.
+    #[allow(deprecated)]
+    pub fn schema(&self) -> &SchemaIr {
+        &self.schema
+    }
+
+    /// SQL renderer for the connected backend.
+    #[allow(deprecated)]
+    pub fn dialect(&self) -> &(dyn Dialect + Send + Sync) {
+        self.dialect.as_ref()
+    }
+
+    /// The pooled connection that runs statements outside a transaction.
+    #[allow(deprecated)]
+    pub fn client(&self) -> &DatabaseClient {
+        &self.client
+    }
+
+    /// Open interactive transactions, keyed by ID.
+    #[allow(deprecated)]
+    fn transaction_registry(&self) -> &Mutex<HashMap<String, ActiveTransaction>> {
+        &self.transactions
     }
 
     /// Model lookup map (logical name -> IR), borrowed from the schema IR.
     pub fn models(&self) -> &HashMap<String, ModelIr> {
-        &self.schema.models
+        &self.schema().models
     }
 
     /// Read-plan cache shared by hot read paths.
@@ -179,8 +211,8 @@ impl EngineState {
         let snapshot = EngineMetricsResult {
             uptime_seconds: self.metrics.uptime(),
             plan_cache: self.plan_cache.metrics(),
-            pool: self.client.pool_metrics(),
-            active_transactions: self.transactions.lock().await.len(),
+            pool: self.client().pool_metrics(),
+            active_transactions: self.transaction_registry().lock().await.len(),
             methods: self.metrics.method_snapshot(),
         };
         if reset {
@@ -199,7 +231,7 @@ impl EngineState {
     /// composite types (and therefore needs `Value::Composite` binding) rather
     /// than as JSON. Only PostgreSQL supports user-defined composite types.
     pub(crate) fn uses_native_composite_types(&self) -> bool {
-        matches!(self.client, DatabaseClient::Postgres(_))
+        matches!(self.client(), DatabaseClient::Postgres(_))
     }
 
     /// Return cached metadata for a validated model.
@@ -215,13 +247,13 @@ impl EngineState {
         model: &ModelIr,
     ) -> Result<&RelationMap, ProtocolError> {
         self.model_metadata(model)
-            .relation_map(model, &self.schema.models)
+            .relation_map(model, &self.schema().models)
     }
 
     /// Look up a related model together with its cached metadata.
     pub(crate) fn related_model(&self, model_name: &str) -> Option<(&ModelIr, &ModelMetadata)> {
         Some((
-            self.schema.models.get(model_name)?,
+            self.schema().models.get(model_name)?,
             self.model_metadata.get(model_name)?,
         ))
     }

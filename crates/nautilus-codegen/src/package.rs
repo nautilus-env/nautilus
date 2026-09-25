@@ -14,7 +14,7 @@ use crate::GeneratedFile;
 
 /// The files of one generated client, in a deterministic order.
 #[derive(Debug, Default, Clone)]
-pub struct GeneratedPackage {
+pub(crate) struct GeneratedPackage {
     files: Vec<GeneratedFile>,
 }
 
@@ -44,11 +44,6 @@ impl GeneratedPackage {
         }
     }
 
-    /// The files, sorted by path.
-    pub fn files(&self) -> &[GeneratedFile] {
-        &self.files
-    }
-
     /// Order the files by path, so the same schema always lays out the same
     /// package however the backends collected their pieces.
     pub(crate) fn sorted(mut self) -> Self {
@@ -60,7 +55,7 @@ impl GeneratedPackage {
     ///
     /// The tree is built aside and swapped in, so a failure part-way leaves the
     /// previously generated client untouched.
-    pub fn publish(&self, output_path: &str) -> Result<()> {
+    pub(crate) fn publish(&self, output_path: &str) -> Result<()> {
         publish_into(output_path, |directory| self.write_into(directory))
     }
 
@@ -102,8 +97,8 @@ mod tests {
         package.add("models/user.py", "second");
 
         assert_eq!(
-            package.files(),
-            &[("models/user.py".to_string(), "second".to_string())]
+            package.files,
+            [("models/user.py".to_string(), "second".to_string())]
         );
     }
 
@@ -116,7 +111,7 @@ mod tests {
 
         let package = package.sorted();
         let names: Vec<&str> = package
-            .files()
+            .files
             .iter()
             .map(|(name, _)| name.as_str())
             .collect();

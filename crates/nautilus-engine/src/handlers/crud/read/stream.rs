@@ -27,7 +27,7 @@ use crate::state::{connector_to_protocol, EngineState};
 pub(super) fn is_streamable(state: &EngineState, query_args: &QueryArgs) -> bool {
     !query_args.backward
         && query_args.include.is_empty()
-        && (query_args.distinct.is_empty() || state.dialect.supports_distinct_on())
+        && (query_args.distinct.is_empty() || state.dialect().supports_distinct_on())
 }
 
 async fn send_partial(

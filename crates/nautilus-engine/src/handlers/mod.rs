@@ -20,16 +20,11 @@ use tokio::sync::mpsc;
 
 use crate::state::EngineState;
 
-mod crud;
+pub(crate) mod crud;
 mod embedded;
 mod request;
 mod service;
 mod transactions;
-
-/// Pure include-hydration helpers re-exported for the `hydrate_includes`
-/// criterion bench. Not part of the public engine API.
-#[doc(hidden)]
-pub use crud::include::{build_include_values, group_key, GroupKey, IncludeProjection};
 
 pub use embedded::{
     engine_metrics_typed, handle_aggregate_typed, handle_count_typed, handle_create_many_typed,

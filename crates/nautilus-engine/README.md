@@ -33,6 +33,25 @@ nautilus engine serve --migrate
 If `--schema` is omitted, the engine auto-detects the first `.nautilus` file
 in the current directory.
 
+## Embedding it from Rust
+
+The generated Rust client runs the engine in-process through this surface:
+
+- `EngineState::new`, `new_with_pool_options` and `new_with_engine_pool_options`
+  connect to the database; `schema()`, `dialect()`, `client()`, `models()` and
+  `provider()` read what the state was built from.
+- `handlers::handle_request`, `handle_request_inline` and
+  `handle_request_embedded` answer a JSON-RPC request; the `handlers::*_typed`
+  functions take typed parameters and return rows without a JSON round trip.
+- `begin_transaction`, `commit_transaction` and `rollback_transaction` manage
+  an interactive transaction; `register_external_transaction` and
+  `unregister_external_transaction` lend the engine one the caller opened.
+
+The public fields `schema`, `dialect`, `client` and `transactions` are
+deprecated in favour of these methods and will become private. The remaining
+public modules stay public for compatibility, and `bench` exists only for the
+criterion benchmarks.
+
 ## Runtime notes
 
 - `transactionId` is supported on request types that can run inside an open transaction.

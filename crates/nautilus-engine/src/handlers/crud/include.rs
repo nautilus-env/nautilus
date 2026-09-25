@@ -165,7 +165,7 @@ impl IncludeProjection {
 /// Convert a child row into the JSON object attached to its parent, mapping
 /// qualified column aliases back to logical field names and carrying through
 /// any nested `<field>_json` include payloads.
-pub fn row_to_json_value(projection: &IncludeProjection, row: &Row) -> JsonValue {
+pub(crate) fn row_to_json_value(projection: &IncludeProjection, row: &Row) -> JsonValue {
     let mut obj = serde_json::Map::with_capacity(row.len());
     for (alias, logical_name) in &projection.fields {
         if let Some(value) = row.get(alias) {

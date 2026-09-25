@@ -31,6 +31,7 @@
 //! ```
 
 #![forbid(unsafe_code)]
+#![warn(unreachable_pub)]
 
 pub mod error;
 pub mod methods;

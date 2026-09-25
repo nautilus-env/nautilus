@@ -103,12 +103,15 @@ pub(super) fn resolve_order_target(
         )));
     };
 
-    let composite = state.schema.get_composite_type(type_name).ok_or_else(|| {
-        ProtocolError::QueryPlanning(format!(
-            "Composite type '{}' not found while resolving orderBy '{}'",
-            type_name, field_path
-        ))
-    })?;
+    let composite = state
+        .schema()
+        .get_composite_type(type_name)
+        .ok_or_else(|| {
+            ProtocolError::QueryPlanning(format!(
+                "Composite type '{}' not found while resolving orderBy '{}'",
+                type_name, field_path
+            ))
+        })?;
 
     let nested_field = composite
         .fields

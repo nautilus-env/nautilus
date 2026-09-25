@@ -187,7 +187,7 @@ async fn reaping_idle_transactions_rolls_back_uncommitted_changes() {
 async fn registered_external_transaction_exposes_uncommitted_rows_to_engine_queries() {
     let (state, temp_dir) = sqlite_state(schema_source()).await;
 
-    let tx_client = match &state.client {
+    let tx_client = match state.client() {
         DatabaseClient::Sqlite(client) => {
             let sqlx_tx = client
                 .executor()

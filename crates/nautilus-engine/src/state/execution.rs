@@ -22,7 +22,7 @@ impl EngineState {
             if stmt.trim().is_empty() {
                 continue;
             }
-            self.client.execute_raw(stmt).await?;
+            self.client().execute_raw(stmt).await?;
         }
         Ok(())
     }
@@ -48,7 +48,7 @@ impl EngineState {
     ) -> Result<Vec<Row>, ProtocolError> {
         let timer = self.time_statement(sql, context);
         let rows = match tx_id {
-            None => self.client.execute_query(sql, context).await,
+            None => self.client().execute_query(sql, context).await,
             Some(id) => {
                 let tx_client = self.transaction_client_for_request(id).await?;
                 execute_all(tx_client.executor(), sql)
@@ -78,7 +78,7 @@ impl EngineState {
         tx_id: Option<&str>,
     ) -> Result<RowStream<'static>, ProtocolError> {
         match tx_id {
-            None => Ok(self.client.execute_query_stream(sql)),
+            None => Ok(self.client().execute_query_stream(sql)),
             Some(id) => {
                 let tx_client = self.transaction_client_for_request(id).await?;
                 Ok(tx_client.executor().execute_owned(sql))
@@ -110,7 +110,7 @@ impl EngineState {
             }
             None => match &self.direct_client {
                 Some(direct) => direct.execute_query_unprepared(sql, context).await,
-                None => self.client.execute_query_unprepared(sql, context).await,
+                None => self.client().execute_query_unprepared(sql, context).await,
             },
         };
         timer.finish();
@@ -129,7 +129,7 @@ impl EngineState {
     ) -> Result<usize, ProtocolError> {
         let timer = self.time_statement(sql, context);
         let affected = match tx_id {
-            None => self.client.execute_affected(sql, context).await,
+            None => self.client().execute_affected(sql, context).await,
             Some(id) => {
                 let tx_client = self.transaction_client_for_request(id).await?;
                 tx_client

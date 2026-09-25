@@ -34,7 +34,7 @@ pub(in crate::handlers::crud) async fn execute_delete(
         metadata.logical_to_db(),
     )?;
 
-    let returns_inline = params.return_data && state.dialect.supports_returning();
+    let returns_inline = params.return_data && state.dialect().supports_returning();
 
     let mut builder =
         Delete::from_table(crate::metadata::model_table(model)).with_capacity(DeleteCapacity {
@@ -53,7 +53,7 @@ pub(in crate::handlers::crud) async fn execute_delete(
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build delete: {}", e)))?;
 
     let sql = state
-        .dialect
+        .dialect()
         .render_delete_owned(delete)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 

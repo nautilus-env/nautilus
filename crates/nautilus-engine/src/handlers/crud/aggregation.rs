@@ -206,7 +206,7 @@ pub(super) async fn execute_group_by_rows(
             .map(|value| value as u32),
     })?;
 
-    let sql = state.dialect.render_select_owned(select).map_err(|e| {
+    let sql = state.dialect().render_select_owned(select).map_err(|e| {
         ProtocolError::QueryPlanning(format!("Failed to render groupBy query: {}", e))
     })?;
 
@@ -572,7 +572,7 @@ async fn execute_aggregate_rows(
         skip: None,
     })?;
 
-    let sql = state.dialect.render_select_owned(select).map_err(|e| {
+    let sql = state.dialect().render_select_owned(select).map_err(|e| {
         ProtocolError::QueryPlanning(format!("Failed to render aggregate query: {}", e))
     })?;
 

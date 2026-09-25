@@ -118,7 +118,7 @@ async fn execute_upsert(
         update_assignments(state, model, update_obj)?
     };
 
-    let returns_inline = params.return_data && state.dialect.supports_returning();
+    let returns_inline = params.return_data && state.dialect().supports_returning();
 
     let mut builder = Insert::into_table(crate::metadata::model_table(model))
         .with_capacity(InsertCapacity {
@@ -144,7 +144,7 @@ async fn execute_upsert(
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build upsert: {}", e)))?;
 
     let sql = state
-        .dialect
+        .dialect()
         .render_insert_owned(insert)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 

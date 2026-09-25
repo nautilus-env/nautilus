@@ -7,7 +7,7 @@
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 
 /// Read `MYSQL_URL`, falling back to the local test instance's root credentials.
-pub fn database_url() -> String {
+pub(crate) fn database_url() -> String {
     std::env::var("MYSQL_URL")
         .unwrap_or_else(|_| "mysql://root:nautilus_root@localhost/nautilus_test".to_string())
 }
@@ -16,7 +16,7 @@ pub fn database_url() -> String {
 ///
 /// This changes server instrumentation settings and panics if access is missing;
 /// isolation tests must run against a dedicated instance.
-pub async fn observer() -> MySqlPool {
+pub(crate) async fn observer() -> MySqlPool {
     let pool = MySqlPoolOptions::new()
         .max_connections(1)
         .connect(&database_url())
@@ -36,7 +36,7 @@ pub async fn observer() -> MySqlPool {
 /// Read the server connection ID to detect physical connection reuse.
 ///
 /// Callers use a pool limited to one connection and release transactions first.
-pub async fn connection_id(pool: &MySqlPool) -> u64 {
+pub(crate) async fn connection_id(pool: &MySqlPool) -> u64 {
     sqlx::query_scalar("SELECT CONNECTION_ID()")
         .fetch_one(pool)
         .await
@@ -47,7 +47,7 @@ pub async fn connection_id(pool: &MySqlPool) -> u64 {
 ///
 /// Reads transaction instrumentation because `@@session.transaction_isolation`
 /// does not expose an override that applies only to the next transaction.
-pub async fn assert_level(observer: &MySqlPool, connection_id: u64, expected: &str) {
+pub(crate) async fn assert_level(observer: &MySqlPool, connection_id: u64, expected: &str) {
     let actual: String = sqlx::query_scalar(
         "SELECT e.ISOLATION_LEVEL FROM performance_schema.events_transactions_current e \
          JOIN performance_schema.threads t ON t.THREAD_ID = e.THREAD_ID \

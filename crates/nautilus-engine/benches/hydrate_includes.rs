@@ -10,7 +10,7 @@ use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use nautilus_connector::Row;
 use nautilus_core::Value;
-use nautilus_engine::handlers::{build_include_values, group_key, GroupKey, IncludeProjection};
+use nautilus_engine::bench::{build_include_values, group_key, GroupKey, IncludeProjection};
 
 /// Child rows shaped like a typical 4-column relation target, `children` rows
 /// per parent, FK pointing back at the parent index.

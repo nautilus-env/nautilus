@@ -68,7 +68,7 @@ async fn execute_count_params(
             ProtocolError::QueryPlanning(format!("Failed to build inner count query: {}", e))
         })?;
         let inner_rendered = state
-            .dialect
+            .dialect()
             .render_select_owned(inner_built)
             .map_err(|e| {
                 ProtocolError::QueryPlanning(format!("Failed to render inner count query: {}", e))
@@ -93,7 +93,7 @@ async fn execute_count_params(
         let select = builder.build().map_err(|e| {
             ProtocolError::QueryPlanning(format!("Failed to build count query: {}", e))
         })?;
-        state.dialect.render_select_owned(select).map_err(|e| {
+        state.dialect().render_select_owned(select).map_err(|e| {
             ProtocolError::QueryPlanning(format!("Failed to render count query: {}", e))
         })?
     };

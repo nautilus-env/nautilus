@@ -39,7 +39,7 @@ model Probe {
     )
     .await
     .unwrap();
-    let DatabaseClient::Mysql(client) = &state.client else {
+    let DatabaseClient::Mysql(client) = state.client() else {
         panic!("expected MySQL client");
     };
     let pool = client.executor().pool();

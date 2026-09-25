@@ -2,6 +2,7 @@
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
+#![warn(unreachable_pub)]
 
 /// Structured argument objects for the query API.
 pub mod args;

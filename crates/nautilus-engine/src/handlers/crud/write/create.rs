@@ -39,7 +39,7 @@ async fn insert_row(
 
     let (columns, values) = insert_columns(state, model, data_obj)?;
 
-    let returns_inline = return_data && state.dialect.supports_returning();
+    let returns_inline = return_data && state.dialect().supports_returning();
 
     let mut builder = Insert::into_table(crate::metadata::model_table(model))
         .with_capacity(InsertCapacity {
@@ -58,7 +58,7 @@ async fn insert_row(
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to build insert: {}", e)))?;
 
     let sql = state
-        .dialect
+        .dialect()
         .render_insert_owned(insert)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 

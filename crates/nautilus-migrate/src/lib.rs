@@ -10,6 +10,7 @@
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+#![warn(unreachable_pub)]
 
 mod applier;
 mod apply;

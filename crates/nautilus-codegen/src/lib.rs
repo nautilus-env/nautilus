@@ -11,6 +11,7 @@
 //! installs anything by itself.
 
 #![forbid(unsafe_code)]
+#![warn(unreachable_pub)]
 
 pub mod backend;
 mod client;
@@ -23,7 +24,7 @@ pub mod java;
 pub mod js;
 mod load;
 pub(crate) mod model_view;
-pub mod package;
+pub(crate) mod package;
 pub(crate) mod publish;
 pub mod python;
 mod report;
