@@ -68,22 +68,13 @@ impl MigrationExecutor {
 
     /// Apply a migration (run "up" direction).
     ///
-    /// A failure part-way through leaves the earlier phases committed, so the
-    /// error is [`MigrationError::PartiallyApplied`] rather than a plain
-    /// database error. Use [`Self::apply_migration_reporting`] to inspect the
-    /// same run as an [`ApplyOutcome`].
+    /// A failure that leaves earlier phases committed is
+    /// [`MigrationError::PartiallyApplied`]; one that kept nothing is a plain
+    /// [`MigrationError::Database`]. Use [`Self::apply_migration_reporting`] to
+    /// inspect the same run as an [`ApplyOutcome`].
     pub async fn apply_migration(&self, migration: &Migration) -> Result<()> {
         let outcome = self.apply_migration_reporting(migration).await?;
-        match outcome.failure {
-            None => Ok(()),
-            Some(failure) => Err(MigrationError::PartiallyApplied {
-                name: migration.name.clone(),
-                statement: failure.statement,
-                message: failure.message,
-                committed: outcome.committed,
-                total: migration.up_sql.len(),
-            }),
-        }
+        stopped_run_error(&migration.name, migration.up_sql.len(), outcome)
     }
 
     /// Apply a migration and report what the database kept.
@@ -127,6 +118,7 @@ impl MigrationExecutor {
     ///
     /// Down statements are phased like up statements, so a failure part-way
     /// leaves the earlier phases committed and the migration still recorded.
+    /// The errors follow [`Self::apply_migration`].
     pub async fn rollback_migration(&self, migration: &Migration) -> Result<()> {
         if !self.tracker.is_applied(&migration.name).await? {
             return Err(MigrationError::NotFound(format!(
@@ -136,15 +128,7 @@ impl MigrationExecutor {
         }
 
         let outcome = self.run_phases(&migration.down_sql).await?;
-        if let Some(failure) = outcome.failure {
-            return Err(MigrationError::PartiallyApplied {
-                name: migration.name.clone(),
-                statement: failure.statement,
-                message: failure.message,
-                committed: outcome.committed,
-                total: migration.down_sql.len(),
-            });
-        }
+        stopped_run_error(&migration.name, migration.down_sql.len(), outcome)?;
 
         let mut tx = self.begin().await?;
         self.tracker
@@ -240,7 +224,7 @@ impl MigrationExecutor {
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Any>,
         sql: &str,
-    ) -> Result<()> {
+    ) -> sqlx::Result<()> {
         if is_comment_only(sql) {
             return Ok(());
         }
@@ -253,7 +237,7 @@ impl MigrationExecutor {
     }
 
     /// Execute a SQL statement on its own connection, outside any transaction.
-    async fn execute_sql(&self, sql: &str) -> Result<()> {
+    async fn execute_sql(&self, sql: &str) -> sqlx::Result<()> {
         if is_comment_only(sql) {
             return Ok(());
         }
@@ -263,6 +247,32 @@ impl MigrationExecutor {
             .execute(self.pool.as_ref())
             .await?;
         Ok(())
+    }
+}
+
+/// The error for a run of `total` statements that stopped, or `Ok` when it
+/// ran to the end.
+///
+/// Only a run that left statements committed is `PartiallyApplied`; one that
+/// kept nothing left the database as it found it.
+fn stopped_run_error(name: &str, total: usize, outcome: ApplyOutcome) -> Result<()> {
+    let partial = outcome.left_partial_state();
+    let Some(failure) = outcome.failure else {
+        return Ok(());
+    };
+    if partial {
+        Err(MigrationError::PartiallyApplied {
+            name: name.to_string(),
+            statement: failure.statement,
+            message: failure.message,
+            committed: outcome.committed,
+            total,
+        })
+    } else {
+        Err(MigrationError::Database(format!(
+            "Migration '{name}' stopped on `{}`: {}. No statement was committed",
+            failure.statement, failure.message
+        )))
     }
 }
 
@@ -372,6 +382,35 @@ model Post {
             "Postgres down drops should use CASCADE: {:?}",
             migration.down_sql
         );
+    }
+
+    #[test]
+    fn only_a_stop_that_kept_statements_is_partially_applied() {
+        let failure = || ApplyFailure {
+            statement: "CREATE TABLE \"b\" (id no_such_type)".to_string(),
+            message: "type \"no_such_type\" does not exist".to_string(),
+        };
+
+        assert!(stopped_run_error("m", 3, ApplyOutcome::committed_all(3)).is_ok());
+
+        let rolled_back = ApplyOutcome::stopped(3, 0, 1, DatabaseProvider::Postgres, failure());
+        assert!(matches!(
+            stopped_run_error("m", 3, rolled_back),
+            Err(MigrationError::Database(_))
+        ));
+
+        let after_phase = ApplyOutcome::stopped(3, 1, 1, DatabaseProvider::Postgres, failure());
+        let implicit_commit = ApplyOutcome::stopped(3, 0, 1, DatabaseProvider::Mysql, failure());
+        for outcome in [after_phase, implicit_commit] {
+            assert!(matches!(
+                stopped_run_error("m", 3, outcome),
+                Err(MigrationError::PartiallyApplied {
+                    committed: 1,
+                    total: 3,
+                    ..
+                })
+            ));
+        }
     }
 
     #[tokio::test]

@@ -338,7 +338,10 @@ transaction block on PostgreSQL, and MySQL commits implicitly before and after m
 a statement that fails rolls back at most the phase it belongs to. When that happens the
 migration is left unrecorded while its committed statements stay in the database, and
 `apply_migration` returns `MigrationError::PartiallyApplied` naming the failing statement and
-how many statements are durable. `apply_migration_reporting` returns the same run as an
+how many statements are durable. A failure that kept nothing, such as one inside the only
+transaction of a PostgreSQL or SQLite migration, leaves the database as it was and is a plain
+`MigrationError::Database` naming the statement. `rollback_migration` reports the same way,
+with the migration still recorded. `apply_migration_reporting` returns the run as an
 `ApplyOutcome` for callers that want the counts rather than an error.
 
 After applying the example migration above the table contains:

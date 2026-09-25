@@ -1,17 +1,18 @@
 //! Real-database checks that a failure after a committed statement is reported
-//! as a part-way stop, not as a full rollback.
+//! as a part-way stop, not as a full rollback, and that a failure which kept
+//! nothing is not reported as a part-way stop.
 //!
-//! The two providers reach that state differently: PostgreSQL needs a phase
-//! boundary, because `ALTER TYPE ... ADD VALUE` cannot share a transaction,
-//! while MySQL commits implicitly around DDL so the very first statement of a
-//! transaction is already durable.
+//! The two providers reach the part-way state differently: PostgreSQL needs a
+//! phase boundary, because `ALTER TYPE ... ADD VALUE` cannot share a
+//! transaction, while MySQL commits implicitly around DDL so the very first
+//! statement of a transaction is already durable.
 
 mod common;
 
 use nautilus_core::TableName;
 use nautilus_migrate::{
     ApplyPlan, Change, DatabaseProvider, DdlGenerator, DiffApplier, LiveSchema, Migration,
-    MigrationExecutor,
+    MigrationError, MigrationExecutor,
 };
 use sqlx::{AnyPool, Row};
 
@@ -107,6 +108,84 @@ fn generated_failure_plan(
             .map(|c| applier.plan_for(c).unwrap())
             .collect(),
     )
+}
+
+#[tokio::test]
+async fn sqlite_reports_a_rolled_back_failure_as_a_database_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = format!(
+        "sqlite:{}?mode=rwc",
+        dir.path()
+            .join("phases.db")
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/")
+    );
+    let pool = connect(&url).await.expect("SQLite opens a file database");
+    let executor = MigrationExecutor::new(pool.clone(), DatabaseProvider::Sqlite);
+    executor.init().await.unwrap();
+
+    let failing_up = Migration::new(
+        "001_failing_up".to_string(),
+        vec![
+            "CREATE TABLE \"kept\" (id INTEGER PRIMARY KEY)".to_string(),
+            "INSERT INTO \"missing\" VALUES (1)".to_string(),
+        ],
+        vec![],
+    );
+    match executor.apply_migration(&failing_up).await {
+        Err(error @ MigrationError::Database(_)) => {
+            let message = error.to_string();
+            assert!(
+                message.starts_with("Database error: Migration '001_failing_up' stopped on `INSERT INTO \"missing\" VALUES (1)`: error returned from database: ")
+                    && message.ends_with(". No statement was committed"),
+                "{message}"
+            );
+        }
+        other => panic!("nothing was kept, so this is not a part-way stop: {other:?}"),
+    }
+    let recorded = executor
+        .migration_status(std::slice::from_ref(&failing_up))
+        .await
+        .unwrap();
+    assert!(!recorded[0].1, "a failed migration is not recorded");
+    assert!(!sqlite_table_exists(&pool, "kept").await);
+
+    let failing_down = Migration::new(
+        "002_failing_down".to_string(),
+        vec!["CREATE TABLE \"kept\" (id INTEGER PRIMARY KEY)".to_string()],
+        vec![
+            "DROP TABLE \"kept\"".to_string(),
+            "DROP TABLE \"missing\"".to_string(),
+        ],
+    );
+    executor.apply_migration(&failing_down).await.unwrap();
+    assert!(matches!(
+        executor.rollback_migration(&failing_down).await,
+        Err(MigrationError::Database(_))
+    ));
+    let recorded = executor
+        .migration_status(std::slice::from_ref(&failing_down))
+        .await
+        .unwrap();
+    assert!(
+        recorded[0].1,
+        "a failed rollback leaves the migration recorded"
+    );
+    assert!(sqlite_table_exists(&pool, "kept").await);
+
+    pool.close().await;
+}
+
+async fn sqlite_table_exists(pool: &AnyPool, name: &str) -> bool {
+    let count: i64 = sqlx::query("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = ?")
+        .bind(name)
+        .persistent(false)
+        .fetch_one(pool)
+        .await
+        .expect("existence probe")
+        .try_get("n")
+        .expect("existence probe returns a count");
+    count > 0
 }
 
 #[tokio::test]
