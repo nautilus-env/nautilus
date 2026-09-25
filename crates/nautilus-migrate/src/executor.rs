@@ -68,9 +68,10 @@ impl MigrationExecutor {
 
     /// Apply a migration (run "up" direction).
     ///
-    /// A failure that leaves earlier phases committed is
-    /// [`MigrationError::PartiallyApplied`]; one that kept nothing is a plain
-    /// [`MigrationError::Database`]. Use [`Self::apply_migration_reporting`] to
+    /// A failure is a [`MigrationError::Database`] naming the statement that
+    /// stopped the run. When earlier phases stayed committed, the message says
+    /// how many statements the database kept, since it then holds neither the
+    /// old schema nor the new one. Use [`Self::apply_migration_reporting`] to
     /// inspect the same run as an [`ApplyOutcome`].
     pub async fn apply_migration(&self, migration: &Migration) -> Result<()> {
         let outcome = self.apply_migration_reporting(migration).await?;
@@ -253,27 +254,27 @@ impl MigrationExecutor {
 /// The error for a run of `total` statements that stopped, or `Ok` when it
 /// ran to the end.
 ///
-/// Only a run that left statements committed is `PartiallyApplied`; one that
-/// kept nothing left the database as it found it.
+/// The message tells a run that left statements committed, which has to be
+/// reconciled before it is retried, from one that left the database as it
+/// found it.
 fn stopped_run_error(name: &str, total: usize, outcome: ApplyOutcome) -> Result<()> {
     let partial = outcome.left_partial_state();
     let Some(failure) = outcome.failure else {
         return Ok(());
     };
-    if partial {
-        Err(MigrationError::PartiallyApplied {
-            name: name.to_string(),
-            statement: failure.statement,
-            message: failure.message,
-            committed: outcome.committed,
-            total,
-        })
+    let kept = if partial {
+        format!(
+            "{} of {total} statement(s) are committed and were not rolled back; \
+             reconcile the database before retrying",
+            outcome.committed
+        )
     } else {
-        Err(MigrationError::Database(format!(
-            "Migration '{name}' stopped on `{}`: {}. No statement was committed",
-            failure.statement, failure.message
-        )))
-    }
+        "No statement was committed".to_string()
+    };
+    Err(MigrationError::Database(format!(
+        "Migration '{name}' stopped on `{}`: {}. {kept}",
+        failure.statement, failure.message
+    )))
 }
 
 /// Commit `tx`, turning a driver failure into a [`MigrationError`].
@@ -385,31 +386,34 @@ model Post {
     }
 
     #[test]
-    fn only_a_stop_that_kept_statements_is_partially_applied() {
+    fn a_stopped_run_says_whether_the_database_kept_part_of_it() {
         let failure = || ApplyFailure {
             statement: "CREATE TABLE \"b\" (id no_such_type)".to_string(),
             message: "type \"no_such_type\" does not exist".to_string(),
+        };
+        let message = |outcome| match stopped_run_error("m", 3, outcome) {
+            Err(MigrationError::Database(message)) => message,
+            other => panic!("a stopped run is a database error: {other:?}"),
         };
 
         assert!(stopped_run_error("m", 3, ApplyOutcome::committed_all(3)).is_ok());
 
         let rolled_back = ApplyOutcome::stopped(3, 0, 1, DatabaseProvider::Postgres, failure());
-        assert!(matches!(
-            stopped_run_error("m", 3, rolled_back),
-            Err(MigrationError::Database(_))
-        ));
+        assert_eq!(
+            message(rolled_back),
+            "Migration 'm' stopped on `CREATE TABLE \"b\" (id no_such_type)`: \
+             type \"no_such_type\" does not exist. No statement was committed"
+        );
 
         let after_phase = ApplyOutcome::stopped(3, 1, 1, DatabaseProvider::Postgres, failure());
         let implicit_commit = ApplyOutcome::stopped(3, 0, 1, DatabaseProvider::Mysql, failure());
         for outcome in [after_phase, implicit_commit] {
-            assert!(matches!(
-                stopped_run_error("m", 3, outcome),
-                Err(MigrationError::PartiallyApplied {
-                    committed: 1,
-                    total: 3,
-                    ..
-                })
-            ));
+            assert_eq!(
+                message(outcome),
+                "Migration 'm' stopped on `CREATE TABLE \"b\" (id no_such_type)`: \
+                 type \"no_such_type\" does not exist. 1 of 3 statement(s) are committed \
+                 and were not rolled back; reconcile the database before retrying"
+            );
         }
     }
 

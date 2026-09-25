@@ -336,13 +336,14 @@ CREATE TABLE IF NOT EXISTS _nautilus_migrations (
 A migration is **not** one atomic unit. `ALTER TYPE ... ADD VALUE` cannot run inside a
 transaction block on PostgreSQL, and MySQL commits implicitly before and after most DDL, so
 a statement that fails rolls back at most the phase it belongs to. When that happens the
-migration is left unrecorded while its committed statements stay in the database, and
-`apply_migration` returns `MigrationError::PartiallyApplied` naming the failing statement and
-how many statements are durable. A failure that kept nothing, such as one inside the only
-transaction of a PostgreSQL or SQLite migration, leaves the database as it was and is a plain
-`MigrationError::Database` naming the statement. `rollback_migration` reports the same way,
-with the migration still recorded. `apply_migration_reporting` returns the run as an
-`ApplyOutcome` for callers that want the counts rather than an error.
+migration is left unrecorded while its committed statements stay in the database.
+`apply_migration` returns a `MigrationError::Database` naming the failing statement, whose
+message says how many statements are durable and asks to reconcile the database before
+retrying. A failure that kept nothing, such as one inside the only transaction of a PostgreSQL
+or SQLite migration, leaves the database as it was, and the message says no statement was
+committed. `rollback_migration` reports the same way, with the migration still recorded.
+Callers that need to tell the two apart in code use `apply_migration_reporting`, which returns
+the run as an `ApplyOutcome` with the counts and `left_partial_state()`.
 
 After applying the example migration above the table contains:
 
