@@ -412,3 +412,33 @@ async fn find_many_typed_caches_parametric_plans_per_shape() {
     drop(state);
     drop(temp_dir);
 }
+
+#[tokio::test]
+async fn slow_statement_records_name_the_request_that_ran_them() {
+    let (mut state, _dir) = sqlite_state(schema_source()).await;
+    state.slow_query_threshold = Some(Duration::ZERO);
+
+    let logs = crate::observability::tests::CapturedLog::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(logs.clone())
+        .with_ansi(false)
+        .with_env_filter(tracing_subscriber::EnvFilter::new("nautilus_engine=info"))
+        .finish();
+    let _subscriber = tracing::subscriber::set_default(subscriber);
+
+    let request = serde_json::from_str(
+        r#"{"jsonrpc":"2.0","id":7,"method":"query.rawQuery","params":{"protocolVersion":1,"sql":"SELECT 1 AS one"}}"#,
+    )
+    .expect("valid request");
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let response = crate::handlers::handle_request(&state, request, tx).await;
+    assert!(response.error.is_none(), "{:?}", response.error);
+
+    let log = logs.contents();
+    assert!(
+        log.contains(
+            "request{id=7 method=query.rawQuery}: nautilus_engine::slow_query: slow statement"
+        ),
+        "{log}"
+    );
+}

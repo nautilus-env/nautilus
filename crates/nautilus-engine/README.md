@@ -116,6 +116,15 @@ JSON-RPC stream.
 | `NAUTILUS_LOG` | `tracing` filter directives, e.g. `nautilus_engine=debug`. Falls back to `RUST_LOG`; defaults to `nautilus_engine=info` |
 | `NAUTILUS_SLOW_QUERY_MS` | Logs every statement running past this many milliseconds, with its SQL text and duration, on target `nautilus_engine::slow_query`. Unset or `0` disables it |
 
+While `NAUTILUS_SLOW_QUERY_MS` is set, each request read from stdin runs in a
+`request` span carrying its JSON-RPC `id` and `method`, so a slow-statement
+record names the request that ran it:
+`request{id=7 method=query.findMany}: nautilus_engine::slow_query: slow statement ...`.
+Requests are answered concurrently and many of them share a statement text, so
+the SQL alone does not say which one was slow. The span is not built while the
+variable is unset, which keeps its cost, about half a microsecond per request,
+off the default path.
+
 Per-request transaction lifecycle events are logged at `debug`, so
 `NAUTILUS_LOG=nautilus_engine=debug` traces transaction start, commit and
 rollback.

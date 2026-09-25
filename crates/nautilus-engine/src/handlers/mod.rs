@@ -9,7 +9,7 @@
 
 use nautilus_protocol::wire::{err, ok};
 use nautilus_protocol::{
-    ProtocolError, RpcError, RpcRequest, RpcResponse, ENGINE_HANDSHAKE, ENGINE_METRICS,
+    ProtocolError, RpcError, RpcId, RpcRequest, RpcResponse, ENGINE_HANDSHAKE, ENGINE_METRICS,
     QUERY_AGGREGATE, QUERY_COUNT, QUERY_CREATE, QUERY_CREATE_MANY, QUERY_DELETE, QUERY_DELETE_MANY,
     QUERY_EXPLAIN, QUERY_FIND_FIRST, QUERY_FIND_FIRST_OR_THROW, QUERY_FIND_MANY, QUERY_FIND_UNIQUE,
     QUERY_FIND_UNIQUE_OR_THROW, QUERY_GROUP_BY, QUERY_RAW, QUERY_RAW_STMT, QUERY_UPDATE,
@@ -17,6 +17,7 @@ use nautilus_protocol::{
     TRANSACTION_ROLLBACK, TRANSACTION_START,
 };
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 use crate::state::EngineState;
 
@@ -44,7 +45,27 @@ pub(super) use request::build_field_type_map;
 ///
 /// `tx` is the response channel — forwarded to `handle_find_many` so that it can
 /// emit partial (chunked) responses before returning the final chunk.
+///
+/// While slow-statement logging is on, the request runs in a `request` span
+/// carrying its JSON-RPC id and method. The transport answers requests
+/// concurrently and many of them render the same statement text, so the span
+/// is what ties a slow-statement record to the request that ran it. With the
+/// logging off there is nothing to attribute and no span is built, which keeps
+/// its cost off the default path.
 pub async fn handle_request(
+    state: &EngineState,
+    request: RpcRequest,
+    tx: mpsc::Sender<RpcResponse>,
+) -> RpcResponse {
+    let span = if state.logs_slow_statements() {
+        tracing::info_span!("request", id = %WireId(&request.id), method = %request.method)
+    } else {
+        tracing::Span::none()
+    };
+    answer_request(state, request, tx).instrument(span).await
+}
+
+async fn answer_request(
     state: &EngineState,
     request: RpcRequest,
     tx: mpsc::Sender<RpcResponse>,
@@ -68,6 +89,19 @@ pub async fn handle_request(
 pub async fn handle_request_inline(state: &EngineState, request: RpcRequest) -> RpcResponse {
     let id = request.id.clone();
     response_from_result(id, dispatch(state, request).await)
+}
+
+/// A request id as the client wrote it, for log fields.
+struct WireId<'a>(&'a Option<RpcId>);
+
+impl std::fmt::Display for WireId<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(RpcId::Number(n)) => write!(f, "{n}"),
+            Some(RpcId::String(s)) => write!(f, "{s:?}"),
+            Some(RpcId::Null) | None => f.write_str("null"),
+        }
+    }
 }
 
 fn response_from_result(

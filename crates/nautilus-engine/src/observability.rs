@@ -115,7 +115,7 @@ impl<'a> StatementTimer<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::Write;
     use std::sync::{Arc, Mutex};
@@ -123,10 +123,10 @@ mod tests {
 
     /// Writer that keeps emitted log lines in memory for assertions.
     #[derive(Clone, Default)]
-    struct CapturedLog(Arc<Mutex<Vec<u8>>>);
+    pub(crate) struct CapturedLog(Arc<Mutex<Vec<u8>>>);
 
     impl CapturedLog {
-        fn contents(&self) -> String {
+        pub(crate) fn contents(&self) -> String {
             String::from_utf8(self.0.lock().expect("log buffer").clone()).expect("utf-8 log")
         }
     }

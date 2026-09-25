@@ -222,6 +222,12 @@ impl EngineState {
         snapshot
     }
 
+    /// Whether executed statements are timed against a slow-statement
+    /// threshold, set through `NAUTILUS_SLOW_QUERY_MS`.
+    pub(crate) fn logs_slow_statements(&self) -> bool {
+        self.slow_query_threshold.is_some()
+    }
+
     /// Upper bound on requests the transport handles concurrently.
     pub fn max_concurrent_requests(&self) -> usize {
         self.max_concurrent_requests
