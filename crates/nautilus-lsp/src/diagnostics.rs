@@ -4,18 +4,32 @@
 //! produces diagnostics for several files. Which files an open document last
 //! spoke for is remembered, so that a file dropping out of a schema — or the
 //! document closing — has its squiggles cleared instead of left behind.
+//!
+//! Sending suspends while the client catches up, and meanwhile newer edits are
+//! analysed. Sends therefore take turns in the order their analyses were
+//! stored, and an analysis a newer one has replaced is dropped when its turn
+//! comes, so a client never receives an older text's diagnostics after a newer
+//! one's.
 
 use dashmap::DashMap;
-use tower_lsp::lsp_types::Url;
+use tokio::sync::Mutex;
+use tower_lsp::lsp_types::{Diagnostic, Url};
 use tower_lsp::Client;
 
 use crate::convert::nautilus_diagnostic_to_lsp_with_index;
 use crate::document::DocumentState;
+use crate::documents::Documents;
+
+/// The diagnostics for one file and the version of its text they describe.
+pub(crate) type Batch = (Url, Vec<Diagnostic>, Option<i32>);
 
 pub(crate) struct Diagnostics {
     client: Client,
     /// Files each open document last published diagnostics for.
     published: DashMap<Url, Vec<Url>>,
+    /// Held while one analysis is sent or a document is cleared. The lock is
+    /// fair, so turns follow the order in which they were asked for.
+    sending: Mutex<()>,
 }
 
 impl Diagnostics {
@@ -23,12 +37,15 @@ impl Diagnostics {
         Self {
             client,
             published: DashMap::new(),
+            sending: Mutex::new(()),
         }
     }
 
-    /// Publish the diagnostics of `state`, one batch per file of its schema.
-    pub(crate) async fn publish(&self, uri: &Url, state: &DocumentState) {
-        let batches = match &state.workspace {
+    /// The diagnostics of `state`, one batch per file of its schema, each with
+    /// the version of the text it was computed from: the analysed document's
+    /// own, or the version `documents` holds for another open file.
+    pub(crate) fn batches(uri: &Url, state: &DocumentState, documents: &Documents) -> Vec<Batch> {
+        let per_file = match &state.workspace {
             Some(workspace) => workspace.diagnostics(),
             None => {
                 let diagnostics = state
@@ -42,11 +59,40 @@ impl Diagnostics {
                 vec![(uri.clone(), diagnostics)]
             }
         };
+        per_file
+            .into_iter()
+            .map(|(target, diagnostics)| {
+                let version = if target == *uri {
+                    state.version
+                } else {
+                    documents.version(&target)
+                };
+                (target, diagnostics, version)
+            })
+            .collect()
+    }
 
-        let covered: Vec<Url> = batches.iter().map(|(uri, _)| uri.clone()).collect();
-        for (target, diagnostics) in batches {
+    /// Publish the `batches` the analysis of `uri` stored as `generation`
+    /// produced.
+    ///
+    /// Nothing is sent when a later analysis of `uri` has been stored, or the
+    /// document closed, before this one's turn.
+    pub(crate) async fn publish(
+        &self,
+        uri: &Url,
+        generation: u64,
+        batches: Vec<Batch>,
+        documents: &Documents,
+    ) {
+        let _turn = self.sending.lock().await;
+        if !documents.is_latest(uri, generation) {
+            return;
+        }
+
+        let covered: Vec<Url> = batches.iter().map(|(uri, _, _)| uri.clone()).collect();
+        for (target, diagnostics, version) in batches {
             self.client
-                .publish_diagnostics(target, diagnostics, None)
+                .publish_diagnostics(target, diagnostics, version)
                 .await;
         }
 
@@ -61,6 +107,7 @@ impl Diagnostics {
     /// Clear everything a closing document was speaking for, keeping the files
     /// another open document still reports on.
     pub(crate) async fn clear(&self, uri: &Url) {
+        let _turn = self.sending.lock().await;
         let covered = self
             .published
             .remove(uri)

@@ -29,6 +29,12 @@ use crate::import_completion::import_path_completions;
 use crate::workspace::file_path_from_uri;
 
 /// The LSP backend.  Holds the client handle and the per-document cache.
+///
+/// The server handles several messages at once, and a handler suspends while
+/// its diagnostics are sent. Every notification therefore updates the cache
+/// before its first suspension point, so an incremental edit always applies to
+/// the text the previous edit left and a request sees every edit sent before
+/// it; only sending waits its turn, in [`Diagnostics::publish`].
 pub struct Backend {
     client: Client,
     pub(crate) documents: Documents,
@@ -44,32 +50,55 @@ impl Backend {
         }
     }
 
-    /// Re-run analysis on `source`, store the result, publish diagnostics, and
-    /// refresh the documents that import this one.
-    async fn reanalyze(&self, uri: Url, source: String) {
-        if self.documents.is_current(&uri, &source) {
+    /// Re-run analysis on `source` at `version`, store the result, publish
+    /// diagnostics, and refresh the documents that share its schema.
+    ///
+    /// A newer edit of `uri` stored meanwhile refreshes those documents itself,
+    /// so this one stops.
+    async fn reanalyze(&self, uri: Url, source: String, version: Option<i32>) {
+        if self.documents.keep_if_current(&uri, &source, version) {
             return;
         }
 
-        self.reanalyze_only(uri.clone(), source).await;
-        for (related, source) in self.documents.related(&uri) {
-            self.reanalyze_only(related, source).await;
+        let generation = self.reanalyze_only(uri.clone(), source, version).await;
+        for related in self.documents.related(&uri) {
+            if !self.documents.is_latest(&uri, generation) {
+                return;
+            }
+            self.reanalyze_current(related).await;
         }
     }
 
-    /// Analyze one document and publish its diagnostics, without touching the
-    /// documents that import it.
-    async fn reanalyze_only(&self, uri: Url, source: String) {
-        let state = self.documents.analyze(&uri, source);
-        self.diagnostics.publish(&uri, &state).await;
-        self.documents.store(uri, state);
+    /// Analyze one document, store it and publish its diagnostics, without
+    /// touching the documents that share its schema; returns the generation
+    /// the analysis was stored as.
+    async fn reanalyze_only(&self, uri: Url, source: String, version: Option<i32>) -> u64 {
+        let state = self.documents.analyze(&uri, source, version);
+        let batches = Diagnostics::batches(&uri, &state, &self.documents);
+        let generation = self.documents.store(uri.clone(), state);
+        self.diagnostics
+            .publish(&uri, generation, batches, &self.documents)
+            .await;
+        generation
+    }
+
+    /// Re-analyze `uri` with the text it holds now, if it is still open.
+    ///
+    /// The text is read here rather than when the caller listed the document,
+    /// because an edit to it may have arrived while earlier diagnostics were
+    /// being sent.
+    async fn reanalyze_current(&self, uri: Url) {
+        let Some((source, version)) = self.documents.text(&uri) else {
+            return;
+        };
+        self.reanalyze_only(uri, source, version).await;
     }
 
     /// Re-analyze every open document, used when a file changed on disk outside
     /// the editor.
     async fn refresh_all(&self) {
-        for (uri, source) in self.documents.open() {
-            self.reanalyze_only(uri, source).await;
+        for uri in self.documents.open() {
+            self.reanalyze_current(uri).await;
         }
     }
 }
@@ -112,12 +141,14 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let uri = params.text_document.uri;
-        self.reanalyze(uri, params.text_document.text).await;
+        let document = params.text_document;
+        self.reanalyze(document.uri, document.text, Some(document.version))
+            .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
+        let version = params.text_document.version;
         let changes = params.content_changes;
 
         let Some(source) = self
@@ -135,7 +166,7 @@ impl LanguageServer for Backend {
             return;
         };
 
-        self.reanalyze(uri, source).await;
+        self.reanalyze(uri, source, Some(version)).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -153,14 +184,15 @@ impl LanguageServer for Backend {
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
+        let version = self.documents.version(&uri);
         // `include_text` is set to true in ServerCapabilities, so `text` is
         // always present.  Fall back to the cache only as a safety net.
         if let Some(text) = params.text {
-            self.reanalyze(uri, text).await;
+            self.reanalyze(uri, text, version).await;
         } else if let Some(state) = self.documents.get(&uri) {
             let source = state.source.clone();
             drop(state);
-            self.reanalyze(uri, source).await;
+            self.reanalyze(uri, source, version).await;
         }
     }
 
@@ -293,15 +325,19 @@ impl LanguageServer for Backend {
 
 #[cfg(test)]
 mod tests {
+    use futures::StreamExt;
+    use tower_lsp::lsp_types::PublishDiagnosticsParams;
     use tower_lsp::lsp_types::{
         CompletionParams, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
-        DidSaveTextDocumentParams, GotoDefinitionParams, Position, Range,
+        DidSaveTextDocumentParams, DocumentFormattingParams, GotoDefinitionParams, Position, Range,
         TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
         TextDocumentPositionParams, VersionedTextDocumentIdentifier,
     };
     use tower_lsp::LanguageServer;
 
-    use crate::test_support::{file_uri, schema_dir, service, vscode_file_uri};
+    use crate::test_support::{
+        file_uri, initialized_service, schema_dir, service, vscode_file_uri, within,
+    };
 
     #[tokio::test]
     async fn an_imported_file_answers_completion_and_definition_across_files() {
@@ -435,6 +471,109 @@ mod tests {
                 && item.kind == Some(tower_lsp::lsp_types::CompletionItemKind::FILE)
         }));
         assert!(!items.iter().any(|item| item.label == "notes.txt"));
+    }
+
+    #[tokio::test]
+    async fn edits_that_arrive_while_diagnostics_are_sent_apply_in_order() {
+        let dir = schema_dir("edit-burst");
+        let schema = dir.join("schema.nautilus");
+        let initial = "model Root {\n  id Int @id\n}\n";
+        std::fs::write(&schema, initial).expect("write schema");
+
+        let (service, mut socket) = initialized_service().await;
+        let backend = service.inner();
+        let uri = file_uri(&schema);
+        backend
+            .did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "nautilus".to_string(),
+                    version: 1,
+                    text: initial.to_string(),
+                },
+            })
+            .await;
+
+        // The open's diagnostics stay unread, so the client channel is full:
+        // the first edit is still sending when the others and a request arrive.
+        let insert_field = |line: u32, field: &str, version: i32| DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version,
+            },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range::new(Position::new(line, 0), Position::new(line, 0))),
+                range_length: None,
+                text: format!("  {field}\n"),
+            }],
+        };
+        let format = backend.formatting(DocumentFormattingParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            options: Default::default(),
+            work_done_progress_params: Default::default(),
+        });
+        let read_publishes = async {
+            let mut published = Vec::new();
+            loop {
+                let request = socket.next().await.expect("published diagnostics");
+                let params: PublishDiagnosticsParams =
+                    serde_json::from_value(request.params().cloned().expect("params"))
+                        .expect("diagnostic params");
+                let last = params.version == Some(4);
+                published.push((params.version, params.diagnostics));
+                if last {
+                    return published;
+                }
+            }
+        };
+        // Version 3 names an unknown type and version 4 corrects it, so the
+        // analysis of version 3 is replaced before its turn to be sent.
+        let correct_type = DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 4,
+            },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range::new(Position::new(3, 9), Position::new(3, 16))),
+                range_length: None,
+                text: "Int".to_string(),
+            }],
+        };
+        let ((), (), (), formatted, published) = within(async {
+            tokio::join!(
+                backend.did_change(insert_field(2, "first Int", 2)),
+                backend.did_change(insert_field(3, "second Unknown", 3)),
+                backend.did_change(correct_type),
+                format,
+                read_publishes,
+            )
+        })
+        .await;
+
+        let state = backend.documents.get(&uri).expect("cached document");
+        assert_eq!(
+            state.source,
+            "model Root {\n  id Int @id\n  first Int\n  second Int\n}\n"
+        );
+        drop(state);
+
+        let formatted = formatted.expect("formatting result").expect("edits");
+        assert!(
+            formatted[0].new_text.contains("second Int"),
+            "a request sent after the edits sees all of them: {:?}",
+            formatted[0].new_text
+        );
+
+        let published: Vec<_> = published
+            .into_iter()
+            .map(|(version, diagnostics)| (version, diagnostics.len()))
+            .collect();
+        assert_eq!(
+            published,
+            vec![(Some(1), 0), (Some(2), 0), (Some(4), 0)],
+            "diagnostics go out in order, each tagged with the version it describes, \
+             and never for a text that was already replaced"
+        );
     }
 
     #[tokio::test]

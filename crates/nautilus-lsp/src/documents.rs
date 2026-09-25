@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use dashmap::mapref::one::Ref;
@@ -20,6 +21,8 @@ use crate::workspace::{canonical, file_path_from_uri, Workspace};
 #[derive(Default)]
 pub(crate) struct Documents {
     cache: DashMap<Url, DocumentState>,
+    /// Source of the generation each stored state receives.
+    stores: AtomicU64,
 }
 
 impl Documents {
@@ -32,25 +35,61 @@ impl Documents {
         self.cache.get(uri)
     }
 
-    pub(crate) fn store(&self, uri: Url, state: DocumentState) {
+    /// Cache `state` for `uri` and return the generation it was stored as.
+    pub(crate) fn store(&self, uri: Url, mut state: DocumentState) -> u64 {
+        let generation = self.stores.fetch_add(1, Ordering::Relaxed) + 1;
+        state.generation = generation;
         self.cache.insert(uri, state);
+        generation
+    }
+
+    /// Whether the state stored as `generation` is still the cached one for
+    /// `uri`, rather than replaced by a later analysis or closed.
+    pub(crate) fn is_latest(&self, uri: &Url, generation: u64) -> bool {
+        self.cache
+            .get(uri)
+            .is_some_and(|state| state.generation == generation)
+    }
+
+    /// The cached text of `uri` and the version the client gave it.
+    pub(crate) fn text(&self, uri: &Url) -> Option<(String, Option<i32>)> {
+        self.cache
+            .get(uri)
+            .map(|state| (state.source.clone(), state.version))
     }
 
     pub(crate) fn close(&self, uri: &Url) {
         self.cache.remove(uri);
     }
 
-    /// Whether `uri` is already cached with exactly this text, in which case
-    /// analysing it again would produce the same state.
-    pub(crate) fn is_current(&self, uri: &Url, source: &str) -> bool {
-        self.cache
-            .get(uri)
-            .is_some_and(|existing| existing.source == source)
+    /// The version the client gave the cached text of `uri`.
+    pub(crate) fn version(&self, uri: &Url) -> Option<i32> {
+        self.cache.get(uri).and_then(|state| state.version)
     }
 
-    /// Build the state for `uri`, assembling the schema it belongs to when it
-    /// names a file on disk.
-    pub(crate) fn analyze(&self, uri: &Url, source: String) -> DocumentState {
+    /// Whether `uri` is already cached with exactly this text, in which case
+    /// analysing it again would produce the same state; the cached text then
+    /// takes `version`.
+    pub(crate) fn keep_if_current(&self, uri: &Url, source: &str, version: Option<i32>) -> bool {
+        let Some(mut existing) = self.cache.get_mut(uri) else {
+            return false;
+        };
+        if existing.source != source {
+            return false;
+        }
+        existing.version = version;
+        true
+    }
+
+    /// Build the state for `uri` at `version`, assembling the schema it belongs
+    /// to when it names a file on disk.
+    pub(crate) fn analyze(&self, uri: &Url, source: String, version: Option<i32>) -> DocumentState {
+        let mut state = self.assemble(uri, source);
+        state.version = version;
+        state
+    }
+
+    fn assemble(&self, uri: &Url, source: String) -> DocumentState {
         let Some(path) = file_path_from_uri(uri) else {
             return DocumentState::new(source);
         };
@@ -73,12 +112,12 @@ impl Documents {
         }
     }
 
-    /// Every open document that shares a schema with `uri`, with its text.
+    /// Every open document that shares a schema with `uri`.
     ///
     /// Editing a file changes the meaning of the files that import it, and of
     /// the files it imports — those documents are now looking at a different
     /// schema, and their squiggles have to move with it.
-    pub(crate) fn related(&self, uri: &Url) -> Vec<(Url, String)> {
+    pub(crate) fn related(&self, uri: &Url) -> Vec<Url> {
         let covered: Vec<Url> = self
             .cache
             .get(uri)
@@ -101,17 +140,14 @@ impl Documents {
                         .as_ref()
                         .is_some_and(|workspace| workspace.contains(uri))
             })
-            .map(|entry| (entry.key().clone(), entry.value().source.clone()))
+            .map(|entry| entry.key().clone())
             .collect()
     }
 
-    /// Every open document with its text, used when a file changed on disk
-    /// outside the editor and no single document is the origin of the change.
-    pub(crate) fn open(&self) -> Vec<(Url, String)> {
-        self.cache
-            .iter()
-            .map(|entry| (entry.key().clone(), entry.value().source.clone()))
-            .collect()
+    /// Every open document, used when a file changed on disk outside the
+    /// editor and no single document is the origin of the change.
+    pub(crate) fn open(&self) -> Vec<Url> {
+        self.cache.iter().map(|entry| entry.key().clone()).collect()
     }
 
     /// The path of an open document whose schema already includes `uri`.

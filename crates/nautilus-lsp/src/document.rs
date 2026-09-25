@@ -37,6 +37,10 @@ pub struct DocumentState {
     pub analysis: AnalysisResult,
     /// The assembled schema this document belongs to, when it has a path.
     pub workspace: Option<Arc<Workspace>>,
+    /// Version the client gave `source`, sent back with its diagnostics.
+    pub version: Option<i32>,
+    /// Which store put this state in the cache; see [`crate::documents::Documents::store`].
+    pub(crate) generation: u64,
     /// Offset of this document's text inside the workspace source.
     base: usize,
     semantic_tokens: OnceLock<Option<Vec<LspSemanticToken>>>,
@@ -53,6 +57,8 @@ impl DocumentState {
             line_index,
             analysis,
             workspace: None,
+            version: None,
+            generation: 0,
             base: 0,
             semantic_tokens: OnceLock::new(),
             formatted: OnceLock::new(),

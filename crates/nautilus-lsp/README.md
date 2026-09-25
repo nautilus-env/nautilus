@@ -8,13 +8,13 @@ It is intentionally thin: almost all schema intelligence lives in `nautilus-sche
 
 | Capability | Current behavior |
 | --- | --- |
-| Diagnostics | Published after open/change/save, to the file each one belongs to |
+| Diagnostics | Published after open/change/save, to the file each one belongs to, tagged with the version of the text they describe |
 | Completion | Schema-aware suggestions, imported declarations, and filesystem paths inside `import` |
 | Hover | Uses resolved schema metadata |
 | Go to definition | Jumps to model, enum, type, and field declarations, across imported files |
 | Document formatting | Whole-file canonical formatting |
 | Semantic tokens | Models, enums, and composite types |
-| Text sync | Full-document sync |
+| Text sync | Incremental edits |
 | Watched files | `**/*.nautilus`, so editing an imported file outside the editor refreshes analysis |
 
 ## Multi-file schemas
@@ -35,6 +35,17 @@ assembled from the editor's text, and editing any file re-analyses the other
 open documents that share its schema. Opening an imported file reads it inside
 the schema that imports it, so a model it references from elsewhere still
 resolves.
+
+## Edits and diagnostics
+
+The server handles several messages at once, and sending diagnostics can wait
+for the client to read them. Each edit is applied to the cached text as soon as
+it arrives, so edits apply in order and a request sees every edit sent before
+it. Diagnostics are sent one analysis at a time, in the order the analyses were
+made, and an analysis that a newer edit has already replaced is not sent at
+all: during a burst of typing only the latest text is reported. An edit that a
+newer one replaces also stops refreshing the other open files of its schema,
+which the newer edit refreshes itself.
 
 A file nothing imports is analysed on its own: the server never joins sibling
 files it was not told about, which is what keeps a directory of alternative
