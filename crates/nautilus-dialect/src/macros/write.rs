@@ -8,12 +8,7 @@ macro_rules! render_insert_body_mut {
         crate::ident::push_table_name(&mut $ctx.sql, &$insert.table, $quote);
 
         $ctx.sql.push_str(" (");
-        for (i, col) in $insert.columns.iter().enumerate() {
-            if i > 0 {
-                $ctx.sql.push_str(", ");
-            }
-            crate::ident::push_quoted_identifier(&mut $ctx.sql, &col.name, $quote);
-        }
+        crate::clauses::push_column_names(&mut $ctx.sql, &$insert.columns, $quote);
         $ctx.sql.push(')');
 
         $ctx.sql.push_str(" VALUES ");
@@ -81,12 +76,7 @@ macro_rules! render_assignment_mut {
 macro_rules! render_on_conflict_body_mut {
     ($ctx:expr, $on_conflict:expr, $quote:expr, $render_expr:ident, $param_cast:expr) => {{
         $ctx.sql.push_str(" ON CONFLICT (");
-        for (i, col) in $on_conflict.target.iter().enumerate() {
-            if i > 0 {
-                $ctx.sql.push_str(", ");
-            }
-            crate::ident::push_quoted_identifier(&mut $ctx.sql, &col.name, $quote);
-        }
+        crate::clauses::push_column_names(&mut $ctx.sql, &$on_conflict.target, $quote);
         $ctx.sql.push(')');
 
         if $on_conflict.update.is_empty() {

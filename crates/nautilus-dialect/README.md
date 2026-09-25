@@ -47,10 +47,16 @@ The crate is organized as follows:
 - **`dialect.rs`** — The `Dialect` trait and the `Sql` struct it returns.
 
 - **`macros/`** — The shared rendering macros, grouped by what they render:
-  `write.rs` for INSERT, UPDATE and DELETE with their RETURNING, assignment and
-  ON CONFLICT clauses, `select.rs` for SELECT with its ORDER BY and window
-  projection, and `expressions.rs` for the expression forms every dialect
-  spells the same way.
+  `write.rs` for INSERT, UPDATE and DELETE with their assignment and ON
+  CONFLICT clauses, `select.rs` for SELECT with its ORDER BY, and
+  `expressions.rs` for the expression forms every dialect spells the same way.
+  A macro is used where the code needs a dialect's own render context: bound
+  parameters and the expression renderer.
+
+- **`clauses.rs`** — The clause fragments that bind nothing and render no
+  expression, as plain functions over the SQL buffer: column lists, `DISTINCT`,
+  `GROUP BY`, `ORDER BY` directions, `RETURNING`, `LIMIT`/`OFFSET` and the
+  partition-window projection and bounds.
 
 - **`ident.rs`** — Text written straight into a statement rather than bound:
   identifiers, column aliases, JSON path keys, string literals and integers.
