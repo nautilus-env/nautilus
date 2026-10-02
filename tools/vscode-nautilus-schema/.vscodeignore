@@ -3,3 +3,4 @@
 .gitignore
 *.vsix
 node_modules/**
+test/**

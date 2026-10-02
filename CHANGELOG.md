@@ -34,6 +34,13 @@
   directory that is a schema of its own (one `datasource`, no `import`) the way
   `--schema <dir>` does, instead of reporting every cross-file reference as
   unknown.
+- **Highlighting of `@check` and `@computed` in VS Code.** The expression
+  ended at its first `)`, so in `@check((a >= 0) AND (a <= 10))` everything
+  from `AND` on lost its colours, and a raw predicate such as
+  `@check("col ~ '^[a-z]+$'")` was coloured as fields and numbers instead of a
+  string. Parenthesised groups now nest, `AND`/`OR`/`NOT`/`IN`, operators and
+  `TRUE`/`FALSE` are highlighted, the `where:` predicate of `@@index` is read
+  as an expression, and single-quoted strings are recognised everywhere.
 - `DateTime` was documented in completion and hover as `TIMESTAMPTZ`; it is
   `TIMESTAMP` without time zone, holding UTC through the engine.
 - `migrate generate` printed `<name>.up.sql` paths; it writes
