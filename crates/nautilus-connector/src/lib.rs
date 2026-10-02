@@ -64,6 +64,7 @@ macro_rules! impl_execute_affected {
     };
 }
 
+mod address;
 mod client;
 pub mod error;
 mod executor;

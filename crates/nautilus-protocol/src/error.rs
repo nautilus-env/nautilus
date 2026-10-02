@@ -35,6 +35,9 @@ pub const ERR_CHECK_CONSTRAINT: i32 = 3007;
 pub const ERR_NULL_CONSTRAINT: i32 = 3008;
 pub const ERR_DEADLOCK: i32 = 3009;
 pub const ERR_SERIALIZATION_FAILURE: i32 = 3010;
+/// A lock was not available: requested with `NOWAIT`, or not granted within
+/// the lock timeout.
+pub const ERR_LOCK_NOT_AVAILABLE: i32 = 3011;
 
 pub const ERR_TRANSACTION_NOT_FOUND: i32 = 4001;
 pub const ERR_TRANSACTION_TIMEOUT: i32 = 4002;
@@ -119,6 +122,9 @@ pub enum ProtocolError {
     #[error("Serialization failure: {0}")]
     SerializationFailure(String),
 
+    #[error("Lock not available: {0}")]
+    LockNotAvailable(String),
+
     #[error("Query timeout: {0}")]
     QueryTimeout(String),
 
@@ -182,6 +188,7 @@ impl ProtocolError {
             ProtocolError::NullConstraintViolation(_) => ERR_NULL_CONSTRAINT,
             ProtocolError::Deadlock(_) => ERR_DEADLOCK,
             ProtocolError::SerializationFailure(_) => ERR_SERIALIZATION_FAILURE,
+            ProtocolError::LockNotAvailable(_) => ERR_LOCK_NOT_AVAILABLE,
             ProtocolError::QueryTimeout(_) => ERR_QUERY_TIMEOUT,
             ProtocolError::RecordNotFound(_) => ERR_RECORD_NOT_FOUND,
             ProtocolError::TransactionNotFound(_) => ERR_TRANSACTION_NOT_FOUND,

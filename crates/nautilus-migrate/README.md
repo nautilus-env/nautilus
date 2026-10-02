@@ -10,7 +10,7 @@ Nautilus-migrate supports two workflows that share the same underlying engine.
 
 **`nautilus db push`** — computes the diff between the live database and your schema, then applies the changes immediately. No migration files are written. Good for development.
 
-**`nautilus migrate generate` + `nautilus migrate apply`** — same diff, but writes versioned `.up.sql` / `.down.sql` files to disk first. You review and commit the files, then apply them. Good for production.
+**`nautilus migrate generate` + `nautilus migrate apply`** — same diff, but writes versioned `<timestamp>_<label>/up.sql` and `down.sql` files to disk first. You review and commit the files, then apply them. Good for production.
 
 Both paths go through the same four stages:
 
@@ -473,7 +473,7 @@ nautilus-migrate
 ├── inspector/   # Live-schema introspection (Postgres / SQLite / MySQL)
 ├── live.rs       # LiveSchema / LiveTable / LiveColumn snapshot types
 ├── serializer/  # Naming, relation reconstruction and db-pull rendering
-├── file_store.rs # Migration file I/O (.up.sql / .down.sql pairs)
+├── file_store.rs # Migration file I/O (up.sql / down.sql pairs)
 ├── tracker.rs    # _nautilus_migrations tracking table
 ├── migration.rs  # Migration struct, SHA-256 checksum, status types
 └── error.rs      # MigrationError enum

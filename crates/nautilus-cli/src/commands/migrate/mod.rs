@@ -27,7 +27,7 @@ pub enum MigrateCommand {
         #[arg(long)]
         database_url: Option<String>,
 
-        /// Directory to write migration files into (default: migrations/ next to schema file).
+        /// Directory to write migration files into (default: migrations/ next to the schema file, or next to the schema directory).
         #[arg(long)]
         migrations_dir: Option<String>,
     },
@@ -42,7 +42,7 @@ pub enum MigrateCommand {
         #[arg(long)]
         database_url: Option<String>,
 
-        /// Directory containing migration files (default: migrations/ next to schema file).
+        /// Directory containing migration files (default: migrations/ next to the schema file, or next to the schema directory).
         #[arg(long)]
         migrations_dir: Option<String>,
     },
@@ -61,7 +61,7 @@ pub enum MigrateCommand {
         #[arg(long)]
         database_url: Option<String>,
 
-        /// Directory containing migration files (default: migrations/ next to schema file).
+        /// Directory containing migration files (default: migrations/ next to the schema file, or next to the schema directory).
         #[arg(long)]
         migrations_dir: Option<String>,
     },
@@ -76,7 +76,7 @@ pub enum MigrateCommand {
         #[arg(long)]
         database_url: Option<String>,
 
-        /// Directory containing migration files (default: migrations/ next to schema file).
+        /// Directory containing migration files (default: migrations/ next to the schema file, or next to the schema directory).
         #[arg(long)]
         migrations_dir: Option<String>,
     },

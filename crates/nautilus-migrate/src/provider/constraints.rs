@@ -1,4 +1,5 @@
 use super::{DatabaseProvider, ProviderStrategy};
+use crate::normalize::predicates::normalize_check_expr;
 use nautilus_core::TableName;
 
 impl ProviderStrategy {
@@ -24,9 +25,29 @@ impl ProviderStrategy {
     }
 }
 
-pub(crate) fn check_constraint_name(table: &str, column: Option<&str>) -> String {
-    match column {
-        Some(col) => format!("chk_{}_{}", table, col),
-        None => format!("chk_{}", table),
-    }
+/// Name of a field-level `@check` constraint, which the inspectors use to give
+/// the expression back to its column.
+pub(crate) fn column_check_constraint_name(table: &str, column: &str) -> String {
+    format!("chk_{}_{}", table, column)
+}
+
+/// Name of a model-level `@@check` constraint: the table name and a short hash
+/// of the expression's comparison form.
+///
+/// A model may declare several, and reformatting a predicate in the schema
+/// does not rename it. A constraint already in the database is always dropped
+/// by the name it has there (see [`crate::LiveSchema::check_constraint_names`]),
+/// so older ones named `chk_<table>` keep working.
+pub(crate) fn table_check_constraint_name(table: &str, expr: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(normalize_check_expr(expr).as_bytes());
+    let hash: String = hasher
+        .finalize()
+        .iter()
+        .take(4)
+        .map(|b| format!("{:02x}", b))
+        .collect();
+    format!("chk_{}_{}", table, hash)
 }

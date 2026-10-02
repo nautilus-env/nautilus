@@ -1,11 +1,13 @@
 //! Boolean SQL expressions: `CHECK` constraints, partial-index predicates and
 //! generated-column expressions.
 
+use nautilus_schema::bool_expr::BoolExpr;
 use nautilus_schema::{Lexer, Span, TokenKind};
 
 use super::sql_text::{
     collapse_whitespace, convert_any_array_to_in, convert_in_parens_to_brackets,
     strip_all_outer_parens, strip_casts, strip_numeric_paren_literals,
+    unquote_numeric_cast_literals,
 };
 
 /// Extract and normalise the expression body from a PostgreSQL CHECK constraint definition.
@@ -24,7 +26,8 @@ pub(crate) fn normalize_pg_check_expr(constraint_def: &str) -> String {
         s
     };
 
-    let s = strip_casts(s.trim());
+    let s = unquote_numeric_cast_literals(s.trim());
+    let s = strip_casts(&s);
     let s = strip_numeric_paren_literals(&s);
     let s = strip_all_outer_parens(s.trim());
 
@@ -155,6 +158,7 @@ pub(crate) fn normalize_sqlite_check_expr(expr: &str) -> String {
 
 pub(crate) fn normalize_check_expr(s: &str) -> String {
     let s = strip_identifier_quotes(s.trim());
+    let s = unquote_numeric_cast_literals(&s);
     let s = strip_casts(&s);
     let s = strip_numeric_paren_literals(&s);
     let s = strip_all_outer_parens(s.trim());
@@ -210,7 +214,64 @@ fn canonicalize_check_bool_expr(s: &str) -> Option<String> {
 
     nautilus_schema::bool_expr::parse_bool_expr(&tokens, Span::new(0, 0))
         .ok()
-        .map(|expr| expr.to_string())
+        .map(|expr| canonical_bool_expr(&expr))
+}
+
+/// Render a parsed predicate with parentheses only where precedence needs them.
+///
+/// PostgreSQL wraps every operand of `AND` and `OR` in parentheses when it
+/// prints a constraint back (`(a >= 0) AND (a <= 9)`), while a schema usually
+/// does not, and both nest a chain differently. Chains are flattened, so
+/// `a AND (b AND c)` and `(a AND b) AND c` compare equal; an `OR` inside an
+/// `AND`, or a chain under `NOT`, keeps its parentheses.
+fn canonical_bool_expr(expr: &BoolExpr) -> String {
+    match expr {
+        BoolExpr::Paren(inner) => canonical_bool_expr(inner),
+        BoolExpr::And(..) => canonical_chain(expr, true),
+        BoolExpr::Or(..) => canonical_chain(expr, false),
+        BoolExpr::Not(inner) => match unparenthesized(inner) {
+            chain @ (BoolExpr::And(..) | BoolExpr::Or(..)) => {
+                format!("NOT ({})", canonical_bool_expr(chain))
+            }
+            operand => format!("NOT {}", canonical_bool_expr(operand)),
+        },
+        BoolExpr::Comparison { .. } | BoolExpr::In { .. } | BoolExpr::Raw(_) => expr.to_string(),
+    }
+}
+
+fn canonical_chain(expr: &BoolExpr, is_and: bool) -> String {
+    let mut operands = Vec::new();
+    collect_chain(expr, is_and, &mut operands);
+    let separator = if is_and { " AND " } else { " OR " };
+    operands
+        .into_iter()
+        .map(|operand| match operand {
+            BoolExpr::Or(..) if is_and => format!("({})", canonical_bool_expr(operand)),
+            _ => canonical_bool_expr(operand),
+        })
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+fn collect_chain<'a>(expr: &'a BoolExpr, is_and: bool, operands: &mut Vec<&'a BoolExpr>) {
+    match unparenthesized(expr) {
+        BoolExpr::And(left, right) if is_and => {
+            collect_chain(left, is_and, operands);
+            collect_chain(right, is_and, operands);
+        }
+        BoolExpr::Or(left, right) if !is_and => {
+            collect_chain(left, is_and, operands);
+            collect_chain(right, is_and, operands);
+        }
+        operand => operands.push(operand),
+    }
+}
+
+fn unparenthesized(expr: &BoolExpr) -> &BoolExpr {
+    match expr {
+        BoolExpr::Paren(inner) => unparenthesized(inner),
+        _ => expr,
+    }
 }
 
 /// Normalise a generation expression for comparison.
@@ -383,6 +444,77 @@ mod tests {
         assert_ne!(
             normalize_check_expr("status IN ('Draft', 'PUBLISHED')"),
             normalize_check_expr("status IN ('draft', 'PUBLISHED')")
+        );
+    }
+
+    /// What the diff compares for a constraint read back from PostgreSQL.
+    fn pg_comparison_form(constraint_def: &str) -> String {
+        normalize_check_expr(&normalize_pg_check_expr(constraint_def))
+    }
+
+    #[test]
+    fn pg_check_compound_matches_the_schema_without_parentheses() {
+        assert_eq!(
+            pg_comparison_form("CHECK (((small >= 1) AND (small <= 10)))"),
+            normalize_check_expr("small >= 1 AND small <= 10")
+        );
+        assert_eq!(
+            pg_comparison_form("CHECK (((a > 0) OR (b > 0) OR (c > 0)))"),
+            normalize_check_expr("a > 0 OR b > 0 OR c > 0")
+        );
+    }
+
+    #[test]
+    fn pg_check_quoted_numeric_literals_match_bare_numbers() {
+        for (live, schema) in [
+            ("CHECK ((big <= '4294967295'::bigint))", "big <= 4294967295"),
+            (
+                "CHECK (((amount >= (0)::numeric) AND (amount <= '18446744073709551615'::numeric)))",
+                "amount >= 0 AND amount <= 18446744073709551615",
+            ),
+            ("CHECK ((delta > '-5'::integer))", "delta > -5"),
+            ("CHECK ((ratio < '0.5'::double precision))", "ratio < 0.5"),
+        ] {
+            assert_eq!(pg_comparison_form(live), normalize_check_expr(schema), "{live}");
+        }
+    }
+
+    #[test]
+    fn a_quoted_literal_without_a_numeric_cast_stays_a_string() {
+        assert_eq!(
+            normalize_check_expr("code <> '42'::text"),
+            normalize_check_expr("code <> '42'")
+        );
+        assert_ne!(
+            normalize_check_expr("code <> '42'"),
+            normalize_check_expr("code <> 42")
+        );
+        assert_eq!(
+            unquote_numeric_cast_literals("label <> 'O''Reilly' AND n < '7'::int8"),
+            "label <> 'O''Reilly' AND n < 7::int8"
+        );
+    }
+
+    #[test]
+    fn check_chains_compare_equal_however_they_nest() {
+        assert_eq!(
+            normalize_check_expr("a > 0 AND (b > 0 AND c > 0)"),
+            normalize_check_expr("(a > 0 AND b > 0) AND c > 0")
+        );
+        assert_eq!(
+            normalize_check_expr("NOT ((a > 0))"),
+            normalize_check_expr("NOT a > 0")
+        );
+    }
+
+    #[test]
+    fn parentheses_that_change_the_meaning_are_kept() {
+        let grouped = normalize_check_expr("a > 0 AND (b > 0 OR c > 0)");
+        assert_eq!(grouped, "a > 0 AND (b > 0 OR c > 0)");
+        assert_ne!(grouped, normalize_check_expr("a > 0 AND b > 0 OR c > 0"));
+        assert_eq!(
+            normalize_check_expr("NOT (a > 0 AND b > 0)"),
+            "NOT (a > 0 AND b > 0)"
         );
     }
 

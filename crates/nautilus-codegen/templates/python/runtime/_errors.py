@@ -110,6 +110,15 @@ class SerializationError(DatabaseError):
     pass
 
 
+class LockNotAvailableError(DatabaseError):
+    """Lock not available (code 3011).
+
+    Raised when a row or table lock cannot be taken: requested with
+    ``NOWAIT``, or not granted within the database lock timeout.
+    """
+    pass
+
+
 class QueryTimeoutError(DatabaseError):
     """Query execution timeout (code 3003).
 
@@ -175,6 +184,8 @@ def error_from_code(code: int, message: str, data: Any = None) -> NautilusError:
         return DeadlockError(f"[{code}] {message}", code=code, data=data)
     elif code == 3010:
         return SerializationError(f"[{code}] {message}", code=code, data=data)
+    elif code == 3011:
+        return LockNotAvailableError(f"[{code}] {message}", code=code, data=data)
     elif 3000 <= code < 4000:
         return DatabaseError(f"[{code}] {message}", code=code, data=data)
     elif code == 4002:

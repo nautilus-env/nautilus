@@ -19,7 +19,7 @@ nautilus-dialect = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "uuid", "chrono", "rust_decimal"] }
 futures = { workspace = true }
 async-stream = "0.3"
-tokio = { workspace = true, features = ["sync", "time", "rt"] }
+tokio = { workspace = true, features = ["sync", "time", "rt", "net"] }
 chrono = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 rust_decimal = { workspace = true }

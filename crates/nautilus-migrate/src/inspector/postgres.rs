@@ -9,7 +9,7 @@ use crate::live::{
     ComputedKind, LiveColumn, LiveCompositeField, LiveCompositeType, LiveSchema, LiveTable,
 };
 use crate::normalize::defaults::normalize_pg_default;
-use crate::normalize::predicates::normalize_pg_check_expr;
+use crate::normalize::predicates::{normalize_check_expr, normalize_pg_check_expr};
 use crate::normalize::types::{normalize_pg_composite_field_type, normalize_pg_type};
 use nautilus_core::TableName;
 
@@ -177,7 +177,11 @@ impl SchemaInspector {
             let mut metadata = TableMetadata::fetch(&pool, schema_name).await?;
 
             for table_name in table_names {
-                let table = metadata.build_table(table_name, qualifier.clone())?;
+                let (table, check_names) = metadata.build_table(table_name, qualifier.clone())?;
+                if !check_names.is_empty() {
+                    live.check_constraint_names
+                        .insert(table.name.clone(), check_names);
+                }
                 live.tables.insert(table.name.clone(), table);
             }
             for view_name in view_names {
@@ -235,12 +239,18 @@ impl TableMetadata {
         })
     }
 
-    fn build_table(&mut self, table_name: String, schema: Option<String>) -> Result<LiveTable> {
+    /// Build a table snapshot, with the database names of its table-level
+    /// CHECK constraints keyed on their comparison form.
+    fn build_table(
+        &mut self,
+        table_name: String,
+        schema: Option<String>,
+    ) -> Result<(LiveTable, HashMap<String, String>)> {
         let mut columns = build_columns(&take_rows(&mut self.columns, &table_name), &table_name)?;
         let primary_key =
             build_primary_key(&take_rows(&mut self.primary_keys, &table_name), &table_name)?;
         let indexes = group_pg_indexes(take_rows(&mut self.indexes, &table_name));
-        let check_constraints = apply_check_constraints(
+        let (check_constraints, check_names) = apply_check_constraints(
             &mut columns,
             &take_rows(&mut self.checks, &table_name),
             &table_name,
@@ -250,14 +260,15 @@ impl TableMetadata {
             schema.is_some(),
         );
 
-        Ok(LiveTable {
+        let table = LiveTable {
             name: TableName::with_schema(schema, table_name),
             columns,
             primary_key,
             indexes,
             check_constraints,
             foreign_keys,
-        })
+        };
+        Ok((table, check_names))
     }
 
     /// Build the column-only snapshot of a view.
@@ -422,16 +433,18 @@ fn build_primary_key(rows: &[PgRow], table_name: &str) -> Result<Vec<String>> {
 ///
 /// A constraint is attributed to a column when its name follows the
 /// `chk_{table}_{column}` convention emitted by `db push` and the suffix names
-/// an existing column; everything else stays a table-level constraint.
+/// an existing column; everything else stays a table-level constraint, whose
+/// database name is returned keyed on its comparison form.
 fn apply_check_constraints(
     columns: &mut [LiveColumn],
     rows: &[PgRow],
     table_name: &str,
-) -> Result<Vec<String>> {
+) -> Result<(Vec<String>, HashMap<String, String>)> {
     let column_prefix = format!("chk_{}_", table_name);
     let column_names: HashSet<&str> = columns.iter().map(|c| c.name.as_str()).collect();
 
     let mut table_checks = Vec::new();
+    let mut table_check_names = HashMap::new();
     let mut column_checks: HashMap<String, String> = HashMap::new();
     for row in rows {
         let con_name: String = read_column(row, "constraint_name", || {
@@ -449,7 +462,10 @@ fn apply_check_constraints(
             Some(column) => {
                 column_checks.insert(column.to_string(), expr);
             }
-            None => table_checks.push(expr),
+            None => {
+                table_check_names.insert(normalize_check_expr(&expr), con_name);
+                table_checks.push(expr);
+            }
         }
     }
 
@@ -459,7 +475,7 @@ fn apply_check_constraints(
         }
     }
 
-    Ok(table_checks)
+    Ok((table_checks, table_check_names))
 }
 
 async fn load_enums(pool: &PgPool, schema_name: &str, live: &mut LiveSchema) -> Result<()> {

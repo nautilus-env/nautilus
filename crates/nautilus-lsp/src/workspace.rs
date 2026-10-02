@@ -5,7 +5,9 @@
 //! error the developer did not make.  A [`Workspace`] assembles the open file
 //! with everything it imports — reading unsaved buffers instead of disk where
 //! the editor has one — analyses the assembled source once, and maps the
-//! resulting spans back to the file and range each came from.
+//! resulting spans back to the file and range each came from. A file in a
+//! directory that is a schema of its own, as `--schema <dir>` reads it, is
+//! assembled with the whole directory instead.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -62,8 +64,10 @@ impl Workspace {
         root_uri: Option<&Url>,
         open: &HashMap<PathBuf, String>,
     ) -> Option<Workspace> {
+        let assembled_from = schema_directory(root, open).unwrap_or_else(|| root.to_path_buf());
         let set =
-            SchemaSet::load_path_with(root, &|path| open.get(&canonical(path)).cloned()).ok()?;
+            SchemaSet::load_path_with(&assembled_from, &|path| open.get(&canonical(path)).cloned())
+                .ok()?;
         let root = canonical(root);
 
         let files = set
@@ -181,6 +185,39 @@ impl Workspace {
         let end = span.end.min(file.end).saturating_sub(file.start);
         Span::new(start, end.max(start))
     }
+}
+
+/// The directory of `document` when that directory is a schema of its own,
+/// the way `nautilus … --schema <dir>` assembles every `.nautilus` file
+/// directly inside it.
+///
+/// A directory qualifies with two or more files, exactly one `datasource`
+/// among them and no `import`: a schema that imports is assembled by
+/// following its imports, and a folder of independent schemas (one
+/// datasource each, or none) keeps analysing each file on its own.
+fn schema_directory(document: &Path, open: &HashMap<PathBuf, String>) -> Option<PathBuf> {
+    let dir = document.parent()?;
+    let paths = nautilus_schema::discover_schema_paths(dir).ok()?;
+    if paths.len() < 2 {
+        return None;
+    }
+
+    let mut datasources = 0;
+    for path in &paths {
+        let source = match open.get(&canonical(path)) {
+            Some(buffer) => buffer.clone(),
+            None => std::fs::read_to_string(path).ok()?,
+        };
+        for line in source.lines().map(str::trim_start) {
+            if line.starts_with("import ") || line.starts_with("import\"") {
+                return None;
+            }
+            if line.starts_with("datasource ") {
+                datasources += 1;
+            }
+        }
+    }
+    (datasources == 1).then(|| dir.to_path_buf())
 }
 
 /// The path under which an open document is looked up, so that the same file
@@ -305,6 +342,64 @@ mod tests {
         assert!(diagnostics
             .iter()
             .any(|(_, diags)| diags.iter().any(|d| d.message.contains("Role"))));
+    }
+
+    #[test]
+    fn a_directory_schema_is_assembled_like_the_cli_does() {
+        let dir = temp_dir("directory-schema");
+        write(
+            &dir,
+            "main.nautilus",
+            "datasource db {\n  provider = \"postgresql\"\n  url      = env(\"DATABASE_URL\")\n}\n",
+        );
+        write(
+            &dir,
+            "owner.nautilus",
+            "model Owner {\n  id    Int     @id\n  items Thing[]\n}\n",
+        );
+        let thing = write(
+            &dir,
+            "thing.nautilus",
+            "model Thing {\n  id      Int   @id\n  ownerId Int\n  owner   Owner @relation(fields: [ownerId], references: [id])\n}\n",
+        );
+
+        let workspace = Workspace::load(&thing, &HashMap::new()).expect("workspace");
+        let diagnostics = workspace.diagnostics();
+        assert_eq!(
+            diagnostics.len(),
+            3,
+            "every file of the directory is analysed"
+        );
+        for (uri, diags) in diagnostics {
+            assert!(
+                diags.is_empty(),
+                "unexpected diagnostics for {}: {:?}",
+                uri,
+                diags
+            );
+        }
+    }
+
+    #[test]
+    fn a_folder_of_independent_schemas_keeps_each_file_on_its_own() {
+        let dir = temp_dir("independent-schemas");
+        let datasource =
+            "datasource db {\n  provider = \"sqlite\"\n  url      = \"file:a.db\"\n}\n";
+        let first = write(
+            &dir,
+            "first.nautilus",
+            &format!("{datasource}\nmodel User {{\n  id Int @id\n}}\n"),
+        );
+        write(
+            &dir,
+            "second.nautilus",
+            &format!("{datasource}\nmodel User {{\n  id Int @id\n}}\n"),
+        );
+
+        let workspace = Workspace::load(&first, &HashMap::new()).expect("workspace");
+        let diagnostics = workspace.diagnostics();
+        assert_eq!(diagnostics.len(), 1, "two datasources: not one schema");
+        assert!(diagnostics[0].1.is_empty(), "{:?}", diagnostics[0].1);
     }
 
     #[test]

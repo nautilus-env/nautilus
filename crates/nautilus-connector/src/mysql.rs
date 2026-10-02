@@ -1,12 +1,33 @@
 //! MySQL executor implementation.
 
+use std::time::Duration;
+
+use crate::address::first_reachable_address;
 use crate::error::{ConnectorError as Error, Result};
 use crate::single_row::{fetch_single_row, SingleRowExpectation};
 use crate::{ConnectorPoolOptions, Executor, MysqlRowStream, Row};
 use futures::future::BoxFuture;
 use nautilus_core::Value;
 use nautilus_dialect::Sql;
-use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions};
+use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlSslMode};
+
+/// Bound on the connection opened only to explain why the pool did not open.
+const DIAGNOSTIC_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Connect to the address of the host that answers first (see
+/// [`crate::address`]), unless the connection uses a Unix socket or
+/// `ssl-mode=VERIFY_IDENTITY` needs the host name to verify the certificate.
+async fn with_reachable_host(options: MySqlConnectOptions) -> MySqlConnectOptions {
+    if options.get_socket().is_some()
+        || matches!(options.get_ssl_mode(), MySqlSslMode::VerifyIdentity)
+    {
+        return options;
+    }
+    match first_reachable_address(options.get_host(), options.get_port()).await {
+        Some(ip) => options.host(&ip.to_string()),
+        None => options,
+    }
+}
 
 /// MySQL executor using sqlx.
 ///
@@ -45,10 +66,13 @@ impl MysqlExecutor {
     ///
     /// Any override not provided keeps the same default used by [`Self::new`].
     pub async fn new_with_options(url: &str, pool_options: ConnectorPoolOptions) -> Result<Self> {
-        let connect_options = pool_options.apply_to_mysql_connect_options(
-            url.parse::<MySqlConnectOptions>()
-                .map_err(|e| Error::connection(e, "Invalid MySQL connection options"))?,
-        );
+        let connect_options = with_reachable_host(
+            pool_options.apply_to_mysql_connect_options(
+                url.parse::<MySqlConnectOptions>()
+                    .map_err(|e| Error::connection(e, "Invalid MySQL connection options"))?,
+            ),
+        )
+        .await;
         let pool = pool_options
             .apply_to_mysql_pool(MySqlPoolOptions::new().max_connections(5))
             .connect_with(connect_options.clone())
@@ -67,15 +91,26 @@ impl MysqlExecutor {
     /// sqlx reports a failure to open the pool's first connection as
     /// `PoolTimedOut`, which says only that the acquire timeout elapsed and
     /// hides whatever actually went wrong. Opening one connection directly
-    /// recovers the underlying error.
+    /// recovers the underlying error, within a bound of its own so a host that
+    /// never answers cannot hold the caller indefinitely.
     async fn connect_error(error: sqlx::Error, options: &MySqlConnectOptions) -> Error {
         if !matches!(error, sqlx::Error::PoolTimedOut) {
             return Error::connection(error, "Failed to connect to MySQL");
         }
 
-        match <sqlx::MySqlConnection as sqlx::Connection>::connect_with(options).await {
-            Err(cause) => Error::connection(cause, "Failed to connect to MySQL"),
-            Ok(_) => Error::connection(
+        let attempt = tokio::time::timeout(
+            DIAGNOSTIC_CONNECT_TIMEOUT,
+            <sqlx::MySqlConnection as sqlx::Connection>::connect_with(options),
+        );
+        match attempt.await {
+            Err(_) => Error::connection_msg(format!(
+                "Failed to connect to MySQL: {}:{} did not answer within {}s",
+                options.get_host(),
+                options.get_port(),
+                DIAGNOSTIC_CONNECT_TIMEOUT.as_secs()
+            )),
+            Ok(Err(cause)) => Error::connection(cause, "Failed to connect to MySQL"),
+            Ok(Ok(_)) => Error::connection(
                 error,
                 "Failed to connect to MySQL within the pool acquire timeout",
             ),

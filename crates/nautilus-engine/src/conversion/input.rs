@@ -1,7 +1,7 @@
 //! JSON request values converted into the internal [`Value`] type.
 //!
 //! Conversion is schema-aware where the declared field type changes how the
-//! value must be bound (enums, decimals, datetimes, extension types); the
+//! value must be bound (enums, integers, decimals, datetimes, extension types); the
 //! untyped entry point stays available for paths without a field type.
 
 use std::str::FromStr;
@@ -136,6 +136,15 @@ pub fn json_to_value_field(
             }
         }
     }
+    // Integers bind at the width of their column, not of their magnitude. A
+    // prepared statement keeps the parameter types of its first execution, so a
+    // BigInt first bound as int4 rejects every later value beyond 32 bits with
+    // "incorrect binary data format" on PostgreSQL.
+    if let ResolvedFieldType::Scalar(scalar @ (ScalarType::Int | ScalarType::BigInt)) = field_type {
+        if let serde_json::Value::Number(number) = json {
+            return integer_field_value(number, scalar);
+        }
+    }
     if let ResolvedFieldType::Scalar(ScalarType::Hstore) = field_type {
         return json_to_hstore_value(json);
     }
@@ -168,6 +177,35 @@ pub fn json_to_value_field(
     json_to_value(json)
 }
 
+/// Convert a JSON number written to an `Int` or `BigInt` field into a value of
+/// the column's width, rejecting what the column cannot hold instead of
+/// leaving the database to fail on the parameter.
+///
+/// A float with no fractional part is accepted as the integer it denotes, as
+/// a JavaScript or Java caller may send `3.0`.
+fn integer_field_value(
+    number: &serde_json::Number,
+    scalar: &ScalarType,
+) -> Result<Value, ProtocolError> {
+    let integer = number.as_i64().or_else(|| {
+        number
+            .as_f64()
+            .filter(|f| f.fract() == 0.0 && *f >= i64::MIN as f64 && *f < i64::MAX as f64)
+            .map(|f| f as i64)
+    });
+    let converted = match scalar {
+        ScalarType::Int => integer.and_then(|i| i32::try_from(i).ok()).map(Value::I32),
+        _ => integer.map(Value::I64),
+    };
+    converted.ok_or_else(|| {
+        let kind = match scalar {
+            ScalarType::Int => "Int (32-bit integer)",
+            _ => "BigInt (64-bit integer)",
+        };
+        ProtocolError::InvalidParams(format!("{} is not a valid {} value", number, kind))
+    })
+}
+
 /// Whether a field's declared type makes a JSON object or array a legitimate
 /// value rather than a wrapper the engine should interpret.
 pub fn holds_structured_json(field_type: &ResolvedFieldType, is_array: bool) -> bool {
@@ -178,6 +216,7 @@ pub fn holds_structured_json(field_type: &ResolvedFieldType, is_array: bool) -> 
         ResolvedFieldType::Scalar(scalar) => matches!(
             scalar,
             ScalarType::Json
+                | ScalarType::Jsonb
                 | ScalarType::Bytes
                 | ScalarType::Hstore
                 | ScalarType::Vector { .. }

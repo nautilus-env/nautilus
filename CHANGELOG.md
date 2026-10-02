@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`BigInt` values beyond 32 bits.** The engine typed an integer parameter by
+  its magnitude, so a `BigInt` field first written or filtered with a small value
+  bound it as `int4` in the connection's cached prepared statement, and every
+  later value ≥ 2^31 in the same statement failed on PostgreSQL with "incorrect
+  binary data format". `BigInt` values now always bind as 64-bit integers. An
+  `Int` value outside 32-bit range is refused with a message that names the
+  type instead of failing at the database.
+- **Several `@@check` on one model.** Every model-level check was named
+  `chk_<table>`, so a second one broke the migration with a duplicate constraint
+  name. Each is now named `chk_<table>_<hash>` after its predicate. A check
+  already in the database is dropped by its real name, so the old `chk_<table>`
+  ones are still replaced correctly.
+- **CHECK constraints recreated by every migration.** The diff compared a
+  check with PostgreSQL's rendering of it without removing the parentheses
+  PostgreSQL adds around each operand of `AND`/`OR`, and turned a literal it
+  prints as `'4294967295'::bigint` into a string. Both now compare equal to the
+  schema's spelling. An added model-level check is written as the schema spells
+  it rather than in comparison form.
+- **`Jsonb` fields** rejected objects and arrays as if they held a scalar.
+- **`localhost` on Windows.** A host name that resolves to several addresses
+  is now connected through the first address that accepts a TCP connection.
+  `localhost` resolves to `::1` first, which Docker Desktop silently drops, so
+  the pool used to time out before trying `127.0.0.1`. The connection opened
+  only to explain a pool failure is now bounded as well.
+- **`nautilus format`** deleted comments placed among or after `@@` attributes
+  and separated a comment from the declaration it documents with a blank line.
+- **Directory schemas in the editor.** The language server assembles a
+  directory that is a schema of its own (one `datasource`, no `import`) the way
+  `--schema <dir>` does, instead of reporting every cross-file reference as
+  unknown.
+- `DateTime` was documented in completion and hover as `TIMESTAMPTZ`; it is
+  `TIMESTAMP` without time zone, holding UTC through the engine.
+- `migrate generate` printed `<name>.up.sql` paths; it writes
+  `<name>/up.sql` and `<name>/down.sql`.
+
+### Added
+
+- `nautilus db status --exit-code` exits with status 1 when changes are
+  pending, so CI can fail on schema drift.
+- A lock that cannot be taken (`FOR UPDATE NOWAIT`, or a lock timeout) is
+  reported with code 3011 as `LockNotAvailableError` in the Python and
+  JavaScript clients, instead of a generic database error.
+
 ## Version 1.4.1
 
 ### ⚠️ Breaking — a model must declare its primary key

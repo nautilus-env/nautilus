@@ -99,12 +99,16 @@ impl DiffAccumulator {
             .map(normalize_check_expr)
             .collect();
 
-        let mut target_checks: Vec<String> = model
+        // Compared in normalised form, but an added check is written as the
+        // schema spells it, like a column check: the comparison form is not
+        // always valid SQL (`IN [...]`).
+        let mut target: Vec<(String, &String)> = model
             .check_constraints
             .iter()
-            .map(|s| normalize_check_expr(s))
+            .map(|s| (normalize_check_expr(s), s))
             .collect();
-        target_checks.sort();
+        target.sort();
+        let target_checks: Vec<String> = target.iter().map(|(norm, _)| norm.clone()).collect();
         let mut live_checks: Vec<String> = live_table
             .check_constraints
             .iter()
@@ -112,13 +116,13 @@ impl DiffAccumulator {
             .collect();
         live_checks.sort();
 
-        for tc in &target_checks {
+        for (tc, sql) in &target {
             if !live_checks.contains(tc) {
                 self.changes.push(Change::CheckChanged {
                     table: table_name.clone(),
                     column: None,
                     from: None,
-                    to: Some(tc.clone()),
+                    to: Some((*sql).clone()),
                 });
             }
         }

@@ -47,6 +47,10 @@ export declare class DeadlockError extends DatabaseError {
 export declare class SerializationError extends DatabaseError {
     constructor(message: string, details?: NautilusErrorDetails);
 }
+/** A lock was not available: requested with NOWAIT, or not granted within the lock timeout. */
+export declare class LockNotAvailableError extends DatabaseError {
+    constructor(message: string, details?: NautilusErrorDetails);
+}
 export declare class QueryTimeoutError extends DatabaseError {
     constructor(message: string, details?: NautilusErrorDetails);
 }

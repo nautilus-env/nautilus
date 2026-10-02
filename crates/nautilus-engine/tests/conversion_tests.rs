@@ -1,8 +1,9 @@
 use nautilus_connector::Row;
 use nautilus_core::Value;
 use nautilus_engine::conversion::{
-    check_protocol_version, json_to_value, json_to_value_field, normalize_row_with_hints,
-    normalize_rows_with_hints, rows_to_raw_json, to_snake_case, ValueHint,
+    check_protocol_version, ensure_scalar_input, holds_structured_json, json_to_value,
+    json_to_value_field, normalize_row_with_hints, normalize_rows_with_hints, rows_to_raw_json,
+    to_snake_case, ValueHint,
 };
 use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
 use serde_json::json;
@@ -125,6 +126,65 @@ fn json_to_value_object() {
     let obj = json!({"key": "value"});
     let val = json_to_value(&obj).unwrap();
     assert_eq!(val, Value::Json(obj));
+}
+
+#[test]
+fn json_to_value_field_binds_a_bigint_as_i64_whatever_its_magnitude() {
+    // A small value bound as int4 would fix the parameter type of a cached
+    // PostgreSQL statement and break every later value beyond 32 bits.
+    let bigint = ResolvedFieldType::Scalar(ScalarType::BigInt);
+    for (input, expected) in [
+        (json!(1), 1_i64),
+        (json!(-1), -1),
+        (json!(1_i64 << 40), 1 << 40),
+        (json!(i64::MAX), i64::MAX),
+        (json!(7.0), 7),
+    ] {
+        assert_eq!(
+            json_to_value_field(&input, &bigint).unwrap(),
+            Value::I64(expected)
+        );
+    }
+}
+
+#[test]
+fn json_to_value_field_keeps_an_int_within_32_bits() {
+    let int = ResolvedFieldType::Scalar(ScalarType::Int);
+    assert_eq!(
+        json_to_value_field(&json!(i32::MIN), &int).unwrap(),
+        Value::I32(i32::MIN)
+    );
+    assert_eq!(
+        json_to_value_field(&json!(3.0), &int).unwrap(),
+        Value::I32(3)
+    );
+
+    for input in [json!(i64::from(i32::MAX) + 1), json!(2.5), json!(u64::MAX)] {
+        let err = json_to_value_field(&input, &int).unwrap_err();
+        assert!(
+            err.to_string().contains("is not a valid Int"),
+            "unexpected error for {input}: {err}"
+        );
+    }
+    let err = json_to_value_field(
+        &json!(u64::MAX),
+        &ResolvedFieldType::Scalar(ScalarType::BigInt),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("is not a valid BigInt"), "{err}");
+}
+
+#[test]
+fn json_and_jsonb_fields_accept_objects_and_arrays() {
+    for scalar in [ScalarType::Json, ScalarType::Jsonb] {
+        let field_type = ResolvedFieldType::Scalar(scalar);
+        assert!(holds_structured_json(&field_type, false));
+        for input in [json!({"a": 1}), json!([1, 2])] {
+            assert!(ensure_scalar_input(&input, &field_type, false, "payload").is_ok());
+        }
+    }
+    let text = ResolvedFieldType::Scalar(ScalarType::String);
+    assert!(ensure_scalar_input(&json!({"a": 1}), &text, false, "label").is_err());
 }
 
 #[test]

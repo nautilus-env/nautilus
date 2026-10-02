@@ -5,7 +5,14 @@ use crate::context::DbContext;
 use crate::tui;
 
 /// Execute `nautilus db status` — show pending changes without applying them.
-pub async fn run(schema_arg: Option<String>, db_url_arg: Option<String>) -> anyhow::Result<()> {
+///
+/// With `exit_code`, pending changes are also an error, so the command exits
+/// with status 1 after printing them.
+pub async fn run(
+    schema_arg: Option<String>,
+    db_url_arg: Option<String>,
+    exit_code: bool,
+) -> anyhow::Result<()> {
     tui::print_header("db status");
 
     let ctx = DbContext::build(schema_arg, db_url_arg).await?;
@@ -62,5 +69,12 @@ pub async fn run(schema_arg: Option<String>, db_url_arg: Option<String>) -> anyh
         ),
     );
 
+    if exit_code {
+        anyhow::bail!(
+            "{} pending change{}: the database is not in sync with the schema",
+            classified.len(),
+            if classified.len() == 1 { "" } else { "s" },
+        );
+    }
     Ok(())
 }

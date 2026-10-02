@@ -45,6 +45,25 @@ pub struct LiveSchema {
     /// extension is excluded because it is present in every cluster by default
     /// and not something users declare. Empty for non-Postgres providers.
     pub extensions: HashMap<String, LiveExtension>,
+    /// Database names of the table-level CHECK constraints, keyed on the table
+    /// and then on the expression in the comparison form the diff reports in
+    /// [`Change::CheckChanged`](crate::Change::CheckChanged).
+    ///
+    /// A dropped check is removed by its real name, whichever convention
+    /// created it: earlier releases named every table-level check
+    /// `chk_<table>`. Empty for SQLite, whose checks are unnamed.
+    pub check_constraint_names: HashMap<TableName, HashMap<String, String>>,
+}
+
+impl LiveSchema {
+    /// The database name of a table-level CHECK constraint, given the
+    /// expression the diff reported for it.
+    pub(crate) fn table_check_name(&self, table: &TableName, expr: &str) -> Option<&str> {
+        self.check_constraint_names
+            .get(table)
+            .and_then(|names| names.get(expr))
+            .map(String::as_str)
+    }
 }
 
 /// State of a single PostgreSQL extension as installed in the live database.

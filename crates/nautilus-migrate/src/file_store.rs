@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{MigrationError, Result};
 use crate::migration::Migration;
 
-/// Manages `.up.sql` / `.down.sql` migration files on disk.
+/// Manages the `up.sql` / `down.sql` pair of each migration on disk.
 pub struct MigrationFileStore {
     dir: PathBuf,
 }
@@ -48,10 +48,10 @@ impl MigrationFileStore {
         })
     }
 
-    /// Return all migration names (without extension) in lexicographic order.
+    /// Return all migration names in lexicographic order.
     ///
-    /// Each name corresponds to a `{name}.up.sql` file inside the store
-    /// directory.
+    /// Each name is a `{name}/` subdirectory of the store directory holding
+    /// `up.sql` and `down.sql`.
     pub fn list_migration_names(&self) -> Result<Vec<String>> {
         if !self.dir.exists() {
             return Ok(Vec::new());
@@ -100,8 +100,8 @@ impl MigrationFileStore {
 
     /// Write a migration to disk.
     ///
-    /// Creates `{name}.up.sql` and `{name}.down.sql` inside the store
-    /// directory, creating the directory if it does not yet exist.  Any
+    /// Creates `{name}/up.sql` and `{name}/down.sql` inside the store
+    /// directory, creating the directories if they do not yet exist.  Any
     /// existing files with the same name are overwritten.
     pub fn write_migration(
         &self,

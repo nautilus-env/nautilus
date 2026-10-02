@@ -99,6 +99,14 @@ export class SerializationError extends DatabaseError {
         Object.setPrototypeOf(this, new.target.prototype);
     }
 }
+/** A lock was not available: requested with NOWAIT, or not granted within the lock timeout. */
+export class LockNotAvailableError extends DatabaseError {
+    constructor(message, details) {
+        super(message, details);
+        this.name = 'LockNotAvailableError';
+        Object.setPrototypeOf(this, new.target.prototype);
+    }
+}
 export class QueryTimeoutError extends DatabaseError {
     constructor(message, details) {
         super(message, details);
@@ -160,6 +168,8 @@ export function errorFromCode(code, message, data) {
         return new DeadlockError(`[${code}] ${message}`, details);
     if (code === 3010)
         return new SerializationError(`[${code}] ${message}`, details);
+    if (code === 3011)
+        return new LockNotAvailableError(`[${code}] ${message}`, details);
     if (code >= 3000 && code < 4000)
         return new DatabaseError(`[${code}] ${message}`, details);
     if (code === 4002)

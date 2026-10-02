@@ -27,6 +27,7 @@ pub(crate) fn connector_to_protocol(
         SqlxErrorKind::NullConstraint => ProtocolError::NullConstraintViolation(msg),
         SqlxErrorKind::Deadlock => ProtocolError::Deadlock(msg),
         SqlxErrorKind::SerializationFailure => ProtocolError::SerializationFailure(msg),
+        SqlxErrorKind::LockNotAvailable => ProtocolError::LockNotAvailable(msg),
         SqlxErrorKind::PoolTimedOut | SqlxErrorKind::PoolClosed => {
             ProtocolError::ConnectionFailed(msg)
         }

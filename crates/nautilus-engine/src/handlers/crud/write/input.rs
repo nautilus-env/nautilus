@@ -277,6 +277,19 @@ fn convert_field_input(
             }
         }
     }
+    // A JSON document may itself be an array. Converted on its own it would
+    // become a native array (`integer[]` on PostgreSQL), which a `json` or
+    // `jsonb` column rejects; a list field (`Json[]`) keeps the element-wise
+    // conversion.
+    if !field.is_array
+        && json_val.is_array()
+        && matches!(
+            field.field_type,
+            ResolvedFieldType::Scalar(ScalarType::Json | ScalarType::Jsonb)
+        )
+    {
+        return Ok(Value::Json(json_val.clone()));
+    }
     json_to_value_field(json_val, &field.field_type)
 }
 

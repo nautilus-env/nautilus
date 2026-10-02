@@ -1,7 +1,7 @@
 use super::DiffApplier;
 use crate::ddl::DatabaseProvider;
 use crate::error::Result;
-use crate::provider::check_constraint_name;
+use crate::provider::{column_check_constraint_name, table_check_constraint_name};
 use nautilus_core::TableName;
 
 /// Parameters for a `ADD CONSTRAINT ... FOREIGN KEY` statement, mirroring the
@@ -23,31 +23,43 @@ impl DiffApplier<'_> {
         &self,
         table: &TableName,
         column: Option<&str>,
-        drop_existing: bool,
+        old_expr: Option<&str>,
         new_expr: Option<&str>,
     ) -> Result<Vec<String>> {
         match self.provider {
             DatabaseProvider::Sqlite => self.sqlite_rebuild(table),
             DatabaseProvider::Postgres | DatabaseProvider::Mysql => {
                 let mut stmts = Vec::new();
-                let constraint_name = check_constraint_name(&table.name, column);
 
-                if drop_existing {
+                if let Some(old) = old_expr {
+                    // A table-level check is dropped by the name it has in the
+                    // database, which an older release may have chosen.
+                    let name = match column {
+                        Some(col) => column_check_constraint_name(&table.name, col),
+                        None => self.live.table_check_name(table, old).map_or_else(
+                            || table_check_constraint_name(&table.name, old),
+                            str::to_string,
+                        ),
+                    };
                     stmts.push(match self.provider {
                         DatabaseProvider::Mysql => format!(
                             "ALTER TABLE {} DROP CHECK {}",
                             self.q_table(table),
-                            self.q(&constraint_name),
+                            self.q(&name),
                         ),
-                        _ => self.strategy().drop_constraint_sql(table, &constraint_name),
+                        _ => self.strategy().drop_constraint_sql(table, &name),
                     });
                 }
 
                 if let Some(expr) = new_expr {
+                    let name = match column {
+                        Some(col) => column_check_constraint_name(&table.name, col),
+                        None => table_check_constraint_name(&table.name, expr),
+                    };
                     stmts.push(format!(
                         "ALTER TABLE {} ADD CONSTRAINT {} CHECK ({})",
                         self.q_table(table),
-                        self.q(&constraint_name),
+                        self.q(&name),
                         expr,
                     ));
                 }

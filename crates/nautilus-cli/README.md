@@ -15,7 +15,7 @@
 | `nautilus db drop [--schema <path>] [--force]` | Drops all live tables without recreating them |
 | `nautilus db reset [--schema <path>] [--force] [--only-data]` | Drops and recreates schema state, or truncates only data when `--only-data` is set |
 | `nautilus db seed <file>` | Executes a SQL seed script |
-| `nautilus migrate generate [label]` | Writes versioned `.up.sql` / `.down.sql` files from the current diff |
+| `nautilus migrate generate [label]` | Writes a versioned `<timestamp>_<label>/` directory with `up.sql` and `down.sql` from the current diff |
 | `nautilus migrate apply` | Applies pending migrations |
 | `nautilus migrate rollback [--steps N]` | Rolls back the last applied migrations |
 | `nautilus migrate status` | Shows applied vs pending migrations |

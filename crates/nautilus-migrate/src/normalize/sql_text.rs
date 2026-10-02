@@ -25,6 +25,66 @@ pub(crate) fn strip_casts(s: &str) -> String {
     result
 }
 
+/// Numeric type names a quoted literal may be cast to.
+const NUMERIC_CAST_TYPES: &[&str] = &[
+    "smallint",
+    "integer",
+    "bigint",
+    "int2",
+    "int4",
+    "int8",
+    "numeric",
+    "decimal",
+    "real",
+    "double precision",
+    "float4",
+    "float8",
+];
+
+/// Drop the quotes of a numeric literal that carries a numeric cast.
+///
+/// PostgreSQL prints a constant it cannot show as a bare `int4` (a negative
+/// number, or one beyond 32 bits in a `bigint` or `numeric` comparison) as a
+/// quoted literal with a cast: `'4294967295'::bigint`, `'-5'::integer`.
+/// Once [`strip_casts`] removes the cast, the quotes would turn the number into
+/// a string and the expression would never match the one written in the
+/// schema. Run this before [`strip_casts`]; other quoted literals are kept.
+pub(crate) fn unquote_numeric_cast_literals(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find('\'') {
+        out.push_str(&rest[..start]);
+        let after_open = &rest[start + 1..];
+        let Some(len) = after_open.find('\'') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let literal = &after_open[..len];
+        let after_close = &after_open[len + 1..];
+        let is_number = {
+            let digits = literal.strip_prefix('-').unwrap_or(literal);
+            !digits.is_empty()
+                && digits.chars().all(|c| c.is_ascii_digit() || c == '.')
+                && digits.chars().filter(|&c| c == '.').count() <= 1
+                && digits.chars().any(|c| c.is_ascii_digit())
+        };
+        let numeric_cast = after_close.strip_prefix("::").is_some_and(|cast| {
+            let cast = cast.to_ascii_lowercase();
+            NUMERIC_CAST_TYPES.iter().any(|ty| cast.starts_with(ty))
+        });
+        if is_number && numeric_cast {
+            out.push_str(literal);
+        } else {
+            out.push('\'');
+            out.push_str(literal);
+            out.push('\'');
+        }
+        rest = after_close;
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Remove parentheses that wrap a single numeric literal.
 pub(crate) fn strip_numeric_paren_literals(s: &str) -> String {
     let mut result = String::with_capacity(s.len());

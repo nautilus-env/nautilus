@@ -20,12 +20,29 @@ pub(crate) use stream::{decode_row_internal, decode_rows, streaming_decoder};
 
 use std::time::Duration;
 
+use crate::address::first_reachable_address;
 use crate::error::{ConnectorError as Error, Result};
 use crate::single_row::{fetch_single_row, SingleRowExpectation};
 use crate::{ConnectorPoolOptions, Executor, Row};
 use futures::future::BoxFuture;
 use nautilus_dialect::Sql;
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
+
+/// Bound on the connection opened only to explain why the pool did not open.
+const DIAGNOSTIC_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Connect to the address of the host that answers first (see
+/// [`crate::address`]), unless the connection uses a Unix socket or
+/// `sslmode=verify-full` needs the host name to verify the certificate.
+async fn with_reachable_host(options: PgConnectOptions) -> PgConnectOptions {
+    if options.get_socket().is_some() || matches!(options.get_ssl_mode(), PgSslMode::VerifyFull) {
+        return options;
+    }
+    match first_reachable_address(options.get_host(), options.get_port()).await {
+        Some(ip) => options.host(&ip.to_string()),
+        None => options,
+    }
+}
 
 /// PostgreSQL executor using sqlx.
 ///
@@ -65,10 +82,13 @@ impl PgExecutor {
     ///
     /// Any override not provided keeps the same default used by [`Self::new`].
     pub async fn new_with_options(url: &str, pool_options: ConnectorPoolOptions) -> Result<Self> {
-        let connect_options = pool_options.apply_to_postgres_connect_options(
-            url.parse::<PgConnectOptions>()
-                .map_err(|e| Error::connection(e, "Invalid PostgreSQL connection options"))?,
-        );
+        let connect_options = with_reachable_host(
+            pool_options.apply_to_postgres_connect_options(
+                url.parse::<PgConnectOptions>()
+                    .map_err(|e| Error::connection(e, "Invalid PostgreSQL connection options"))?,
+            ),
+        )
+        .await;
         let pool = pool_options
             .apply_to(
                 PgPoolOptions::new()
@@ -95,15 +115,26 @@ impl PgExecutor {
     /// `PoolTimedOut`, which hides whatever actually went wrong — a wrong
     /// password, an unreachable host, slow name resolution — behind a message
     /// that only says the acquire timeout elapsed. Opening one connection
-    /// directly recovers the underlying error.
+    /// directly recovers the underlying error, within a bound of its own so a
+    /// host that never answers cannot hold the caller indefinitely.
     async fn connect_error(error: sqlx::Error, options: &PgConnectOptions) -> Error {
         if !matches!(error, sqlx::Error::PoolTimedOut) {
             return Error::connection(error, "Failed to connect to database");
         }
 
-        match <sqlx::PgConnection as sqlx::Connection>::connect_with(options).await {
-            Err(cause) => Error::connection(cause, "Failed to connect to database"),
-            Ok(_) => Error::connection(
+        let attempt = tokio::time::timeout(
+            DIAGNOSTIC_CONNECT_TIMEOUT,
+            <sqlx::PgConnection as sqlx::Connection>::connect_with(options),
+        );
+        match attempt.await {
+            Err(_) => Error::connection_msg(format!(
+                "Failed to connect to database: {}:{} did not answer within {}s",
+                options.get_host(),
+                options.get_port(),
+                DIAGNOSTIC_CONNECT_TIMEOUT.as_secs()
+            )),
+            Ok(Err(cause)) => Error::connection(cause, "Failed to connect to database"),
+            Ok(Ok(_)) => Error::connection(
                 error,
                 "Failed to connect to database within the 10s acquire timeout",
             ),

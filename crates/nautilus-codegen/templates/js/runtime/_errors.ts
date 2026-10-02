@@ -133,6 +133,16 @@ export class SerializationError extends DatabaseError {
   }
 }
 
+/** A lock was not available: requested with NOWAIT, or not granted within the lock timeout. */
+export class LockNotAvailableError extends DatabaseError {
+
+  constructor(message: string, details?: NautilusErrorDetails) {
+    super(message, details);
+    this.name = 'LockNotAvailableError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 export class QueryTimeoutError extends DatabaseError {
 
   constructor(message: string, details?: NautilusErrorDetails) {
@@ -196,6 +206,7 @@ export function errorFromCode(
   if (code === 3008)               return new NullConstraintError(`[${code}] ${message}`, details);
   if (code === 3009)               return new DeadlockError(`[${code}] ${message}`, details);
   if (code === 3010)               return new SerializationError(`[${code}] ${message}`, details);
+  if (code === 3011)               return new LockNotAvailableError(`[${code}] ${message}`, details);
   if (code >= 3000 && code < 4000) return new DatabaseError(`[${code}] ${message}`, details);
   if (code === 4002)               return new TransactionTimeoutError(`[${code}] ${message}`, details);
   if (code >= 4001 && code <= 4004) return new TransactionError(`[${code}] ${message}`, details);

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::{group_mysql_foreign_keys, SchemaInspector};
 use crate::error::{MigrationError, Result};
 use crate::live::{ComputedKind, LiveColumn, LiveIndex, LiveIndexKind, LiveSchema, LiveTable};
-use crate::normalize::predicates::normalize_mysql_check_expr;
+use crate::normalize::predicates::{normalize_check_expr, normalize_mysql_check_expr};
 use crate::normalize::types::normalize_mysql_type;
 use nautilus_core::TableName;
 use nautilus_schema::ir::BasicIndexType;
@@ -203,6 +203,7 @@ impl SchemaInspector {
             let check_rows = checks_by_table.remove(&table_name).unwrap_or_default();
 
             let mut table_check_constraints = Vec::new();
+            let mut table_check_names = HashMap::new();
             let mut column_check_map = std::collections::HashMap::new();
             let col_prefix = format!("chk_{}_", table_name);
             let column_names: std::collections::HashSet<&str> =
@@ -225,6 +226,7 @@ impl SchemaInspector {
                 if let Some(col) = col_name {
                     column_check_map.insert(col, expr);
                 } else {
+                    table_check_names.insert(normalize_check_expr(&expr), con_name);
                     table_check_constraints.push(expr);
                 }
             }
@@ -235,6 +237,10 @@ impl SchemaInspector {
                 }
             }
 
+            if !table_check_names.is_empty() {
+                live.check_constraint_names
+                    .insert(TableName::new(table_name.clone()), table_check_names);
+            }
             live.tables.insert(
                 TableName::new(table_name.clone()),
                 LiveTable {

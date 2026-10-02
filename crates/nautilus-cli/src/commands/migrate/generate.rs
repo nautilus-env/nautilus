@@ -68,8 +68,8 @@ pub async fn run(
     let dir = ctx.store.dir().display().to_string();
     println!();
     println!("  Wrote:");
-    println!("    {dir}/{migration_name}.up.sql");
-    println!("    {dir}/{migration_name}.down.sql");
+    println!("    {dir}/{migration_name}/up.sql");
+    println!("    {dir}/{migration_name}/down.sql");
     println!();
     tui::print_summary_ok(
         "Migration generated",

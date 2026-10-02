@@ -259,6 +259,38 @@ async fn a_json_field_keeps_an_operator_shaped_object_as_its_value() {
 }
 
 #[tokio::test]
+async fn a_json_field_stores_an_array_document() {
+    let (state, temp_dir) = sqlite_state("json-array-document", schema_source()).await;
+    call_rpc_json(
+        &state,
+        QUERY_CREATE,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Post",
+            "data": { "title": "first", "tags": ["a", 1, { "b": true }] }
+        }),
+    )
+    .await;
+    assert_eq!(post(&state).await["Post__tags"], json!(["a", 1, { "b": true }]));
+
+    call_rpc_json(
+        &state,
+        QUERY_UPDATE,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION,
+            "model": "Post",
+            "filter": { "title": "first" },
+            "data": { "tags": [2, 3] }
+        }),
+    )
+    .await;
+    assert_eq!(post(&state).await["Post__tags"], json!([2, 3]));
+
+    drop(state);
+    drop(temp_dir);
+}
+
+#[tokio::test]
 async fn float_and_decimal_columns_take_arithmetic_too() {
     let (state, temp_dir) = sqlite_state("atomic-update-numeric", schema_source()).await;
     seed(&state).await;

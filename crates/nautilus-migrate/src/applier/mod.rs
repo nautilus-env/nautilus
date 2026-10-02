@@ -129,7 +129,7 @@ impl<'a> DiffApplier<'a> {
                 column,
                 from,
                 to,
-            } => self.sql_alter_check(table, column.as_deref(), from.is_some(), to.as_deref()),
+            } => self.sql_alter_check(table, column.as_deref(), from.as_deref(), to.as_deref()),
             Change::ForeignKeyAdded {
                 table,
                 constraint_name,

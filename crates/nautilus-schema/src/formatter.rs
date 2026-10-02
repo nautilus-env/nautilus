@@ -178,9 +178,17 @@ pub fn format_schema(schema: &Schema, source: &str) -> String {
                 if !model.attributes.is_empty() && !model.fields.is_empty() {
                     lines.push(String::new());
                 }
-                for attr in &model.attributes {
-                    lines.push(format!("  {}", format_model_attr(attr)));
-                }
+                let section_start = model
+                    .fields
+                    .last()
+                    .map_or(model.name.span.end, |field| field.span.end);
+                push_block_attributes(
+                    source,
+                    section_start,
+                    model.span.end,
+                    &model.attributes,
+                    &mut lines,
+                );
 
                 lines.push("}".to_string());
                 lines.join("\n")
@@ -201,7 +209,7 @@ pub fn format_schema(schema: &Schema, source: &str) -> String {
                 out.push_str(line);
                 out.push('\n');
             }
-            if !leading.is_empty() {
+            if !leading.is_empty() && !comments_attached(source, 0, first_decl.span().start) {
                 out.push('\n');
             }
         }
@@ -224,7 +232,9 @@ pub fn format_schema(schema: &Schema, source: &str) -> String {
                     out.push_str(comment);
                     out.push('\n');
                 }
-                out.push('\n');
+                if !comments_attached(source, prev_end, curr_start) {
+                    out.push('\n');
+                }
             }
         }
         out.push_str(block);
@@ -313,6 +323,73 @@ fn push_gap_content(
     }
 }
 
+/// Push a block's `@@` attributes together with the comments around them.
+///
+/// Most attributes carry no span, so the section is read back from the source
+/// between the end of the last field (or of the block name) and the end of the
+/// block: each line starting with `@@` belongs to the next attribute in order,
+/// with any comment that trails it on the same line, and each standalone `//`
+/// line is kept in front of the attribute that follows it, or at the end.
+fn push_block_attributes(
+    source: &str,
+    section_start: usize,
+    block_end: usize,
+    attributes: &[ModelAttribute],
+    lines: &mut Vec<String>,
+) {
+    let section = source.get(section_start..block_end).unwrap_or("");
+    // The first line is the end of the last field (whose trailing comment is
+    // already written) or the block header.
+    let body = section.find('\n').map_or("", |pos| &section[pos + 1..]);
+
+    let mut remaining = attributes.iter();
+    let mut pending: Vec<String> = Vec::new();
+    for raw_line in body.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.starts_with('}') {
+            break;
+        }
+        if trimmed.starts_with("//") {
+            pending.push(format!("  {}", trimmed));
+        } else if trimmed.starts_with("@@") {
+            let Some(attr) = remaining.next() else {
+                break;
+            };
+            lines.append(&mut pending);
+            let mut line = format!("  {}", format_model_attr(attr));
+            if let Some(comment) = line_comment(trimmed) {
+                line.push_str("  ");
+                line.push_str(comment);
+            }
+            lines.push(line);
+        }
+    }
+    for attr in remaining {
+        lines.push(format!("  {}", format_model_attr(attr)));
+    }
+    lines.append(&mut pending);
+}
+
+/// The `//` comment at the end of a source line, ignoring `//` inside a
+/// string literal (`@@check("url ~ 'https://'")`).
+fn line_comment(line: &str) -> Option<&str> {
+    let bytes = line.as_bytes();
+    let mut in_string = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' if in_string => i += 1,
+            b'"' => in_string = !in_string,
+            b'/' if !in_string && bytes.get(i + 1) == Some(&b'/') => {
+                return Some(line[i..].trim_end());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Whether the declaration at `index` and the one before it are both imports,
 /// which are written as a block of adjacent lines rather than separated by a
 /// blank line like the other declarations.
@@ -321,6 +398,22 @@ fn consecutive_imports(schema: &Schema, index: usize) -> bool {
         (&schema.declarations[index - 1], &schema.declarations[index]),
         (Declaration::Import(_), Declaration::Import(_))
     )
+}
+
+/// Whether the last comment in `source[from..to]` sits on the line right
+/// before `to`, documenting the declaration that starts there; formatting
+/// must not separate the two with a blank line.
+fn comments_attached(source: &str, from: usize, to: usize) -> bool {
+    let Some(gap) = source.get(from..to) else {
+        return false;
+    };
+    let Some(comment_start) = gap.rfind("//") else {
+        return false;
+    };
+    match gap[comment_start..].find('\n') {
+        Some(line_end) => !gap[comment_start + line_end + 1..].contains('\n'),
+        None => false,
+    }
 }
 
 /// Extract top-level comment lines (and blank-line structure around them) from
@@ -416,9 +509,17 @@ fn format_type_decl(type_decl: &TypeDecl, source: &str) -> String {
     if !type_decl.attributes.is_empty() && !type_decl.fields.is_empty() {
         lines.push(String::new());
     }
-    for attr in &type_decl.attributes {
-        lines.push(format!("  {}", format_model_attr(attr)));
-    }
+    let section_start = type_decl
+        .fields
+        .last()
+        .map_or(type_decl.name.span.end, |field| field.span.end);
+    push_block_attributes(
+        source,
+        section_start,
+        type_decl.span.end,
+        &type_decl.attributes,
+        &mut lines,
+    );
 
     lines.push("}".to_string());
     lines.join("\n")

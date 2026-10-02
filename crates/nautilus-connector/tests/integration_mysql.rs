@@ -506,3 +506,39 @@ async fn test_decimal_and_datetime_decoding() {
     assert_eq!(row.get("amount"), Some(&Value::Decimal(expected_amount)));
     assert_eq!(row.get("created_at"), Some(&Value::DateTime(expected_dt)));
 }
+
+#[tokio::test]
+#[ignore = "requires a running MySQL instance (run `docker-compose up -d` first)"]
+async fn test_a_lock_that_cannot_be_taken_is_classified() {
+    use nautilus_connector::SqlxErrorKind;
+
+    let executor = mysql_common::setup_executor()
+        .await
+        .expect("Failed to create executor");
+    let pool = executor.pool();
+    sqlx::query("CREATE TABLE IF NOT EXISTS test_lock_probe (id INT PRIMARY KEY)")
+        .execute(pool)
+        .await
+        .expect("create table");
+    sqlx::query("INSERT IGNORE INTO test_lock_probe (id) VALUES (1)")
+        .execute(pool)
+        .await
+        .expect("insert row");
+
+    let mut holder = pool.begin().await.expect("begin");
+    sqlx::query("SELECT id FROM test_lock_probe WHERE id = 1 FOR UPDATE")
+        .fetch_all(&mut *holder)
+        .await
+        .expect("lock row");
+    let err = sqlx::query("SELECT id FROM test_lock_probe WHERE id = 1 FOR UPDATE NOWAIT")
+        .fetch_all(pool)
+        .await
+        .expect_err("the row is locked");
+    holder.rollback().await.expect("rollback");
+
+    assert_eq!(
+        SqlxErrorKind::from_sqlx(&err),
+        SqlxErrorKind::LockNotAvailable,
+        "{err}"
+    );
+}

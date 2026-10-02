@@ -245,3 +245,65 @@ model User {
         formatted
     );
 }
+
+#[test]
+fn test_format_keeps_comments_around_model_attributes() {
+    let source = r#"model Account {
+  id   Int    @id
+  low  Int
+  high Int // upper bound
+
+  // Bounds are ordered.
+  @@check(low <= high)
+  @@map("accounts") // physical name
+  // Raw predicates may contain "//".
+  @@check("label <> 'https://example.com'")
+  // Closing note.
+}"#;
+    let formatted = round_trip(source);
+
+    assert_eq!(
+        formatted,
+        r#"model Account {
+  id   Int @id
+  low  Int
+  high Int  // upper bound
+
+  // Bounds are ordered.
+  @@check(low <= high)
+  @@map("accounts")  // physical name
+  // Raw predicates may contain "//".
+  @@check("label <> 'https://example.com'")
+  // Closing note.
+}
+"#
+    );
+}
+
+#[test]
+fn test_format_keeps_a_comment_attached_to_its_declaration() {
+    let source = r#"// File header.
+
+// Documents User.
+model User {
+  id Int @id
+}
+
+// Separated from Post by a blank line.
+
+model Post {
+  id Int @id
+}"#;
+    let formatted = round_trip(source);
+
+    assert!(
+        formatted.starts_with("// File header.\n\n// Documents User.\nmodel User {"),
+        "{}",
+        formatted
+    );
+    assert!(
+        formatted.contains("// Separated from Post by a blank line.\n\nmodel Post {"),
+        "{}",
+        formatted
+    );
+}

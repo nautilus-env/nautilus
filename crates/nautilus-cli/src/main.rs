@@ -204,6 +204,21 @@ mod tests {
     }
 
     #[test]
+    fn db_status_accepts_an_exit_code_flag_for_ci() {
+        let help = help_for_nested("db", "status");
+        assert!(help.contains("--exit-code"));
+
+        let cli = Cli::try_parse_from(["nautilus", "db", "status", "--exit-code"])
+            .expect("db status --exit-code should parse");
+        match cli.command {
+            Command::Db {
+                subcommand: DbCommand::Status { exit_code, .. },
+            } => assert!(exit_code),
+            _ => panic!("expected db status"),
+        }
+    }
+
+    #[test]
     fn migrate_generate_help_mentions_schema_auto_detection() {
         let help = help_for_nested("migrate", "generate");
         assert!(help.contains("auto-detect the first .nautilus file if not specified"));

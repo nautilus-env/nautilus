@@ -153,10 +153,14 @@ pub(in crate::analysis) const SCALAR_TYPES: &[ScalarTypeDoc] = &[
         label: "DateTime",
         snippet: None,
         scalar: ScalarType::DateTime,
-        sql: "TIMESTAMPTZ",
+        sql: "TIMESTAMP",
         extension: None,
-        mapping: None,
-        summary: "Timestamp with time zone",
+        mapping: Some(
+            "Maps to `TIMESTAMP` (without time zone) on PostgreSQL, `DATETIME(6)` on MySQL and \
+             `DATETIME` on SQLite. The engine writes and reads UTC; `@default(now())` uses the \
+             session time zone, which is UTC for the engine's own connections.",
+        ),
+        summary: "Timestamp in UTC, stored without time zone",
     },
     ScalarTypeDoc {
         label: "Bytes",

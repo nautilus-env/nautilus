@@ -68,6 +68,10 @@ pub enum DbCommand {
         /// Database URL (overrides schema datasource direct_url/url and DATABASE_URL)
         #[arg(long)]
         database_url: Option<String>,
+
+        /// Exit with status 1 when changes are pending, so CI can fail on drift
+        #[arg(long)]
+        exit_code: bool,
     },
     /// Introspect live database and write an equivalent .nautilus schema file
     Pull {
@@ -145,7 +149,8 @@ pub async fn run(cmd: DbCommand) -> anyhow::Result<()> {
         DbCommand::Status {
             schema,
             database_url,
-        } => status::run(schema, database_url).await,
+            exit_code,
+        } => status::run(schema, database_url, exit_code).await,
         DbCommand::Pull {
             schema,
             database_url,

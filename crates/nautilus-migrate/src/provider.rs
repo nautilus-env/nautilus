@@ -8,7 +8,7 @@ mod indexes;
 mod pgvector;
 mod user_types;
 
-pub(crate) use constraints::check_constraint_name;
+pub(crate) use constraints::{column_check_constraint_name, table_check_constraint_name};
 pub use database::DatabaseProvider;
 pub(crate) use indexes::CreateIndex;
 

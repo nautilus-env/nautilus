@@ -24,6 +24,9 @@ pub enum SqlxErrorKind {
     NullConstraint,
     /// Deadlock detected between concurrent transactions.
     Deadlock,
+    /// A lock could not be obtained: requested with `NOWAIT`, or not granted
+    /// within the lock timeout.
+    LockNotAvailable,
     /// Serialization failure — transaction must be retried.
     SerializationFailure,
     /// I/O error during communication.
@@ -66,7 +69,7 @@ impl SqlxErrorKind {
                 } else if db_err.is_check_violation() {
                     SqlxErrorKind::CheckConstraint
                 } else {
-                    // Detect NOT NULL, deadlock, and serialization failures via SQLState
+                    // Detect NOT NULL, deadlock, lock and serialization failures via SQLState
                     // (PostgreSQL) or error message patterns (MySQL, SQLite).
                     let state = db_err.code();
                     let state = state.as_deref().unwrap_or("");
@@ -79,6 +82,8 @@ impl SqlxErrorKind {
                         SqlxErrorKind::NullConstraint
                     } else if state == "40P01" || msg.to_ascii_lowercase().contains("deadlock") {
                         SqlxErrorKind::Deadlock
+                    } else if state == "55P03" || is_mysql_lock_not_available(db_err.as_ref()) {
+                        SqlxErrorKind::LockNotAvailable
                     } else if state == "40001"
                         || msg.to_ascii_lowercase().contains("serialization failure")
                         || msg.to_ascii_lowercase().contains("could not serialize")
@@ -107,6 +112,16 @@ impl SqlxErrorKind {
             _ => SqlxErrorKind::None,
         }
     }
+}
+
+/// MySQL reports a lock it could not take as error 3572 (`FOR UPDATE NOWAIT`)
+/// or 1205 (lock wait timeout), both under the generic SQLSTATE `HY000`, so
+/// only the error number tells them apart. PostgreSQL uses SQLSTATE `55P03`
+/// for both cases.
+fn is_mysql_lock_not_available(db_err: &dyn sqlx::error::DatabaseError) -> bool {
+    db_err
+        .try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>()
+        .is_some_and(|err| matches!(err.number(), 3572 | 1205))
 }
 
 /// Error type for database connector operations.

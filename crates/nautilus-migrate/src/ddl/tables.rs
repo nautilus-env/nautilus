@@ -1,7 +1,7 @@
 use super::{field_is_autoincrement, managed_scalar_fields, DatabaseProvider, DdlGenerator};
 use crate::error::Result;
 use crate::live::model_table;
-use crate::provider::check_constraint_name;
+use crate::provider::{column_check_constraint_name, table_check_constraint_name};
 use nautilus_schema::ir::{ModelIr, ResolvedFieldType, SchemaIr};
 
 impl DdlGenerator {
@@ -132,7 +132,7 @@ impl DdlGenerator {
         if self.provider != DatabaseProvider::Sqlite {
             for field in managed_scalar_fields(model) {
                 if let Some(ref check_expr) = field.check {
-                    let cname = check_constraint_name(&model.db_name, Some(&field.db_name));
+                    let cname = column_check_constraint_name(&model.db_name, &field.db_name);
                     lines.push(format!(
                         "  CONSTRAINT {} CHECK ({})",
                         self.quote_identifier(&cname),
@@ -145,7 +145,7 @@ impl DdlGenerator {
             if self.provider == DatabaseProvider::Sqlite {
                 lines.push(format!("  CHECK ({})", check_expr));
             } else {
-                let cname = check_constraint_name(&model.db_name, None);
+                let cname = table_check_constraint_name(&model.db_name, check_expr);
                 lines.push(format!(
                     "  CONSTRAINT {} CHECK ({})",
                     self.quote_identifier(&cname),
