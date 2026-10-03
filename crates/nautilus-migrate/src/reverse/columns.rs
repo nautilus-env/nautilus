@@ -1,6 +1,7 @@
 use super::{cannot_reverse, missing_snapshot, ChangeReverser};
 use crate::ddl::DatabaseProvider;
 use crate::plan::ReversalPlan;
+use crate::provider::column_check_constraint_name;
 use nautilus_core::TableName;
 
 impl ChangeReverser<'_> {
@@ -15,6 +16,7 @@ impl ChangeReverser<'_> {
         }
     }
 
+    /// Restore the column definition and its named CHECK from the live snapshot.
     pub(super) fn reverse_dropped_column(&self, table: &TableName, column: &str) -> ReversalPlan {
         let missing = || missing_snapshot(format!("column {}.{} was dropped", table, column));
         let Some(live_column) = self
@@ -39,15 +41,23 @@ impl ChangeReverser<'_> {
                     .map(|default| format!(" DEFAULT {}", default))
                     .unwrap_or_default();
 
-                vec![format!(
+                let mut statements = vec![format!(
                     "ALTER TABLE {} ADD COLUMN {} {}{}{}",
                     self.quote_table(table),
                     self.quote(column),
                     live_column.col_type.to_uppercase(),
                     not_null,
                     default_clause,
-                )]
-                .into()
+                )];
+                if let Some(expr) = &live_column.check_expr {
+                    let name = column_check_constraint_name(&table.name, column);
+                    let sql_expr = crate::utils::schema_bool_expr_to_sql(expr);
+                    statements.push(
+                        self.strategy
+                            .add_check_constraint_sql(table, &name, &sql_expr),
+                    );
+                }
+                statements.into()
             }
             DatabaseProvider::Sqlite => {
                 cannot_reverse(format!("dropped column on SQLite: {}.{}", table, column))

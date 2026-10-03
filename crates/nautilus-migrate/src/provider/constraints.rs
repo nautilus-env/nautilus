@@ -3,6 +3,21 @@ use crate::normalize::predicates::normalize_check_expr;
 use nautilus_core::TableName;
 
 impl ProviderStrategy {
+    /// Add a named CHECK on providers that support altering table constraints.
+    pub(crate) fn add_check_constraint_sql(
+        &self,
+        table: &TableName,
+        name: &str,
+        expr: &str,
+    ) -> String {
+        format!(
+            "ALTER TABLE {} ADD CONSTRAINT {} CHECK ({})",
+            self.quote_table(table),
+            self.provider.quote_identifier(name),
+            expr,
+        )
+    }
+
     pub(crate) fn drop_constraint_sql(&self, table: &TableName, name: &str) -> String {
         format!(
             "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {}",

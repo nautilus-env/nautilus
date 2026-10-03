@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **CHECKs in column rollbacks.** `down.sql` restores a dropped column's
+  named `@check` on PostgreSQL and MySQL, using the live snapshot and the
+  same constraint rendering as forward migrations. Normalized `IN` predicates
+  are converted back to SQL and string literals retain their case.
 - **Python `Bytes` fields.** Binary values now encode as base64 for the engine,
   bind as binary data rather than text, and decode back to Python `bytes`.
   Empty values, nulls, mapped fields, projections, filters and transactions

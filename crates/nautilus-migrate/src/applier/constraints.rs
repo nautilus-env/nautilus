@@ -32,8 +32,6 @@ impl DiffApplier<'_> {
                 let mut stmts = Vec::new();
 
                 if let Some(old) = old_expr {
-                    // A table-level check is dropped by the name it has in the
-                    // database, which an older release may have chosen.
                     let name = match column {
                         Some(col) => column_check_constraint_name(&table.name, col),
                         None => self.live.table_check_name(table, old).map_or_else(
@@ -56,12 +54,7 @@ impl DiffApplier<'_> {
                         Some(col) => column_check_constraint_name(&table.name, col),
                         None => table_check_constraint_name(&table.name, expr),
                     };
-                    stmts.push(format!(
-                        "ALTER TABLE {} ADD CONSTRAINT {} CHECK ({})",
-                        self.q_table(table),
-                        self.q(&name),
-                        expr,
-                    ));
+                    stmts.push(self.strategy().add_check_constraint_sql(table, &name, expr));
                 }
 
                 Ok(stmts)

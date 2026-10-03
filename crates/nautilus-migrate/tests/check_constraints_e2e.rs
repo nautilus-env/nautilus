@@ -8,7 +8,7 @@ mod common;
 use nautilus_core::TableName;
 use nautilus_migrate::live::LiveSchema;
 use nautilus_migrate::{
-    Change, DatabaseProvider, DdlGenerator, DiffApplier, MigrationFileStore, SchemaDiff,
+    ApplyPlan, Change, DatabaseProvider, DdlGenerator, DiffApplier, MigrationFileStore, SchemaDiff,
     SchemaInspector,
 };
 use sqlx::{AnyPool, Row};
@@ -347,6 +347,124 @@ model Legacy {{
 async fn postgres_several_model_checks_apply_and_diff_to_nothing(
 ) -> Result<(), Box<dyn std::error::Error>> {
     several_model_checks_apply_and_diff_to_nothing(DatabaseProvider::Postgres).await
+}
+
+async fn dropped_columns_restore_checks_on_rollback(
+    provider: DatabaseProvider,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(mut sandbox) = Sandbox::open(provider).await else {
+        return skip_missing_prerequisite(&format!("cannot connect to {provider:?}"));
+    };
+    let table = sandbox.table("rollback_checks");
+    let result = async {
+        let regex_check = match provider {
+            DatabaseProvider::Mysql => "regexp_like(legacy_data,'^[A-Z]*$','c')",
+            _ => "legacy_data ~ '^[A-Z]*$'",
+        };
+        let previous = common::parse(&format!(
+            r#"model Item {{
+  id Int @id
+  data String @map("legacy_data") @check("{regex_check}")
+  kind String? @default("Alpha") @check(kind IN ["Alpha", "Beta"])
+  @@map("{table}")
+}}"#
+        ))?;
+        let ddl = DdlGenerator::new(provider);
+        sandbox
+            .execute(&ddl.generate_create_tables(&previous)?)
+            .await?;
+        let before = sandbox.inspect(&table).await?;
+        let initial_drift = SchemaDiff::compute(&before, &previous, provider);
+        assert!(
+            initial_drift.is_empty(),
+            "schema drift before rollback: {initial_drift:?}"
+        );
+        let before_names = sandbox.check_names(&table).await?;
+        assert_eq!(before_names.len(), 2);
+
+        let target = common::parse(&format!(
+            r#"model Item {{
+  id Int @id
+  replacement String? @check("replacement <> 'REJECT'")
+  @@map("{table}")
+}}"#
+        ))?;
+        let changes = SchemaDiff::compute(&before, &target, provider);
+        let applier = DiffApplier::new(provider, &ddl, &target, &before);
+        let migration = ApplyPlan::for_changes(provider, &applier, &before, &changes)?
+            .into_migration("replace_checked_columns".into());
+        let dir = tempfile::tempdir()?;
+        let store = MigrationFileStore::new(dir.path());
+        store.write_migration(&migration.name, &migration.up_sql, &migration.down_sql)?;
+        let loaded = store.load_migration(&migration.name)?;
+        assert_eq!(loaded.down_sql, migration.down_sql);
+        assert_eq!(
+            loaded
+                .down_sql
+                .iter()
+                .filter(|sql| sql.contains("ADD CONSTRAINT"))
+                .count(),
+            2,
+            "both dropped column CHECKs must be restored: {:?}",
+            loaded.down_sql,
+        );
+        sandbox.execute(&loaded.up_sql).await?;
+        let forward = sandbox.inspect(&table).await?;
+        assert!(SchemaDiff::compute(&forward, &target, provider).is_empty());
+
+        sandbox.execute(&loaded.down_sql).await?;
+        let restored = sandbox.inspect(&table).await?;
+        let drift = SchemaDiff::compute(&restored, &previous, provider);
+        assert!(drift.is_empty(), "schema drift after rollback: {drift:?}");
+        assert_eq!(sandbox.check_names(&table).await?, before_names);
+        let quoted = sandbox.quote(&table);
+        sandbox
+            .execute(&[format!(
+                "INSERT INTO {quoted} (id, legacy_data) VALUES (1, 'ABC')"
+            )])
+            .await?;
+        sandbox
+            .execute(&[format!(
+                "INSERT INTO {quoted} (id, legacy_data, kind) VALUES (2, 'XYZ', NULL)"
+            )])
+            .await?;
+        assert!(
+            sandbox
+                .execute(&[format!(
+                    "INSERT INTO {quoted} (id, legacy_data) VALUES (3, 'lower')"
+                )])
+                .await
+                .is_err(),
+            "the original case-sensitive regex must be enforced"
+        );
+        assert!(
+            sandbox
+                .execute(&[format!(
+                    "INSERT INTO {quoted} (id, legacy_data, kind) VALUES (4, 'ABC', 'Gamma')"
+                )])
+                .await
+                .is_err(),
+            "the restored IN check must be enforced"
+        );
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    sandbox.close().await;
+    result
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn postgres_dropped_columns_restore_checks_on_rollback(
+) -> Result<(), Box<dyn std::error::Error>> {
+    dropped_columns_restore_checks_on_rollback(DatabaseProvider::Postgres).await
+}
+
+#[tokio::test]
+#[ignore = "requires a running MySQL instance (run `docker-compose up -d` first)"]
+async fn mysql_dropped_columns_restore_checks_on_rollback() -> Result<(), Box<dyn std::error::Error>>
+{
+    dropped_columns_restore_checks_on_rollback(DatabaseProvider::Mysql).await
 }
 
 async fn added_columns_apply_from_crlf_and_keep_checks(
