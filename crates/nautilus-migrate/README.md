@@ -313,7 +313,16 @@ DROP TABLE IF EXISTS "posts";
 ALTER TABLE "users" DROP COLUMN "role";
 ```
 
-Statements are separated by a blank line and terminated with `;`. The down file may contain `-- Cannot auto-reverse` comments for changes that cannot be safely reversed (e.g., type changes on MySQL, column drops on SQLite).
+Statements are terminated with `;`; blank lines are optional and may appear
+inside a statement. The reader accepts LF and CRLF, and ignores terminators
+inside quoted strings, identifiers, comments and PostgreSQL dollar-quoted
+bodies. The down file may contain `-- Cannot auto-reverse` comments for changes
+that cannot be safely reversed (e.g., type changes on MySQL, column drops on SQLite).
+
+Adding a required column without a default generates `ADD COLUMN ... NOT NULL`
+and a warning: the database may reject it if the table already contains rows.
+For a populated table, edit the migration to add a nullable column, backfill it,
+then make it required. The generator does not invent a default.
 
 Migration directories are sorted lexicographically — the timestamp prefix guarantees chronological order.
 

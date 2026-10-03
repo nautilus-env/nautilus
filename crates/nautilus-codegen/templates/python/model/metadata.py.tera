@@ -1,4 +1,4 @@
-# Engine response key mapping: "table__db_column" -> Python field name
+
 _{{ table_name }}_row_map: Dict[str, str] = {
 {%- for f in scalar_fields %}
     "{{ table_name }}__{{ f.db_name }}": "{{ f.name }}",
@@ -18,12 +18,14 @@ _{{ table_name }}_scalar_coercers: Dict[str, Any] = {
     "{{ f.name }}": {{ f.extension_coercer }},
 {%- elif f.base_type == "bool" %}
     "{{ f.name }}": _coerce_boolean_value,
+{%- elif f.base_type == "bytes" %}
+    "{{ f.name }}": _coerce_bytes_value,
 {%- elif f.base_type == "datetime" %}
     "{{ f.name }}": lambda v: datetime.fromisoformat(v.replace(" ", "T")) if isinstance(v, str) else v,
 {%- endif %}
 {%- endfor %}
 }
-# Python field name -> DB column name mapping (handles @map renames)
+
 _{{ table_name }}_py_to_db: Dict[str, str] = {
 {%- for f in scalar_fields %}
     "{{ f.logical_name }}": "{{ f.db_name }}",

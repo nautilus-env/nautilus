@@ -236,7 +236,7 @@ class UserProjection(TypedDict, total=False):
     name: NotRequired[str]
 
 
-# Engine response key mapping: "table__db_column" -> Python field name
+
 _User_row_map: Dict[str, str] = {
     "User__id": "id",
     "User__name": "name",
@@ -248,7 +248,7 @@ _User_fields: frozenset = frozenset({
 
 _User_scalar_coercers: Dict[str, Any] = {
 }
-# Python field name -> DB column name mapping (handles @map renames)
+
 _User_py_to_db: Dict[str, str] = {
     "id": "id",
     "name": "name",

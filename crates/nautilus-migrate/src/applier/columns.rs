@@ -7,20 +7,24 @@ use nautilus_schema::ir::{DefaultValue, FieldIr};
 
 impl DiffApplier<'_> {
     pub(super) fn sql_add_column(&self, table: &TableName, field: &FieldIr) -> Result<Vec<String>> {
-        if field.is_required && field.default_value.is_none() && field.computed.is_none() {
-            return Err(MigrationError::UnsupportedChange(format!(
-                "Column {}.{} is NOT NULL but has no @default(). \
-                 Add a default value to the field in your schema before re-running \
-                 `db push`, or make the field optional.",
-                table, field.db_name
-            )));
-        }
         let col_def = self.column_definition(table, field)?;
-        Ok(vec![format!(
+        let mut statements = vec![format!(
             "ALTER TABLE {} ADD COLUMN {}",
             self.q_table(table),
             col_def,
-        )])
+        )];
+
+        if self.provider != DatabaseProvider::Sqlite {
+            if let Some(expr) = &field.check {
+                statements.extend(self.sql_alter_check(
+                    table,
+                    Some(&field.db_name),
+                    None,
+                    Some(expr),
+                )?);
+            }
+        }
+        Ok(statements)
     }
 
     pub(super) fn sql_drop_column(&self, table: &TableName, column: &str) -> Result<Vec<String>> {

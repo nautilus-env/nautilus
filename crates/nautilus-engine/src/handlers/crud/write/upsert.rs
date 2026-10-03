@@ -6,7 +6,7 @@
 //! so the row a conflict writes matches the one an insert would have.
 
 use nautilus_connector::Row;
-use nautilus_core::{Insert, InsertCapacity, OnConflict};
+use nautilus_core::{Assignment, Expr, Insert, InsertCapacity, OnConflict};
 use nautilus_protocol::{check_protocol_version, ProtocolError, RpcRequest, UpsertParams};
 use nautilus_schema::ir::{FieldIr, ModelIr};
 use serde_json::Value as JsonValue;
@@ -110,15 +110,24 @@ async fn execute_upsert(
         }
     }
 
-    // An empty `update` means "insert or leave alone", so the conflict clause
-    // assigns nothing — not even the `updatedAt` a real update would refresh.
+    let returns_inline = params.return_data && state.dialect().supports_returning();
+
     let assignments = if update_obj.is_empty() {
-        Vec::new()
+        if returns_inline {
+            let target = target_fields[0];
+            vec![(
+                field_marker(model, target),
+                Assignment::Expr(Expr::column(format!(
+                    "{}__{}",
+                    model.db_name, target.db_name,
+                ))),
+            )]
+        } else {
+            Vec::new()
+        }
     } else {
         update_assignments(state, model, update_obj)?
     };
-
-    let returns_inline = params.return_data && state.dialect().supports_returning();
 
     let mut builder = Insert::into_table(crate::metadata::model_table(model))
         .with_capacity(InsertCapacity {

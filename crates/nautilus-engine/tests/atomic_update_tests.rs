@@ -271,7 +271,10 @@ async fn a_json_field_stores_an_array_document() {
         }),
     )
     .await;
-    assert_eq!(post(&state).await["Post__tags"], json!(["a", 1, { "b": true }]));
+    assert_eq!(
+        post(&state).await["Post__tags"],
+        json!(["a", 1, { "b": true }])
+    );
 
     call_rpc_json(
         &state,
@@ -309,8 +312,7 @@ async fn float_and_decimal_columns_take_arithmetic_too() {
 
     let row = post(&state).await;
     assert_eq!(row["Post__ratio"], json!(5.0));
-    // SQLite has no DECIMAL type, so the sum comes back without the column's
-    // scale; the providers that do keep it are covered by the scenario.
+
     assert_eq!(
         row["Post__balance"]
             .as_str()

@@ -49,9 +49,9 @@ jobs:
       - name: Test (unit + no-DB)
         run: cargo test --locked --workspace --exclude nautilus-orm-connector --exclude nautilus-orm-codegen
 
-      # `nautilus-orm-codegen` is excluded above because `stream_runtime_e2e_tests`
-      # shells out to Python, Node and the JDK. Every other test file in the crate
-      # is pure Rust and belongs in the fast job.
+
+
+
       - name: Test codegen (no external toolchains)
         env:
           INSTA_UPDATE: 'no'
@@ -187,12 +187,12 @@ jobs:
       - name: Install SQLite CLI
         run: sudo apt-get update && sudo apt-get install -y sqlite3
 
-      # The tests fall back to an `--offline` build of this binary, which cannot
-      # fetch the CLI-only dependencies; build it online first.
+
+
       - name: Build the nautilus binary
         run: cargo build --locked -p nautilus-orm --bin nautilus
 
-      # Fetch the version declared by the tests; missing jars fail this job.
+
       - name: Fetch Jackson jars for the Java client tests
         run: |
           version="$(grep -oP 'JAVA_JACKSON_VERSION: &str = "\K[^"]+' \
@@ -252,7 +252,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-extensions-
 
-      # These tests create and drop database-wide extensions as well as schemas.
+
       - name: Run PostgreSQL extension migration tests
         run: cargo test --locked -p nautilus-orm-migrate --test postgres_extensions_e2e -- --ignored --test-threads=1 --nocapture
 
@@ -331,7 +331,7 @@ jobs:
           MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
         run: cargo test --locked -p nautilus-orm-connector --test integration_mysql -- --ignored --test-threads=1
 
-      # Inspect effective transaction isolation through performance_schema.
+
       - name: Run MySQL transaction isolation tests
         env:
           MYSQL_URL: mysql://root:nautilus_root@localhost:3306/nautilus_test
@@ -339,11 +339,23 @@ jobs:
           cargo test --locked -p nautilus-orm-connector --lib --test transaction_mysql -- --ignored --test-threads=1
           cargo test --locked -p nautilus-orm-engine --test mysql_transaction_tests -- --ignored --test-threads=1
 
-      # A migration that stops part-way must be reported as such; each provider
-      # reaches that state differently.
+
+
       - name: Run migration apply-phase tests
         env:
           NAUTILUS_REQUIRE_E2E: '1'
           NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
           NAUTILUS_TEST_MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
         run: cargo test --locked -p nautilus-orm-migrate --test apply_phases_e2e -- --ignored --test-threads=1 --nocapture
+
+      - name: Run CHECK constraint migration tests
+        env:
+          NAUTILUS_REQUIRE_E2E: '1'
+          NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
+          NAUTILUS_TEST_MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
+        run: cargo test --locked -p nautilus-orm-migrate --test check_constraints_e2e -- --ignored --test-threads=1 --nocapture
+
+      - name: Run PostgreSQL upsert tests
+        env:
+          NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
+        run: cargo test --locked -p nautilus-orm-engine --test upsert_tests -- --ignored --nocapture

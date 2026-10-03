@@ -373,7 +373,11 @@ impl Change {
             Change::AddedColumn { table, field } => (
                 "+",
                 format!("{}.{}", table, field.db_name),
-                "ADD COLUMN (safe)".into(),
+                if self.risk() == ChangeRisk::Destructive {
+                    "ADD COLUMN (destructive — NOT NULL without a default may fail on a nonempty table)".into()
+                } else {
+                    "ADD COLUMN (safe)".into()
+                },
             ),
             Change::DroppedColumn { table, column } => (
                 "-",

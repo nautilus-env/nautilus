@@ -193,7 +193,6 @@ fn render_output(output: &Output) -> String {
 }
 
 fn run_checked(command: &mut Command, context: &str) -> String {
-    // Resolve the database URL from the fixture's .env, not the caller's shell.
     let output = command
         .env_remove("DATABASE_URL")
         .output()
@@ -585,6 +584,69 @@ fn generated_python_stream_many_early_break_cleans_up() {
     assert_common_output(&values);
     assert_eq!(values.get("partial_data").map(String::as_str), Some("0"));
     assert_eq!(values.get("stream_queues").map(String::as_str), Some("0"));
+}
+
+#[test]
+fn generated_python_bytes_round_trip() {
+    let Some(python) = python_executable() else {
+        return;
+    };
+    let dir = tempfile::tempdir_in(workspace_root()).unwrap();
+    let root = dir.path();
+    let schema_path = root.join("schema.nautilus");
+    let database_path = root.join("bytes.sqlite");
+    let database_url = format!(
+        "sqlite:///{}",
+        database_path.to_string_lossy().replace('\\', "/")
+    );
+    fs::write(
+        &schema_path,
+        r#"
+datasource db { provider = "sqlite" url = env("DATABASE_URL") }
+generator client { provider = "nautilus-client-py" interface = "async" output = "./pyclient" }
+model Blob {
+  id Int @id
+  binaryData Bytes @map("binary_data")
+  optionalData Bytes? @map("optional_data")
+  @@map("blobs")
+}
+"#
+        .replace(
+            "./pyclient",
+            &root.join("pyclient").to_string_lossy().replace('\\', "/"),
+        ),
+    )
+    .unwrap();
+    fs::write(root.join(".env"), format!("DATABASE_URL={database_url}\n")).unwrap();
+    generate_command(
+        &schema_path,
+        GenerateOptions {
+            install: InstallMode::Never,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    fs::write(root.join("pydantic.py"), PYDANTIC_STUB).unwrap();
+    let runner = root.join("run_python_bytes.py");
+    fs::write(
+        &runner,
+        include_str!("fixtures/stream_runtime_e2e/run_python_bytes.py"),
+    )
+    .unwrap();
+    let binary = ensure_nautilus_binary();
+    let output = run_checked(
+        Command::new(python)
+            .arg(&runner)
+            .env("PYTHONPATH", root)
+            .env("PATH", prefixed_path(binary.parent().unwrap())),
+        "Python Bytes round trip",
+    );
+    assert_eq!(
+        parse_key_values(&output)
+            .get("bytes_round_trip")
+            .map(String::as_str),
+        Some("ok")
+    );
 }
 
 #[test]

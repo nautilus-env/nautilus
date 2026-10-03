@@ -1,6 +1,6 @@
 use anyhow::Context;
 use chrono::Utc;
-use nautilus_migrate::SchemaDiff;
+use nautilus_migrate::{Change, SchemaDiff};
 
 use crate::context::MigrateContext;
 use crate::tui;
@@ -41,6 +41,17 @@ pub async fn run(
             "Database is already in sync with the schema — nothing to generate",
         );
         return Ok(());
+    }
+
+    for change in &changes {
+        if let Change::AddedColumn { table, field } = change {
+            if field.is_required && field.default_value.is_none() && field.computed.is_none() {
+                tui::print_warning(&format!(
+                    "Column {}.{} is NOT NULL without a default; applying this migration may fail if the table contains rows",
+                    table, field.db_name,
+                ));
+            }
+        }
     }
 
     let timestamp = Utc::now().format("%Y%m%d%H%M%S");

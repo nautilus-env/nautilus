@@ -6,6 +6,7 @@
 
 use std::str::FromStr;
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use uuid::Uuid;
 
 use nautilus_core::{parse_datetime, Value};
@@ -79,6 +80,19 @@ pub fn json_to_value_field(
     json: &serde_json::Value,
     field_type: &ResolvedFieldType,
 ) -> Result<Value, ProtocolError> {
+    if matches!(field_type, ResolvedFieldType::Scalar(ScalarType::Bytes)) {
+        return match json {
+            serde_json::Value::Null => Ok(Value::Null),
+            serde_json::Value::String(encoded) => {
+                STANDARD.decode(encoded).map(Value::Bytes).map_err(|_| {
+                    ProtocolError::InvalidParams("Bytes value must be valid base64".to_string())
+                })
+            }
+            _ => Err(ProtocolError::InvalidParams(
+                "Bytes value must be a base64 string or null".to_string(),
+            )),
+        };
+    }
     if let ResolvedFieldType::Enum {
         enum_name,
         variants,
@@ -87,9 +101,6 @@ pub fn json_to_value_field(
         match json {
             serde_json::Value::Null => return Ok(Value::Null),
             serde_json::Value::String(s) => {
-                // SQLite stores an enum as plain text and would accept anything;
-                // PostgreSQL and MySQL reject it at the server. Checking here
-                // makes the three backends agree and names the offending value.
                 if !variants.iter().any(|variant| variant == s) {
                     return Err(ProtocolError::InvalidParams(format!(
                         "'{}' is not a variant of enum {}; expected one of: {}",
@@ -103,20 +114,16 @@ pub fn json_to_value_field(
                     type_name: enum_name.to_lowercase(),
                 });
             }
-            _ => {} // fall through to the generic converter below
+            _ => {}
         }
     }
-    // A plain `String` field must never be sniffed into `Value::Uuid`: on
-    // PostgreSQL that binds the parameter as `uuid` and a comparison against a
-    // `text` column fails with "operator does not exist: text = uuid".
+
     if let ResolvedFieldType::Scalar(ScalarType::String) = field_type {
         if let serde_json::Value::String(s) = json {
             return Ok(Value::String(s.clone()));
         }
     }
-    // The engine returns a `Decimal` as a JSON string, so a row read back and
-    // written again arrives as one. PostgreSQL rejects text against `numeric`,
-    // hence the explicit parse into `Value::Decimal`.
+
     if let ResolvedFieldType::Scalar(ScalarType::Decimal { .. }) = field_type {
         if let serde_json::Value::String(s) = json {
             return rust_decimal::Decimal::from_str(s)
@@ -126,9 +133,7 @@ pub fn json_to_value_field(
                 });
         }
     }
-    // For DateTime fields, parse ISO-8601 / RFC-3339 strings into
-    // Value::DateTime so the connector can bind them with the correct
-    // PostgreSQL OID instead of sending an untyped text value.
+
     if let ResolvedFieldType::Scalar(ScalarType::DateTime) = field_type {
         if let serde_json::Value::String(s) = json {
             if let Some(dt) = parse_datetime(s) {
@@ -136,10 +141,7 @@ pub fn json_to_value_field(
             }
         }
     }
-    // Integers bind at the width of their column, not of their magnitude. A
-    // prepared statement keeps the parameter types of its first execution, so a
-    // BigInt first bound as int4 rejects every later value beyond 32 bits with
-    // "incorrect binary data format" on PostgreSQL.
+
     if let ResolvedFieldType::Scalar(scalar @ (ScalarType::Int | ScalarType::BigInt)) = field_type {
         if let serde_json::Value::Number(number) = json {
             return integer_field_value(number, scalar);
@@ -157,10 +159,7 @@ pub fn json_to_value_field(
     if let ResolvedFieldType::Scalar(ScalarType::Geography) = field_type {
         return json_to_geography_value(json);
     }
-    // citext and ltree arrive as plain JSON strings. Tagging them with their
-    // type name lets the PostgreSQL dialect emit `$1::citext`, without which
-    // the server resolves the comparison as `text = text` and a citext column
-    // stops being case insensitive.
+
     if let ResolvedFieldType::Scalar(scalar @ (ScalarType::Citext | ScalarType::Ltree)) = field_type
     {
         if let serde_json::Value::String(s) = json {

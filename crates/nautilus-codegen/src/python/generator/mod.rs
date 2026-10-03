@@ -84,6 +84,7 @@ fn model_context(
     context.insert("has_datetime", &fields.has_datetime);
     context.insert("has_uuid", &fields.has_uuid);
     context.insert("has_decimal", &fields.has_decimal);
+    context.insert("has_bytes", &fields.has_bytes);
     context.insert("has_dict", &fields.has_dict);
     for (flag, value) in extensions.template_flags() {
         context.insert(&flag, &value);

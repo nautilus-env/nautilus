@@ -316,7 +316,7 @@ fn default_changed_set_postgres() {
 }
 
 #[test]
-fn add_required_column_no_default_returns_error() {
+fn add_required_column_no_default_generates_sql_and_describes_the_risk() {
     let ir = common::parse("model User { id Int @id  name String }").unwrap();
     let live = LiveSchema::default();
     let ddl = DdlGenerator::new(DatabaseProvider::Postgres);
@@ -333,14 +333,67 @@ fn add_required_column_no_default_returns_error() {
         .unwrap()
         .clone();
 
-    let result = applier.sql_for(&Change::AddedColumn {
+    let change = Change::AddedColumn {
         table: TableName::new("User".to_string()),
         field,
-    });
+    };
 
-    assert!(result.is_err());
-    let msg = result.unwrap_err().to_string();
-    assert!(msg.contains("NOT NULL") || msg.contains("no @default"));
+    assert_eq!(
+        applier.sql_for(&change).unwrap(),
+        vec!["ALTER TABLE \"User\" ADD COLUMN \"name\" TEXT NOT NULL"]
+    );
+    assert_eq!(change.risk(), ChangeRisk::Destructive);
+    let description = change.describe();
+    assert!(description
+        .annotation
+        .contains("NOT NULL without a default"));
+    assert!(description.annotation.contains("nonempty table"));
+}
+
+#[test]
+fn added_column_keeps_its_check_on_every_provider() {
+    let ir = common::parse(
+        r#"model Item {
+  id Int @id
+  quantity Int? @map("qty") @check("qty >= 0")
+  @@map("items")
+}"#,
+    )
+    .unwrap();
+    let field = ir
+        .models
+        .values()
+        .next()
+        .unwrap()
+        .fields
+        .iter()
+        .find(|field| field.db_name == "qty")
+        .unwrap();
+    let live = LiveSchema::default();
+    for provider in [
+        DatabaseProvider::Postgres,
+        DatabaseProvider::Mysql,
+        DatabaseProvider::Sqlite,
+    ] {
+        let ddl = DdlGenerator::new(provider);
+        let applier = DiffApplier::new(provider, &ddl, &ir, &live);
+        let statements = applier
+            .sql_for(&Change::AddedColumn {
+                table: TableName::new("items"),
+                field: field.clone(),
+            })
+            .unwrap();
+        assert!(statements[0].contains("ADD COLUMN"));
+        if provider == DatabaseProvider::Sqlite {
+            assert_eq!(statements.len(), 1);
+            assert!(statements[0].contains("CHECK (qty >= 0)"));
+        } else {
+            assert_eq!(statements.len(), 2);
+            assert!(statements[1].contains("ADD CONSTRAINT"));
+            assert!(statements[1].contains("chk_items_qty"));
+            assert!(statements[1].contains("CHECK (qty >= 0)"));
+        }
+    }
 }
 
 #[test]
@@ -625,8 +678,6 @@ fn mysql_column_rewrites_keep_auto_increment_on_the_key() {
     let ddl = DdlGenerator::new(DatabaseProvider::Mysql);
     let applier = DiffApplier::new(DatabaseProvider::Mysql, &ddl, &ir, &live);
 
-    // MySQL's MODIFY COLUMN restates the whole definition, so a type rewrite
-    // that forgot AUTO_INCREMENT would silently strip it from the key.
     let stmts = applier
         .sql_for(&Change::TypeChanged {
             table: TableName::new("User".to_string()),

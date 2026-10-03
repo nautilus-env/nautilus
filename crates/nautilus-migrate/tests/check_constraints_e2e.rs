@@ -8,7 +8,8 @@ mod common;
 use nautilus_core::TableName;
 use nautilus_migrate::live::LiveSchema;
 use nautilus_migrate::{
-    Change, DatabaseProvider, DdlGenerator, DiffApplier, SchemaDiff, SchemaInspector,
+    Change, DatabaseProvider, DdlGenerator, DiffApplier, MigrationFileStore, SchemaDiff,
+    SchemaInspector,
 };
 use sqlx::{AnyPool, Row};
 
@@ -234,7 +235,7 @@ async fn several_model_checks_apply_and_diff_to_nothing(
         let hashed = names.iter().filter(|n| is_hashed_table_check(n, &table)).count();
         assert_eq!(hashed, 2, "two model-level checks expected, got {names:?}");
 
-        // Raise one limit: only that constraint is replaced.
+
         let v2 = common::parse(&ledger_schema(provider, &table, 2000))?;
         let changes = SchemaDiff::compute(&live, &v2, provider);
         assert_eq!(changes.len(), 2, "expected one drop and one add, got {changes:?}");
@@ -250,7 +251,7 @@ async fn several_model_checks_apply_and_diff_to_nothing(
         let hashed = names.iter().filter(|n| is_hashed_table_check(n, &table)).count();
         assert_eq!(hashed, 2, "the replaced check must be gone, got {names:?}");
 
-        // The new limit is in force and the old one is not.
+
         sandbox
             .execute(&[format!(
                 "INSERT INTO {} (id, low, high, big, amount) VALUES (1, 2, 1500, 4294967295, 18446744073709551615)",
@@ -346,6 +347,109 @@ model Legacy {{
 async fn postgres_several_model_checks_apply_and_diff_to_nothing(
 ) -> Result<(), Box<dyn std::error::Error>> {
     several_model_checks_apply_and_diff_to_nothing(DatabaseProvider::Postgres).await
+}
+
+async fn added_columns_apply_from_crlf_and_keep_checks(
+    provider: DatabaseProvider,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(mut sandbox) = Sandbox::open(provider).await else {
+        return skip_missing_prerequisite(&format!("cannot connect to {provider:?}"));
+    };
+    let table = sandbox.table("added_columns");
+    let result =
+        async {
+            let base = common::parse(&format!(r#"model Item {{ id Int @id @@map("{table}") }}"#))?;
+            let ddl = DdlGenerator::new(provider);
+            sandbox.execute(&ddl.generate_create_tables(&base)?).await?;
+            let live = sandbox.inspect(&table).await?;
+            let target = common::parse(&format!(
+                r#"model Item {{
+  id Int @id
+  quantity Int? @map("qty") @check("qty >= 0")
+  startSlot BigInt @map("start_slot")
+  @@map("{table}")
+}}"#
+            ))?;
+            let changes = SchemaDiff::compute(&live, &target, provider);
+            let applier = DiffApplier::new(provider, &ddl, &target, &live);
+            let mut statements = Vec::new();
+            for change in &changes {
+                statements.extend(applier.sql_for(change)?);
+            }
+            let dir = tempfile::tempdir()?;
+            let store = MigrationFileStore::new(dir.path());
+            store.write_migration("added_columns", &statements, &[])?;
+            let path = dir.path().join("added_columns/up.sql");
+            let sql = std::fs::read_to_string(&path)?;
+            std::fs::write(path, sql.replace('\n', "\r\n"))?;
+            let loaded = store.load_migration("added_columns")?;
+            assert_eq!(loaded.up_sql, statements);
+            sandbox.execute(&loaded.up_sql).await?;
+
+            let live = sandbox.inspect(&table).await?;
+            let changes = SchemaDiff::compute(&live, &target, provider);
+            assert!(
+                changes.is_empty(),
+                "schema drift after adding columns: {changes:?}"
+            );
+            assert!(sandbox
+                .check_names(&table)
+                .await?
+                .contains(&format!("chk_{table}_qty")));
+            sandbox
+                .execute(&[format!(
+                    "INSERT INTO {} (id, qty, start_slot) VALUES (1, 0, 42)",
+                    sandbox.quote(&table),
+                )])
+                .await?;
+            assert!(
+                sandbox
+                    .execute(&[format!(
+                        "INSERT INTO {} (id, qty, start_slot) VALUES (2, -1, 42)",
+                        sandbox.quote(&table),
+                    )])
+                    .await
+                    .is_err(),
+                "a negative quantity must violate the added CHECK"
+            );
+
+            if provider == DatabaseProvider::Postgres {
+                let populated_target = common::parse(&format!(
+                    r#"model Item {{
+  id Int @id
+  quantity Int? @map("qty") @check("qty >= 0")
+  startSlot BigInt @map("start_slot")
+  required Int
+  @@map("{table}")
+}}"#
+                ))?;
+                let applier = DiffApplier::new(provider, &ddl, &populated_target, &live);
+                let changes = SchemaDiff::compute(&live, &populated_target, provider);
+                let statements = applier.sql_for(&changes[0])?;
+                assert!(sandbox.execute(&statements).await.is_err(),
+                "PostgreSQL must reject a required column without a default on a populated table");
+                let unchanged = sandbox.inspect(&table).await?;
+                assert!(SchemaDiff::compute(&unchanged, &target, provider).is_empty());
+            }
+            Ok::<(), Box<dyn std::error::Error>>(())
+        }
+        .await;
+    sandbox.close().await;
+    result
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn postgres_added_columns_apply_from_crlf_and_keep_checks(
+) -> Result<(), Box<dyn std::error::Error>> {
+    added_columns_apply_from_crlf_and_keep_checks(DatabaseProvider::Postgres).await
+}
+
+#[tokio::test]
+#[ignore = "requires a running MySQL instance (run `docker-compose up -d` first)"]
+async fn mysql_added_columns_apply_from_crlf_and_keep_checks(
+) -> Result<(), Box<dyn std::error::Error>> {
+    added_columns_apply_from_crlf_and_keep_checks(DatabaseProvider::Mysql).await
 }
 
 #[tokio::test]

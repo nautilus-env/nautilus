@@ -22,10 +22,11 @@ _SYNC_CONNECT_TIMEOUT_S: int = 35
 _SYNC_LOOP_JOIN_TIMEOUT_S: int = 10
 _STREAM_END = object()
 
-from .engine import EnginePoolOptions, EngineProcess  # type: ignore
-from ..errors.errors import HandshakeError, ProtocolError, TransactionError, TransactionTimeoutError  # type: ignore
-from .protocol import PROTOCOL_VERSION, JsonRpcRequest, JsonRpcResponse  # type: ignore
-from .transaction import IsolationLevel, TransactionClient  # type: ignore
+from .engine import EnginePoolOptions, EngineProcess
+from .codec import serialize_wire_value
+from ..errors.errors import HandshakeError, ProtocolError, TransactionError, TransactionTimeoutError
+from .protocol import PROTOCOL_VERSION, JsonRpcRequest, JsonRpcResponse
+from .transaction import IsolationLevel, TransactionClient
 
 
 def _build_engine_error(stderr: str, schema_path: str) -> str:
@@ -75,6 +76,8 @@ def _json_default(obj: Any) -> Any:
         return str(obj)
     if isinstance(obj, Enum):
         return obj.value
+    if isinstance(obj, (bytes, bytearray, memoryview)):
+        return serialize_wire_value(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
@@ -150,26 +153,26 @@ class NautilusClient:
         self._reader_task = asyncio.create_task(self._read_responses())
         await self._handshake()
 
-        # Primary cleanup: patch loop.close() so that if the caller returns
-        # from asyncio.run() without calling disconnect(), we still run the
-        # full async teardown (cancel reader task, close all pipe transports)
-        # while the loop is stopped-but-not-yet-closed.  That is the only
-        # window in which asyncio transports can be closed cleanly.
+
+
+
+
+
         loop = asyncio.get_running_loop()
         self._loop = loop
         self._loop_close_original = loop.close
 
         def _ensure_disconnected_then_close():
-            # Capture and restore original close immediately to be re-entrance safe.
-            # Use a local variable so that disconnect() nullifying
-            # self._loop_close_original doesn't affect the call below.
+
+
+
             original_close = self._loop_close_original
-            loop.close = original_close  # type: ignore[method-assign]
+            loop.close = original_close
             if self.engine.is_running():
                 try:
                     loop.run_until_complete(self.disconnect())
                 except Exception:
-                    # Last resort: at least kill the OS process.
+
                     pid = self.engine._pid
                     if pid is not None:
                         import signal as _signal
@@ -180,11 +183,11 @@ class NautilusClient:
             original_close()
 
         self._loop_close_patch = _ensure_disconnected_then_close
-        loop.close = _ensure_disconnected_then_close  # type: ignore[method-assign]
+        loop.close = _ensure_disconnected_then_close
 
-        # Fallback atexit: covers edge-cases where the loop is destroyed
-        # externally (e.g. SIGKILL, test runners that reuse loops, etc.).
-        # At that point we can only kill the OS process; transports are gone.
+
+
+
         def _atexit_cleanup():
             pid = self.engine._pid
             if pid is not None:
@@ -192,25 +195,25 @@ class NautilusClient:
                 try:
                     os.kill(pid, _signal.SIGTERM)
                 except OSError:
-                    pass  # process already dead
+                    pass
 
         self._atexit_handler = _atexit_cleanup
         atexit.register(self._atexit_handler)
 
     async def disconnect(self) -> None:
         """Disconnect from the engine."""
-        # Restore loop.close() patch if it is still in place (i.e. we are
-        # being called explicitly before the loop closes).
+
+
         if (
             self._loop is not None
             and self._loop_close_patch is not None
             and getattr(self._loop, "close", None) is self._loop_close_patch
         ):
-            self._loop.close = self._loop_close_original  # type: ignore[method-assign]
+            self._loop.close = self._loop_close_original
         self._loop_close_patch = None
         self._loop_close_original = None
 
-        # Unregister the atexit handler - we're disconnecting cleanly.
+
         if self._atexit_handler is not None:
             atexit.unregister(self._atexit_handler)
             self._atexit_handler = None
@@ -368,12 +371,12 @@ class NautilusClient:
                 line_bytes = await stdout.readline()
 
                 if not line_bytes:
-                    # Engine process exited.  Wait briefly for the stderr drain
-                    # task to finish collecting output, then build a diagnostic
-                    # message.  We must NOT read from engine.stderr here because
-                    # _drain_stderr is already reading from the same stream —
-                    # a concurrent read raises "read() called while another
-                    # coroutine is already waiting for incoming data".
+
+
+
+
+
+
                     drain_task = self.engine._stderr_drain_task
                     if drain_task and not drain_task.done():
                         try:
@@ -437,7 +440,7 @@ class NautilusClient:
                     print(f"Error processing response: {e}")
 
         except asyncio.CancelledError:
-            raise  # disconnect() is responsible for terminating the engine
+            raise
         except Exception as e:
             print(f"Reader task error: {e}")
             for future in self._pending.values():
@@ -513,7 +516,7 @@ class NautilusClient:
                 {"protocolVersion": PROTOCOL_VERSION, "id": tx_id},
             )
         except Exception:
-            pass  # best-effort rollback
+            pass
 
     async def _run_transaction_callback(
         self,
@@ -599,16 +602,16 @@ class NautilusClient:
             "engine.metrics", {"protocolVersion": PROTOCOL_VERSION, "reset": reset}
         )
 
-    # These methods allow calling the async engine from synchronous code without
-    # requiring the caller to manage an event loop.  They are used by the
-    # generated sync delegates (interface = "sync") and by the sync context
-    # manager (__enter__ / __exit__) on the generated Nautilus class.
-    #
-    # Implementation: a single background thread runs a dedicated asyncio event
-    # loop for the lifetime of the client session.  Sync callers submit
-    # coroutines to that loop via asyncio.run_coroutine_threadsafe(), which is
-    # safe to call from *any* context — including from within another running
-    # event loop (e.g. asyncio.run(main())) or a plain synchronous thread.
+
+
+
+
+
+
+
+
+
+
 
     def _ensure_sync_loop(self) -> asyncio.AbstractEventLoop:
         """Return the background event loop, starting it if necessary."""
@@ -754,7 +757,7 @@ class NautilusClient:
 
     def register_delegate(self, name: str, delegate: Any) -> None:
         """Register a model delegate.
-        
+
         Args:
             name: The model name (snake_case).
             delegate: The delegate instance.
@@ -763,13 +766,13 @@ class NautilusClient:
 
     def get_delegate(self, name: str) -> Any:
         """Get a registered model delegate.
-        
+
         Args:
             name: The model name (snake_case).
-            
+
         Returns:
             The delegate instance.
-            
+
         Raises:
             KeyError: If the delegate is not registered.
         """
@@ -798,7 +801,7 @@ class NautilusClient:
     @staticmethod
     def get_global_instance() -> Optional[NautilusClient]:
         """Get the globally registered Nautilus instance.
-        
+
         Returns:
             The global instance, or None if no instance is registered.
         """
@@ -821,7 +824,7 @@ class _AsyncTransactionContext(Generic[C]):
         self._tx_id: Optional[str] = None
         self._tx: Optional[TransactionClient] = None
 
-    async def __aenter__(self) -> C:  # type: ignore[override]
+    async def __aenter__(self) -> C:
         self._tx_id = await self._client._start_transaction(
             self._timeout_ms, self._isolation_level
         )
@@ -854,7 +857,7 @@ class _SyncTransactionContext(Generic[C]):
         self._tx_id: Optional[str] = None
         self._tx: Optional[TransactionClient] = None
 
-    def __enter__(self) -> C:  # type: ignore[override]
+    def __enter__(self) -> C:
         self._tx_id = self._client._sync_start_transaction(
             self._timeout_ms, self._isolation_level
         )

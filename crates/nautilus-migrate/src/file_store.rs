@@ -19,6 +19,8 @@ use std::path::{Path, PathBuf};
 use crate::error::{MigrationError, Result};
 use crate::migration::Migration;
 
+mod sql;
+
 /// Manages the `up.sql` / `down.sql` pair of each migration on disk.
 pub struct MigrationFileStore {
     dir: PathBuf,
@@ -166,25 +168,20 @@ fn format_sql_file(stmts: &[String]) -> String {
 
 /// Parse a SQL file back into individual statement strings.
 ///
-/// Splits on blank lines (`\n\n`), strips trailing `;` from SQL statements,
-/// and drops empty chunks.  The `-- (empty)` sentinel results in an empty
-/// `Vec`.
+/// Normalize line endings, then split on unquoted statement terminators.
+/// Blank lines inside a statement do not split it. Standalone comment blocks
+/// retain their own entries so generated migrations keep their checksums.
 fn parse_sql_file(path: &Path) -> Result<Vec<String>> {
     let content = fs::read_to_string(path)
         .map_err(|e| MigrationError::Other(format!("Cannot read {}: {}", path.display(), e)))?;
 
-    let trimmed = content.trim();
-    if trimmed.is_empty() || trimmed.starts_with("-- (empty)") {
+    let normalized = content.replace("\r\n", "\n");
+    let trimmed = normalized.trim();
+    if trimmed.is_empty() || trimmed == "-- (empty)" {
         return Ok(Vec::new());
     }
 
-    let stmts: Vec<String> = trimmed
-        .split("\n\n")
-        .map(|chunk| chunk.trim().trim_end_matches(';').trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    Ok(stmts)
+    Ok(sql::split_statements(trimmed))
 }
 
 #[cfg(test)]
@@ -252,9 +249,6 @@ mod tests {
 
     #[test]
     fn comment_only_down_sql_round_trips_without_semicolon() {
-        // Regression: previously format_sql_file appended ";" to comment lines,
-        // producing "-- Cannot auto-reverse ...: Table.col;" in the down file,
-        // which caused sqlx to fail when execute_sql tried to run it.
         let tmp = TempDir::new().unwrap();
         let store = MigrationFileStore::new(tmp.path());
 
@@ -274,5 +268,39 @@ mod tests {
 
         let loaded = store.load_migration("20260227_add_col").unwrap();
         assert_eq!(loaded.down_sql, down);
+    }
+
+    #[test]
+    fn crlf_preserves_statements_and_the_migration_checksum() {
+        let tmp = TempDir::new().unwrap();
+        let store = MigrationFileStore::new(tmp.path());
+        let up = vec![
+            "-- first table\nCREATE TABLE users (id INTEGER PRIMARY KEY)".to_string(),
+            "-- comment block".to_string(),
+            "CREATE TABLE posts (id INTEGER PRIMARY KEY)".to_string(),
+        ];
+        let down = vec![
+            "DROP TABLE posts".to_string(),
+            "DROP TABLE users".to_string(),
+        ];
+        store.write_migration("crlf", &up, &down).unwrap();
+        let original = store.load_migration("crlf").unwrap();
+        for file in ["up.sql", "down.sql"] {
+            let path = tmp.path().join("crlf").join(file);
+            let content = fs::read_to_string(&path).unwrap();
+            fs::write(path, content.replace('\n', "\r\n")).unwrap();
+        }
+        let loaded = store.load_migration("crlf").unwrap();
+        assert_eq!(loaded.up_sql, up);
+        assert_eq!(loaded.down_sql, down);
+        assert_eq!(loaded.checksum, original.checksum);
+    }
+
+    #[test]
+    fn an_empty_sentinel_comment_does_not_hide_following_sql() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("up.sql");
+        fs::write(&path, "-- (empty)\nSELECT 1;").unwrap();
+        assert_eq!(parse_sql_file(&path).unwrap(), vec!["-- (empty)\nSELECT 1"]);
     }
 }

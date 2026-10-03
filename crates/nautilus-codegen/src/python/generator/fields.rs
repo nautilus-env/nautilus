@@ -99,6 +99,7 @@ pub(super) struct PythonFieldSets {
     pub(super) has_datetime: bool,
     pub(super) has_uuid: bool,
     pub(super) has_decimal: bool,
+    pub(super) has_bytes: bool,
     pub(super) has_dict: bool,
 }
 
@@ -131,6 +132,7 @@ pub(super) fn build_scalar_fields(
                 ScalarType::DateTime => sets.has_datetime = true,
                 ScalarType::Uuid => sets.has_uuid = true,
                 ScalarType::Decimal { .. } => sets.has_decimal = true,
+                ScalarType::Bytes => sets.has_bytes = true,
                 ScalarType::Json | ScalarType::Jsonb | ScalarType::Hstore => sets.has_dict = true,
                 _ => {}
             }

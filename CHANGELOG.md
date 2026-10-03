@@ -4,6 +4,25 @@
 
 ### Fixed
 
+- **Python `Bytes` fields.** Binary values now encode as base64 for the engine,
+  bind as binary data rather than text, and decode back to Python `bytes`.
+  Empty values, nulls, mapped fields, projections, filters and transactions
+  preserve the original bytes; malformed base64 is rejected before binding.
+- **CHECKs on added columns.** Adding a field with `@check` to an existing
+  PostgreSQL or MySQL table now creates the named constraint in the same
+  migration. SQLite keeps its inline CHECK.
+- **Windows migration files.** CRLF and LF files now produce the same
+  statements and checksum. Statements split at SQL terminators, respecting
+  quoted strings, identifiers, comments and PostgreSQL dollar-quoted bodies;
+  blank lines within a statement are preserved.
+- **Required columns without defaults.** `migrate generate` can emit
+  `ADD COLUMN ... NOT NULL` for an empty table without a temporary default.
+  It warns that applying it to a populated table may fail; `db push` retains
+  its confirmation for this change.
+- **Upsert with an empty update.** PostgreSQL and SQLite now return the
+  existing row on conflict through an atomic self-assignment when row data
+  is requested. Existing values, including `updatedAt`, are preserved.
+  Count-only calls retain their affected-row behavior.
 - **`BigInt` values beyond 32 bits.** The engine typed an integer parameter by
   its magnitude, so a `BigInt` field first written or filtered with a small value
   bound it as `int4` in the connection's cached prepared statement, and every

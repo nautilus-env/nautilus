@@ -7,6 +7,7 @@ Python-to-column maps — are passed in by the model module that calls into it.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, List, Mapping, Optional, Union
@@ -41,7 +42,7 @@ FILTER_OPERATOR_KEYS: frozenset = frozenset({
     "startswith",
 })
 
-# Python-safe operator names mapped back to the engine protocol.
+
 FILTER_OPERATOR_PROTOCOL_NAMES: Dict[str, str] = {
     "equals": "eq",
     "eq": "eq",
@@ -77,10 +78,21 @@ def coerce_boolean_value(value: Any) -> Any:
     return value
 
 
+def coerce_bytes_value(value: Any) -> Any:
+    """Decode base64 Bytes fields, including elements of array fields."""
+    if isinstance(value, str):
+        return base64.b64decode(value, validate=True)
+    if isinstance(value, list):
+        return [coerce_bytes_value(item) for item in value]
+    return value
+
+
 def serialize_wire_value(value: Any) -> Any:
     """Convert generated client values into JSON-RPC-safe payloads."""
     if isinstance(value, Enum):
         return value.value
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return base64.b64encode(value).decode("ascii")
     to_wire = getattr(value, "to_wire", None)
     if callable(to_wire):
         return serialize_wire_value(to_wire())
@@ -156,8 +168,8 @@ def serialize_include_args(
     node: Dict[str, Any] = {}
     for key, value in spec.items():
         if value is None:
-            # An entry set to None is one the caller left out, not an empty
-            # filter or an empty ordering, which the engine would reject.
+
+
             continue
         if key in ("order_by", "orderBy"):
             if isinstance(value, dict):
@@ -257,8 +269,8 @@ class ModelInputCodec:
                         and not looks_like_filter_operator_dict(value)
                     ):
                         object_equality_requires_explicit_equals(key)
-                    # Keep the nested {field: {op: value}} shape so the engine's
-                    # parse_field_condition receives {"id": {"in": [...]}}.
+
+
                     ops = {}
                     for op, op_value in value.items():
                         actual_op = FILTER_OPERATOR_PROTOCOL_NAMES.get(op, op)

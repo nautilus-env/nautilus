@@ -9,6 +9,49 @@ use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
 use serde_json::json;
 
 #[test]
+fn bytes_inputs_decode_base64_and_preserve_null_and_empty_values() {
+    let field_type = ResolvedFieldType::Scalar(ScalarType::Bytes);
+    assert_eq!(
+        json_to_value_field(&json!("AP8QgA=="), &field_type).unwrap(),
+        Value::Bytes(vec![0, 255, 16, 128])
+    );
+    assert_eq!(
+        json_to_value_field(&json!(""), &field_type).unwrap(),
+        Value::Bytes(vec![])
+    );
+    assert_eq!(
+        json_to_value_field(&json!(null), &field_type).unwrap(),
+        Value::Null
+    );
+    assert_eq!(
+        json_to_value_field(
+            &json!("AP8QgA=="),
+            &ResolvedFieldType::Scalar(ScalarType::String)
+        )
+        .unwrap(),
+        Value::String("AP8QgA==".to_string())
+    );
+}
+
+#[test]
+fn bytes_inputs_reject_invalid_base64_and_non_string_values() {
+    let field_type = ResolvedFieldType::Scalar(ScalarType::Bytes);
+    for input in [
+        json!("not base64!"),
+        json!("/w"),
+        json!(1),
+        json!([0, 255]),
+        json!({"value": "AP8="}),
+    ] {
+        let error = json_to_value_field(&input, &field_type).unwrap_err();
+        assert!(matches!(
+            error,
+            nautilus_protocol::ProtocolError::InvalidParams(_)
+        ));
+    }
+}
+
+#[test]
 fn snake_case_basic_camel() {
     assert_eq!(to_snake_case("createdAt"), "created_at");
 }
@@ -130,8 +173,6 @@ fn json_to_value_object() {
 
 #[test]
 fn json_to_value_field_binds_a_bigint_as_i64_whatever_its_magnitude() {
-    // A small value bound as int4 would fix the parameter type of a cached
-    // PostgreSQL statement and break every later value beyond 32 bits.
     let bigint = ResolvedFieldType::Scalar(ScalarType::BigInt);
     for (input, expected) in [
         (json!(1), 1_i64),

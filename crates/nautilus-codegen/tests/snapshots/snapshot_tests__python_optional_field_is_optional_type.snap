@@ -238,7 +238,7 @@ class PostProjection(TypedDict, total=False):
     content: NotRequired[Optional[str]]
 
 
-# Engine response key mapping: "table__db_column" -> Python field name
+
 _Post_row_map: Dict[str, str] = {
     "Post__id": "id",
     "Post__title": "title",
@@ -252,7 +252,7 @@ _Post_fields: frozenset = frozenset({
 
 _Post_scalar_coercers: Dict[str, Any] = {
 }
-# Python field name -> DB column name mapping (handles @map renames)
+
 _Post_py_to_db: Dict[str, str] = {
     "id": "id",
     "title": "title",
