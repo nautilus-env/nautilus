@@ -4,6 +4,16 @@
 
 ### Fixed
 
+- **Relations with multi-word names.** The engine keyed relations by the
+  snake_case form of their name only, while the generated clients disagreed on
+  the spelling. Python sent `include={"order_items": ...}` and then looked
+  for an `orderItems_json` payload, so the relation silently stayed `None`;
+  JS and Java sent `orderItems` and the engine refused it as an unknown
+  relation, in `include` and in `some`/`none`/`every` filters alike. The engine
+  now resolves a relation by its schema spelling or its snake_case form, and no
+  other, and names each payload column after the include key the request used;
+  a `*` include still loads each relation once. The Python decoder reads the
+  payload of the key it sends. Single-word relations are unaffected.
 - **CHECKs in column rollbacks.** `down.sql` restores a dropped column's
   named `@check` on PostgreSQL and MySQL, using the live snapshot and the
   same constraint rendering as forward migrations. Normalized `IN` predicates

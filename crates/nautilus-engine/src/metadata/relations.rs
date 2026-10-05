@@ -25,6 +25,18 @@ fn join_table_name(table: &str, models: &HashMap<String, ModelIr>) -> TableName 
     TableName::with_schema(schema, table)
 }
 
+/// Register a relation under the snake_case key the engine has always used and,
+/// when it differs, under the field's name as the schema spells it. A request
+/// may name the relation either way, as `order_items` or `orderItems`,
+/// and no other spelling resolves.
+fn insert_relation(map: &mut RelationMap, logical_name: &str, info: RelationInfo) {
+    let key = to_snake_case(logical_name);
+    if key != logical_name {
+        map.insert(logical_name.to_string(), info.clone());
+    }
+    map.insert(key, info);
+}
+
 /// Build a `RelationMap` for the given model so that the filter parser can resolve
 /// `some` / `none` / `every` predicates and `include` entries at runtime.
 pub(crate) fn build_relation_map(
@@ -45,8 +57,9 @@ pub(crate) fn build_relation_map(
                     let Some(fk_db) = column_of(target_model, &join.target_reference) else {
                         continue;
                     };
-                    map.insert(
-                        to_snake_case(&field.logical_name),
+                    insert_relation(
+                        &mut map,
+                        &field.logical_name,
                         RelationInfo {
                             parent_table: model.db_name.clone(),
                             target_logical_name,
@@ -174,10 +187,9 @@ pub(crate) fn build_relation_map(
                 };
 
                 if !fk_db.is_empty() && !pk_db.is_empty() {
-                    // Use snake_case logical name as the map key (matches JSON field names)
-                    let field_key = to_snake_case(&field.logical_name);
-                    map.insert(
-                        field_key,
+                    insert_relation(
+                        &mut map,
+                        &field.logical_name,
                         RelationInfo {
                             parent_table: model.db_name.clone(),
                             target_logical_name,

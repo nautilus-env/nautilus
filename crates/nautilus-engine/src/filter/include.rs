@@ -90,6 +90,9 @@ pub(super) fn parse_include(
         if arr.iter().any(|v| v.as_str() == Some("*")) {
             return Ok(relations
                 .keys()
+                // Each relation once, under its snake_case key: the map also holds
+                // the schema's spelling of every name that is not snake_case.
+                .filter(|k| crate::metadata::to_snake_case(k) == **k)
                 .map(|k| {
                     (
                         k.clone(),

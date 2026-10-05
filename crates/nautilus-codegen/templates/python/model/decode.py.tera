@@ -40,7 +40,7 @@ def _{{ snake_name }}_from_wire(row: Dict[str, Any]) -> "{{ model_name }}":
             kwargs["{{ f.name }}"] = _coerce_{{ snake_name }}_scalar("{{ f.name }}", value)
 {%- endfor %}
 {%- for field in include_fields %}
-    relation_value = _get_wire_value(row, "{{ field.logical_name }}_json")
+    relation_value = _get_wire_value(row, "{{ field.name }}_json"{% if field.name != field.logical_name %}, "{{ field.logical_name }}_json"{% endif %})
     if relation_value is not _MISSING:
         kwargs["{{ field.name }}"] = _hydrate_{{ snake_name }}_relation(
             "{{ field.name }}",

@@ -1,5 +1,6 @@
 //! Include hydration: load relation children for a set of parent rows and attach
-//! them to each row as a `<field>_json` column.
+//! them to each row as a `<field>_json` column, `<field>` being the include key
+//! exactly as the request spelled it.
 //!
 //! Two execution strategies coexist:
 //!

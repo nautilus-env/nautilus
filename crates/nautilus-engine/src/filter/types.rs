@@ -49,8 +49,10 @@ pub struct JoinTableInfo {
     pub child_column: String,
 }
 
-/// A map from relation *field* name (logical, as used in the `where` / `include` payload)
-/// to its join metadata. Pass an empty map when no schema context is available.
+/// A map from relation *field* name, as a `where` or `include` payload names it, to its
+/// join metadata. Each relation is keyed by the snake_case form of its name and, when
+/// that differs, also by the name as the schema spells it (`order_items` and
+/// `orderItems`). Pass an empty map when no schema context is available.
 pub type RelationMap = HashMap<String, RelationInfo>;
 
 /// A node in the include tree for one relation.
