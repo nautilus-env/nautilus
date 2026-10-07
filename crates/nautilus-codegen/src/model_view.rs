@@ -257,6 +257,7 @@ impl<'a> ModelView<'a> {
         let relation_imports: BTreeSet<String> = relations
             .iter()
             .map(|relation| relation.relation.target_model.clone())
+            .filter(|target| *target != model.logical_name)
             .collect();
 
         Self {
@@ -322,9 +323,6 @@ fn build_relations<'a>(model: &'a ModelIr, ir: &'a SchemaIr) -> Vec<RelationView
             };
             let target = ir.models.get(&relation.target_model);
 
-            // A many-to-many has no foreign key to resolve: the two keys the
-            // join table stores stand in for one, so the rest of the pipeline
-            // sees the same `(parent key, child key)` pair every relation has.
             let (fields, references) = match (&relation.join, target) {
                 (Some(join), _) => (
                     vec![join.self_reference.clone()],

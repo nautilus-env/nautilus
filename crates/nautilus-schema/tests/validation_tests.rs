@@ -1956,3 +1956,63 @@ model User {
         _ => panic!("Expected validation error"),
     }
 }
+
+const SELF_RELATIONS: &str = r#"
+model Revision {
+  id           Int        @id @default(autoincrement())
+  supersedesId Int?       @unique
+  supersedes   Revision?  @relation(name: "Revisions", fields: [supersedesId], references: [id])
+  successor    Revision?  @relation(name: "Revisions")
+  parentId     Int?
+  parent       Revision?  @relation(name: "Tree", fields: [parentId], references: [id])
+  children     Revision[] @relation(name: "Tree")
+}
+"#;
+
+/// The owning side of a one-to-one or one-to-many a model has with itself and
+/// its opposite field share the relation's name: that name is what pairs them.
+#[test]
+fn test_named_self_relations_pair_their_two_ends() {
+    use nautilus_schema::ir::ResolvedFieldType;
+
+    let ir = validate_schema(parse(SELF_RELATIONS).unwrap()).unwrap();
+    let revision = ir.get_model("Revision").unwrap();
+    let relation = |field: &str| match &revision.find_field(field).unwrap().field_type {
+        ResolvedFieldType::Relation(relation) => relation.clone(),
+        other => panic!("{field} is not a relation: {other:?}"),
+    };
+    for (field, name, fields) in [
+        ("supersedes", "Revisions", vec!["supersedesId".to_string()]),
+        ("successor", "Revisions", vec![]),
+        ("parent", "Tree", vec!["parentId".to_string()]),
+        ("children", "Tree", vec![]),
+    ] {
+        let relation = relation(field);
+        assert_eq!(relation.target_model, "Revision", "{field}");
+        assert_eq!(relation.name.as_deref(), Some(name), "{field}");
+        assert_eq!(relation.fields, fields, "{field}");
+    }
+}
+
+/// Only one owning side may carry a name inside a model: two would be two
+/// relations, and the name would no longer tell which one a field closes.
+#[test]
+fn test_two_owning_self_relations_cannot_share_a_name() {
+    let source = r#"
+model Revision {
+  id    Int       @id
+  aId   Int?      @unique
+  a     Revision? @relation(name: "Same", fields: [aId], references: [id])
+  bId   Int?      @unique
+  b     Revision? @relation(name: "Same", fields: [bId], references: [id])
+  back  Revision? @relation(name: "Same")
+}
+"#;
+    match validate_schema(parse(source).unwrap()).unwrap_err() {
+        SchemaError::Validation(msg, _) => assert!(
+            msg.contains("Duplicate relation name 'Same' in model 'Revision'"),
+            "unexpected message: {msg}"
+        ),
+        other => panic!("Expected a validation error, got {other:?}"),
+    }
+}

@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **Models that relate to themselves.** The module generated for a model with a
+  self-relation imported its own model: in Python, `from . import Revision`
+  inside `if TYPE_CHECKING:` shadowed the class, so type checkers saw the model,
+  its fields and `Revision.nautilus` as `Any`; in Rust, `use super::Revision;`
+  defined the type twice and the crate did not compile. Generated modules now
+  import only the other models. The validator also accepts the two ends of a
+  named self one-to-one or one-to-many, which it refused as a duplicate relation
+  name; two owning sides sharing a name are still refused.
 - **Relations with multi-word names.** The engine keyed relations by the
   snake_case form of their name only, while the generated clients disagreed on
   the spelling. Python sent `include={"order_items": ...}` and then looked

@@ -7,18 +7,25 @@ struct RelationSlot {
     /// An array side that names no foreign key — one half of an implicit
     /// many-to-many.
     is_dangling_array: bool,
+    /// The side that declares `fields` and `references`.
+    is_owning: bool,
 }
 
-/// Whether two relation fields sharing a name are the two ends of a
-/// many-to-many a model has with itself.
+/// Whether two relation fields sharing a name are the two ends of a relation a
+/// model has with itself.
 ///
 /// Those are the one case where a repeated relation name inside one model is
-/// correct rather than ambiguous: the name is what pairs the two array fields,
-/// and there is no other model to carry it.
-fn is_self_many_to_many(sharing: &[&RelationSlot], model: &ModelDecl, target: &str) -> bool {
-    sharing.len() == 2
-        && model.name.value == target
-        && sharing.iter().all(|slot| slot.is_dangling_array)
+/// correct rather than ambiguous: the name is what pairs the two fields, and
+/// there is no other model to carry it. The ends are either the two arrays of a
+/// many-to-many, or the owning side of a one-to-one or one-to-many and its
+/// opposite field.
+fn are_ends_of_a_self_relation(sharing: &[&RelationSlot], model: &ModelDecl, target: &str) -> bool {
+    if sharing.len() != 2 || model.name.value != target {
+        return false;
+    }
+    let many_to_many = sharing.iter().all(|slot| slot.is_dangling_array);
+    let owning = sharing.iter().filter(|slot| slot.is_owning).count();
+    many_to_many || owning == 1
 }
 
 impl SchemaValidator<'_> {
@@ -79,6 +86,7 @@ impl SchemaValidator<'_> {
                         is_dangling_array: field.modifier == FieldModifier::Array
                             && fields.is_none()
                             && references.is_none(),
+                        is_owning: fields.is_some() || references.is_some(),
                     });
 
                 if field.modifier == FieldModifier::Array {
@@ -195,7 +203,8 @@ impl SchemaValidator<'_> {
             }
 
             for (name, sharing) in by_name {
-                if sharing.len() < 2 || is_self_many_to_many(&sharing, model, &target_model) {
+                if sharing.len() < 2 || are_ends_of_a_self_relation(&sharing, model, &target_model)
+                {
                     continue;
                 }
                 self.errors.push_back(SchemaError::Validation(

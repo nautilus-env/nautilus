@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 {%- endif %}
 {%- if has_includes %}
 {%- for field in include_fields %}
+{%- if field.target_model != model_name %}
     from .{{ field.target_snake }} import (
         {{ field.target_model }}WhereInput,
         {{ field.target_model }}OrderByInput,
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
         {{ field.target_model }}IncludeRecursive{{ depth + 1 }},
 {%- endfor %}
     )
+{%- endif %}
 {%- endfor %}
 {%- endif %}
     from .._internal.client import NautilusClient
