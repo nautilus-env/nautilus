@@ -170,9 +170,15 @@ impl QueryArgs {
             let obj = cursor_value.as_object().ok_or_else(|| {
                 ProtocolError::InvalidParams("cursor must be an object".to_string())
             })?;
+            // Each value binds as the type of the key it names, as in `where`:
+            // untyped, UUID-shaped text would bind as `uuid` against a text key.
             let mut map = HashMap::new();
             for (k, v) in obj {
-                map.insert(k.clone(), json_to_value(v)?);
+                let value = match field_types.get(k) {
+                    Some(field_type) => json_to_value_field(v, field_type)?,
+                    None => json_to_value(v)?,
+                };
+                map.insert(k.clone(), value);
             }
             Some(map)
         } else {

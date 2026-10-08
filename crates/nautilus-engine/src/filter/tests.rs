@@ -660,3 +660,45 @@ model Post {
     assert!(matches!(relation, Expr::Exists(_)));
     assert!(expr_contains_column(relation, "Post__published"));
 }
+
+/// A cursor value binds as the type of the key it names, as a `where` value
+/// does: UUID-shaped text on a `String` key stays text, a timestamp on a
+/// `DateTime` key becomes a datetime, and a `Uuid` key still gets a UUID.
+#[test]
+fn cursor_values_take_the_type_of_their_key() {
+    let schema = r#"
+model User {
+  handle   String
+  joinedAt DateTime @map("joined_at")
+  ticket   Uuid
+
+  @@id([handle, joinedAt, ticket])
+}
+"#;
+    let (relations, field_types, models) = user_query_context(schema);
+    let handle = "2bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let ticket = "3ccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+    let parsed = QueryArgs::parse_with_context(
+        Some(json!({
+            "cursor": {
+                "handle": handle,
+                "joinedAt": "2026-10-08T12:00:00Z",
+                "ticket": ticket,
+            },
+            "take": 2,
+        })),
+        &relations,
+        &field_types,
+        SchemaContext::with_models(&models),
+    )
+    .expect("the cursor should parse");
+
+    let cursor = parsed.cursor.expect("cursor missing");
+    assert_eq!(cursor["handle"], Value::String(handle.to_string()));
+    assert!(matches!(cursor["joinedAt"], Value::DateTime(_)));
+    assert_eq!(
+        cursor["ticket"],
+        Value::Uuid(uuid::Uuid::parse_str(ticket).unwrap())
+    );
+}

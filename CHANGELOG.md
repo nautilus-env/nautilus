@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **Cursor values.** The engine bound each `cursor` value from its JSON shape
+  alone, while `where` binds a value as its field's type. A string shaped like
+  a UUID became a `uuid` parameter even on a `String` key: PostgreSQL refused
+  the page with `operator does not exist: text >= uuid`, and SQLite and MySQL
+  compared the key with the UUID's lowercase hyphenated text, so a cursor on
+  an uppercase or unhyphenated key could start the page at the wrong row. A
+  cursor on a `DateTime` key was bound as text, which PostgreSQL refused and
+  SQLite compared with the stored timestamp, skipping the cursor's own row.
+  Cursor values now bind as the type of the key field they name, as in `where`.
 - **Python `group_by` and `aggregate` field names.** The engine answers with
   the schema's field names, and the Python client returned them as they came:
   `group_by(["customer_id"])` produced `{"customerId": ...}` although
