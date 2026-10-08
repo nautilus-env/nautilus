@@ -355,7 +355,7 @@ jobs:
           NAUTILUS_TEST_MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
         run: cargo test --locked -p nautilus-orm-migrate --test check_constraints_e2e -- --ignored --test-threads=1 --nocapture
 
-      - name: Run compound index migration tests
+      - name: Run compound index and primary key migration tests
         env:
           NAUTILUS_REQUIRE_E2E: '1'
           NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test

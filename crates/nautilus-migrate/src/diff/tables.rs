@@ -143,7 +143,9 @@ impl DiffAccumulator {
         }
     }
 
-    /// Compare the live primary key against the target model's.
+    /// Compare the live primary key against the target model's, column order
+    /// included: a key on `(a, b)` serves lookups by `a` alone and one on
+    /// `(b, a)` does not. The inspectors report the live key in key order.
     pub(super) fn diff_primary_key(
         &mut self,
         table_name: &TableName,
@@ -153,7 +155,7 @@ impl DiffAccumulator {
         // `model.primary_key.fields()` returns *logical* field names; the
         // live PKs come from the DB and use *db* column names.  Resolve
         // logical -> db before comparing so @map doesn't cause false positives.
-        let mut target_pk: Vec<String> = model
+        let target_pk: Vec<String> = model
             .primary_key
             .fields()
             .iter()
@@ -164,11 +166,8 @@ impl DiffAccumulator {
                     .unwrap_or_else(|| (*logical).to_string())
             })
             .collect();
-        target_pk.sort();
-        let mut live_pk: Vec<String> = live_table.primary_key.clone();
-        live_pk.sort();
 
-        if target_pk != live_pk {
+        if target_pk != live_table.primary_key {
             self.changes.push(Change::PrimaryKeyChanged {
                 table: table_name.clone(),
             });

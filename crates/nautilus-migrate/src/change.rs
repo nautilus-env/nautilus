@@ -86,7 +86,7 @@ pub enum Change {
         to: Option<String>,
     },
 
-    /// The set of primary-key columns has changed.
+    /// The primary-key columns, or their order, have changed.
     PrimaryKeyChanged {
         /// DB table name.
         table: TableName,

@@ -1,7 +1,9 @@
 //! Compound indexes against a live database: an index added to an existing
 //! table keeps its declared column order, `db status` tells `(a, b)` from
 //! `(b, a)`, and a reordered declaration is recreated under the same name and
-//! restored in its previous order by the rollback.
+//! restored in its previous order by the rollback. A compound primary key
+//! whose live order differs from its `@@id` is rebuilt in the declared order,
+//! keeping its rows, and the rollback restores the live order.
 
 mod common;
 
@@ -12,7 +14,7 @@ use nautilus_migrate::{
     SchemaDiff, SchemaInspector,
 };
 use nautilus_schema::ir::SchemaIr;
-use sqlx::AnyPool;
+use sqlx::{AnyPool, Row};
 
 fn postgres_url() -> String {
     std::env::var("NAUTILUS_TEST_POSTGRES_URL")
@@ -57,10 +59,10 @@ struct Sandbox {
 }
 
 impl Sandbox {
-    async fn open(provider: DatabaseProvider) -> Option<Self> {
+    async fn open(provider: DatabaseProvider, table_prefix: &str) -> Option<Self> {
         sqlx::any::install_default_drivers();
         let suffix = unique_suffix();
-        let table = format!("messages_{suffix}");
+        let table = format!("{table_prefix}_{suffix}");
         match provider {
             DatabaseProvider::Sqlite => {
                 let dir = tempfile::tempdir().ok()?;
@@ -119,14 +121,27 @@ impl Sandbox {
         }
     }
 
+    /// Run `statements` on one connection, as the executor runs a migration
+    /// phase in one transaction. Across pooled connections, a SQLite table
+    /// rebuild fails: the connection running the final `RENAME` may not have
+    /// seen the `DROP TABLE` and still holds the old table under that name.
     async fn execute(&self, statements: &[String]) -> Result<(), sqlx::Error> {
+        let mut conn = self.pool.acquire().await?;
         for statement in statements {
             sqlx::query(statement)
                 .persistent(false)
-                .execute(&self.pool)
+                .execute(&mut *conn)
                 .await?;
         }
         Ok(())
+    }
+
+    async fn count_rows(&self) -> Result<i64, sqlx::Error> {
+        sqlx::query(&format!("SELECT COUNT(*) FROM {}", self.table))
+            .persistent(false)
+            .fetch_one(&self.pool)
+            .await?
+            .try_get(0)
     }
 
     /// The live schema reduced to the sandbox table, so tables of other tests
@@ -200,7 +215,7 @@ fn index_columns(live: &LiveSchema, table: &str, name: &str) -> Vec<String> {
 async fn compound_index_keeps_its_declared_order(
     provider: DatabaseProvider,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(sandbox) = Sandbox::open(provider).await else {
+    let Some(sandbox) = Sandbox::open(provider, "messages").await else {
         if provider == DatabaseProvider::Sqlite {
             return Err("cannot open a SQLite file database".into());
         }
@@ -286,4 +301,116 @@ async fn postgres_compound_index_keeps_its_declared_order() -> Result<(), Box<dy
 #[ignore = "requires a running MySQL instance (run `docker-compose up -d` first)"]
 async fn mysql_compound_index_keeps_its_declared_order() -> Result<(), Box<dyn std::error::Error>> {
     compound_index_keeps_its_declared_order(DatabaseProvider::Mysql).await
+}
+
+fn order_line_schema(table: &str, id: &str) -> Result<SchemaIr, Box<dyn std::error::Error>> {
+    Ok(common::parse(&format!(
+        r#"model OrderLine {{
+  orderId Int @map("order_id")
+  lineNo  Int @map("line_no")
+  {id}
+  @@map("{table}")
+}}"#
+    ))?)
+}
+
+/// The primary-key columns of `table`, in the order the database reports them.
+fn primary_key(live: &LiveSchema, table: &str) -> Vec<String> {
+    live.tables
+        .get(&TableName::new(table))
+        .map(|t| t.primary_key.clone())
+        .unwrap_or_default()
+}
+
+async fn compound_primary_key_keeps_its_declared_order(
+    provider: DatabaseProvider,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(sandbox) = Sandbox::open(provider, "order_lines").await else {
+        if provider == DatabaseProvider::Sqlite {
+            return Err("cannot open a SQLite file database".into());
+        }
+        return skip_missing_prerequisite(&format!("cannot connect to {provider:?}"));
+    };
+
+    let result = async {
+        let table = sandbox.table.as_str();
+        let line_first = order_line_schema(table, "@@id([lineNo, orderId])")?;
+        let order_first = order_line_schema(table, "@@id([orderId, lineNo])")?;
+
+        let ddl = DdlGenerator::new(provider);
+        sandbox
+            .execute(&ddl.generate_create_tables(&line_first)?)
+            .await?;
+        sandbox
+            .execute(&[format!(
+                "INSERT INTO {table} (order_id, line_no) VALUES (1, 1), (1, 2), (2, 1)"
+            )])
+            .await?;
+        let live = sandbox.inspect().await?;
+        assert_eq!(primary_key(&live, table), ["line_no", "order_id"]);
+
+        let changes = SchemaDiff::compute(&live, &order_first, provider);
+        assert!(
+            matches!(changes.as_slice(), [Change::PrimaryKeyChanged { .. }]),
+            "a key on the same columns in another order must change, got {changes:?}"
+        );
+        let reorder = sandbox
+            .migrate("reorder_primary_key", &order_first, &live, &changes)
+            .await?;
+
+        let reordered = sandbox.inspect().await?;
+        assert_eq!(primary_key(&reordered, table), ["order_id", "line_no"]);
+        assert_eq!(sandbox.count_rows().await?, 3);
+        let drift = SchemaDiff::compute(&reordered, &order_first, provider);
+        assert!(
+            drift.is_empty(),
+            "expected no change after the reorder, got {drift:?}"
+        );
+
+        if provider == DatabaseProvider::Sqlite {
+            // SQLite changes a key only by rebuilding the table, which the
+            // rollback leaves to a hand-written migration.
+            assert!(
+                reorder
+                    .down_sql
+                    .iter()
+                    .any(|s| s.starts_with("-- Cannot auto-reverse PRIMARY KEY change")),
+                "expected a manual rollback, got {:?}",
+                reorder.down_sql
+            );
+            return Ok(());
+        }
+
+        sandbox.execute(&reorder.down_sql).await?;
+        let restored = sandbox.inspect().await?;
+        assert_eq!(primary_key(&restored, table), ["line_no", "order_id"]);
+        assert_eq!(sandbox.count_rows().await?, 3);
+        let drift = SchemaDiff::compute(&restored, &line_first, provider);
+        assert!(drift.is_empty(), "schema drift after rollback: {drift:?}");
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+
+    sandbox.close().await;
+    result
+}
+
+#[tokio::test]
+async fn sqlite_compound_primary_key_keeps_its_declared_order(
+) -> Result<(), Box<dyn std::error::Error>> {
+    compound_primary_key_keeps_its_declared_order(DatabaseProvider::Sqlite).await
+}
+
+#[tokio::test]
+#[ignore = "requires a running PostgreSQL instance (run `docker-compose up -d` first)"]
+async fn postgres_compound_primary_key_keeps_its_declared_order(
+) -> Result<(), Box<dyn std::error::Error>> {
+    compound_primary_key_keeps_its_declared_order(DatabaseProvider::Postgres).await
+}
+
+#[tokio::test]
+#[ignore = "requires a running MySQL instance (run `docker-compose up -d` first)"]
+async fn mysql_compound_primary_key_keeps_its_declared_order(
+) -> Result<(), Box<dyn std::error::Error>> {
+    compound_primary_key_keeps_its_declared_order(DatabaseProvider::Mysql).await
 }

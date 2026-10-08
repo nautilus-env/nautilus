@@ -4,6 +4,16 @@
 
 ### Fixed
 
+- **Column order of compound primary keys.** The migration diff compared a
+  compound primary key as a set of columns, so a live key on
+  `(line_no, order_id)` matched `@@id([orderId, lineNo])`: `db status` saw no
+  change, `migrate generate` wrote nothing, and the key kept serving lookups by
+  `line_no` instead of by `order_id`. Reordering an existing `@@id` went
+  unnoticed the same way. The diff now compares the key in order, so a
+  reordered key is rebuilt in its declared order, like any other primary-key
+  change, and `down.sql` restores the previous order on PostgreSQL and MySQL.
+  Keys created by Nautilus already follow the declared order; a key created
+  elsewhere in another order now shows up as a change.
 - **Large responses in the Python client.** The client read the engine's
   replies with `readline` on a 16 MB buffer. A longer reply, such as a
   `find_many` of many wide rows, failed with `Separator is not found, and

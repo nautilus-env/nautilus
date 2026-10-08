@@ -956,6 +956,66 @@ fn reordered_compound_unique_is_replaced() {
     )));
 }
 
+fn order_line_table(primary_key: &[&str]) -> LiveTable {
+    let column = |name: &str| LiveColumn {
+        name: name.to_string(),
+        col_type: "integer".to_string(),
+        nullable: false,
+        default_value: None,
+        generated_expr: None,
+        computed_kind: None,
+        check_expr: None,
+        auto_increment: false,
+        self_updating: false,
+    };
+    LiveTable {
+        name: TableName::new("order_lines".to_string()),
+        columns: vec![column("order_id"), column("line_no")],
+        primary_key: primary_key.iter().map(|c| c.to_string()).collect(),
+        indexes: vec![],
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }
+}
+
+fn order_line_model(id: &str) -> SchemaIr {
+    common::parse(&format!(
+        r#"model OrderLine {{
+  orderId Int @map("order_id")
+  lineNo  Int @map("line_no")
+  {id}
+  @@map("order_lines")
+}}"#
+    ))
+    .unwrap()
+}
+
+#[test]
+fn reordered_compound_primary_key_is_changed() {
+    let target = order_line_model("@@id([orderId, lineNo])");
+    let live = common::make_live_schema(vec![order_line_table(&["line_no", "order_id"])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        matches!(
+            changes.as_slice(),
+            [Change::PrimaryKeyChanged { table }] if table.name == "order_lines"
+        ),
+        "a key on the same columns in another order must change: {changes:?}"
+    );
+}
+
+#[test]
+fn compound_primary_key_in_declared_order_has_no_change() {
+    let target = order_line_model("@@id([orderId, lineNo])");
+    let live = common::make_live_schema(vec![order_line_table(&["order_id", "line_no"])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(changes.is_empty(), "expected no change, got {changes:?}");
+}
+
 #[test]
 fn detects_foreign_key_added_with_actions() {
     let target = common::parse(
