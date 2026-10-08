@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Large responses in the Python client.** The client read the engine's
+  replies with `readline` on a 16 MB buffer. A longer reply, such as a
+  `find_many` of many wide rows, failed with `Separator is not found, and
+  chunk exceed the limit`, and the reader task stopped: every later request
+  waited for its 30-second timeout until the client was reconnected. Replies
+  are now read whole, whatever their length, as the JS and Java clients
+  already did; the buffer only bounds each read.
 - **Cursor values.** The engine bound each `cursor` value from its JSON shape
   alone, while `where` binds a value as its field's type. A string shaped like
   a UUID became a `uuid` parameter even on a `String` key: PostgreSQL refused

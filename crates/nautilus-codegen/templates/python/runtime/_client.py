@@ -81,6 +81,26 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+async def _read_message(stdout: asyncio.StreamReader) -> bytes:
+    """Read one newline-terminated engine message, however long it is.
+
+    ``readline`` raises on a line longer than the reader's buffer limit, after
+    dropping what it had buffered, so one large result would cut the stream.
+    Here the limit only bounds each read: a longer message is taken in pieces
+    until its newline. Returns ``b""`` at end of file, as ``readline`` does.
+    """
+    pieces: list[bytes] = []
+    while True:
+        try:
+            pieces.append(await stdout.readuntil(b"\n"))
+        except asyncio.LimitOverrunError as overrun:
+            pieces.append(await stdout.readexactly(overrun.consumed))
+            continue
+        except asyncio.IncompleteReadError as eof:
+            pieces.append(eof.partial)
+        return b"".join(pieces)
+
+
 _GLOBAL_INSTANCE: Optional[NautilusClient] = None
 _auto_register_lock = threading.Lock()
 
@@ -368,7 +388,7 @@ class NautilusClient:
 
         try:
             while True:
-                line_bytes = await stdout.readline()
+                line_bytes = await _read_message(stdout)
 
                 if not line_bytes:
 

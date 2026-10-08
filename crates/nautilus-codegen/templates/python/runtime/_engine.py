@@ -132,7 +132,8 @@ class EngineProcess:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            limit=16 * 1024 * 1024,  # 16 MB — prevents LimitOverrunError on large responses
+            # Bounds each read, not a response: the client reads longer ones in pieces.
+            limit=16 * 1024 * 1024,
         )
         self._pid = self._process.pid
 

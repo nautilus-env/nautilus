@@ -757,6 +757,32 @@ model Order {
     assert_eq!(values.get("group_by_names").map(String::as_str), Some("ok"));
 }
 
+/// A response line longer than the reader's 16 MB buffer arrives whole, and
+/// the client keeps answering after it.
+#[test]
+fn generated_python_reads_responses_past_the_buffer_limit() {
+    let Some(values) = run_generated_python(
+        r#"
+datasource db { provider = "sqlite" url = env("DATABASE_URL") }
+generator client { provider = "nautilus-client-py" interface = "async" output = "./pyclient" }
+model Note {
+  id   Int    @id
+  body String
+  @@map("notes")
+}
+"#,
+        "large_response.sqlite",
+        (
+            "run_python_large_response.py",
+            include_str!("fixtures/stream_runtime_e2e/run_python_large_response.py"),
+        ),
+        "Python large response",
+    ) else {
+        return;
+    };
+    assert_eq!(values.get("large_response").map(String::as_str), Some("ok"));
+}
+
 #[test]
 fn generated_js_stream_many_early_break_cleans_up() {
     if !commands_available(&["node", "sqlite3"]) {
