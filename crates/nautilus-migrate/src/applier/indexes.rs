@@ -1,6 +1,7 @@
 use super::DiffApplier;
 use crate::error::Result;
 use crate::provider::CreateIndex;
+use crate::utils::default_index_name;
 use nautilus_core::TableName;
 
 impl DiffApplier<'_> {
@@ -15,7 +16,7 @@ impl DiffApplier<'_> {
     ) -> Result<Vec<String>> {
         let idx_name = index_name
             .map(|s| s.to_string())
-            .unwrap_or_else(|| index_name_auto(table, columns));
+            .unwrap_or_else(|| default_index_name(&table.name, columns));
         Ok(vec![self.strategy().create_index_sql(CreateIndex {
             table,
             name: &idx_name,
@@ -34,9 +35,4 @@ impl DiffApplier<'_> {
     ) -> Result<Vec<String>> {
         Ok(vec![self.strategy().drop_index_sql(table, index_name)])
     }
-}
-
-/// Derive a deterministic index name from the table and column list.
-fn index_name_auto(table: &TableName, columns: &[String]) -> String {
-    format!("idx_{}_{}", table.name, columns.join("_"))
 }

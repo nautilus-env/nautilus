@@ -97,7 +97,7 @@ pub enum Change {
     IndexAdded {
         /// DB table name.
         table: TableName,
-        /// Sorted DB column names that form the index key.
+        /// DB column names that form the index key, in key order.
         columns: Vec<String>,
         /// Whether the index enforces uniqueness.
         unique: bool,
@@ -115,7 +115,7 @@ pub enum Change {
     IndexDropped {
         /// DB table name.
         table: TableName,
-        /// Sorted DB column names that form the index key.
+        /// DB column names that form the index key, in key order.
         columns: Vec<String>,
         /// Whether the index enforces uniqueness.
         unique: bool,

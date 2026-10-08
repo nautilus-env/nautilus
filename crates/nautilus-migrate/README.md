@@ -202,7 +202,7 @@ For every table in the live DB that has no matching model in the target.
 - **Nullability changes**: `field.is_required` vs `live_col.nullable`
 - **Default changes**: normalized default expressions compared
 - **Primary key changes**: sorted PK column sets compared
-- **Index additions / drops**: target `@@index` and `@unique` sets vs live indexes
+- **Index additions / drops**: target `@@index` and `@unique` sets vs live indexes, with columns compared in key order
 
 **Continuing the example** — the live DB has `users` but not `posts`, and `users` is missing the `role` column:
 

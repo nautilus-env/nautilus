@@ -159,6 +159,17 @@ mod bool_expr_tests {
     }
 }
 
+/// The physical name of an index declared without `map:`.
+///
+/// The name lists the columns sorted, so it does not change when the same
+/// columns are declared in another order; the index key keeps the declared
+/// order.
+pub(crate) fn default_index_name(table: &str, columns: &[String]) -> String {
+    let mut sorted = columns.to_vec();
+    sorted.sort();
+    format!("idx_{}_{}", table, sorted.join("_"))
+}
+
 pub use crate::plan::requires_own_transaction;
 
 #[cfg(test)]

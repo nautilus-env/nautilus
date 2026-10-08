@@ -8,8 +8,8 @@ use super::expressions::{
     infer_default_attr, remap_bool_expr_identifiers, remap_sql_expr_identifiers,
 };
 use super::naming::{
-    apply_scalar_field_case, choose_unique_field_name, default_index_name, join_logical_fields,
-    to_pascal_case, TableNamingContext,
+    apply_scalar_field_case, choose_unique_field_name, join_logical_fields, to_pascal_case,
+    TableNamingContext,
 };
 use super::relations::{BackRelation, ForwardRelation, ManyToManyEnd};
 use super::types::{
@@ -17,6 +17,7 @@ use super::types::{
 };
 use super::PullNamingOptions;
 use crate::live::{ComputedKind, LiveIndexKind, LiveSchema, LiveTable};
+use crate::utils::default_index_name;
 use nautilus_core::TableName;
 use nautilus_schema::ir::{BasicIndexType, PgvectorIndexOptions};
 

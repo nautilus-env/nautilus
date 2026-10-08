@@ -1,6 +1,7 @@
 use super::DdlGenerator;
 use crate::live::model_table;
 use crate::provider::{CreateIndex, ProviderStrategy};
+use crate::utils::default_index_name;
 use nautilus_schema::ir::ModelIr;
 
 impl DdlGenerator {
@@ -24,12 +25,10 @@ impl DdlGenerator {
                             .unwrap_or_else(|| name.clone())
                     })
                     .collect();
-                let mut name_parts = columns.clone();
-                name_parts.sort();
                 let index_name = idx
                     .map
                     .clone()
-                    .unwrap_or_else(|| format!("idx_{}_{}", model.db_name, name_parts.join("_")));
+                    .unwrap_or_else(|| default_index_name(&model.db_name, &columns));
                 strategy.create_index_sql(CreateIndex {
                     table: &model_table(model),
                     name: &index_name,

@@ -7,10 +7,11 @@ use super::DiffAccumulator;
 use crate::change::Change;
 use crate::live::{LiveIndex, LiveIndexKind, LiveTable};
 use crate::normalize::predicates::normalize_check_expr;
+use crate::utils::default_index_name;
 use nautilus_core::TableName;
 
 impl DiffAccumulator {
-    /// Diff the indexes of one table, matching on sorted column list,
+    /// Diff the indexes of one table, matching on the ordered column list,
     /// uniqueness, access method, and — for explicitly named indexes — name.
     pub(super) fn diff_indexes(
         &mut self,
@@ -21,22 +22,13 @@ impl DiffAccumulator {
     ) {
         let target_indexes = collect_target_indexes(table_name, model);
 
-        let live_indexes: Vec<NormalizedLiveIndex<'_>> = live_table
+        let live_indexes: Vec<&LiveIndex> = live_table
             .indexes
             .iter()
             .filter(|i| {
                 !i.columns
                     .iter()
                     .any(|column| unmanaged_columns.contains(column.as_str()))
-            })
-            .map(|i| {
-                let mut cols = i.columns.clone();
-                cols.sort();
-                NormalizedLiveIndex {
-                    sorted_cols: cols,
-                    unique: i.unique,
-                    live: i,
-                }
             })
             .collect();
 
@@ -45,7 +37,7 @@ impl DiffAccumulator {
             if !found {
                 self.changes.push(Change::IndexAdded {
                     table: table_name.clone(),
-                    columns: ti.sorted_cols.clone(),
+                    columns: ti.columns.clone(),
                     unique: ti.unique,
                     kind: ti.kind.clone(),
                     index_name: Some(ti.effective_name.clone()),
@@ -59,9 +51,9 @@ impl DiffAccumulator {
             if !found {
                 self.changes.push(Change::IndexDropped {
                     table: table_name.clone(),
-                    columns: li.sorted_cols.clone(),
+                    columns: li.columns.clone(),
                     unique: li.unique,
-                    index_name: li.live.name.clone(),
+                    index_name: li.name.clone(),
                 });
             }
         }
@@ -71,7 +63,8 @@ impl DiffAccumulator {
 /// An index declared in the target schema, normalised for comparison against
 /// the live database.
 struct TargetIndex {
-    sorted_cols: Vec<String>,
+    /// Physical column names in key order, as declared.
+    columns: Vec<String>,
     unique: bool,
     kind: IndexKind,
     predicate: Option<String>,
@@ -81,19 +74,11 @@ struct TargetIndex {
     name_must_match: bool,
 }
 
-/// A live index with its column list sorted, so it can be compared against a
-/// [`TargetIndex`] regardless of declaration order.
-struct NormalizedLiveIndex<'a> {
-    sorted_cols: Vec<String>,
-    unique: bool,
-    live: &'a LiveIndex,
-}
-
 /// Collect the target indexes of `model`, merging `@@index` declarations and
 /// `@@unique` constraints into a single comparable list.
 fn collect_target_indexes(table_name: &TableName, model: &ModelIr) -> Vec<TargetIndex> {
     let resolve_cols = |fields: &[String]| -> Vec<String> {
-        let mut cols: Vec<String> = fields
+        fields
             .iter()
             .map(|name| {
                 model
@@ -101,10 +86,9 @@ fn collect_target_indexes(table_name: &TableName, model: &ModelIr) -> Vec<Target
                     .map(|f| f.db_name.clone())
                     .unwrap_or_else(|| name.clone())
             })
-            .collect();
-        cols.sort();
-        cols
+            .collect()
     };
+    let table = table_name.to_string();
 
     let mut idxs: Vec<TargetIndex> = Vec::new();
 
@@ -113,9 +97,9 @@ fn collect_target_indexes(table_name: &TableName, model: &ModelIr) -> Vec<Target
         let ddl_name = idx
             .map
             .clone()
-            .unwrap_or_else(|| format!("idx_{}_{}", table_name, cols.join("_")));
+            .unwrap_or_else(|| default_index_name(&table, &cols));
         idxs.push(TargetIndex {
-            sorted_cols: cols,
+            columns: cols,
             unique: false,
             kind: idx.kind.clone(),
             predicate: idx.predicate.clone(),
@@ -126,9 +110,9 @@ fn collect_target_indexes(table_name: &TableName, model: &ModelIr) -> Vec<Target
 
     for uc in &model.unique_constraints {
         let cols = resolve_cols(&uc.fields);
-        let ddl_name = format!("idx_{}_{}", table_name, cols.join("_"));
+        let ddl_name = default_index_name(&table, &cols);
         idxs.push(TargetIndex {
-            sorted_cols: cols,
+            columns: cols,
             unique: true,
             kind: IndexKind::Default,
             predicate: None,
@@ -142,12 +126,15 @@ fn collect_target_indexes(table_name: &TableName, model: &ModelIr) -> Vec<Target
 
 /// Returns `true` when a target index and a live index describe the same
 /// physical index.
-fn indexes_match(target: &TargetIndex, live: &NormalizedLiveIndex<'_>) -> bool {
-    live.sorted_cols == target.sorted_cols
+///
+/// Columns compare in key order: `(a, b)` and `(b, a)` hold the same values
+/// but serve different queries, so a reordered declaration is a new index.
+fn indexes_match(target: &TargetIndex, live: &LiveIndex) -> bool {
+    live.columns == target.columns
         && live.unique == target.unique
-        && (!target.name_must_match || live.live.name == target.effective_name)
-        && index_kinds_match(&target.kind, &live.live.kind)
-        && index_predicates_match(target.predicate.as_deref(), live.live.predicate.as_deref())
+        && (!target.name_must_match || live.name == target.effective_name)
+        && index_kinds_match(&target.kind, &live.kind)
+        && index_predicates_match(target.predicate.as_deref(), live.predicate.as_deref())
 }
 
 /// Compares a declared partial-index predicate against the one the database

@@ -832,6 +832,130 @@ fn unique_constraint_name_mismatch_does_not_trigger_index_churn() {
     );
 }
 
+fn message_table(indexes: Vec<LiveIndex>) -> LiveTable {
+    let column = |name: &str| LiveColumn {
+        name: name.to_string(),
+        col_type: "integer".to_string(),
+        nullable: false,
+        default_value: None,
+        generated_expr: None,
+        computed_kind: None,
+        check_expr: None,
+        auto_increment: false,
+        self_updating: false,
+    };
+    LiveTable {
+        name: TableName::new("messages".to_string()),
+        columns: vec![column("id"), column("thread_id")],
+        primary_key: vec!["id".to_string()],
+        indexes,
+        check_constraints: vec![],
+        foreign_keys: vec![],
+    }
+}
+
+fn message_index(name: &str, columns: &[&str], unique: bool) -> LiveIndex {
+    LiveIndex {
+        name: name.to_string(),
+        columns: columns.iter().map(|c| c.to_string()).collect(),
+        unique,
+        kind: LiveIndexKind::Basic(nautilus_schema::ir::BasicIndexType::BTree),
+        predicate: None,
+    }
+}
+
+fn message_model(index: &str) -> SchemaIr {
+    common::parse(&format!(
+        r#"model Message {{
+  id        Int @id
+  threadId Int @map("thread_id")
+  {index}
+  @@map("messages")
+}}"#
+    ))
+    .unwrap()
+}
+
+#[test]
+fn added_compound_index_keeps_declared_column_order() {
+    let target = message_model("@@index([threadId, id])");
+    let live = common::make_live_schema(vec![message_table(vec![])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(
+        matches!(
+            changes.as_slice(),
+            [Change::IndexAdded { columns, index_name: Some(name), .. }]
+                if columns == &["thread_id", "id"] && name == "idx_messages_id_thread_id"
+        ),
+        "the key keeps the declared order and the name its sorted form: {changes:?}"
+    );
+}
+
+#[test]
+fn reordered_compound_index_is_replaced() {
+    let target = message_model(r#"@@index([threadId, id], map: "messages_thread_id_idx")"#);
+    let live = common::make_live_schema(vec![message_table(vec![message_index(
+        "messages_thread_id_idx",
+        &["id", "thread_id"],
+        false,
+    )])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert_eq!(
+        changes.len(),
+        2,
+        "expected one drop and one add: {changes:?}"
+    );
+    assert!(changes.iter().any(|c| matches!(
+        c,
+        Change::IndexDropped { columns, index_name, .. }
+            if columns == &["id", "thread_id"] && index_name == "messages_thread_id_idx"
+    )));
+    assert!(changes.iter().any(|c| matches!(
+        c,
+        Change::IndexAdded { columns, index_name: Some(name), .. }
+            if columns == &["thread_id", "id"] && name == "messages_thread_id_idx"
+    )));
+}
+
+#[test]
+fn compound_index_in_declared_order_has_no_change() {
+    let target = message_model(r#"@@index([threadId, id], map: "messages_thread_id_idx")"#);
+    let live = common::make_live_schema(vec![message_table(vec![message_index(
+        "messages_thread_id_idx",
+        &["thread_id", "id"],
+        false,
+    )])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(changes.is_empty(), "expected no change, got {changes:?}");
+}
+
+#[test]
+fn reordered_compound_unique_is_replaced() {
+    let target = message_model("@@unique([threadId, id])");
+    let live = common::make_live_schema(vec![message_table(vec![message_index(
+        "messages_id_thread_id_key",
+        &["id", "thread_id"],
+        true,
+    )])]);
+
+    let changes = SchemaDiff::compute(&live, &target, DatabaseProvider::Postgres);
+
+    assert!(changes.iter().any(|c| matches!(
+        c,
+        Change::IndexDropped { index_name, .. } if index_name == "messages_id_thread_id_key"
+    )));
+    assert!(changes.iter().any(|c| matches!(
+        c,
+        Change::IndexAdded { columns, unique: true, .. } if columns == &["thread_id", "id"]
+    )));
+}
+
 #[test]
 fn detects_foreign_key_added_with_actions() {
     let target = common::parse(

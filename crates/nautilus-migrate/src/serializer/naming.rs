@@ -166,12 +166,6 @@ pub(super) fn join_logical_fields(naming: &TableNamingContext, columns: &[String
         .join(", ")
 }
 
-pub(super) fn default_index_name(table_name: &str, columns: &[String]) -> String {
-    let mut sorted_columns = columns.to_vec();
-    sorted_columns.sort();
-    format!("idx_{}_{}", table_name, sorted_columns.join("_"))
-}
-
 fn sanitize_logical_identifier(name: &str) -> String {
     let mut candidate = name
         .chars()

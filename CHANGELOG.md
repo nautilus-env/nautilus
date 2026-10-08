@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **Column order of compound indexes.** An index added to an existing table
+  listed its columns sorted by name, so `@@index([threadId, id])` created
+  `(id, thread_id)`, a B-tree that cannot serve a query filtering by
+  thread. `db status` and the migration diff compared the column sets, so they
+  saw no difference between the two orders. Indexes and `@@unique` constraints
+  now keep their declared order, and the diff compares it: changing the order
+  drops the index and creates it again under the same name, and `down.sql`
+  restores the previous order. Default names still list the columns sorted, so
+  existing indexes keep their names. An index that an earlier release created
+  in sorted order now shows up as a change, and the next migration rebuilds it
+  in its declared order.
 - **Models that relate to themselves.** The module generated for a model with a
   self-relation imported its own model: in Python, `from . import Revision`
   inside `if TYPE_CHECKING:` shadowed the class, so type checkers saw the model,
