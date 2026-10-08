@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **Python `group_by` and `aggregate` field names.** The engine answers with
+  the schema's field names, and the Python client returned them as they came:
+  `group_by(["customer_id"])` produced `{"customerId": ...}` although
+  `<Model>GroupByOutput` declares `customer_id`, and an enum value arrived as a
+  plain string. The client also sent its snake_case names unchanged, so a
+  multi-word field without `@map`, whose column keeps the schema name, failed
+  with "no such column" in `by`, `count`, `having` or `order`. The client now
+  sends schema names, accepting either spelling, and returns grouped fields
+  under their Python names, decoded as the field's type. A field inside
+  `_count`, `_min` and the other aggregates comes back under the spelling the
+  request used, so `sum={"unitPrice": True}` still reads `["_sum"]["unitPrice"]`,
+  and under its Python name when `True` asks for every field. Code that read
+  the schema names of grouped fields must switch to the Python names.
 - **Filters on enum fields.** The engine runs `in`, `notIn`, `not` and the
   null check on enum columns, but the generated Python and TypeScript types
   took only a bare enum value in `where`, so `{"status": {"in_": [...]}}` or

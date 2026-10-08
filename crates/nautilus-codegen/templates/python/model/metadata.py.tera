@@ -42,6 +42,11 @@ _{{ table_name }}_py_to_logical: Dict[str, str] = {
 {%- endif %}
 {%- endfor %}
 }
+_{{ table_name }}_logical_to_py: Dict[str, str] = {
+{%- for f in scalar_fields %}
+    "{{ f.logical_name }}": "{{ f.name }}",
+{%- endfor %}
+}
 _{{ table_name }}_object_value_db_fields: frozenset = frozenset({
 {%- for db_name in object_value_db_fields %}
     "{{ db_name }}",

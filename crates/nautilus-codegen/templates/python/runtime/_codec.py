@@ -10,7 +10,7 @@ from __future__ import annotations
 import base64
 from dataclasses import asdict, is_dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Mapping, Optional, Union
+from typing import Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Union
 
 JsonPrimitive = Union[str, int, float, bool, None]
 JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]
@@ -61,6 +61,8 @@ FILTER_OPERATOR_PROTOCOL_NAMES: Dict[str, str] = {
 }
 
 MISSING = object()
+
+AGGREGATE_KEYS: FrozenSet[str] = frozenset({"_count", "_avg", "_sum", "_min", "_max"})
 
 
 def coerce_boolean_value(value: Any) -> Any:
@@ -135,6 +137,89 @@ def get_wire_value(row: Dict[str, Any], *keys: str) -> Any:
         if key in row:
             return row[key]
     return MISSING
+
+
+def logical_field_keys(spec: Any, py_to_logical: Mapping[str, str]) -> Any:
+    """Name the fields of a ``count``/``avg``/``sum``/``min``/``max`` input
+    as the schema does; ``True`` and ``_all`` pass unchanged."""
+    if not isinstance(spec, dict):
+        return spec
+    return {py_to_logical.get(key, key): value for key, value in spec.items()}
+
+
+def logical_aggregate_keys(
+    spec: Mapping[Any, Any], py_to_logical: Mapping[str, str]
+) -> Dict[str, Any]:
+    """Name the fields of a ``having`` filter or a ``group_by`` order item as
+    the schema does: its own keys, and those inside ``_count``, ``_min``, …"""
+    result: Dict[str, Any] = {}
+    for key, value in spec.items():
+        if key in AGGREGATE_KEYS:
+            result[key] = logical_field_keys(value, py_to_logical)
+        else:
+            result[py_to_logical.get(key, key)] = value
+    return result
+
+
+def logical_aggregate_args(
+    args: Dict[str, Any], py_to_logical: Mapping[str, str]
+) -> Dict[str, Dict[str, str]]:
+    """Name the fields of a ``group_by`` or ``aggregate`` request as the schema
+    does, in place.
+
+    Returns, for each aggregate whose fields the request names, the key each
+    field gets in the result: the spelling the request used, so
+    ``sum={"unitPrice": True}`` reads back as ``row["_sum"]["unitPrice"]``.
+    """
+    if "by" in args:
+        args["by"] = [py_to_logical.get(field, field) for field in args["by"]]
+    if "having" in args:
+        args["having"] = logical_aggregate_keys(args["having"], py_to_logical)
+    if "orderBy" in args:
+        args["orderBy"] = [
+            logical_aggregate_keys(item, py_to_logical) for item in args["orderBy"]
+        ]
+    requested: Dict[str, Dict[str, str]] = {}
+    for key in ("count", "avg", "sum", "min", "max"):
+        spec = args.get(key)
+        if isinstance(spec, dict):
+            requested["_" + key] = {py_to_logical.get(field, field): field for field in spec}
+            args[key] = logical_field_keys(spec, py_to_logical)
+    return requested
+
+
+def aggregate_row_from_wire(
+    row: Dict[str, Any],
+    logical_to_py: Mapping[str, str],
+    coerce: Callable[[str, Any], Any],
+    requested: Mapping[str, Mapping[str, str]],
+) -> Dict[str, Any]:
+    """Name the keys of a ``group_by`` or ``aggregate`` row for Python.
+
+    The engine names grouped columns, and the fields inside ``_count``,
+    ``_min`` and the other aggregates, as the schema does. Grouped columns get
+    their Python names, as the result types declare. A field inside an
+    aggregate gets the spelling the request used (``requested``, from
+    :func:`logical_aggregate_args`), or its Python name when the request asked
+    for every field with ``True``. Grouped values and the ``_min``/``_max`` of
+    a field are decoded as in a ``select`` projection.
+    """
+    result: Dict[str, Any] = {}
+    for key, value in row.items():
+        if key in AGGREGATE_KEYS and isinstance(value, dict):
+            names = requested.get(key, {})
+            decode = key in ("_min", "_max")
+            fields: Dict[str, Any] = {}
+            for field, field_value in value.items():
+                py_field = logical_to_py.get(field, field)
+                if decode and field_value is not None:
+                    field_value = coerce(py_field, field_value)
+                fields[names.get(field, py_field)] = field_value
+            result[key] = fields
+        else:
+            py_key = logical_to_py.get(key, key)
+            result[py_key] = None if value is None else coerce(py_key, value)
+    return result
 
 
 def process_select_fields(

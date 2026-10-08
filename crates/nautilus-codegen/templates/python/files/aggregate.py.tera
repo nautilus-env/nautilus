@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from .._internal.codec import logical_aggregate_args as _logical_aggregate_args
 from .._internal.protocol import PROTOCOL_VERSION
 from ._{{ snake_name }}_inputs import (
     {{ model_name }}WhereInput, {{ model_name }}OrderByInput, {{ model_name }}SelectInput,
@@ -19,6 +20,7 @@ from ._{{ snake_name }}_inputs import (
 from ._{{ snake_name }}_codec import (
     _{{ table_name }}_py_to_db, _{{ table_name }}_py_to_logical,
     _process_where_filters, _process_select_fields, _serialize_nearest_input,
+    _{{ snake_name }}_aggregate_from_wire,
 )
 if TYPE_CHECKING:
     from .._internal.client import NautilusClient

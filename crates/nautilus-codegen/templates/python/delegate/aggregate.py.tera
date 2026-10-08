@@ -46,6 +46,7 @@
             args["min"] = min
         if max is not None:
             args["max"] = max
+        requested = _logical_aggregate_args(args, _{{ table_name }}_py_to_logical)
 
         result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.aggregate", {
             "protocolVersion": PROTOCOL_VERSION,
@@ -53,5 +54,5 @@
             "args": args,
         })
         rows = result.get("data", [])
-        return rows[0] if rows else {}
+        return _{{ snake_name }}_aggregate_from_wire(rows[0], requested) if rows else {}
 

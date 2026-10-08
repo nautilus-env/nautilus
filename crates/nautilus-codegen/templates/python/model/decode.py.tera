@@ -65,6 +65,15 @@ def _{{ snake_name }}_projection_from_wire(row: Dict[str, Any]) -> "{{ model_nam
     return payload
 
 
+def _{{ snake_name }}_aggregate_from_wire(
+    row: Dict[str, Any], requested: Dict[str, Dict[str, str]]
+) -> Any:
+    """Convert a group_by or aggregate row to the names the caller reads."""
+    return _aggregate_row_from_wire(
+        row, _{{ table_name }}_logical_to_py, _coerce_{{ snake_name }}_scalar, requested
+    )
+
+
 def _{{ table_name }}_from_row(row: Dict[str, Any]) -> "{{ model_name }}":
     """Convert engine row (table__column keys) to {{ model_name }} dataclass."""
     return _{{ snake_name }}_from_wire(row)

@@ -645,32 +645,26 @@ fn generated_python_stream_many_early_break_cleans_up() {
     assert_eq!(values.get("stream_queues").map(String::as_str), Some("0"));
 }
 
-#[test]
-fn generated_python_bytes_round_trip() {
-    let Some(python) = python_executable() else {
-        return;
-    };
+/// Generate the async Python client of `schema` into `./pyclient` and run
+/// `runner` beside it against a SQLite database named `database`, which the
+/// runner creates. `None` when Python is missing.
+fn run_generated_python(
+    schema: &str,
+    database: &str,
+    runner: (&str, &str),
+    context: &str,
+) -> Option<BTreeMap<String, String>> {
+    let python = python_executable()?;
     let dir = tempfile::tempdir_in(workspace_root()).unwrap();
     let root = dir.path();
     let schema_path = root.join("schema.nautilus");
-    let database_path = root.join("bytes.sqlite");
     let database_url = format!(
         "sqlite:///{}",
-        database_path.to_string_lossy().replace('\\', "/")
+        root.join(database).to_string_lossy().replace('\\', "/")
     );
     fs::write(
         &schema_path,
-        r#"
-datasource db { provider = "sqlite" url = env("DATABASE_URL") }
-generator client { provider = "nautilus-client-py" interface = "async" output = "./pyclient" }
-model Blob {
-  id Int @id
-  binaryData Bytes @map("binary_data")
-  optionalData Bytes? @map("optional_data")
-  @@map("blobs")
-}
-"#
-        .replace(
+        schema.replace(
             "./pyclient",
             &root.join("pyclient").to_string_lossy().replace('\\', "/"),
         ),
@@ -686,26 +680,81 @@ model Blob {
     )
     .unwrap();
     fs::write(root.join("pydantic.py"), PYDANTIC_STUB).unwrap();
-    let runner = root.join("run_python_bytes.py");
-    fs::write(
-        &runner,
-        include_str!("fixtures/stream_runtime_e2e/run_python_bytes.py"),
-    )
-    .unwrap();
+    let (runner_name, runner_source) = runner;
+    let runner_path = root.join(runner_name);
+    fs::write(&runner_path, runner_source).unwrap();
     let binary = ensure_nautilus_binary();
     let output = run_checked(
         Command::new(python)
-            .arg(&runner)
+            .arg(&runner_path)
             .env("PYTHONPATH", root)
             .env("PATH", prefixed_path(binary.parent().unwrap())),
-        "Python Bytes round trip",
+        context,
     );
+    Some(parse_key_values(&output))
+}
+
+#[test]
+fn generated_python_bytes_round_trip() {
+    let Some(values) = run_generated_python(
+        r#"
+datasource db { provider = "sqlite" url = env("DATABASE_URL") }
+generator client { provider = "nautilus-client-py" interface = "async" output = "./pyclient" }
+model Blob {
+  id Int @id
+  binaryData Bytes @map("binary_data")
+  optionalData Bytes? @map("optional_data")
+  @@map("blobs")
+}
+"#,
+        "bytes.sqlite",
+        (
+            "run_python_bytes.py",
+            include_str!("fixtures/stream_runtime_e2e/run_python_bytes.py"),
+        ),
+        "Python Bytes round trip",
+    ) else {
+        return;
+    };
     assert_eq!(
-        parse_key_values(&output)
-            .get("bytes_round_trip")
-            .map(String::as_str),
+        values.get("bytes_round_trip").map(String::as_str),
         Some("ok")
     );
+}
+
+/// `group_by` and `aggregate` take Python or schema field names. Grouped
+/// fields come back under the Python names the result types declare; a field
+/// inside `_count`, `_min`, … under the spelling the request used, or its
+/// Python name when `True` asked for every field. Grouped values and
+/// `_min`/`_max` are decoded as the field's type.
+#[test]
+fn generated_python_group_by_uses_python_names() {
+    let Some(values) = run_generated_python(
+        r#"
+datasource db { provider = "sqlite" url = env("DATABASE_URL") }
+generator client { provider = "nautilus-client-py" interface = "async" output = "./pyclient" }
+enum Status {
+  PENDING
+  SHIPPED
+}
+model Order {
+  id          Int      @id
+  customerId  Int      @map("customer_id")
+  orderStatus Status   @map("order_status")
+  createdAt   DateTime
+  @@map("orders")
+}
+"#,
+        "group_by.sqlite",
+        (
+            "run_python_group_by.py",
+            include_str!("fixtures/stream_runtime_e2e/run_python_group_by.py"),
+        ),
+        "Python group_by names",
+    ) else {
+        return;
+    };
+    assert_eq!(values.get("group_by_names").map(String::as_str), Some("ok"));
 }
 
 #[test]

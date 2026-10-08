@@ -68,11 +68,15 @@
                 args["orderBy"] = order
             else:
                 args["orderBy"] = [{field: direction} for field, direction in order.items()]
+        requested = _logical_aggregate_args(args, _{{ table_name }}_py_to_logical)
 
         result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.groupBy", {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",
             "args": args,
         })
-        return result.get("data", [])
+        return [
+            _{{ snake_name }}_aggregate_from_wire(row, requested)
+            for row in result.get("data", [])
+        ]
 

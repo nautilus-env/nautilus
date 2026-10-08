@@ -32,9 +32,11 @@ if TYPE_CHECKING:
 from .._internal.codec import (
     MISSING as _MISSING,
     ModelInputCodec as _ModelInputCodec,
+    aggregate_row_from_wire as _aggregate_row_from_wire,
     coerce_boolean_value as _coerce_boolean_value,
     first_data_row as _first_data_row,
     get_wire_value as _get_wire_value,
+    logical_aggregate_args as _logical_aggregate_args,
     process_select_fields as _process_select_fields,
     serialize_include_args as _serialize_include_args,
 )
@@ -254,6 +256,10 @@ _User_py_to_db: Dict[str, str] = {
     "name": "name",
 }
 _User_py_to_logical: Dict[str, str] = {
+    "id": "id",
+    "name": "name",
+}
+_User_logical_to_py: Dict[str, str] = {
     "id": "id",
     "name": "name",
 }
@@ -782,6 +788,15 @@ def _user_projection_from_wire(row: Dict[str, Any]) -> "UserProjection":
             else None
         )
     return payload
+
+
+def _user_aggregate_from_wire(
+    row: Dict[str, Any], requested: Dict[str, Dict[str, str]]
+) -> Any:
+    """Convert a group_by or aggregate row to the names the caller reads."""
+    return _aggregate_row_from_wire(
+        row, _User_logical_to_py, _coerce_user_scalar, requested
+    )
 
 
 def _User_from_row(row: Dict[str, Any]) -> "User":
@@ -1554,6 +1569,7 @@ class UserDelegate:
             args["min"] = min
         if max is not None:
             args["max"] = max
+        requested = _logical_aggregate_args(args, _User_py_to_logical)
 
         result = self._client._sync_rpc("query.aggregate", {
             "protocolVersion": PROTOCOL_VERSION,
@@ -1561,7 +1577,7 @@ class UserDelegate:
             "args": args,
         })
         rows = result.get("data", [])
-        return rows[0] if rows else {}
+        return _user_aggregate_from_wire(rows[0], requested) if rows else {}
 
     def explain(
         self,
@@ -1727,13 +1743,17 @@ class UserDelegate:
                 args["orderBy"] = order
             else:
                 args["orderBy"] = [{field: direction} for field, direction in order.items()]
+        requested = _logical_aggregate_args(args, _User_py_to_logical)
 
         result = self._client._sync_rpc("query.groupBy", {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "User",
             "args": args,
         })
-        return result.get("data", [])
+        return [
+            _user_aggregate_from_wire(row, requested)
+            for row in result.get("data", [])
+        ]
 
     def raw_query(
         self,
