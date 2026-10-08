@@ -52,7 +52,17 @@ pub(super) struct WhereInputFieldContext {
     where_python_type: String,
     is_nullable: bool,
     is_vector: bool,
+    /// Name of the filter `TypedDict` of the field's enum, empty for a field
+    /// that is not a single enum value.
+    enum_filter: String,
     operators: Vec<FilterOperatorContext>,
+}
+
+/// The filter `TypedDict` generated for one enum a model's fields use.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct EnumFilterContext {
+    name: String,
+    enum_name: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -114,6 +124,26 @@ fn numeric_operator_type_name(base_python_type: &str) -> String {
         "Decimal" => "DecimalFieldUpdate".to_string(),
         _ => String::new(),
     }
+}
+
+/// The filter `TypedDict` of an enum.
+///
+/// Prefixed with `Enum`, as Prisma does, so that an enum named like a scalar
+/// filter (`Bool`, `Json`) does not redefine `BoolFilter` or `JsonFilter` in
+/// the same module.
+fn enum_filter_type_name(enum_name: &str) -> String {
+    format!("Enum{enum_name}Filter")
+}
+
+/// One filter `TypedDict` for each enum the model's fields use.
+pub(super) fn build_enum_filters(enum_names: &[String]) -> Vec<EnumFilterContext> {
+    enum_names
+        .iter()
+        .map(|enum_name| EnumFilterContext {
+            name: enum_filter_type_name(enum_name),
+            enum_name: enum_name.clone(),
+        })
+        .collect()
 }
 
 pub(super) fn build_scalar_fields(
@@ -308,6 +338,14 @@ fn where_input_field(
             .unwrap_or_default(),
         is_nullable,
         is_vector: field.is_vector(),
+        enum_filter: match &field.field_type {
+            ResolvedFieldType::Enum { enum_name, .. }
+                if !field.is_array && ir.enums.contains_key(enum_name) =>
+            {
+                enum_filter_type_name(enum_name)
+            }
+            _ => String::new(),
+        },
         operators: get_filter_operators_for_field(field, &ir.enums)
             .into_iter()
             .map(|op| FilterOperatorContext {

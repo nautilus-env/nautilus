@@ -71,6 +71,15 @@ export interface VectorFilter {
   not?:    {% if has_vector_extension %}VectorInput{% else %}number[]{% endif %};
   isNull?: boolean;
 }
+{%- if has_enums %}
+
+export interface EnumFilter<T> {
+  in?:     T[];
+  notIn?:  T[];
+  not?:    T;
+  isNull?: boolean;
+}
+{%- endif %}
 
 export type VectorMetric = 'l2' | 'innerProduct' | 'cosine';
 export type {{ model_name }}VectorFieldKeys = {% if has_vector_fields %}{% for name in vector_field_names %}'{{ name }}'{% if not loop.last %} | {% endif %}{% endfor %}{% else %}never{% endif %};
@@ -115,6 +124,8 @@ export interface {{ model_name }}WhereInput {
   {{ field.name }}?: JsonScalarOrArray | JsonFilter;
 {%- elif field.base_type == "HstoreValue" %}
   {{ field.name }}?: {% if field.is_nullable %}null | {% endif %}HstoreFilter;
+{%- elif field.enum_filter %}
+  {{ field.name }}?: {{ field.ts_type }} | {{ field.enum_filter }};
 {%- else %}
   {{ field.name }}?: {{ field.ts_type }};
 {%- endif %}

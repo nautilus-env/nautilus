@@ -37,6 +37,8 @@ class {{ model_name }}WhereInput(TypedDict, total=False):
     {{ field.name }}: NotRequired[Union[JsonScalarOrArray, JsonFilter]]
     {% elif field.python_type == "HstoreValue" %}
     {{ field.name }}: NotRequired[{% if field.is_nullable %}Union[None, HstoreFilter]{% else %}HstoreFilter{% endif %}]
+    {% elif field.enum_filter %}
+    {{ field.name }}: NotRequired[Union[{{ field.python_type }}{% if field.is_nullable %}, None{% endif %}, {{ field.enum_filter }}]]
     {% else %}
     {{ field.name }}: NotRequired[{% if field.is_nullable %}Optional[{{ field.python_type }}]{% else %}{{ field.python_type }}{% endif %}]
     {% endif %}

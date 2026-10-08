@@ -2,6 +2,9 @@ from ._{{ snake_name }}_inputs import (
     IntFieldUpdate, FloatFieldUpdate, DecimalFieldUpdate,
     StringFilter, IntFilter, FloatFilter, DecimalFilter, DateTimeFilter,
     UuidFilter, BoolFilter, JsonFilter, HstoreFilter, VectorFilter,
+{%- for filter in enum_filters %}
+    {{ filter.name }},
+{%- endfor %}
 {%- if has_vector_fields %}
     VectorMetric, {{ model_name }}VectorFieldKeys, {{ model_name }}NearestInput,
 {%- endif %}

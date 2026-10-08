@@ -129,3 +129,14 @@ class VectorFilter(TypedDict, total=False):
     equals: NotRequired[{% if has_vector_extension %}VectorInput{% else %}List[float]{% endif %}]
     not_: NotRequired[{% if has_vector_extension %}VectorInput{% else %}List[float]{% endif %}]
     is_null: NotRequired[bool]
+{%- for filter in enum_filters %}
+
+
+class {{ filter.name }}(TypedDict, total=False):
+    """{{ filter.enum_name }} field filter operations."""
+    equals: NotRequired[{{ filter.enum_name }}]
+    not_: NotRequired[{{ filter.enum_name }}]
+    in_: NotRequired[List[{{ filter.enum_name }}]]
+    not_in: NotRequired[List[{{ filter.enum_name }}]]
+    is_null: NotRequired[bool]
+{%- endfor %}

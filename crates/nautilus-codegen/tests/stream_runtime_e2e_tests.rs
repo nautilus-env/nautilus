@@ -1,7 +1,10 @@
 use nautilus_codegen::{
     generate_command,
     java::generate_java_client,
-    js::{generate_all_js_models, generate_js_client, generate_js_models_index, js_runtime_files},
+    js::{
+        generate_all_js_models, generate_js_client, generate_js_enums, generate_js_models_index,
+        js_runtime_files,
+    },
     writer::{write_java_code, write_js_code, JsOutput},
     GenerateOptions, InstallMode,
 };
@@ -63,6 +66,24 @@ generator client {
 model User {
   id   Int    @id @default(autoincrement())
   name String
+}
+"#;
+
+const ENUM_FILTER_SCHEMA: &str = r#"
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Status {
+  PENDING
+  DONE
+}
+
+model Task {
+  id       Int     @id @default(autoincrement())
+  status   Status
+  previous Status?
 }
 "#;
 
@@ -391,13 +412,22 @@ fn generated_python_modules_preserve_public_imports() {
 }
 
 fn generate_js_client_fixture(output_dir: &Path, schema_path: &str) {
-    let ir = validate(BASE_SCHEMA);
+    write_js_client(&validate(BASE_SCHEMA), output_dir, schema_path);
+}
+
+fn write_js_client(ir: &SchemaIr, output_dir: &Path, schema_path: &str) {
     let (js_models, dts_models) =
-        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
+        generate_all_js_models(ir).expect("generate_all_js_models should succeed");
     let (js_client, dts_client) =
         generate_js_client(&ir.models, schema_path).expect("generate_js_client should succeed");
     let (js_models_index, dts_models_index) =
         generate_js_models_index(&js_models).expect("generate_js_models_index should succeed");
+    let (js_enums, dts_enums) = if ir.enums.is_empty() {
+        (None, None)
+    } else {
+        let (js, dts) = generate_js_enums(&ir.enums).expect("generate_js_enums should succeed");
+        (Some(js), Some(dts))
+    };
     let runtime_files = js_runtime_files();
 
     write_js_code(
@@ -405,6 +435,8 @@ fn generate_js_client_fixture(output_dir: &Path, schema_path: &str) {
         JsOutput {
             js_models: &js_models,
             dts_models: &dts_models,
+            js_enums,
+            dts_enums,
             js_client: Some(js_client),
             dts_client: Some(dts_client),
             js_models_index: Some(js_models_index),
@@ -416,31 +448,32 @@ fn generate_js_client_fixture(output_dir: &Path, schema_path: &str) {
     .expect("failed to write generated js client");
 }
 
-#[test]
-fn generated_js_declarations_compile() {
+/// The `node_modules` of `tools/js-runtime`, or `None` after reporting why the
+/// TypeScript check is skipped.
+fn typescript_dependencies() -> Option<PathBuf> {
     if !commands_available(&["node"]) {
-        return;
+        return None;
     }
     let dependencies = workspace_root().join("tools/js-runtime/node_modules");
-    let tsc = dependencies.join("typescript/bin/tsc");
-    if !tsc.is_file() {
+    if !dependencies.join("typescript/bin/tsc").is_file() {
         skip_missing_prerequisite("run npm ci in tools/js-runtime to install TypeScript");
-        return;
+        return None;
     }
+    Some(dependencies)
+}
 
+/// Type-check `consumer`, which imports the client generated from `ir` as
+/// `./jsclient`, in strict mode.
+fn check_typescript_consumer(dependencies: &Path, ir: &SchemaIr, consumer: &str, context: &str) {
     let fixture = tempfile::tempdir().expect("failed to create TypeScript fixture");
-    generate_js_client_fixture(&fixture.path().join("jsclient"), "schema.nautilus");
+    write_js_client(ir, &fixture.path().join("jsclient"), "schema.nautilus");
     fs::write(fixture.path().join("package.json"), JS_PACKAGE_JSON)
         .expect("failed to write TypeScript fixture package.json");
-    let consumer = fixture.path().join("consumer.ts");
-    fs::write(
-        &consumer,
-        include_str!("fixtures/stream_runtime_e2e/js_type_consumer.ts"),
-    )
-    .expect("failed to write TypeScript consumer");
+    let consumer_path = fixture.path().join("consumer.ts");
+    fs::write(&consumer_path, consumer).expect("failed to write TypeScript consumer");
     run_checked(
         Command::new("node")
-            .arg(tsc)
+            .arg(dependencies.join("typescript/bin/tsc"))
             .args([
                 "--noEmit",
                 "--strict",
@@ -453,8 +486,34 @@ fn generated_js_declarations_compile() {
                 "--typeRoots",
             ])
             .arg(dependencies.join("@types"))
-            .arg(consumer),
+            .arg(consumer_path),
+        context,
+    );
+}
+
+#[test]
+fn generated_js_declarations_compile() {
+    let Some(dependencies) = typescript_dependencies() else {
+        return;
+    };
+    check_typescript_consumer(
+        &dependencies,
+        &validate(BASE_SCHEMA),
+        include_str!("fixtures/stream_runtime_e2e/js_type_consumer.ts"),
         "generated TypeScript declarations",
+    );
+}
+
+#[test]
+fn generated_js_enum_filters_compile() {
+    let Some(dependencies) = typescript_dependencies() else {
+        return;
+    };
+    check_typescript_consumer(
+        &dependencies,
+        &validate(ENUM_FILTER_SCHEMA),
+        include_str!("fixtures/stream_runtime_e2e/js_enum_filter_consumer.ts"),
+        "generated TypeScript enum filters",
     );
 }
 

@@ -66,5 +66,8 @@ __all__ = [
     "JsonFilter",
     "HstoreFilter",
     "VectorFilter",
+{%- for filter in enum_filters %}
+    "{{ filter.name }}",
+{%- endfor %}
 {%- endif %}
 ]

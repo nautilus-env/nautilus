@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **Filters on enum fields.** The engine runs `in`, `notIn`, `not` and the
+  null check on enum columns, but the generated Python and TypeScript types
+  took only a bare enum value in `where`, so `{"status": {"in_": [...]}}` or
+  `{ status: { isNull: true } }` failed strict type checking. Each enum now has
+  a filter type: `Enum<Name>Filter` in Python, with `equals`, `not_`, `in_`,
+  `not_in` and `is_null`, exported with the model's other filter types (the
+  prefix keeps an enum named `Bool` from replacing `BoolFilter`); `EnumFilter<T>`
+  in the TypeScript declarations, with `in`, `notIn`, `not` and `isNull`. Array
+  fields keep their type. The Java client already had these operators.
 - **Column order of compound indexes.** An index added to an existing table
   listed its columns sorted by name, so `@@index([threadId, id])` created
   `(id, thread_id)`, a B-tree that cannot serve a query filtering by

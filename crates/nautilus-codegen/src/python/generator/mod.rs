@@ -9,7 +9,7 @@ use nautilus_schema::ir::{ModelIr, SchemaIr};
 use serde::Serialize;
 use tera::Context;
 
-use fields::build_scalar_fields;
+use fields::{build_enum_filters, build_scalar_fields};
 use relations::{build_include_fields, build_relation_fields, build_relations};
 use templates::render;
 
@@ -91,6 +91,7 @@ fn model_context(
     }
     context.insert("has_enums", &!view.enum_imports.is_empty());
     context.insert("enum_imports", &view.enum_imports);
+    context.insert("enum_filters", &build_enum_filters(&view.enum_imports));
     context.insert(
         "has_composite_types",
         &!view.composite_type_imports.is_empty(),

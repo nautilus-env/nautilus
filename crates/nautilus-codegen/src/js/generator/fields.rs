@@ -53,6 +53,9 @@ pub(super) struct JsWhereInputFieldContext {
     where_ts_type: String,
     is_nullable: bool,
     is_vector: bool,
+    /// `EnumFilter<…>` of the field's enum, empty for a field that is not a
+    /// single enum value.
+    enum_filter: String,
     operators: Vec<JsFilterOperatorContext>,
 }
 
@@ -261,6 +264,14 @@ fn where_input_field(
             .unwrap_or_default(),
         is_nullable,
         is_vector: field.is_vector(),
+        enum_filter: match &field.field_type {
+            ResolvedFieldType::Enum { enum_name, .. }
+                if !field.is_array && ir.enums.contains_key(enum_name) =>
+            {
+                format!("EnumFilter<{enum_name}>")
+            }
+            _ => String::new(),
+        },
         operators: get_filter_operators_for_field(field, &ir.enums)
             .into_iter()
             .map(|op| JsFilterOperatorContext {
