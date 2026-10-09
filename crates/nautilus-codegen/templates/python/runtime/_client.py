@@ -17,6 +17,7 @@ from uuid import UUID
 
 C = TypeVar("C")
 T = TypeVar("T")
+ClientT = TypeVar("ClientT", bound="NautilusClient")
 
 _RPC_TIMEOUT_S: float = 30.0
 _STDERR_DRAIN_TIMEOUT_S: float = 1.0
@@ -155,7 +156,7 @@ class NautilusClient:
         if auto_register:
             self._set_as_global_instance()
 
-    async def __aenter__(self) -> NautilusClient:
+    async def __aenter__(self: ClientT) -> ClientT:
         """Async context manager entry."""
         await self.connect()
         return self

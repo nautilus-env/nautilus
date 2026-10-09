@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **Python async client context managers.** `async with Nautilus() as client`
+  now retains the generated client's type, including its model delegates,
+  instead of exposing only the runtime base class to type checkers. Subclasses
+  retain their own type too, without requiring a new runtime dependency.
 - **Inputs for list fields.** Python, JavaScript and Java clients no longer offer
   scalar filters or arithmetic updates on lists. Numeric lists are excluded
   from `avg` and `sum` in every client. List updates take a complete list value;

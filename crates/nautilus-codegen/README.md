@@ -343,9 +343,12 @@ skip the affected tests; `--nocapture` shows each reason. On PowerShell, set
 `python_typecheck_tests` checks the complete generated async and sync Python
 packages with `mypy --strict`, with and without the Pydantic plugin. It covers a
 minimal schema and all scalar types, extensions, enums, arrays, composites,
-relations and a view. Typed consumers assert read, projection, write, event and
-transaction types; invalid calls must still fail. The packages are also imported
-with real Pydantic. These tests need Python with `pydantic` and `mypy` installed,
+relations and a view. Typed consumers assert read, projection, write, event,
+transaction and client context-manager types, including async subclasses;
+invalid calls must still fail inside a context manager too. Consumers also pass
+with silent imports in regular and strict modes. The packages are imported with
+real Pydantic, and context-manager lifecycle checks cover success and exceptions.
+These tests need Python with `pydantic` and `mypy` installed,
 but no database or SQLite CLI. CI uses mypy 2.4.0 and requires these prerequisites.
 Set `NAUTILUS_PYTHON` to an interpreter path to use a particular virtual environment;
 otherwise the tests try `python3` and `python`.

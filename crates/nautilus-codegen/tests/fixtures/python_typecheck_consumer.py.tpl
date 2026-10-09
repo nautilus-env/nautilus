@@ -34,3 +34,13 @@ __ASYNC__def exercise(client: Nautilus, data: OrderCreateInput) -> None:
         assert_type(tx, Nautilus)
         assert_type(__AWAIT__tx.order.find_many(), list[Order])
     assert_type(__AWAIT__client.__TRANSACTION__(read), list[Order])
+
+
+__ASYNC__def context_manager(data: OrderCreateInput) -> None:
+    __ASYNC__with Nautilus() as client:
+        assert_type(client, Nautilus)
+        assert_type(__AWAIT__client.order.find_many(), list[Order])
+        assert_type(__AWAIT__client.order.create(data), Order | None)
+        __ASYNC__with client.__TRANSACTION__() as tx:
+            assert_type(tx, Nautilus)
+            assert_type(__AWAIT__tx.order.find_many(), list[Order])

@@ -85,6 +85,24 @@ fn check_generated_client(interface: &str, source: &str) {
                 "sync_transaction"
             },
         );
+    if interface == "async" {
+        consumer.push_str(
+            r#"
+
+
+class CustomClient(Nautilus):
+    def label(self) -> str:
+        return "custom"
+
+
+async def subclass_context() -> None:
+    async with CustomClient() as client:
+        assert_type(client, CustomClient)
+        assert_type(client.label(), str)
+        assert_type(await client.order.find_many(), list[Order])
+"#,
+        );
+    }
     if source == SCHEMA {
         consumer.push_str(&format!(
             "\n\n{async_def}def lists(client: Nautilus) -> None:\n"
@@ -137,6 +155,69 @@ fn check_generated_client(interface: &str, source: &str) {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+    // Match applications that silence generated imports, in both mypy modes.
+    for strict in [false, true] {
+        let mut command = Command::new(&python);
+        command.args([
+            "-m",
+            "mypy",
+            "--follow-imports=silent",
+            "--no-incremental",
+            "--config-file",
+            "mypy.ini",
+            "app.py",
+        ]);
+        if strict {
+            command.arg("--strict");
+        }
+        let output = command
+            .current_dir(fixture.path())
+            .output()
+            .expect("check consumer with silent imports");
+        assert!(
+            output.status.success(),
+            "{interface} consumer (strict: {strict}) failed mypy with silent imports:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let runtime = include_str!("fixtures/python_context_manager.py.tpl")
+        .replace("__ASYNC__", async_def)
+        .replace(
+            "__MOCK__",
+            if interface == "async" {
+                "AsyncMock"
+            } else {
+                "Mock"
+            },
+        )
+        .replace(
+            "__ASSERT_ONCE__",
+            if interface == "async" {
+                "assert_awaited_once"
+            } else {
+                "assert_called_once"
+            },
+        )
+        .replace(
+            "__RUN__",
+            if interface == "async" {
+                "asyncio.run(check_context_manager())"
+            } else {
+                "check_context_manager()"
+            },
+        );
+    let output = Command::new(&python)
+        .args(["-c", &runtime])
+        .current_dir(fixture.path())
+        .output()
+        .expect("exercise generated context manager");
+    assert!(
+        output.status.success(),
+        "{interface} context manager failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     // The package must still reject invalid calls: making delegates Any would
     // make the positive test pass while removing their useful type contract.
     fs::write(
@@ -145,7 +226,13 @@ fn check_generated_client(interface: &str, source: &str) {
             "from generated import Nautilus\n\n{async_def}def invalid(client: Nautilus) -> None:\n    {await_call}client.order.find_unique(where={{\"id\": \"wrong\"}})\n    {await_call}client.order.find_many(unknown=True)\n    async with client.transaction() as tx:\n        {await_call}tx.order.find_many(unknown=True)\n"
         ).replace("    async with client.transaction()", &format!("    {async_def}with client.{}()", if interface == "async" { "transaction" } else { "sync_transaction" })),
     ).unwrap();
-    let mut expected_errors = 3;
+    let invalid_path = fixture.path().join("invalid.py");
+    let mut invalid = fs::read_to_string(&invalid_path).unwrap();
+    invalid.push_str(&format!(
+        "    {async_def}with Nautilus() as opened:\n        {await_call}opened.order.find_unique(where={{\"id\": \"wrong\"}})\n        {await_call}opened.order.find_many(unknown=True)\n"
+    ));
+    fs::write(&invalid_path, invalid).unwrap();
+    let mut expected_errors = 5;
     if source == SCHEMA {
         let invalid_path = fixture.path().join("invalid.py");
         let mut invalid = fs::read_to_string(&invalid_path).unwrap();
