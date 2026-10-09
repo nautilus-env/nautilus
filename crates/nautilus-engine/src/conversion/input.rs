@@ -1,8 +1,9 @@
 //! JSON request values converted into the internal [`Value`] type.
 //!
 //! Conversion is schema-aware where the declared field type changes how the
-//! value must be bound (enums, integers, decimals, datetimes, extension types); the
-//! untyped entry point stays available for paths without a field type.
+//! value must be bound (enums, integers, floats, decimals, datetimes, extension
+//! types); the untyped entry point stays available for paths without a field
+//! type.
 
 use std::str::FromStr;
 
@@ -125,12 +126,22 @@ pub fn json_to_value_field(
     }
 
     if let ResolvedFieldType::Scalar(ScalarType::Decimal { .. }) = field_type {
-        if let serde_json::Value::String(s) = json {
-            return rust_decimal::Decimal::from_str(s)
-                .map(Value::Decimal)
-                .map_err(|_| {
-                    ProtocolError::InvalidParams(format!("'{}' is not a valid Decimal", s))
-                });
+        match json {
+            serde_json::Value::String(s) => {
+                return rust_decimal::Decimal::from_str(s)
+                    .map(Value::Decimal)
+                    .map_err(|_| {
+                        ProtocolError::InvalidParams(format!("'{}' is not a valid Decimal", s))
+                    });
+            }
+            serde_json::Value::Number(number) => return decimal_field_value(number),
+            _ => {}
+        }
+    }
+
+    if let ResolvedFieldType::Scalar(ScalarType::Float) = field_type {
+        if let serde_json::Value::Number(number) = json {
+            return float_field_value(number);
         }
     }
 
@@ -203,6 +214,31 @@ fn integer_field_value(
         };
         ProtocolError::InvalidParams(format!("{} is not a valid {} value", number, kind))
     })
+}
+
+/// Convert a JSON number written to a `Float` field into a float.
+///
+/// JSON does not tell `1` from `1.0`. Converted untyped, `1` became an integer
+/// and `2.5` a float, so a list holding both changed type halfway, which a
+/// PostgreSQL array parameter cannot do.
+fn float_field_value(number: &serde_json::Number) -> Result<Value, ProtocolError> {
+    number
+        .as_f64()
+        .map(Value::F64)
+        .ok_or_else(|| ProtocolError::InvalidParams(format!("{} is not a valid Float", number)))
+}
+
+/// Convert a JSON number written to a `Decimal` field into a decimal, as a
+/// client that sends decimals as numbers rather than strings does. Untyped, a
+/// list mixing integers and fractions changed type halfway, as for `Float`.
+///
+/// The number is read from its JSON text, which may use an exponent.
+fn decimal_field_value(number: &serde_json::Number) -> Result<Value, ProtocolError> {
+    let text = number.to_string();
+    rust_decimal::Decimal::from_str(&text)
+        .or_else(|_| rust_decimal::Decimal::from_scientific(&text))
+        .map(Value::Decimal)
+        .map_err(|_| ProtocolError::InvalidParams(format!("{} is not a valid Decimal", number)))
 }
 
 /// Whether a field's declared type makes a JSON object or array a legitimate

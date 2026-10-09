@@ -216,6 +216,45 @@ fn json_to_value_field_keeps_an_int_within_32_bits() {
 }
 
 #[test]
+fn json_to_value_field_binds_every_number_of_a_float_as_f64() {
+    let float = ResolvedFieldType::Scalar(ScalarType::Float);
+    for (input, expected) in [
+        (json!(1), 1.0),
+        (json!(-3), -3.0),
+        (json!(2.5), 2.5),
+        (json!(i64::MAX), i64::MAX as f64),
+    ] {
+        assert_eq!(
+            json_to_value_field(&input, &float).unwrap(),
+            Value::F64(expected)
+        );
+    }
+}
+
+#[test]
+fn json_to_value_field_reads_a_decimal_number_from_its_json_text() {
+    let decimal = ResolvedFieldType::Scalar(ScalarType::Decimal {
+        precision: 10,
+        scale: 2,
+    });
+    for (input, expected) in [
+        (json!(1), "1"),
+        (json!(2.5), "2.5"),
+        (json!(-0.1), "-0.1"),
+        (json!(1e20), "100000000000000000000"),
+        (json!(1.5e-7), "0.00000015"),
+    ] {
+        assert_eq!(
+            json_to_value_field(&input, &decimal).unwrap(),
+            Value::Decimal(expected.parse().unwrap()),
+            "input: {input}"
+        );
+    }
+    let err = json_to_value_field(&json!(1e40), &decimal).unwrap_err();
+    assert!(err.to_string().contains("is not a valid Decimal"), "{err}");
+}
+
+#[test]
 fn json_and_jsonb_fields_accept_objects_and_arrays() {
     for scalar in [ScalarType::Json, ScalarType::Jsonb] {
         let field_type = ResolvedFieldType::Scalar(scalar);

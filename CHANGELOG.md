@@ -4,6 +4,16 @@
 
 ### Fixed
 
+- **`Float` and `Decimal` lists mixing integers and fractions on PostgreSQL.**
+  The engine converted a JSON number written to a `Float` field as it looked,
+  `1` as an integer and `2.5` as a float, so a list holding both, such as
+  `[1, 2.5]`, failed with `PostgreSQL array element at index 1 has type
+  F64(2.5); expected I32`, and `[2.5, 1]` with `expected F64`. A `Decimal`
+  list sent as JSON numbers, as the Java client sends `BigDecimal` values,
+  failed the same way. A number written to a `Float` field is now a float and
+  one written to a `Decimal` field a decimal read from its JSON text, in lists,
+  values, filters and update operators alike. Lists stored with `@store(json)`
+  are unchanged.
 - **PostgreSQL enum arrays.** The engine bound an enum list as `text[]`, which
   PostgreSQL assigns to no enum array column, so a `create` or `update` that
   set one failed with `column "history" is of type orderstatus[] but
