@@ -63,8 +63,10 @@ fn bindable_pg_array(items: &[Value]) -> Result<Option<PgArrayBinding>> {
             PgArrayBinding::Strings(collect_pg_array!(items, String, v => v.clone(), "String"))
         }
         // citext / ltree elements bind as text; the column's element type gives
-        // the server the real type.
+        // the server the real type. Enum labels bind as text too, and the
+        // dialect casts the array to the enum's array type.
         Value::Extension { .. } => PgArrayBinding::Strings(collect_pg_extension_array(items)?),
+        Value::Enum { .. } => PgArrayBinding::Strings(collect_pg_enum_array(items)?),
         Value::Hstore(_) => PgArrayBinding::Hstores(
             collect_pg_array!(items, Hstore, v => PgHstore(v.clone()), "Hstore"),
         ),
@@ -105,6 +107,28 @@ fn collect_pg_extension_array(items: &[Value]) -> Result<Vec<String>> {
             other => {
                 return Err(Error::database_msg(format!(
                     "PostgreSQL array element at index {} has type {:?}; expected an extension scalar",
+                    idx, other
+                )));
+            }
+        }
+    }
+    Ok(values)
+}
+
+fn collect_pg_enum_array(items: &[Value]) -> Result<Vec<String>> {
+    let mut values = Vec::with_capacity(items.len());
+    for (idx, item) in items.iter().enumerate() {
+        match item {
+            Value::Enum { value, .. } => values.push(value.clone()),
+            Value::Null => {
+                return Err(Error::database_msg(format!(
+                    "PostgreSQL typed array binding does not support NULL element at index {}",
+                    idx
+                )));
+            }
+            other => {
+                return Err(Error::database_msg(format!(
+                    "PostgreSQL array element at index {} has type {:?}; expected Enum",
                     idx, other
                 )));
             }
@@ -375,6 +399,26 @@ mod tests {
         let err =
             bindable_pg_array(&[Value::Uuid(id), Value::String("text".to_string())]).unwrap_err();
         assert!(err.to_string().contains("expected Uuid"));
+    }
+
+    #[test]
+    fn bindable_pg_array_binds_enum_labels_as_text() {
+        let label = |value: &str| Value::Enum {
+            value: value.to_string(),
+            type_name: "orderstatus".to_string(),
+        };
+
+        assert_eq!(
+            bindable_pg_array(&[label("PENDING"), label("SHIPPED")]).unwrap(),
+            Some(PgArrayBinding::Strings(vec![
+                "PENDING".to_string(),
+                "SHIPPED".to_string()
+            ])),
+            "a JSON-text fallback would bind each label in quotes"
+        );
+        let err = bindable_pg_array(&[label("PENDING"), Value::String("SHIPPED".to_string())])
+            .unwrap_err();
+        assert!(err.to_string().contains("expected Enum"));
     }
 
     #[test]

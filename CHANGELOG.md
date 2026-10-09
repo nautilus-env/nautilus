@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **PostgreSQL enum arrays.** The engine bound an enum list as `text[]`, which
+  PostgreSQL assigns to no enum array column, so a `create` or `update` that
+  set one failed with `column "history" is of type orderstatus[] but
+  expression is of type text[]`. An empty list, which takes the type of its
+  column, was written, but the row it returned could not be read back, nor
+  could any row with such a column: `Unsupported array element type:
+  orderstatus`. Each element is now checked against the variants of the enum
+  and the list is cast to the array of its enum, and enum array columns are
+  decoded as lists of labels. Lists stored with `@store(json)` are unchanged.
 - **`_min` and `_max` of `Uuid` and `Boolean` fields on PostgreSQL.**
   PostgreSQL orders `uuid` and `boolean` values but has no `min` or `max` for
   either, so an `aggregate` or `groupBy` whose `min` or `max` named such a

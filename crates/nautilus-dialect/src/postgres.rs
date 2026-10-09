@@ -233,6 +233,7 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
 enum ParamCast {
     Static(&'static str),
     Enum(String),
+    EnumArray(String),
     Composite(String),
 }
 
@@ -246,6 +247,11 @@ impl ParamCast {
             Self::Enum(type_name) | Self::Composite(type_name) => {
                 sql.push_str("::");
                 crate::ident::push_quoted_identifier(sql, type_name, '"');
+            }
+            Self::EnumArray(type_name) => {
+                sql.push_str("::");
+                crate::ident::push_quoted_identifier(sql, type_name, '"');
+                sql.push_str("[]");
             }
         }
     }
@@ -279,12 +285,26 @@ fn postgres_param_cast(value: &Value) -> Option<ParamCast> {
         Value::Geography(_) => Some(ParamCast::Static("geography")),
         value if is_homogeneous_geometry_array(value) => Some(ParamCast::Static("geometry[]")),
         value if is_homogeneous_geography_array(value) => Some(ParamCast::Static("geography[]")),
+        Value::Array(items) => homogeneous_enum_array_type(items).map(ParamCast::EnumArray),
         Value::Extension { type_name, .. } | Value::Enum { type_name, .. } => {
             Some(ParamCast::Enum(type_name.clone()))
         }
         Value::Composite { type_name, .. } => Some(ParamCast::Composite(type_name.clone())),
         _ => None,
     }
+}
+
+/// The enum type of a list of labels of one enum. The labels bind as `text[]`,
+/// which PostgreSQL assigns to no enum array column, so the list is cast to the
+/// array of its enum, as a single label is cast to the enum.
+fn homogeneous_enum_array_type(items: &[Value]) -> Option<String> {
+    let Some(Value::Enum { type_name, .. }) = items.first() else {
+        return None;
+    };
+    items
+        .iter()
+        .all(|item| matches!(item, Value::Enum { type_name: other, .. } if other == type_name))
+        .then(|| type_name.clone())
 }
 
 fn is_homogeneous_geometry_array(value: &Value) -> bool {
@@ -693,6 +713,55 @@ mod tests {
             dialect.render_select(&select).unwrap().text,
             "SELECT * FROM \"orders\" WHERE (\"orders\".\"unit_prices\" @> '{}')"
         );
+    }
+
+    #[test]
+    fn enum_array_params_are_cast_to_the_array_of_their_enum() {
+        let dialect = PostgresDialect;
+        let label = |value: &str| Value::Enum {
+            value: value.to_string(),
+            type_name: "orderstatus".to_string(),
+        };
+        let history = Value::Array(vec![label("PENDING"), label("SHIPPED")]);
+
+        let insert = Insert::into_table("orders")
+            .columns(vec![nautilus_core::ColumnMarker::new("orders", "history")])
+            .values(vec![history.clone()])
+            .build()
+            .unwrap();
+        assert_eq!(
+            dialect.render_insert(&insert).unwrap().text,
+            "INSERT INTO \"orders\" (\"history\") VALUES ($1::\"orderstatus\"[])",
+            "the labels bind as text[], which PostgreSQL assigns to no enum array column"
+        );
+
+        let update = Update::table("orders")
+            .set(
+                nautilus_core::ColumnMarker::new("orders", "history"),
+                history.clone(),
+            )
+            .build()
+            .unwrap();
+        assert_eq!(
+            dialect.render_update(&update).unwrap().text,
+            "UPDATE \"orders\" SET \"history\" = $1::\"orderstatus\"[]"
+        );
+
+        let select = Select::from_table("orders")
+            .filter(Expr::Binary {
+                left: Box::new(Expr::column("orders__history")),
+                op: BinaryOp::ArrayContains,
+                right: Box::new(Expr::param(history)),
+            })
+            .build()
+            .unwrap();
+        assert_eq!(
+            dialect.render_select(&select).unwrap().text,
+            "SELECT * FROM \"orders\" WHERE (\"orders\".\"history\" @> $1::\"orderstatus\"[])"
+        );
+
+        let mixed = Value::Array(vec![label("PENDING"), Value::String("SHIPPED".to_string())]);
+        assert!(postgres_param_cast(&mixed).is_none());
     }
 
     #[test]

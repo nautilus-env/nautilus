@@ -293,9 +293,13 @@ fn convert_field_input(
     }
     // A native array binds as an array of its element type, so each element is
     // converted as a value of the field. Converted as a whole, the list kept
-    // decimals and timestamps as text and turned a UUID-shaped string into a
-    // `Uuid`, so it was bound as `text[]` or as JSON text.
-    if let (JsonValue::Array(items), ResolvedFieldType::Scalar(_)) = (json_val, &field.field_type) {
+    // decimals, timestamps and enum labels as text and turned a UUID-shaped
+    // string into a `Uuid`, so it was bound as `text[]` or as JSON text.
+    if let (
+        JsonValue::Array(items),
+        ResolvedFieldType::Scalar(_) | ResolvedFieldType::Enum { .. },
+    ) = (json_val, &field.field_type)
+    {
         if field.is_array && field.storage_strategy != Some(StorageStrategy::Json) {
             return items
                 .iter()

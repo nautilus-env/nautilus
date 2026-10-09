@@ -85,8 +85,14 @@ impl PgColumnPlan {
 }
 
 pub(super) fn plan_column(type_info: &PgTypeInfo) -> PgColumnDecode {
-    if matches!(type_info.kind(), SqlxPgTypeKind::Composite(_)) {
-        return PgColumnDecode::Composite;
+    match type_info.kind() {
+        SqlxPgTypeKind::Composite(_) => return PgColumnDecode::Composite,
+        // An enum array is named after its enum, which no alias matches; its
+        // labels travel as text, as a single enum value does.
+        SqlxPgTypeKind::Array(element) if matches!(element.kind(), SqlxPgTypeKind::Enum(_)) => {
+            return PgColumnDecode::Array(PgArrayElem::Text);
+        }
+        _ => {}
     }
 
     plan_column_by_name(type_info.name())
