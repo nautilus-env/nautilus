@@ -37,9 +37,20 @@ pub enum HintMismatch {
 }
 
 /// Coerce one value to its hinted type, leaving `NULL` untouched.
+///
+/// An array is a native array field, so each of its elements is coerced; a
+/// JSON document stays whole even when it is an array.
 pub fn normalize_scalar(value: Value, hint: ValueHint) -> Result<Value, HintMismatch> {
-    if matches!(value, Value::Null) {
-        return Ok(Value::Null);
+    match value {
+        Value::Null => return Ok(Value::Null),
+        Value::Array(items) if hint != ValueHint::Json => {
+            return items
+                .into_iter()
+                .map(|item| normalize_scalar(item, hint))
+                .collect::<Result<_, _>>()
+                .map(Value::Array);
+        }
+        _ => {}
     }
 
     match hint {

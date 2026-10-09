@@ -97,6 +97,13 @@ impl RenderContext {
     }
 
     fn take_param(&mut self, value: &mut Value) {
+        // An empty array has no element to take a type from, and bound as
+        // `text[]` PostgreSQL assigns it to no other array column. The untyped
+        // literal takes the type of the column or operand it meets instead.
+        if matches!(value, Value::Array(items) if items.is_empty()) {
+            self.sql.push_str("'{}'");
+            return;
+        }
         self.push_param(std::mem::replace(value, Value::Null));
     }
 }
@@ -621,6 +628,51 @@ mod tests {
         assert_eq!(
             dialect.render_update(&update).unwrap().text,
             "UPDATE \"docs\" SET \"embedding\" = $1::vector"
+        );
+    }
+
+    #[test]
+    fn empty_array_params_render_as_an_untyped_literal() {
+        let dialect = PostgresDialect;
+        let tags = Value::Array(vec![Value::String("gift".to_string())]);
+
+        let insert = Insert::into_table("orders")
+            .columns(vec![
+                nautilus_core::ColumnMarker::new("orders", "unit_prices"),
+                nautilus_core::ColumnMarker::new("orders", "tags"),
+            ])
+            .values(vec![Value::Array(vec![]), tags.clone()])
+            .build()
+            .unwrap();
+        let sql = dialect.render_insert(&insert).unwrap();
+        assert_eq!(
+            sql.text, "INSERT INTO \"orders\" (\"unit_prices\", \"tags\") VALUES ('{}', $1)",
+            "a bound empty array is text[], which a numeric[] column does not accept"
+        );
+        assert_eq!(sql.params, vec![tags]);
+
+        let update = Update::table("orders")
+            .set(
+                nautilus_core::ColumnMarker::new("orders", "unit_prices"),
+                Value::Array(vec![]),
+            )
+            .build()
+            .unwrap();
+        let sql = dialect.render_update(&update).unwrap();
+        assert_eq!(sql.text, "UPDATE \"orders\" SET \"unit_prices\" = '{}'");
+        assert!(sql.params.is_empty());
+
+        let select = Select::from_table("orders")
+            .filter(Expr::Binary {
+                left: Box::new(Expr::column("orders__unit_prices")),
+                op: BinaryOp::ArrayContains,
+                right: Box::new(Expr::param(Value::Array(vec![]))),
+            })
+            .build()
+            .unwrap();
+        assert_eq!(
+            dialect.render_select(&select).unwrap().text,
+            "SELECT * FROM \"orders\" WHERE (\"orders\".\"unit_prices\" @> '{}')"
         );
     }
 

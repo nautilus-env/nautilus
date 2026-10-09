@@ -281,7 +281,7 @@ impl PlanCache {
 /// content: `Null` renders as a literal `NULL` (PostgreSQL cannot resolve a
 /// typed NULL over the binary protocol), enum/composite casts embed the type
 /// name carried inside the value, and array params change the SQL when their
-/// elements are geometries/geographies.
+/// elements are geometries/geographies or when they are empty.
 fn replayable_param(value: &Value) -> bool {
     !matches!(
         value,

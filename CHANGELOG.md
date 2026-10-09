@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **PostgreSQL arrays of `Decimal`, `Uuid` and `DateTime`.** The engine bound
+  these lists as `text[]`, which PostgreSQL assigns to no `numeric[]`,
+  `uuid[]` or `timestamp[]` column, so a `create` or `update` that set one
+  failed with `column "unit_prices" is of type numeric[] but expression is of
+  type text[]`. An empty list failed the same way for every element type
+  except text, and a row written with SQL could not be read back:
+  `Unsupported array element type: NUMERIC`. Each element is now converted as
+  a value of its field and the list is bound with its own type, an empty list
+  takes the type of its column, and `numeric[]`, `uuid[]`, `timestamp[]` and
+  `timestamptz[]` columns are decoded. A `String` list whose first element
+  looked like a UUID was written as JSON text, every element in quotes, and
+  failed when a later element did; it is now written as given. Lists stored
+  with `@store(json)` keep the JSON the client sent.
 - **Enum array fields in the Python client.** The generated client converted
   an enum array field by calling the enum class on the whole list, so every
   read of a model with such a field raised `ValueError: ['PENDING', 'SHIPPED']

@@ -150,6 +150,48 @@ mod tests {
     }
 
     #[test]
+    fn normalize_row_with_hints_coerces_each_element_of_an_array() {
+        let price = rust_decimal::Decimal::new(150, 2);
+        let row = Row::new(vec![
+            (
+                "unit_prices".to_string(),
+                Value::Array(vec![
+                    Value::Decimal(price),
+                    Value::String("2.25".to_string()),
+                ]),
+            ),
+            ("empty".to_string(), Value::Array(vec![])),
+            (
+                "document".to_string(),
+                Value::Array(vec![Value::I64(1), Value::String("two".to_string())]),
+            ),
+        ]);
+
+        let normalized = normalize_row_with_hints(
+            row,
+            &[
+                Some(ValueHint::Decimal),
+                Some(ValueHint::Uuid),
+                Some(ValueHint::Json),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            normalized.get("unit_prices"),
+            Some(&Value::Array(vec![
+                Value::Decimal(price),
+                Value::Decimal(rust_decimal::Decimal::new(225, 2)),
+            ]))
+        );
+        assert_eq!(normalized.get("empty"), Some(&Value::Array(vec![])));
+        assert_eq!(
+            normalized.get("document"),
+            Some(&Value::Json(serde_json::json!([1, "two"])))
+        );
+    }
+
+    #[test]
     fn normalize_row_with_hints_rejects_invalid_json() {
         let row = Row::new(vec![(
             "profile".to_string(),

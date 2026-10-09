@@ -19,6 +19,9 @@ enum PgArrayBinding {
     I64s(Vec<i64>),
     F64s(Vec<f64>),
     Bools(Vec<bool>),
+    Decimals(Vec<rust_decimal::Decimal>),
+    Uuids(Vec<uuid::Uuid>),
+    DateTimes(Vec<chrono::NaiveDateTime>),
 }
 
 /// Collect a homogeneous slice of [`Value`]s into a typed vector for array binding.
@@ -75,6 +78,13 @@ fn bindable_pg_array(items: &[Value]) -> Result<Option<PgArrayBinding>> {
         Value::I64(_) => PgArrayBinding::I64s(collect_pg_array!(items, I64, v => *v, "I64")),
         Value::F64(_) => PgArrayBinding::F64s(collect_pg_array!(items, F64, v => *v, "F64")),
         Value::Bool(_) => PgArrayBinding::Bools(collect_pg_array!(items, Bool, v => *v, "Bool")),
+        Value::Decimal(_) => {
+            PgArrayBinding::Decimals(collect_pg_array!(items, Decimal, v => *v, "Decimal"))
+        }
+        Value::Uuid(_) => PgArrayBinding::Uuids(collect_pg_array!(items, Uuid, v => *v, "Uuid")),
+        Value::DateTime(_) => {
+            PgArrayBinding::DateTimes(collect_pg_array!(items, DateTime, v => *v, "DateTime"))
+        }
         _ => return Ok(None),
     };
 
@@ -105,9 +115,10 @@ fn collect_pg_extension_array(items: &[Value]) -> Result<Vec<String>> {
 
 /// Binds a [`Value`] to a PostgreSQL sqlx query as a typed parameter.
 ///
-/// Uses native binding for `Decimal`, `DateTime`, and `Uuid` (PG-specific).
-/// Array values are bound as typed slices when the element type is known; unknown
-/// or mixed-type arrays fall back to JSON string serialization.
+/// Uses native binding for `Decimal`, `DateTime`, and `Uuid` (PG-specific), as
+/// values and as array elements. Array values are bound as typed slices when the
+/// element type is known; unknown or mixed-type arrays fall back to JSON string
+/// serialization.
 pub(crate) fn bind_value<'q>(
     query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
     value: &'q Value,
@@ -136,6 +147,9 @@ pub(crate) fn bind_value<'q>(
             Some(PgArrayBinding::I64s(values)) => Ok(query.bind(values)),
             Some(PgArrayBinding::F64s(values)) => Ok(query.bind(values)),
             Some(PgArrayBinding::Bools(values)) => Ok(query.bind(values)),
+            Some(PgArrayBinding::Decimals(values)) => Ok(query.bind(values)),
+            Some(PgArrayBinding::Uuids(values)) => Ok(query.bind(values)),
+            Some(PgArrayBinding::DateTimes(values)) => Ok(query.bind(values)),
             None => {
                 let strings: Vec<String> = items
                     .iter()
@@ -332,9 +346,35 @@ mod tests {
 
     #[test]
     fn bindable_pg_array_falls_back_for_unsupported_types() {
-        let binding = bindable_pg_array(&[Value::Decimal(rust_decimal::Decimal::new(123, 2))])
+        let binding = bindable_pg_array(&[Value::Bytes(vec![1, 2])])
             .expect("unsupported arrays should fall back");
         assert_eq!(binding, None);
+    }
+
+    #[test]
+    fn bindable_pg_array_binds_decimals_uuids_and_datetimes_as_their_own_types() {
+        let price = rust_decimal::Decimal::new(150, 2);
+        let id = uuid::Uuid::from_u128(7);
+        let at = chrono::NaiveDate::from_ymd_opt(2026, 1, 2)
+            .unwrap()
+            .and_hms_opt(3, 4, 5)
+            .unwrap();
+
+        assert_eq!(
+            bindable_pg_array(&[Value::Decimal(price)]).unwrap(),
+            Some(PgArrayBinding::Decimals(vec![price]))
+        );
+        assert_eq!(
+            bindable_pg_array(&[Value::Uuid(id)]).unwrap(),
+            Some(PgArrayBinding::Uuids(vec![id]))
+        );
+        assert_eq!(
+            bindable_pg_array(&[Value::DateTime(at)]).unwrap(),
+            Some(PgArrayBinding::DateTimes(vec![at]))
+        );
+        let err =
+            bindable_pg_array(&[Value::Uuid(id), Value::String("text".to_string())]).unwrap_err();
+        assert!(err.to_string().contains("expected Uuid"));
     }
 
     #[test]

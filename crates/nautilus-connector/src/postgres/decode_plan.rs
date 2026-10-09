@@ -61,6 +61,10 @@ pub(super) enum PgArrayElem {
     Float4,
     Float8,
     Bool,
+    Numeric,
+    Uuid,
+    Timestamp,
+    TimestampTz,
     Unsupported(String),
 }
 
@@ -141,6 +145,14 @@ fn plan_array_elem(element_type: &str) -> PgArrayElem {
         PgArrayElem::Float8
     } else if pg_type_is(element_type, "BOOL") {
         PgArrayElem::Bool
+    } else if pg_type_is(element_type, "NUMERIC") {
+        PgArrayElem::Numeric
+    } else if pg_type_is(element_type, "UUID") {
+        PgArrayElem::Uuid
+    } else if pg_type_is(element_type, "TIMESTAMP") {
+        PgArrayElem::Timestamp
+    } else if pg_type_is(element_type, "TIMESTAMPTZ") {
+        PgArrayElem::TimestampTz
     } else {
         PgArrayElem::Unsupported(element_type.to_string())
     }
@@ -265,6 +277,22 @@ mod tests {
         assert_eq!(
             plan_column_by_name("my_enum"),
             PgColumnDecode::Unknown("my_enum".to_string())
+        );
+        assert_eq!(
+            plan_column_by_name("NUMERIC[]"),
+            PgColumnDecode::Array(PgArrayElem::Numeric)
+        );
+        assert_eq!(
+            plan_column_by_name("UUID[]"),
+            PgColumnDecode::Array(PgArrayElem::Uuid)
+        );
+        assert_eq!(
+            plan_column_by_name("TIMESTAMP[]"),
+            PgColumnDecode::Array(PgArrayElem::Timestamp)
+        );
+        assert_eq!(
+            plan_column_by_name("TIMESTAMPTZ[]"),
+            PgColumnDecode::Array(PgArrayElem::TimestampTz)
         );
         assert_eq!(
             plan_column_by_name("interval[]"),

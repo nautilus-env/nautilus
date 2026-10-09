@@ -8,6 +8,7 @@
 
 use nautilus_core::{Assignment, BinaryOp, ColumnMarker, Expr, Value};
 use nautilus_protocol::ProtocolError;
+use nautilus_schema::ast::StorageStrategy;
 use nautilus_schema::ir::{DefaultValue, FieldIr, ModelIr, ResolvedFieldType, ScalarType};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
@@ -289,6 +290,19 @@ fn convert_field_input(
         )
     {
         return Ok(Value::Json(json_val.clone()));
+    }
+    // A native array binds as an array of its element type, so each element is
+    // converted as a value of the field. Converted as a whole, the list kept
+    // decimals and timestamps as text and turned a UUID-shaped string into a
+    // `Uuid`, so it was bound as `text[]` or as JSON text.
+    if let (JsonValue::Array(items), ResolvedFieldType::Scalar(_)) = (json_val, &field.field_type) {
+        if field.is_array && field.storage_strategy != Some(StorageStrategy::Json) {
+            return items
+                .iter()
+                .map(|item| json_to_value_field(item, &field.field_type))
+                .collect::<Result<_, _>>()
+                .map(Value::Array);
+        }
     }
     json_to_value_field(json_val, &field.field_type)
 }

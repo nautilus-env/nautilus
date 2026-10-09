@@ -183,6 +183,30 @@ fn decode_value(row: &PgRow, idx: usize, kind: &PgColumnDecode) -> Result<Value>
             PgArrayElem::Bool => sqlx::Row::try_get_unchecked::<Vec<bool>, _>(row, idx)
                 .map(|vec| Value::Array(vec.into_iter().map(Value::Bool).collect()))
                 .map_err(|e| Error::row_decode(e, "Failed to decode BOOL[]")),
+            PgArrayElem::Numeric => {
+                sqlx::Row::try_get_unchecked::<Vec<rust_decimal::Decimal>, _>(row, idx)
+                    .map(|vec| Value::Array(vec.into_iter().map(Value::Decimal).collect()))
+                    .map_err(|e| Error::row_decode(e, "Failed to decode NUMERIC[]"))
+            }
+            PgArrayElem::Uuid => sqlx::Row::try_get_unchecked::<Vec<Uuid>, _>(row, idx)
+                .map(|vec| Value::Array(vec.into_iter().map(Value::Uuid).collect()))
+                .map_err(|e| Error::row_decode(e, "Failed to decode UUID[]")),
+            PgArrayElem::Timestamp => {
+                sqlx::Row::try_get_unchecked::<Vec<chrono::NaiveDateTime>, _>(row, idx)
+                    .map(|vec| Value::Array(vec.into_iter().map(Value::DateTime).collect()))
+                    .map_err(|e| Error::row_decode(e, "Failed to decode TIMESTAMP[]"))
+            }
+            PgArrayElem::TimestampTz => {
+                sqlx::Row::try_get_unchecked::<Vec<chrono::DateTime<chrono::Utc>>, _>(row, idx)
+                    .map(|vec| {
+                        Value::Array(
+                            vec.into_iter()
+                                .map(|dt| Value::DateTime(dt.naive_utc()))
+                                .collect(),
+                        )
+                    })
+                    .map_err(|e| Error::row_decode(e, "Failed to decode TIMESTAMPTZ[]"))
+            }
             PgArrayElem::Unsupported(element_type) => Err(Error::row_decode_msg(format!(
                 "Unsupported array element type: {}",
                 element_type
