@@ -5,11 +5,12 @@
 //! cannot be handed back to sqlx for decoding: each type's binary layout is
 //! read here and turned into the text form the record literal carries.
 
-use sqlx::postgres::{PgTypeInfo, PgTypeKind as SqlxPgTypeKind};
+use sqlx::postgres::{PgTypeInfo, PgTypeKind as SqlxPgTypeKind, PgValueFormat};
 use sqlx::TypeInfo;
 use uuid::Uuid;
 
 use super::decode_plan::{classify_pg_type, pg_type_is, PgTypeKind};
+use super::ltree::decode_ltree;
 use crate::error::{ConnectorError as Error, Result};
 
 pub(super) fn read_pg_i32(bytes: &[u8], offset: &mut usize, context: &str) -> Result<i32> {
@@ -96,6 +97,9 @@ pub(super) fn decode_pg_binary_field_text(
         }
         PgTypeKind::Text | PgTypeKind::Geometry | PgTypeKind::Geography | PgTypeKind::Vector => {
             decode_pg_utf8(bytes, type_info.name())
+        }
+        PgTypeKind::Ltree => {
+            decode_ltree(bytes, PgValueFormat::Binary).map_err(|error| error.to_string())
         }
         PgTypeKind::Bytes => Ok(format_pg_bytea_hex(bytes)),
         PgTypeKind::Uuid => Uuid::from_slice(expect_pg_len(bytes, 16, type_info.name())?)

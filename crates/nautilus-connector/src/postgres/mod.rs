@@ -2,7 +2,7 @@
 //!
 //! The executor itself lives here; parameter binding is in [`bind`] and the
 //! decoding of a result row is split by type family under [`decode`],
-//! [`decode_plan`], [`arrays`], [`composite`], [`binary`] and [`vector`].
+//! [`decode_plan`], [`arrays`], [`composite`], [`binary`], [`ltree`] and [`vector`].
 
 mod arrays;
 mod binary;
@@ -10,6 +10,7 @@ mod bind;
 mod composite;
 mod decode;
 mod decode_plan;
+mod ltree;
 mod stream;
 mod vector;
 

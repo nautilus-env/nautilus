@@ -757,6 +757,41 @@ model Order {{
 }
 
 #[test]
+#[ignore = "requires PostgreSQL and Pydantic; set NAUTILUS_TEST_POSTGRES_URL"]
+fn generated_python_postgres_ltree_round_trip() {
+    let database = env::var("NAUTILUS_TEST_POSTGRES_URL").expect("PostgreSQL test URL");
+    let table = format!(
+        "ltree_client_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let source = format!(
+        r#"
+datasource db {{ provider = "postgresql" url = env("DATABASE_URL") extensions = [ltree] }}
+generator client {{ provider = "nautilus-client-py" interface = "async" output = "./pyclient" }}
+model Order {{
+  id Int @id
+  routePath Ltree? @map("route_path")
+  routePaths Ltree[] @map("route_paths")
+  @@map("{table}")
+}}
+"#
+    );
+    let runner = include_str!("fixtures/stream_runtime_e2e/run_python_ltree.py")
+        .replace("__TABLE__", &table);
+    let values = run_generated_python(
+        &source,
+        &database,
+        ("run_python_ltree.py", &runner),
+        "Python PostgreSQL ltree",
+    )
+    .expect("Python prerequisites");
+    assert_eq!(values.get("ltree").map(String::as_str), Some("ok"));
+}
+
+#[test]
 fn generated_python_bytes_round_trip() {
     let Some(values) = run_generated_python(
         r#"

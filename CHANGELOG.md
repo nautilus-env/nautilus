@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- **PostgreSQL ltree reads.** Scalar and array values now check and remove the
+  binary version byte, preserving the path instead of returning a leading
+  `\x01`. Empty paths, Unicode labels, nulls and text protocol values are
+  handled too, including scalar fields inside composites.
+
 - **PostgreSQL XML fields.** XML strings are now cast to `xml` on writes,
   including batch writes and upserts. Generated Python and JavaScript inputs
   offer only null checks for XML predicates and exclude XML from ordering,

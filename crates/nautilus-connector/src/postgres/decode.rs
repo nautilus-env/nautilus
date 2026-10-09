@@ -12,6 +12,7 @@ use uuid::Uuid;
 use super::arrays::parse_pg_2d_array;
 use super::composite::decode_pg_composite_literal;
 use super::decode_plan::{PgArrayElem, PgColumnDecode, PgColumnPlan};
+use super::ltree::PgLtree;
 use super::vector::decode_pg_vector;
 use crate::error::{ConnectorError as Error, Result};
 use crate::Row;
@@ -76,6 +77,10 @@ fn decode_value(row: &PgRow, idx: usize, kind: &PgColumnDecode) -> Result<Value>
             .map(Value::String)
             .map_err(|e| Error::row_decode(e, "Failed to decode string")),
 
+        PgColumnDecode::Ltree => sqlx::Row::try_get_unchecked::<PgLtree, _>(row, idx)
+            .map(|path| Value::String(path.0))
+            .map_err(|e| Error::row_decode(e, "Failed to decode LTREE")),
+
         PgColumnDecode::Geometry => sqlx::Row::try_get_unchecked::<String, _>(row, idx)
             .map(Value::Geometry)
             .map_err(|e| Error::row_decode(e, "Failed to decode GEOMETRY")),
@@ -139,6 +144,16 @@ fn decode_value(row: &PgRow, idx: usize, kind: &PgColumnDecode) -> Result<Value>
         }
 
         PgColumnDecode::Array(element) => match element {
+            PgArrayElem::Ltree => sqlx::Row::try_get_unchecked::<Vec<Option<PgLtree>>, _>(row, idx)
+                .map(|paths| {
+                    Value::Array(
+                        paths
+                            .into_iter()
+                            .map(|path| path.map_or(Value::Null, |path| Value::String(path.0)))
+                            .collect(),
+                    )
+                })
+                .map_err(|e| Error::row_decode(e, "Failed to decode LTREE[]")),
             PgArrayElem::Text => sqlx::Row::try_get_unchecked::<Vec<String>, _>(row, idx)
                 .map(|vec| Value::Array(vec.into_iter().map(Value::String).collect()))
                 .map_err(|e| Error::row_decode(e, "Failed to decode TEXT[]")),

@@ -31,6 +31,7 @@ pub(super) enum PgColumnDecode {
     Float4,
     Float8,
     Text,
+    Ltree,
     Geometry,
     Geography,
     Hstore,
@@ -52,6 +53,7 @@ pub(super) enum PgColumnDecode {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum PgArrayElem {
     Text,
+    Ltree,
     Geometry,
     Geography,
     Hstore,
@@ -107,6 +109,7 @@ fn plan_column_by_name(type_name: &str) -> PgColumnDecode {
         PgTypeKind::Float4 => PgColumnDecode::Float4,
         PgTypeKind::Float8 => PgColumnDecode::Float8,
         PgTypeKind::Text => PgColumnDecode::Text,
+        PgTypeKind::Ltree => PgColumnDecode::Ltree,
         PgTypeKind::Geometry => PgColumnDecode::Geometry,
         PgTypeKind::Geography => PgColumnDecode::Geography,
         PgTypeKind::Hstore => PgColumnDecode::Hstore,
@@ -128,11 +131,11 @@ fn plan_column_by_name(type_name: &str) -> PgColumnDecode {
 fn plan_array_elem(element_type: &str) -> PgArrayElem {
     if matches_pg_type(
         element_type,
-        &[
-            "TEXT", "VARCHAR", "CHAR", "BPCHAR", "NAME", "CITEXT", "LTREE",
-        ],
+        &["TEXT", "VARCHAR", "CHAR", "BPCHAR", "NAME", "CITEXT"],
     ) {
         PgArrayElem::Text
+    } else if pg_type_is(element_type, "LTREE") {
+        PgArrayElem::Ltree
     } else if pg_type_is(element_type, "GEOMETRY") {
         PgArrayElem::Geometry
     } else if pg_type_is(element_type, "GEOGRAPHY") {
@@ -173,6 +176,7 @@ pub(super) enum PgTypeKind<'a> {
     Float4,
     Float8,
     Text,
+    Ltree,
     Geometry,
     Geography,
     Hstore,
@@ -198,11 +202,10 @@ const PG_SCALAR_TYPE_ALIASES: &[(&[&str], PgTypeKind<'static>)] = &[
     (&["FLOAT4", "REAL"], PgTypeKind::Float4),
     (&["FLOAT8", "DOUBLE PRECISION"], PgTypeKind::Float8),
     (
-        &[
-            "VARCHAR", "TEXT", "CHAR", "BPCHAR", "NAME", "CITEXT", "LTREE",
-        ],
+        &["VARCHAR", "TEXT", "CHAR", "BPCHAR", "NAME", "CITEXT"],
         PgTypeKind::Text,
     ),
+    (&["LTREE"], PgTypeKind::Ltree),
     (&["GEOMETRY"], PgTypeKind::Geometry),
     (&["GEOGRAPHY"], PgTypeKind::Geography),
     (&["HSTORE"], PgTypeKind::Hstore),
@@ -256,6 +259,7 @@ mod tests {
     fn classify_pg_type_is_case_insensitive_without_normalizing_strings() {
         assert_eq!(classify_pg_type("jsonb"), PgTypeKind::Json);
         assert_eq!(classify_pg_type("TeXt"), PgTypeKind::Text);
+        assert_eq!(classify_pg_type("LtReE"), PgTypeKind::Ltree);
         assert_eq!(classify_pg_type("int4[]"), PgTypeKind::Array("int4"));
         assert_eq!(
             classify_pg_type("VaRcHaR[][]"),
@@ -267,6 +271,11 @@ mod tests {
     fn plan_column_resolves_aliases_and_array_elements_once() {
         assert_eq!(plan_column_by_name("jsonb"), PgColumnDecode::Json);
         assert_eq!(plan_column_by_name("TeXt"), PgColumnDecode::Text);
+        assert_eq!(plan_column_by_name("LtReE"), PgColumnDecode::Ltree);
+        assert_eq!(
+            plan_column_by_name("ltree[]"),
+            PgColumnDecode::Array(PgArrayElem::Ltree)
+        );
         assert_eq!(plan_column_by_name("BIGSERIAL"), PgColumnDecode::Int8);
         assert_eq!(
             plan_column_by_name("int4[]"),
