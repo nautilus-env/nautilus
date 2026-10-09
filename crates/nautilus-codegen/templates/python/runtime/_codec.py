@@ -20,7 +20,7 @@ JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]
 JsonScalarOrArray = Union[JsonPrimitive, List[Any]]
 HstoreValue = Dict[str, Optional[str]]
 
-FILTER_OPERATOR_KEYS: frozenset = frozenset({
+FILTER_OPERATOR_KEYS: frozenset[str] = frozenset({
     "contains",
     "endsWith",
     "endswith",
@@ -132,7 +132,7 @@ def serialize_wire_value(value: Any) -> Any:
     to_wire = getattr(value, "to_wire", None)
     if callable(to_wire):
         return serialize_wire_value(to_wire())
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return {k: serialize_wire_value(v) for k, v in asdict(value).items()}
     if isinstance(value, list):
         return [serialize_wire_value(item) for item in value]
@@ -257,7 +257,7 @@ def aggregate_row_from_wire(
 
 
 def process_select_fields(
-    select: Dict[str, bool], py_to_logical: Mapping[str, str]
+    select: Mapping[str, Any], py_to_logical: Mapping[str, str]
 ) -> Dict[str, bool]:
     """Convert Python field names to logical field names for query projection."""
     result = {}
@@ -269,7 +269,7 @@ def process_select_fields(
 
 def serialize_include_args(
     spec: Any,
-    where_filters: Callable[[Dict[str, Any], Mapping[str, str]], Dict[str, Any]],
+    where_filters: Callable[[Mapping[str, Any], Mapping[str, str]], Dict[str, Any]],
     py_to_db: Mapping[str, str],
     serialize_include: Callable[[Any], Any],
 ) -> Any:
@@ -312,7 +312,7 @@ class ModelInputCodec:
     def __init__(
         self,
         extension_input_serializers: Mapping[str, Any],
-        object_value_db_fields: frozenset,
+        object_value_db_fields: frozenset[str],
     ) -> None:
         """Bind the codec to the extension fields of a single model.
 
@@ -344,7 +344,7 @@ class ModelInputCodec:
             ]
         return serialize_wire_value(serializer(value))
 
-    def nearest_input(self, nearest: Dict[str, Any]) -> Dict[str, Any]:
+    def nearest_input(self, nearest: Mapping[str, Any]) -> Dict[str, Any]:
         """Serialize the query vector of a nearest-neighbour search."""
         result = dict(nearest)
         field_name = result.get("field")
@@ -353,7 +353,7 @@ class ModelInputCodec:
         return result
 
     def create_data(
-        self, data: Dict[str, Any], py_to_db: Mapping[str, str]
+        self, data: Mapping[str, Any], py_to_db: Mapping[str, str]
     ) -> Dict[str, Any]:
         """Convert CreateInput/UpdateInput dict to DB column names."""
         result = {}
@@ -363,10 +363,10 @@ class ModelInputCodec:
         return result
 
     def where_filters(
-        self, where: Dict[str, Any], py_to_db: Mapping[str, str]
+        self, where: Mapping[str, Any], py_to_db: Mapping[str, str]
     ) -> Dict[str, Any]:
         """Convert WhereInput format to internal filter format."""
-        result = {}
+        result: Dict[str, Any] = {}
         for key, value in where.items():
             if key in ("AND", "OR", "NOT"):
                 if isinstance(value, list):
@@ -390,9 +390,9 @@ class ModelInputCodec:
                         object_equality_requires_explicit_equals(key)
 
 
-                    ops = {}
+                    ops: Dict[str, Any] = {}
                     for op, op_value in value.items():
-                        actual_op = FILTER_OPERATOR_PROTOCOL_NAMES.get(op, op)
+                        actual_op = FILTER_OPERATOR_PROTOCOL_NAMES[op] if op in FILTER_OPERATOR_PROTOCOL_NAMES else op
                         ops[actual_op] = self.filter_input(key, actual_op, op_value)
                     if ops:
                         result[db_key] = ops

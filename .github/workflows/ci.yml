@@ -182,7 +182,7 @@ jobs:
             ${{ runner.os }}-cargo-codegen-
 
       - name: Install Python runtime dependencies
-        run: python -m pip install --upgrade pip pydantic
+        run: python -m pip install --upgrade pip pydantic mypy==2.4.0
 
       - name: Install SQLite CLI
         run: sudo apt-get update && sudo apt-get install -y sqlite3
@@ -210,6 +210,9 @@ jobs:
 
       - name: Run codegen runtime end-to-end tests
         run: cargo test --locked -p nautilus-orm-codegen --test stream_runtime_e2e_tests -- --nocapture
+
+      - name: Type-check generated Python clients
+        run: cargo test --locked -p nautilus-orm-codegen --test python_typecheck_tests -- --nocapture
 
   postgres-extensions:
     name: Migration tests (PostgreSQL extensions)

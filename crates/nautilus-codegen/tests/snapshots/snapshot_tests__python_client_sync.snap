@@ -10,7 +10,8 @@ Do not edit manually.
 
 from __future__ import annotations
 
-from typing import Awaitable, Callable, TypeVar
+from types import TracebackType
+from typing import Awaitable, Callable, TypeVar, cast, overload
 
 from ._internal.client import NautilusClient as BaseClient, _AsyncTransactionContext, _SyncTransactionContext
 from ._internal.engine import EnginePoolOptions
@@ -50,13 +51,31 @@ class Nautilus(BaseClient):
         self.user = UserDelegate(self)
         self.register_delegate("user", self.user)
 
+    @overload
+    def transaction(
+        self,
+        callback: None = None,
+        *,
+        timeout_ms: int = 5000,
+        isolation_level: IsolationLevel | None = None,
+    ) -> "_AsyncTransactionContext[Nautilus]": ...
+
+    @overload
+    def transaction(
+        self,
+        callback: Callable[["Nautilus"], Awaitable[T]],
+        *,
+        timeout_ms: int = 5000,
+        isolation_level: IsolationLevel | None = None,
+    ) -> Awaitable[T]: ...
+
     def transaction(
         self,
         callback: Callable[["Nautilus"], Awaitable[T]] | None = None,
         *,
         timeout_ms: int = 5000,
         isolation_level: IsolationLevel | None = None,
-    ) -> "_AsyncTransactionContext[Nautilus]":
+    ) -> "_AsyncTransactionContext[Nautilus] | Awaitable[T]":
         """Run operations inside a database transaction.
 
         Can be used as an **async context manager** *or* as a **callback-style
@@ -88,13 +107,15 @@ class Nautilus(BaseClient):
             When used with *callback*: an awaitable coroutine.
             When used as a context manager: an ``_AsyncTransactionContext``.
         """
-        return super().transaction(callback, timeout_ms=timeout_ms, isolation_level=isolation_level)  # type: ignore[return-value]
+        return cast("_AsyncTransactionContext[Nautilus] | Awaitable[T]", super().transaction(callback, timeout_ms=timeout_ms, isolation_level=isolation_level))
 
-    def connect(self) -> None:
+    # This generated interface exposes synchronous lifecycle methods. The
+    # runtime calls BaseClient.connect/disconnect directly on its worker loop.
+    def connect(self) -> None:  # type: ignore[override]
         """Connect to the engine (synchronous)."""
         self._sync_connect()
 
-    def disconnect(self) -> None:
+    def disconnect(self) -> None:  # type: ignore[override]
         """Disconnect from the engine (synchronous)."""
         self._sync_disconnect()
 
@@ -103,7 +124,7 @@ class Nautilus(BaseClient):
         self.connect()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None:
         """Synchronous context manager exit — disconnects from the engine."""
         self.disconnect()
 
@@ -119,7 +140,7 @@ class Nautilus(BaseClient):
             "generator block)"
         )
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None:
         """Rejected for the same reason as ``__aenter__``."""
         raise TypeError(
             "this client was generated with interface = \"sync\"; use "
@@ -127,12 +148,30 @@ class Nautilus(BaseClient):
             "generator block)"
         )
 
+    @overload
+    def sync_transaction(
+        self,
+        callback: None = None,
+        *,
+        timeout_ms: int = 5000,
+        isolation_level: IsolationLevel | None = None,
+    ) -> "_SyncTransactionContext[Nautilus]": ...
+
+    @overload
+    def sync_transaction(
+        self,
+        callback: Callable[["Nautilus"], T],
+        *,
+        timeout_ms: int = 5000,
+        isolation_level: IsolationLevel | None = None,
+    ) -> T: ...
+
     def sync_transaction(
         self,
         callback: Callable[["Nautilus"], T] | None = None,
         *,
         timeout_ms: int = 5000,
         isolation_level: IsolationLevel | None = None,
-    ) -> "_SyncTransactionContext[Nautilus]":
+    ) -> "_SyncTransactionContext[Nautilus] | T":
         """Start a sync transaction, returning a typed context manager."""
-        return super().sync_transaction(callback, timeout_ms=timeout_ms, isolation_level=isolation_level)  # type: ignore[return-value]
+        return cast("_SyncTransactionContext[Nautilus] | T", super().sync_transaction(callback, timeout_ms=timeout_ms, isolation_level=isolation_level))

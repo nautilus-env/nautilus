@@ -52,10 +52,11 @@
         if distinct is not None:
             args["distinct"] = distinct
 
-        return {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.explain", {
+        result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.explain", {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",
             "args": args,
             "analyze": analyze,
         })
+        return cast("{{ model_name }}ExplainOutput", result)
 

@@ -5,7 +5,7 @@
         where: Optional[{{ model_name }}WhereInput] = None,
         data: {{ model_name }}UpdateInput,
         return_data: bool = True,
-    ):
+    ) -> Union[List[{{ model_name }}], int]:
         """Update {{ model_name }} records matching ``where``.
 
         Args:
@@ -38,11 +38,11 @@
             )
             _stop = {% if is_async %}await run_crud_event(_before_ctx){% else %}run_crud_event_sync(_before_ctx){% endif %}
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("update", return_data))
+                return cast("Union[List[{{ model_name }}], int]", resolve_stop_result(_stop, default_cud_result("update", return_data)))
 
             result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.update", _payload)
             if not return_data:
-                _decoded = result.get("count", 0)
+                _decoded: Union[List[{{ model_name }}], int] = cast(int, result.get("count", 0))
             else:
                 _decoded = [_{{ table_name }}_from_row(row) for row in result.get("data", [])]
 
@@ -57,7 +57,7 @@
             )
             _stop = {% if is_async %}await run_crud_event(_after_ctx){% else %}run_crud_event_sync(_after_ctx){% endif %}
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("update", return_data))
+                return cast("Union[List[{{ model_name }}], int]", resolve_stop_result(_stop, default_cud_result("update", return_data)))
             return _decoded
         except Exception as _error:
             _error_ctx = _{{ snake_name }}_event_context(

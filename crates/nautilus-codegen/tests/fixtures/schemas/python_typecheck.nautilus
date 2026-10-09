@@ -1,0 +1,82 @@
+datasource db {
+  provider = "postgresql"
+  url = "postgresql://unused:unused@localhost/unused"
+  extensions = [citext, hstore, ltree, postgis, vector]
+}
+
+enum OrderStatus {
+  PENDING
+  SHIPPED
+}
+
+type Address {
+  street String
+  city String?
+}
+
+model Order {
+  id Int @id @default(autoincrement())
+  note String?
+  done Boolean?
+  quantity Int?
+  sequence BigInt?
+  weight Float?
+  unitPrice Decimal(20, 4)?
+  createdAt DateTime?
+  data Bytes?
+  metadata Json?
+  document Jsonb?
+  externalId Uuid?
+  code Char(4)?
+  label VarChar(100)?
+  xmlNote Xml?
+  email Citext?
+  path Ltree?
+  attributes Hstore?
+  footprint Geometry?
+  serviceArea Geography?
+  embedding Vector(3)?
+  status OrderStatus
+  previous OrderStatus?
+  history OrderStatus[]
+  notes String[]
+  prices Decimal(20, 4)[]
+  times DateTime[]
+  identifiers Uuid[]
+  files Bytes[]
+  weights Float[]
+  flags Boolean[]
+  quantities Int[]
+  sequences BigInt[]
+  address Address?
+  addresses Address[]
+  customerId Int
+  customer Customer @relation(fields: [customerId], references: [id])
+  parentId Int?
+  parent Order? @relation(name: "OrderTree", fields: [parentId], references: [id])
+  children Order[] @relation(name: "OrderTree")
+  tags Tag[]
+}
+
+model Customer {
+  id Int @id
+  name String
+  orders Order[]
+  profile Profile?
+}
+
+model Profile {
+  id Int @id
+  customerId Int @unique
+  customer Customer @relation(fields: [customerId], references: [id])
+}
+
+model Tag {
+  id Int @id
+  orders Order[]
+}
+
+view Summary {
+  id String @id
+  label String
+}

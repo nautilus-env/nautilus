@@ -27,11 +27,11 @@ pub(super) struct PythonRelationContext {
 pub(super) struct IncludeFieldContext {
     name: String,
     logical_name: String,
-    target_model: String,
+    pub(super) target_model: String,
     /// snake_case module name of the target model (e.g. "post" for Post)
     target_snake: String,
     /// true if this is a one-to-many relation (List/array)
-    is_array: bool,
+    pub(super) is_array: bool,
 }
 
 /// Relation fields are hydrated separately, so they carry no column metadata

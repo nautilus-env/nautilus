@@ -7,7 +7,7 @@ import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Callable, Dict, Generic, List, Mapping, MutableMapping, Optional, TypeVar
+from typing import Any, Callable, Dict, Generic, List, Mapping, MutableMapping, Optional, TypeVar, cast
 
 
 _MISSING = object()
@@ -50,10 +50,10 @@ class CrudEventContext(
     phase: EventPhase
     args: ArgsT
     payload: PayloadT
-    result: ResultT = None
+    result: ResultT = cast(ResultT, None)
     error: Optional[ErrorT] = None
     transaction_id: Optional[str] = None
-    state: StateT = field(default_factory=dict)
+    state: StateT = field(default_factory=lambda: cast(StateT, {}))
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "phase", normalize_event_phase(self.phase))
@@ -63,7 +63,8 @@ class CrudEventContext(
             object.__setattr__(self, "transaction_id", _transaction_id_from_db(self.db))
 
 
-CrudEventHandler = Callable[[CrudEventContext], Any]
+AnyCrudEventContext = CrudEventContext[Any, Any, Any, Any, Any, Any, Any]
+CrudEventHandler = Callable[[AnyCrudEventContext], Any]
 EventHandler = CrudEventHandler
 
 
@@ -164,7 +165,7 @@ def normalize_event_priority(value: Any) -> int:
 
 
 async def run_crud_event(
-    context: CrudEventContext,
+    context: AnyCrudEventContext,
     *,
     handle_stop_propagation: bool = True,
 ) -> Optional[StopPropagation]:
@@ -181,7 +182,7 @@ async def run_crud_event(
 
 
 def run_crud_event_sync(
-    context: CrudEventContext,
+    context: AnyCrudEventContext,
     *,
     handle_stop_propagation: bool = True,
 ) -> Optional[StopPropagation]:

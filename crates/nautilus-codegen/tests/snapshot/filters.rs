@@ -214,7 +214,7 @@ model User {
     let py_model = generated_python_file(&py_models, "user.py");
     let py_runtime = python_runtime_codec();
     assert!(py_runtime.contains("JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]"));
-    assert!(py_model.contains("_object_value_db_fields: frozenset = frozenset({"));
+    assert!(py_model.contains("_object_value_db_fields: frozenset[str] = frozenset({"));
     assert!(py_model.contains("    _User_object_value_db_fields,\n)"));
     assert!(py_runtime.contains("object_equality_requires_explicit_equals"));
     assert!(py_runtime.contains("Use {'equals': ...} for object equality filters."));

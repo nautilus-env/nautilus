@@ -18,7 +18,7 @@
             "protocolVersion": PROTOCOL_VERSION,
             "sql": sql,
         })
-        return result.get("data", [])
+        return cast(List[Dict[str, Any]], result.get("data", []))
 
     {% if is_async %}async {% endif %}def raw_stmt_query(
         self,
@@ -42,4 +42,4 @@
             "sql": sql,
             "params": params or [],
         })
-        return result.get("data", [])
+        return cast(List[Dict[str, Any]], result.get("data", []))

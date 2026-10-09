@@ -14,12 +14,11 @@ class {{ model_name }}(BaseModel):
     {{ f.name }}: {{ f.python_type }} = {{ f.default }}
 {%- endfor %}
 
-    nautilus: ClassVar["{{ delegate_name }}"]
-
     if TYPE_CHECKING:
         # Type hint for IDE autocomplete - at runtime this is a classproperty descriptor
-        nautilus: "{{ delegate_name }}"
+        nautilus: ClassVar["{{ delegate_name }}"]
     else:
+        nautilus: ClassVar["{{ delegate_name }}"]
         @classproperty
         def nautilus(cls) -> "{{ delegate_name }}":
             """Access the auto-registered client delegate for {{ model_name }}.
@@ -51,7 +50,7 @@ class {{ model_name }}(BaseModel):
     @overload
     def onCreate(
         cls,
-        handler: Callable[["{{ model_name }}CreateEventContext"], Any],
+        phase_or_handler: Callable[["{{ model_name }}CreateEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["{{ model_name }}CreateEventContext"], Any]: ...
@@ -76,7 +75,7 @@ class {{ model_name }}(BaseModel):
     @overload
     def onCreateMany(
         cls,
-        handler: Callable[["{{ model_name }}CreateManyEventContext"], Any],
+        phase_or_handler: Callable[["{{ model_name }}CreateManyEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["{{ model_name }}CreateManyEventContext"], Any]: ...
@@ -101,7 +100,7 @@ class {{ model_name }}(BaseModel):
     @overload
     def onUpdate(
         cls,
-        handler: Callable[["{{ model_name }}UpdateEventContext"], Any],
+        phase_or_handler: Callable[["{{ model_name }}UpdateEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["{{ model_name }}UpdateEventContext"], Any]: ...
@@ -126,7 +125,7 @@ class {{ model_name }}(BaseModel):
     @overload
     def onUpdateMany(
         cls,
-        handler: Callable[["{{ model_name }}UpdateManyEventContext"], Any],
+        phase_or_handler: Callable[["{{ model_name }}UpdateManyEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["{{ model_name }}UpdateManyEventContext"], Any]: ...
@@ -151,7 +150,7 @@ class {{ model_name }}(BaseModel):
     @overload
     def onDelete(
         cls,
-        handler: Callable[["{{ model_name }}DeleteEventContext"], Any],
+        phase_or_handler: Callable[["{{ model_name }}DeleteEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["{{ model_name }}DeleteEventContext"], Any]: ...
@@ -176,7 +175,7 @@ class {{ model_name }}(BaseModel):
     @overload
     def onDeleteMany(
         cls,
-        handler: Callable[["{{ model_name }}DeleteManyEventContext"], Any],
+        phase_or_handler: Callable[["{{ model_name }}DeleteManyEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["{{ model_name }}DeleteManyEventContext"], Any]: ...

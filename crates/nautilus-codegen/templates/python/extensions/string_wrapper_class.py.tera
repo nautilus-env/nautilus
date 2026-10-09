@@ -40,7 +40,7 @@ def _format_{{ type_name | lower }}_wkt(value: Any, srid: int | None = None) -> 
     return raw if srid is None else f"SRID={int(srid)};{raw}"
 
 
-def _coerce_{{ type_name | lower }}_input(value: {{ type_name }}Input | Any) -> str:
+def _coerce_{{ type_name | lower }}_input(value: Any) -> str:
     if isinstance(value, {{ type_name }}):
         return value.value
     if isinstance(value, str):
@@ -113,7 +113,7 @@ class {{ type_name }}:
         return _coerce_{{ type_name | lower }}_input(value)
 
     @classmethod
-    def __get_validators__(cls):
+    def __get_validators__(cls) -> Iterator[Callable[..., Any]]:
         yield cls.validate
 
     @classmethod

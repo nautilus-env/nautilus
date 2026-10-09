@@ -93,8 +93,8 @@ class EngineProcess:
         self.migrate = migrate
         self.pool_options = pool_options or EnginePoolOptions()
         self._process: Optional[asyncio.subprocess.Process] = None
-        self._stderr_drain_task: Optional[asyncio.Task] = None
-        self._stderr_buffer: list = []
+        self._stderr_drain_task: Optional[asyncio.Task[None]] = None
+        self._stderr_buffer: list[bytes] = []
         # Kept separately so the atexit handler can kill the process with
         # os.kill() without touching any asyncio transport.
         self._pid: Optional[int] = None
@@ -263,8 +263,8 @@ class EngineProcess:
         Lines starting with '#' and blank lines are ignored.
         Values may be optionally quoted with single or double quotes.
         """
-        seen: set = set()
-        search_dirs: list = []
+        seen: set[Path] = set()
+        search_dirs: list[Path] = []
 
         d = Path(schema_path).resolve().parent
         while True:

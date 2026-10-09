@@ -2,6 +2,21 @@
 {% include "model/runtime_imports.py.tera" %}
 from .{{ snake_name }} import {{ model_name }}, {{ model_name }}Projection
 
+__all__ = [
+    "_first_data_row", "_process_select_fields", "_process_create_data",
+    "_process_where_filters", "_serialize_nearest_input",
+    "_{{ table_name }}_py_to_db", "_{{ table_name }}_py_to_logical",
+    "_{{ snake_name }}_event_context", "_{{ table_name }}_from_row",
+    "_{{ snake_name }}_from_wire", "_{{ snake_name }}_projection_from_wire",
+    "_{{ snake_name }}_aggregate_from_wire", "_{{ table_name }}_row_map",
+    "_{{ table_name }}_fields", "_{{ table_name }}_scalar_coercers",
+    "_{{ table_name }}_object_value_db_fields", "_{{ table_name }}_extension_input_serializers",
+    "_serialize_scalar_input", "_serialize_filter_input",
+    "_serialize_{{ snake_name }}_include_args", "_serialize_{{ snake_name }}_include",
+    "_coerce_{{ snake_name }}_scalar", "_hydrate_{{ snake_name }}_relation",
+    "_{{ snake_name }}_from_row",
+]
+
 {% include "model/metadata.py.tera" %}
 {% include "model/serialize.py.tera" %}
 {% include "model/include.py.tera" %}

@@ -35,5 +35,5 @@
             "model": "{{ model_name }}",
             "args": args if args else None,
         })
-        return result.get("count", 0)
+        return cast(int, result.get("count", 0))
 

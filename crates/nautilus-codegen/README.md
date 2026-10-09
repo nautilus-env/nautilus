@@ -339,3 +339,18 @@ CI supplies these prerequisites and sets `NAUTILUS_REQUIRE_E2E=1`, so missing
 tools or jars fail the job. When the variable is unset, missing prerequisites
 skip the affected tests; `--nocapture` shows each reason. On PowerShell, set
 `$env:NAUTILUS_REQUIRE_E2E = '1'` before running Cargo.
+
+`python_typecheck_tests` checks the complete generated async and sync Python
+packages with `mypy --strict`, with and without the Pydantic plugin. It covers a
+minimal schema and all scalar types, extensions, enums, arrays, composites,
+relations and a view. Typed consumers assert read, projection, write, event and
+transaction types; invalid calls must still fail. The packages are also imported
+with real Pydantic. These tests need Python with `pydantic` and `mypy` installed,
+but no database or SQLite CLI. CI uses mypy 2.4.0 and requires these prerequisites.
+Set `NAUTILUS_PYTHON` to an interpreter path to use a particular virtual environment;
+otherwise the tests try `python3` and `python`.
+
+```bash
+NAUTILUS_REQUIRE_E2E=1 cargo test --locked -p nautilus-orm-codegen \
+  --test python_typecheck_tests -- --nocapture
+```

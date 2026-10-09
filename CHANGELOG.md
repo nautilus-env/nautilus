@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **Type-checking generated Python packages.** A client imported from the
+  application tree failed mypy even without strict mode: delegates passed
+  generated `TypedDict` inputs to helpers expecting `dict`, event overloads
+  used a keyword their implementations did not accept, and runtime attributes
+  and generic types lacked annotations. Both async and sync packages now pass
+  `mypy --strict`, with and without the Pydantic plugin. Transaction callbacks
+  retain their result type, projections retain their declared shape, and
+  repeated relations to one model declare their shared include argument type
+  once. The regression checks generated packages with every scalar type,
+  extensions, enums, composites, arrays, relations and a view, as well as a
+  minimal schema, and verifies invalid calls are still rejected.
 - **The fields `_min` and `_max` apply to.** The generated
   `<Model>MinAggregateInput` and `<Model>MaxAggregateInput` and the engine
   took them from two lists that disagreed. The inputs listed `Char`, `VarChar`,

@@ -105,6 +105,7 @@
             payload["chunkSize"] = chunk_size
 
         result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.findMany", payload)
-        decoder = _{{ snake_name }}_projection_from_wire if select is not None else _{{ table_name }}_from_row
-        return [decoder(row) for row in result.get("data", [])]
+        if select is not None:
+            return [_{{ snake_name }}_projection_from_wire(row) for row in result.get("data", [])]
+        return [_{{ table_name }}_from_row(row) for row in result.get("data", [])]
 

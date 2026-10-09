@@ -11,10 +11,12 @@ import threading
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, AsyncIterator, Dict, Generic, Optional, TypeVar
+from types import TracebackType
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Generic, Optional, TypeVar, cast, overload
 from uuid import UUID
 
 C = TypeVar("C")
+T = TypeVar("T")
 
 _RPC_TIMEOUT_S: float = 30.0
 _STDERR_DRAIN_TIMEOUT_S: float = 1.0
@@ -133,18 +135,18 @@ class NautilusClient:
         self.engine = EngineProcess(engine_path, migrate=migrate, pool_options=pool_options)
 
         self._request_id = 0
-        self._pending: Dict[int, asyncio.Future] = {}
-        self._partial_data: Dict[int, list] = {}
+        self._pending: Dict[int, asyncio.Future[Any]] = {}
+        self._partial_data: Dict[int, list[Any]] = {}
         self._stream_queues: Dict[int, asyncio.Queue[Any]] = {}
-        self._reader_task: Optional[asyncio.Task] = None
+        self._reader_task: Optional[asyncio.Task[None]] = None
         self._writer_lock = asyncio.Lock()
         self._handshake_done = False
         self._delegates: Dict[str, Any] = {}
         self._auto_registered = False
-        self._atexit_handler = None
+        self._atexit_handler: Optional[Callable[[], None]] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._loop_close_original = None
-        self._loop_close_patch = None
+        self._loop_close_original: Optional[Callable[[], None]] = None
+        self._loop_close_patch: Optional[Callable[[], None]] = None
 
         self._sync_loop: Optional[asyncio.AbstractEventLoop] = None
         self._sync_thread: Optional[threading.Thread] = None
@@ -158,7 +160,7 @@ class NautilusClient:
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None:
         """Async context manager exit."""
         await self.disconnect()
         if self._auto_registered:
@@ -182,12 +184,14 @@ class NautilusClient:
         self._loop = loop
         self._loop_close_original = loop.close
 
-        def _ensure_disconnected_then_close():
+        def _ensure_disconnected_then_close() -> None:
 
 
 
             original_close = self._loop_close_original
-            loop.close = original_close
+            if original_close is None:
+                return
+            setattr(loop, "close", original_close)
             if self.engine.is_running():
                 try:
                     loop.run_until_complete(self.disconnect())
@@ -203,12 +207,12 @@ class NautilusClient:
             original_close()
 
         self._loop_close_patch = _ensure_disconnected_then_close
-        loop.close = _ensure_disconnected_then_close
+        setattr(loop, "close", _ensure_disconnected_then_close)
 
 
 
 
-        def _atexit_cleanup():
+        def _atexit_cleanup() -> None:
             pid = self.engine._pid
             if pid is not None:
                 import signal as _signal
@@ -226,10 +230,11 @@ class NautilusClient:
 
         if (
             self._loop is not None
+            and self._loop_close_original is not None
             and self._loop_close_patch is not None
             and getattr(self._loop, "close", None) is self._loop_close_patch
         ):
-            self._loop.close = self._loop_close_original
+            setattr(self._loop, "close", self._loop_close_original)
         self._loop_close_patch = None
         self._loop_close_original = None
 
@@ -289,7 +294,7 @@ class NautilusClient:
             params=params,
         )
 
-        future: asyncio.Future = asyncio.Future()
+        future: asyncio.Future[Any] = asyncio.Future()
         self._pending[request_id] = future
 
         try:
@@ -419,7 +424,7 @@ class NautilusClient:
                     response_dict = json.loads(line)
                     response = JsonRpcResponse.from_dict(response_dict)
 
-                    if response.id is not None:
+                    if isinstance(response.id, int):
                         req_id = response.id
                         stream_queue = self._stream_queues.get(req_id)
                         if stream_queue is not None:
@@ -437,8 +442,8 @@ class NautilusClient:
                                 await stream_queue.put(_STREAM_END)
                             continue
 
-                        future = self._pending.get(req_id)
-                        if future and not future.done():
+                        pending_future = self._pending.get(req_id)
+                        if pending_future and not pending_future.done():
                             if response.partial is True:
                                 chunk_data = (response.result or {}).get("data", [])
                                 self._partial_data.setdefault(req_id, []).extend(chunk_data)
@@ -449,10 +454,10 @@ class NautilusClient:
                                         accumulated = self._partial_data.pop(req_id)
                                         if isinstance(result, dict) and "data" in result:
                                             result = {**result, "data": accumulated + result["data"]}
-                                    future.set_result(result)
+                                    pending_future.set_result(result)
                                 except Exception as e:
                                     self._partial_data.pop(req_id, None)
-                                    future.set_exception(e)
+                                    pending_future.set_exception(e)
 
                 except json.JSONDecodeError as e:
                     print(f"Failed to parse response: {line}", e)
@@ -468,13 +473,31 @@ class NautilusClient:
                     future.set_exception(ProtocolError(f"Reader task failed: {e}"))
             self._fail_streams(ProtocolError(f"Reader task failed: {e}"))
 
+    @overload
     def transaction(
         self,
-        callback=None,
+        callback: None = None,
         *,
         timeout_ms: int = 5000,
         isolation_level: Optional[IsolationLevel] = None,
-    ):
+    ) -> _AsyncTransactionContext[Any]: ...
+
+    @overload
+    def transaction(
+        self,
+        callback: Callable[[Any], Awaitable[T]],
+        *,
+        timeout_ms: int = 5000,
+        isolation_level: Optional[IsolationLevel] = None,
+    ) -> Awaitable[T]: ...
+
+    def transaction(
+        self,
+        callback: Optional[Callable[[Any], Awaitable[Any]]] = None,
+        *,
+        timeout_ms: int = 5000,
+        isolation_level: Optional[IsolationLevel] = None,
+    ) -> _AsyncTransactionContext[Any] | Awaitable[Any]:
         """Run operations inside a database transaction.
 
         Can be used as an **async context manager** *or* as a **callback-style
@@ -524,7 +547,7 @@ class NautilusClient:
         if isolation_level is not None:
             params["isolationLevel"] = isolation_level.value
         result = await self._rpc("transaction.start", params)
-        return result["id"]
+        return cast(str, result["id"])
 
     async def _commit_transaction(self, tx_id: str) -> None:
         await self._rpc("transaction.commit", {"protocolVersion": PROTOCOL_VERSION, "id": tx_id})
@@ -540,11 +563,11 @@ class NautilusClient:
 
     async def _run_transaction_callback(
         self,
-        callback,
+        callback: Callable[[Any], Awaitable[T]],
         *,
         timeout_ms: int = 5000,
         isolation_level: Optional[IsolationLevel] = None,
-    ):
+    ) -> T:
         tx_id = await self._start_transaction(
             timeout_ms=timeout_ms, isolation_level=isolation_level
         )
@@ -559,11 +582,11 @@ class NautilusClient:
 
     async def transaction_batch(
         self,
-        operations: list,
+        operations: list[Dict[str, Any]],
         *,
         timeout_ms: int = 5000,
         isolation_level: Optional[IsolationLevel] = None,
-    ) -> list:
+    ) -> list[Any]:
         """Execute a list of operations atomically (batch transaction).
 
         Each element in *operations* is a dict ``{"method": "...", "params": {...}}``.
@@ -595,7 +618,7 @@ class NautilusClient:
         if isolation_level is not None:
             params["isolationLevel"] = isolation_level.value
         result = await self._rpc("transaction.batch", params)
-        return result.get("results", [])
+        return cast(list[Any], result.get("results", []))
 
     async def metrics(self, *, reset: bool = False) -> Dict[str, Any]:
         """Snapshot the engine's runtime counters.
@@ -612,15 +635,15 @@ class NautilusClient:
         Returns:
             The metrics snapshot as a dict.
         """
-        return await self._rpc(
+        return cast(Dict[str, Any], await self._rpc(
             "engine.metrics", {"protocolVersion": PROTOCOL_VERSION, "reset": reset}
-        )
+        ))
 
     def sync_metrics(self, *, reset: bool = False) -> Dict[str, Any]:
         """Synchronous counterpart of :meth:`metrics`."""
-        return self._sync_rpc(
+        return cast(Dict[str, Any], self._sync_rpc(
             "engine.metrics", {"protocolVersion": PROTOCOL_VERSION, "reset": reset}
-        )
+        ))
 
 
 
@@ -681,13 +704,31 @@ class NautilusClient:
         self._sync_loop = None
         self._sync_thread = None
 
+    @overload
     def sync_transaction(
         self,
-        callback=None,
+        callback: None = None,
         *,
         timeout_ms: int = 5000,
         isolation_level: Optional[IsolationLevel] = None,
-    ):
+    ) -> _SyncTransactionContext[Any]: ...
+
+    @overload
+    def sync_transaction(
+        self,
+        callback: Callable[[Any], T],
+        *,
+        timeout_ms: int = 5000,
+        isolation_level: Optional[IsolationLevel] = None,
+    ) -> T: ...
+
+    def sync_transaction(
+        self,
+        callback: Optional[Callable[[Any], Any]] = None,
+        *,
+        timeout_ms: int = 5000,
+        isolation_level: Optional[IsolationLevel] = None,
+    ) -> _SyncTransactionContext[Any] | Any:
         """Synchronous transaction — context-manager or callback style.
 
         Context-manager usage::
@@ -741,11 +782,11 @@ class NautilusClient:
 
     def _sync_run_transaction_callback(
         self,
-        callback,
+        callback: Callable[[Any], T],
         *,
         timeout_ms: int = 5000,
         isolation_level: Optional[IsolationLevel] = None,
-    ):
+    ) -> T:
         tx_id = self._sync_start_transaction(timeout_ms, isolation_level)
         tx = TransactionClient(self, tx_id)
         try:
@@ -758,11 +799,11 @@ class NautilusClient:
 
     def sync_transaction_batch(
         self,
-        operations: list,
+        operations: list[Dict[str, Any]],
         *,
         timeout_ms: int = 5000,
         isolation_level: Optional[IsolationLevel] = None,
-    ) -> list:
+    ) -> list[Any]:
         """Synchronous batch transaction."""
         loop = self._ensure_sync_loop()
         future = asyncio.run_coroutine_threadsafe(
@@ -849,9 +890,9 @@ class _AsyncTransactionContext(Generic[C]):
             self._timeout_ms, self._isolation_level
         )
         self._tx = TransactionClient(self._client, self._tx_id)
-        return self._tx
+        return cast(C, self._tx)
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None:
         if self._tx_id is None:
             return
         if exc_type is not None:
@@ -882,9 +923,9 @@ class _SyncTransactionContext(Generic[C]):
             self._timeout_ms, self._isolation_level
         )
         self._tx = TransactionClient(self._client, self._tx_id)
-        return self._tx
+        return cast(C, self._tx)
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None:
         if self._tx_id is None:
             return
         if exc_type is not None:

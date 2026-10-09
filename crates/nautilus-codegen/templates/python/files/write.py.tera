@@ -1,7 +1,7 @@
 """{{ model_name }} writes and their event lifecycle."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 from .._internal.events import (
     EventPhase, default_cud_result, resolve_stop_result, run_crud_event, run_crud_event_sync,
 )

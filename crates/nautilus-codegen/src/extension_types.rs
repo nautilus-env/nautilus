@@ -459,7 +459,7 @@ fn python_types_for_extension(extension: &str) -> Result<String> {
 
 fn render_python_string_wrappers(types: &[ExtensionType]) -> Result<String> {
     let mut code =
-        "from __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom typing import Any, NotRequired, TypedDict, Union\n\n"
+        "from __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom typing import Any, Callable, Iterator, NotRequired, TypedDict, Union\n\n"
             .to_string();
     for ty in types {
         let mut ctx = Context::new();

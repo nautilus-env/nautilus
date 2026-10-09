@@ -29,8 +29,8 @@
             The created or updated ``{{ model_name }}`` instance, or ``None`` when
             ``return_data=False``.
         """
-        create_data: {{ model_name }}CreateInput = data.get("create", {})  # type: ignore[assignment]
-        update_data: {{ model_name }}UpdateInput = data.get("update", {})  # type: ignore[assignment]
+        create_data = data.get("create", {})
+        update_data = data.get("update", {})
         _payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",

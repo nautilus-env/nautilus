@@ -52,7 +52,7 @@ def _{{ snake_name }}_from_wire(row: Dict[str, Any]) -> "{{ model_name }}":
 
 def _{{ snake_name }}_projection_from_wire(row: Dict[str, Any]) -> "{{ model_name }}Projection":
     """Convert engine rows to a partial {{ model_name }} projection."""
-    payload: Any = {}
+    payload: Dict[str, Any] = {}
 {%- for f in scalar_fields %}
     value = _get_wire_value(row, "{{ table_name }}__{{ f.db_name }}", "{{ f.logical_name }}")
     if value is not _MISSING:
@@ -62,7 +62,7 @@ def _{{ snake_name }}_projection_from_wire(row: Dict[str, Any]) -> "{{ model_nam
             else None
         )
 {%- endfor %}
-    return payload
+    return cast("{{ model_name }}Projection", payload)
 
 
 def _{{ snake_name }}_aggregate_from_wire(

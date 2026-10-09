@@ -113,7 +113,22 @@ fn model_context(
         "has_dotted_order_by_fields",
         &!view.dotted_order_by.is_empty(),
     );
-    context.insert("include_fields", &build_include_fields(&view));
+    let include_fields = build_include_fields(&view);
+    // Several relations may load the same model. Their shared argument type
+    // is declared once and supports pagination if any is a list relation.
+    let mut include_arg_fields: Vec<relations::IncludeFieldContext> = Vec::new();
+    for field in &include_fields {
+        if let Some(existing) = include_arg_fields
+            .iter_mut()
+            .find(|existing| existing.target_model == field.target_model)
+        {
+            existing.is_array |= field.is_array;
+        } else {
+            include_arg_fields.push(field.clone());
+        }
+    }
+    context.insert("include_fields", &include_fields);
+    context.insert("include_arg_fields", &include_arg_fields);
     context.insert("has_includes", &!view.relations.is_empty());
     context.insert("numeric_fields", &fields.numeric);
     context.insert("min_max_fields", &fields.min_max);

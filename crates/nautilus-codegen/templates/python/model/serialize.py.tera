@@ -19,7 +19,7 @@ def _{{ snake_name }}_event_context(
     *,
     result: Any = None,
     error: Optional[BaseException] = None,
-) -> CrudEventContext:
+) -> AnyCrudEventContext:
     return CrudEventContext(
         db=client,
         model={{ model_name }},

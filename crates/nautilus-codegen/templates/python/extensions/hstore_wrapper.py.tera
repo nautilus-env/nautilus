@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, ItemsView, KeysView, Mapping, ValuesView
-from typing import Any, Dict, Optional, TypedDict, Union
+from typing import Any, Callable, Iterator, Dict, Optional, TypedDict, Union
 
 HstoreEntry = tuple[str, Optional[str]]
 HstoreEntriesInput = Iterable[HstoreEntry]
@@ -62,7 +62,7 @@ class Hstore:
         return _coerce_hstore_mapping(value)
 
     @classmethod
-    def __get_validators__(cls):
+    def __get_validators__(cls) -> Iterator[Callable[..., Any]]:
         yield cls.validate
 
     @classmethod
@@ -108,7 +108,7 @@ class Hstore:
     def __getitem__(self, key: str) -> Optional[str]:
         return self.value[key]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self.value)
 
     def __len__(self) -> int:

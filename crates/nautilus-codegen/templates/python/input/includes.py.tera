@@ -10,7 +10,7 @@ class {{ model_name }}IncludeInput(TypedDict, total=False):
     {{ field.name }}: NotRequired[Union[bool, "FindMany{{ field.target_model }}ArgsFrom{{ model_name }}"]]
     {% endfor %}
 
-{% for field in include_fields %}
+{% for field in include_arg_fields %}
 class FindMany{{ field.target_model }}ArgsFrom{{ model_name }}(TypedDict, total=False):
     """Arguments for including {{ field.target_model }} in {{ model_name }} queries."""
     where: NotRequired["{{ field.target_model }}WhereInput"]
@@ -37,7 +37,7 @@ class {{ model_name }}IncludeRecursive{{ d }}(TypedDict, total=False):
     {{ field.name }}: NotRequired[Union[bool, "FindMany{{ field.target_model }}ArgsFrom{{ model_name }}Recursive{{ d }}"]]
     {% endfor %}
 
-{% for field in include_fields %}
+{% for field in include_arg_fields %}
 class FindMany{{ field.target_model }}ArgsFrom{{ model_name }}Recursive{{ d }}(TypedDict, total=False):
     """Depth-{{ d }} args for including {{ field.target_model }} from {{ model_name }}."""
     where: NotRequired["{{ field.target_model }}WhereInput"]

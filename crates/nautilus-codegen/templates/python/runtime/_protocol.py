@@ -75,7 +75,7 @@ class JsonRpcResponse:
 
     def unwrap(self) -> Any:
         """Extract result or raise error."""
-        from ..errors.errors import error_from_code  # type: ignore
+        from ..errors.errors import error_from_code
 
         if self.error:
             raise error_from_code(self.error.code, self.error.message, self.error.data)

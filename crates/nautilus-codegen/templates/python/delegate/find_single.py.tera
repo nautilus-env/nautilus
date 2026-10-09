@@ -186,7 +186,11 @@
             NotFoundError: If no record matches the given filters.
         """
         from ..errors import NotFoundError
-        record = {% if is_async %}await {% endif %}self.find_first(where=where, order_by=order_by,{% if has_vector_fields %} nearest=nearest,{% endif %} select=select, include=include)
+        record: Union[{{ model_name }}, {{ model_name }}Projection, None]
+        if select is not None:
+            record = {% if is_async %}await {% endif %}self.find_first(where=where, order_by=order_by,{% if has_vector_fields %} nearest=nearest,{% endif %} select=select, include=include)
+        else:
+            record = {% if is_async %}await {% endif %}self.find_first(where=where, order_by=order_by,{% if has_vector_fields %} nearest=nearest,{% endif %} include=include)
         if record is None:
             raise NotFoundError(
                 f"findFirstOrThrow: no {{ model_name }} record found matching the given filter"

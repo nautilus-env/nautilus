@@ -4,7 +4,7 @@ _{{ table_name }}_row_map: Dict[str, str] = {
     "{{ table_name }}__{{ f.db_name }}": "{{ f.name }}",
 {%- endfor %}
 }
-_{{ table_name }}_fields: frozenset = frozenset({
+_{{ table_name }}_fields: frozenset[str] = frozenset({
 {%- for f in scalar_fields %}
     "{{ f.name }}",
 {%- endfor %}
@@ -53,7 +53,7 @@ _{{ table_name }}_logical_to_py: Dict[str, str] = {
     "{{ f.logical_name }}": "{{ f.name }}",
 {%- endfor %}
 }
-_{{ table_name }}_object_value_db_fields: frozenset = frozenset({
+_{{ table_name }}_object_value_db_fields: frozenset[str] = frozenset({
 {%- for db_name in object_value_db_fields %}
     "{{ db_name }}",
 {%- endfor %}

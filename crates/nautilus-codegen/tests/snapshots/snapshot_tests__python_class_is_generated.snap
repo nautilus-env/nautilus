@@ -7,13 +7,14 @@ expression: snapshot_value
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, NotRequired, Optional, Required, ClassVar, TypedDict, Union, overload
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, NotRequired, Optional, Required, ClassVar, TypedDict, Union, cast, overload
 from datetime import datetime
 from uuid import UUID
 from decimal import Decimal
 from .._internal.descriptors import classproperty
 from .._internal.events import (
     CrudEventContext,
+    AnyCrudEventContext,
     EventPhase,
     default_cud_result,
     model_event_decorator,
@@ -47,12 +48,11 @@ class User(BaseModel):
     id: int
     name: str
 
-    nautilus: ClassVar["UserDelegate"]
-
     if TYPE_CHECKING:
         # Type hint for IDE autocomplete - at runtime this is a classproperty descriptor
-        nautilus: "UserDelegate"
+        nautilus: ClassVar["UserDelegate"]
     else:
+        nautilus: ClassVar["UserDelegate"]
         @classproperty
         def nautilus(cls) -> "UserDelegate":
             """Access the auto-registered client delegate for User.
@@ -84,7 +84,7 @@ class User(BaseModel):
     @overload
     def onCreate(
         cls,
-        handler: Callable[["UserCreateEventContext"], Any],
+        phase_or_handler: Callable[["UserCreateEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["UserCreateEventContext"], Any]: ...
@@ -109,7 +109,7 @@ class User(BaseModel):
     @overload
     def onCreateMany(
         cls,
-        handler: Callable[["UserCreateManyEventContext"], Any],
+        phase_or_handler: Callable[["UserCreateManyEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["UserCreateManyEventContext"], Any]: ...
@@ -134,7 +134,7 @@ class User(BaseModel):
     @overload
     def onUpdate(
         cls,
-        handler: Callable[["UserUpdateEventContext"], Any],
+        phase_or_handler: Callable[["UserUpdateEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["UserUpdateEventContext"], Any]: ...
@@ -159,7 +159,7 @@ class User(BaseModel):
     @overload
     def onUpdateMany(
         cls,
-        handler: Callable[["UserUpdateManyEventContext"], Any],
+        phase_or_handler: Callable[["UserUpdateManyEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["UserUpdateManyEventContext"], Any]: ...
@@ -184,7 +184,7 @@ class User(BaseModel):
     @overload
     def onDelete(
         cls,
-        handler: Callable[["UserDeleteEventContext"], Any],
+        phase_or_handler: Callable[["UserDeleteEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["UserDeleteEventContext"], Any]: ...
@@ -209,7 +209,7 @@ class User(BaseModel):
     @overload
     def onDeleteMany(
         cls,
-        handler: Callable[["UserDeleteManyEventContext"], Any],
+        phase_or_handler: Callable[["UserDeleteManyEventContext"], Any],
         *,
         priority: int = 0,
     ) -> Callable[["UserDeleteManyEventContext"], Any]: ...
@@ -243,7 +243,7 @@ _User_row_map: Dict[str, str] = {
     "User__id": "id",
     "User__name": "name",
 }
-_User_fields: frozenset = frozenset({
+_User_fields: frozenset[str] = frozenset({
     "id",
     "name",
 })
@@ -263,7 +263,7 @@ _User_logical_to_py: Dict[str, str] = {
     "id": "id",
     "name": "name",
 }
-_User_object_value_db_fields: frozenset = frozenset({
+_User_object_value_db_fields: frozenset[str] = frozenset({
 })
 _User_extension_input_serializers: Dict[str, Any] = {
 }
@@ -709,7 +709,7 @@ def _user_event_context(
     *,
     result: Any = None,
     error: Optional[BaseException] = None,
-) -> CrudEventContext:
+) -> AnyCrudEventContext:
     return CrudEventContext(
         db=client,
         model=User,
@@ -772,7 +772,7 @@ def _user_from_wire(row: Dict[str, Any]) -> "User":
 
 def _user_projection_from_wire(row: Dict[str, Any]) -> "UserProjection":
     """Convert engine rows to a partial User projection."""
-    payload: Any = {}
+    payload: Dict[str, Any] = {}
     value = _get_wire_value(row, "User__id", "id")
     if value is not _MISSING:
         payload["id"] = (
@@ -787,7 +787,7 @@ def _user_projection_from_wire(row: Dict[str, Any]) -> "UserProjection":
             if value is not None
             else None
         )
-    return payload
+    return cast("UserProjection", payload)
 
 
 def _user_aggregate_from_wire(
@@ -919,8 +919,9 @@ class UserDelegate:
             payload["chunkSize"] = chunk_size
 
         result = self._client._sync_rpc("query.findMany", payload)
-        decoder = _user_projection_from_wire if select is not None else _User_from_row
-        return [decoder(row) for row in result.get("data", [])]
+        if select is not None:
+            return [_user_projection_from_wire(row) for row in result.get("data", [])]
+        return [_User_from_row(row) for row in result.get("data", [])]
 
     
 
@@ -1102,12 +1103,17 @@ class UserDelegate:
             NotFoundError: If no record matches the given filters.
         """
         from ..errors import NotFoundError
-        record = self.find_first(where=where, order_by=order_by, select=select, include=include)
+        record: Union[User, UserProjection, None]
+        if select is not None:
+            record = self.find_first(where=where, order_by=order_by, select=select, include=include)
+        else:
+            record = self.find_first(where=where, order_by=order_by, include=include)
         if record is None:
             raise NotFoundError(
                 f"findFirstOrThrow: no User record found matching the given filter"
             )
         return record
+
     def create(self, data: UserCreateInput, *, return_data: bool = True) -> Optional[User]:
         """Create a new User record.
 
@@ -1135,7 +1141,7 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_before_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("create", return_data))
+                return cast("Optional[User]", resolve_stop_result(_stop, default_cud_result("create", return_data)))
 
             result = self._client._sync_rpc("query.create", _payload)
             if not return_data:
@@ -1157,7 +1163,7 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_after_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("create", return_data))
+                return cast("Optional[User]", resolve_stop_result(_stop, default_cud_result("create", return_data)))
             return _decoded
         except Exception as _error:
             _error_ctx = _user_event_context(
@@ -1203,7 +1209,7 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_before_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("createMany", return_data))
+                return cast("List[User]", resolve_stop_result(_stop, default_cud_result("createMany", return_data)))
 
             result = self._client._sync_rpc("query.createMany", _payload)
             _decoded = [] if not return_data else [
@@ -1221,7 +1227,7 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_after_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("createMany", return_data))
+                return cast("List[User]", resolve_stop_result(_stop, default_cud_result("createMany", return_data)))
             return _decoded
         except Exception as _error:
             _error_ctx = _user_event_context(
@@ -1242,7 +1248,7 @@ class UserDelegate:
         where: Optional[UserWhereInput] = None,
         data: UserUpdateInput,
         return_data: bool = True,
-    ):
+    ) -> Union[List[User], int]:
         """Update User records matching ``where``.
 
         Args:
@@ -1275,11 +1281,11 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_before_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("update", return_data))
+                return cast("Union[List[User], int]", resolve_stop_result(_stop, default_cud_result("update", return_data)))
 
             result = self._client._sync_rpc("query.update", _payload)
             if not return_data:
-                _decoded = result.get("count", 0)
+                _decoded: Union[List[User], int] = cast(int, result.get("count", 0))
             else:
                 _decoded = [_User_from_row(row) for row in result.get("data", [])]
 
@@ -1294,7 +1300,7 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_after_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("update", return_data))
+                return cast("Union[List[User], int]", resolve_stop_result(_stop, default_cud_result("update", return_data)))
             return _decoded
         except Exception as _error:
             _error_ctx = _user_event_context(
@@ -1308,6 +1314,7 @@ class UserDelegate:
             )
             run_crud_event_sync(_error_ctx, handle_stop_propagation=False)
             raise
+
 
     def delete(
         self,
@@ -1355,7 +1362,7 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_before_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("delete", return_data))
+                return cast("Optional[User]", resolve_stop_result(_stop, default_cud_result("delete", return_data)))
 
             result = self._client._sync_rpc("query.delete", _payload)
             if return_data:
@@ -1378,7 +1385,7 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_after_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("delete", return_data))
+                return cast("Optional[User]", resolve_stop_result(_stop, default_cud_result("delete", return_data)))
             return _decoded
         except Exception as _error:
             _error_ctx = _user_event_context(
@@ -1398,7 +1405,7 @@ class UserDelegate:
         *,
         where: Optional[UserWhereInput] = None,
         return_data: bool = False,
-    ):
+    ) -> Union[List[User], int]:
         """Delete all User records matching ``where``.
 
         Args:
@@ -1424,14 +1431,15 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_before_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("deleteMany", return_data))
+                return cast("Union[List[User], int]", resolve_stop_result(_stop, default_cud_result("deleteMany", return_data)))
 
             _method = "query.delete" if return_data else "query.deleteMany"
             result = self._client._sync_rpc(_method, _payload)
+            _decoded: Union[List[User], int]
             if return_data:
                 _decoded = [_User_from_row(row) for row in result.get("data", [])]
             else:
-                _decoded = result.get("count", 0)
+                _decoded = cast(int, result.get("count", 0))
 
             _after_ctx = _user_event_context(
                 self._client,
@@ -1444,7 +1452,7 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_after_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("deleteMany", return_data))
+                return cast("Union[List[User], int]", resolve_stop_result(_stop, default_cud_result("deleteMany", return_data)))
             return _decoded
         except Exception as _error:
             _error_ctx = _user_event_context(
@@ -1458,6 +1466,7 @@ class UserDelegate:
             )
             run_crud_event_sync(_error_ctx, handle_stop_propagation=False)
             raise
+
 
     def update_many(
         self,
@@ -1491,10 +1500,10 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_before_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("updateMany"))
+                return cast("int", resolve_stop_result(_stop, default_cud_result("updateMany")))
 
             result = self._client._sync_rpc("query.updateMany", _payload)
-            _decoded = result.get("count", 0)
+            _decoded = cast(int, result.get("count", 0))
 
             _after_ctx = _user_event_context(
                 self._client,
@@ -1507,7 +1516,7 @@ class UserDelegate:
             )
             _stop = run_crud_event_sync(_after_ctx)
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("updateMany"))
+                return cast("int", resolve_stop_result(_stop, default_cud_result("updateMany")))
             return _decoded
         except Exception as _error:
             _error_ctx = _user_event_context(
@@ -1627,12 +1636,13 @@ class UserDelegate:
         if distinct is not None:
             args["distinct"] = distinct
 
-        return self._client._sync_rpc("query.explain", {
+        result = self._client._sync_rpc("query.explain", {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "User",
             "args": args,
             "analyze": analyze,
         })
+        return cast("UserExplainOutput", result)
 
     def count(
         self,
@@ -1671,7 +1681,7 @@ class UserDelegate:
             "model": "User",
             "args": args if args else None,
         })
-        return result.get("count", 0)
+        return cast(int, result.get("count", 0))
 
     def group_by(
         self,
@@ -1775,7 +1785,7 @@ class UserDelegate:
             "protocolVersion": PROTOCOL_VERSION,
             "sql": sql,
         })
-        return result.get("data", [])
+        return cast(List[Dict[str, Any]], result.get("data", []))
 
     def raw_stmt_query(
         self,
@@ -1799,7 +1809,7 @@ class UserDelegate:
             "sql": sql,
             "params": params or [],
         })
-        return result.get("data", [])
+        return cast(List[Dict[str, Any]], result.get("data", []))
     def upsert(
         self,
         *,
@@ -1830,8 +1840,8 @@ class UserDelegate:
             The created or updated ``User`` instance, or ``None`` when
             ``return_data=False``.
         """
-        create_data: UserCreateInput = data.get("create", {})  # type: ignore[assignment]
-        update_data: UserUpdateInput = data.get("update", {})  # type: ignore[assignment]
+        create_data = data.get("create", {})
+        update_data = data.get("update", {})
         _payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "User",

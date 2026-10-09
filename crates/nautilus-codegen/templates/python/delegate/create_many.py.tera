@@ -30,7 +30,7 @@
             )
             _stop = {% if is_async %}await run_crud_event(_before_ctx){% else %}run_crud_event_sync(_before_ctx){% endif %}
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("createMany", return_data))
+                return cast("List[{{ model_name }}]", resolve_stop_result(_stop, default_cud_result("createMany", return_data)))
 
             result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.createMany", _payload)
             _decoded = [] if not return_data else [
@@ -48,7 +48,7 @@
             )
             _stop = {% if is_async %}await run_crud_event(_after_ctx){% else %}run_crud_event_sync(_after_ctx){% endif %}
             if _stop is not None:
-                return resolve_stop_result(_stop, default_cud_result("createMany", return_data))
+                return cast("List[{{ model_name }}]", resolve_stop_result(_stop, default_cud_result("createMany", return_data)))
             return _decoded
         except Exception as _error:
             _error_ctx = _{{ snake_name }}_event_context(
