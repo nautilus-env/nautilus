@@ -27,6 +27,7 @@ struct DslFilterOpCtx {
 
 #[derive(Debug, Serialize)]
 struct DslScalarFieldCtx {
+    accepts_equality: bool,
     /// Logical field name – used as method name, ScalarField enum wire value, Select/OrderBy key.
     name: String,
     /// PascalCase variant name for the ScalarField enum.
@@ -181,6 +182,7 @@ pub(super) fn generate_dsl_file(
 
         if !field.is_array {
             scalar_fields.push(DslScalarFieldCtx {
+                accepts_equality: scalar.is_comparable(),
                 variant_name: field.logical_name.to_upper_camel_case(),
                 name: field.logical_name.clone(),
                 db_name: field.db_name.clone(),

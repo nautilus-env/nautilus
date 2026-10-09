@@ -138,6 +138,12 @@ pub trait LanguageBackend {
 
     /// Returns the filter operators available for a given scalar type.
     fn get_filter_operators_for_scalar(&self, scalar: &ScalarType) -> Vec<FilterOperator> {
+        if matches!(scalar, ScalarType::Xml) {
+            return vec![FilterOperator {
+                suffix: self.null_suffix().to_string(),
+                type_name: self.scalar_to_type(&ScalarType::Boolean).to_string(),
+            }];
+        }
         let mut ops: Vec<FilterOperator> = Vec::new();
 
         match scalar {
@@ -172,11 +178,15 @@ pub trait LanguageBackend {
                     type_name: arr,
                 });
             }
-            ScalarType::Xml | ScalarType::Char { .. } | ScalarType::VarChar { .. } => {
+            ScalarType::Char { .. } | ScalarType::VarChar { .. } => {
                 ops.extend(self.string_operators(self.scalar_to_type(scalar)));
             }
             // Boolean, Bytes, Json, Jsonb, Vector: only equality via the direct field value.
-            ScalarType::Boolean | ScalarType::Bytes | ScalarType::Json | ScalarType::Jsonb => {}
+            ScalarType::Boolean
+            | ScalarType::Bytes
+            | ScalarType::Json
+            | ScalarType::Jsonb
+            | ScalarType::Xml => {}
         }
 
         // `not` is supported for all scalar types.
@@ -233,7 +243,9 @@ pub trait LanguageBackend {
         }
 
         // Null-check operator for optional / auto-generated fields.
-        if !field.is_required || self.is_auto_generated(field) {
+        if (!field.is_required || self.is_auto_generated(field))
+            && !matches!(field.field_type, ResolvedFieldType::Scalar(ScalarType::Xml))
+        {
             ops.push(FilterOperator {
                 suffix: self.null_suffix().to_string(),
                 type_name: self.scalar_to_type(&ScalarType::Boolean).to_string(),

@@ -7,7 +7,7 @@ use serde_json::Value as JsonValue;
 
 use nautilus_core::{BinaryOp, Expr, Select, Value};
 use nautilus_protocol::ProtocolError;
-use nautilus_schema::ir::ResolvedFieldType;
+use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
 
 use super::context::{relation_filter_context, SchemaContext};
 use super::types::{FieldTypeMap, RelationInfo, RelationMap};
@@ -200,6 +200,12 @@ pub(super) fn parse_field_condition(
     } else if value.is_null() {
         Ok(field_expr.is_null())
     } else {
+        if matches!(field_type, Some(ResolvedFieldType::Scalar(ScalarType::Xml))) {
+            return Err(ProtocolError::InvalidFilter(format!(
+                "Xml field '{}' only supports null checks",
+                field
+            )));
+        }
         let converted = match field_type {
             Some(ft) => json_to_value_field(value, ft)?,
             None => json_to_value(value)?,
@@ -250,6 +256,15 @@ pub(super) fn parse_field_operators(
     };
 
     for (op, value) in operators {
+        if matches!(field_type, Some(ResolvedFieldType::Scalar(ScalarType::Xml)))
+            && !matches!(op.as_str(), "isNull" | "isNotNull")
+            && !(value.is_null() && matches!(op.as_str(), "eq" | "ne" | "not"))
+        {
+            return Err(ProtocolError::InvalidFilter(format!(
+                "Operator '{}' is not supported for Xml fields; use null checks",
+                op
+            )));
+        }
         if is_opaque_postgres_scalar_field(field_type)
             && !matches!(op.as_str(), "eq" | "ne" | "not" | "isNull" | "isNotNull")
         {

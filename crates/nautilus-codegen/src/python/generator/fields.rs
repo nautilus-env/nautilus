@@ -330,16 +330,21 @@ fn where_input_field(
     WhereInputFieldContext {
         name: field.logical_name.clone(),
         python_type: base_python_type.to_string(),
-        where_python_type: extension_type
-            .map(|ty| {
-                let type_expr = ty.python_filter_input();
-                if is_nullable {
-                    add_none_to_python_union(type_expr)
-                } else {
-                    type_expr
-                }
-            })
-            .unwrap_or_default(),
+        where_python_type: if matches!(field.field_type, ResolvedFieldType::Scalar(ScalarType::Xml))
+        {
+            "NullFilter".to_string()
+        } else {
+            extension_type
+                .map(|ty| {
+                    let type_expr = ty.python_filter_input();
+                    if is_nullable {
+                        add_none_to_python_union(type_expr)
+                    } else {
+                        type_expr
+                    }
+                })
+                .unwrap_or_default()
+        },
         is_nullable,
         is_vector: field.is_vector(),
         enum_filter: match &field.field_type {

@@ -9,6 +9,33 @@ use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
 use serde_json::json;
 
 #[test]
+fn xml_inputs_bind_as_xml_and_reject_non_string_values() {
+    let field_type = ResolvedFieldType::Scalar(ScalarType::Xml);
+    assert_eq!(
+        json_to_value_field(&json!("<a/>"), &field_type).unwrap(),
+        Value::Extension {
+            value: "<a/>".into(),
+            type_name: "xml".into()
+        }
+    );
+    assert_eq!(
+        json_to_value_field(&json!(null), &field_type).unwrap(),
+        Value::Null
+    );
+    for input in [
+        json!(true),
+        json!(1),
+        json!(["<a/>"]),
+        json!({"xml": "<a/>"}),
+    ] {
+        assert!(matches!(
+            json_to_value_field(&input, &field_type),
+            Err(nautilus_protocol::ProtocolError::InvalidParams(_))
+        ));
+    }
+}
+
+#[test]
 fn bytes_inputs_decode_base64_and_preserve_null_and_empty_values() {
     let field_type = ResolvedFieldType::Scalar(ScalarType::Bytes);
     assert_eq!(

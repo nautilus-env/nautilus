@@ -256,16 +256,20 @@ fn where_input_field(
         name: field.logical_name.clone(),
         base_type: raw_base_type.to_string(),
         ts_type: ts_type.to_string(),
-        where_ts_type: extension_type
-            .map(|ty| {
-                let type_expr = ty.ts_filter_input();
-                if is_nullable {
-                    format!("{type_expr} | null")
-                } else {
-                    type_expr
-                }
-            })
-            .unwrap_or_default(),
+        where_ts_type: if matches!(field.field_type, ResolvedFieldType::Scalar(ScalarType::Xml)) {
+            "NullFilter".to_string()
+        } else {
+            extension_type
+                .map(|ty| {
+                    let type_expr = ty.ts_filter_input();
+                    if is_nullable {
+                        format!("{type_expr} | null")
+                    } else {
+                        type_expr
+                    }
+                })
+                .unwrap_or_default()
+        },
         is_nullable,
         is_vector: field.is_vector(),
         enum_filter: match &field.field_type {

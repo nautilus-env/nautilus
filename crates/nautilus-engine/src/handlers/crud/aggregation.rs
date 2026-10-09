@@ -150,6 +150,9 @@ pub(super) async fn execute_group_by_rows(
     ensure_aggregate_arg_keys(args, "groupBy", &GROUP_BY_ARG_KEYS)?;
 
     let by_fields = parse_by_fields(args)?;
+    for field in &by_fields {
+        crate::filter::ensure_xml_comparable(field, metadata.field_types(), "groupBy")?;
+    }
 
     let qualified_filter = args
         .and_then(|value| value.get("where"))

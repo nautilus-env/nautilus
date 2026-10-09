@@ -11,7 +11,7 @@
         select: None = None,
         include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[{{ model_name }}ComparableFieldKeys]] = None,
         chunk_size: int = 128,
     ) -> AsyncIterator[{{ model_name }}]: ...
 
@@ -27,7 +27,7 @@
         select: {{ model_name }}SelectInput,
         include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[{{ model_name }}ComparableFieldKeys]] = None,
         chunk_size: int = 128,
     ) -> AsyncIterator[{{ model_name }}Projection]: ...
 
@@ -42,7 +42,7 @@
         select: Optional[{{ model_name }}SelectInput] = None,
         include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[{{ model_name }}ComparableFieldKeys]] = None,
         chunk_size: int = 128,
     ) -> AsyncIterator[Union[{{ model_name }}, {{ model_name }}Projection]]:
         """Stream {{ model_name }} records as they arrive from the engine.
@@ -89,7 +89,7 @@
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
-            args["distinct"] = distinct
+            args["distinct"] = [_{{ table_name }}_py_to_db.get(field, field) for field in distinct]
 
         payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,

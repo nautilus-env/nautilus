@@ -19,7 +19,7 @@ class FindMany{{ field.target_model }}ArgsFrom{{ model_name }}(TypedDict, total=
     skip: NotRequired[int]
     order_by: NotRequired[Union["{{ field.target_model }}OrderByInput", List["{{ field.target_model }}OrderByInput"]]]
     cursor: NotRequired[Dict[str, Any]]
-    distinct: NotRequired[List["{{ field.target_model }}ScalarFieldKeys"]]
+    distinct: NotRequired[List["{{ field.target_model }}ComparableFieldKeys"]]
     {% endif %}
     include: NotRequired["{{ field.target_model }}IncludeRecursive1"]
 
@@ -46,7 +46,7 @@ class FindMany{{ field.target_model }}ArgsFrom{{ model_name }}Recursive{{ d }}(T
     skip: NotRequired[int]
     order_by: NotRequired[Union["{{ field.target_model }}OrderByInput", List["{{ field.target_model }}OrderByInput"]]]
     cursor: NotRequired[Dict[str, Any]]
-    distinct: NotRequired[List["{{ field.target_model }}ScalarFieldKeys"]]
+    distinct: NotRequired[List["{{ field.target_model }}ComparableFieldKeys"]]
     {% endif %}
     {% if d < recursive_type_depth %}
     include: NotRequired["{{ field.target_model }}IncludeRecursive{{ d + 1 }}"]

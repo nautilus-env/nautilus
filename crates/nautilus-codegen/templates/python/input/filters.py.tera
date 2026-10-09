@@ -30,6 +30,12 @@ class DecimalFieldUpdate(TypedDict, total=False):
     divide: NotRequired[Decimal]
 
 
+class NullFilter(TypedDict, total=False):
+    """Null checks for a field whose type has no comparison operators."""
+    is_null: NotRequired[bool]
+    is_not_null: NotRequired[bool]
+
+
 class StringFilter(TypedDict, total=False):
     """String field filter operations."""
     equals: NotRequired[str]

@@ -171,6 +171,19 @@ pub fn json_to_value_field(
         return json_to_geography_value(json);
     }
 
+    if let ResolvedFieldType::Scalar(ScalarType::Xml) = field_type {
+        return match json {
+            serde_json::Value::Null => Ok(Value::Null),
+            serde_json::Value::String(value) => Ok(Value::Extension {
+                value: value.clone(),
+                type_name: "xml".to_string(),
+            }),
+            _ => Err(ProtocolError::InvalidParams(
+                "Xml value must be a string or null".to_string(),
+            )),
+        };
+    }
+
     if let ResolvedFieldType::Scalar(scalar @ (ScalarType::Citext | ScalarType::Ltree)) = field_type
     {
         if let serde_json::Value::String(s) = json {

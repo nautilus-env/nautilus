@@ -233,6 +233,10 @@ impl QueryArgs {
             None
         };
 
+        for field in &distinct {
+            super::validate::ensure_xml_comparable(field, field_types, "distinct")?;
+        }
+
         ensure_nearest_supported(
             nearest.as_ref(),
             take,

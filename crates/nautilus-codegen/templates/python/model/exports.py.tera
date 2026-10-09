@@ -33,6 +33,7 @@ __all__ = [
     "{{ model_name }}OrderByInput",
     "{{ model_name }}SelectInput",
     "{{ model_name }}ScalarFieldKeys",
+    "{{ model_name }}ComparableFieldKeys",
     "{{ model_name }}CountAggregateInput",
 {%- if has_numeric_fields %}
     "{{ model_name }}AvgAggregateInput",
@@ -57,6 +58,7 @@ __all__ = [
 {%- endfor %}
 {%- endif %}
     "StringFilter",
+    "NullFilter",
     "IntFilter",
     "FloatFilter",
     "DecimalFilter",

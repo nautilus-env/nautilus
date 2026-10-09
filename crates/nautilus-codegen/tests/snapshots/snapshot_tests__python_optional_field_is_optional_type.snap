@@ -7,7 +7,7 @@ expression: snapshot_value
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, NotRequired, Optional, Required, ClassVar, TypedDict, Union, cast, overload
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, Never, NotRequired, Optional, Required, ClassVar, TypedDict, Union, cast, overload
 from datetime import datetime
 from uuid import UUID
 from decimal import Decimal
@@ -309,6 +309,12 @@ class DecimalFieldUpdate(TypedDict, total=False):
     divide: NotRequired[Decimal]
 
 
+class NullFilter(TypedDict, total=False):
+    """Null checks for a field whose type has no comparison operators."""
+    is_null: NotRequired[bool]
+    is_not_null: NotRequired[bool]
+
+
 class StringFilter(TypedDict, total=False):
     """String field filter operations."""
     equals: NotRequired[str]
@@ -497,6 +503,7 @@ class PostUpsertInput(TypedDict, total=False):
 
 
 PostScalarFieldKeys = Literal["id", "title", "content"]
+PostComparableFieldKeys = Literal["id", "title", "content"]
 
 SortOrder = Literal["asc", "desc"]
 
@@ -873,7 +880,7 @@ class PostDelegate:
         select: None = None,
         include: Optional[Dict[str, Any]] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[PostComparableFieldKeys]] = None,
         chunk_size: Optional[int] = None,
     ) -> List[Post]: ...
 
@@ -888,7 +895,7 @@ class PostDelegate:
         select: PostSelectInput,
         include: Optional[Dict[str, Any]] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[PostComparableFieldKeys]] = None,
         chunk_size: Optional[int] = None,
     ) -> List[PostProjection]: ...
 
@@ -902,7 +909,7 @@ class PostDelegate:
         select: Optional[PostSelectInput] = None,
         include: Optional[Dict[str, Any]] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[PostComparableFieldKeys]] = None,
         chunk_size: Optional[int] = None,
     ) -> Union[List[Post], List[PostProjection]]:
         """Find all Post records matching the given filters.
@@ -951,7 +958,7 @@ class PostDelegate:
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
-            args["distinct"] = distinct
+            args["distinct"] = [_Post_py_to_db.get(field, field) for field in distinct]
         payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "Post",
@@ -1639,7 +1646,7 @@ class PostDelegate:
         skip: Optional[int] = None,
         select: Optional[PostSelectInput] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[PostComparableFieldKeys]] = None,
         analyze: bool = False,
     ) -> PostExplainOutput:
         """Ask the database to explain the statement :meth:`find_many` would run.
@@ -1676,7 +1683,7 @@ class PostDelegate:
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
-            args["distinct"] = distinct
+            args["distinct"] = [_Post_py_to_db.get(field, field) for field in distinct]
 
         result = self._client._sync_rpc("query.explain", {
             "protocolVersion": PROTOCOL_VERSION,
@@ -1727,7 +1734,7 @@ class PostDelegate:
 
     def group_by(
         self,
-        by: List[PostScalarFieldKeys],
+        by: List[PostComparableFieldKeys],
         *,
         where: Optional[PostWhereInput] = None,
         having: Optional[Dict[str, Any]] = None,
@@ -1741,8 +1748,8 @@ class PostDelegate:
         min: Optional[PostMinAggregateInput] = None,
         max: Optional[PostMaxAggregateInput] = None,
         order: Optional[Union[
-            Dict[PostScalarFieldKeys, SortOrder],
-            List[Dict[PostScalarFieldKeys, SortOrder]],
+            Dict[PostComparableFieldKeys, SortOrder],
+            List[Dict[PostComparableFieldKeys, SortOrder]],
         ]] = None,
     ) -> List[PostGroupByOutput]:
         """Group Post records and compute aggregates.
@@ -1942,6 +1949,7 @@ __all__ = [
     "PostOrderByInput",
     "PostSelectInput",
     "PostScalarFieldKeys",
+    "PostComparableFieldKeys",
     "PostCountAggregateInput",
     "PostAvgAggregateInput",
     "PostSumAggregateInput",
@@ -1952,6 +1960,7 @@ __all__ = [
     "PostExplainOutput",
     "SortOrder",
     "StringFilter",
+    "NullFilter",
     "IntFilter",
     "FloatFilter",
     "DecimalFilter",

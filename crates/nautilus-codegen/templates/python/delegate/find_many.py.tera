@@ -10,7 +10,7 @@
         select: None = None,
         include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[{{ model_name }}ComparableFieldKeys]] = None,
         chunk_size: Optional[int] = None,
     ) -> List[{{ model_name }}]: ...
 
@@ -26,7 +26,7 @@
         select: {{ model_name }}SelectInput,
         include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[{{ model_name }}ComparableFieldKeys]] = None,
         chunk_size: Optional[int] = None,
     ) -> List[{{ model_name }}Projection]: ...
 
@@ -41,7 +41,7 @@
         select: Optional[{{ model_name }}SelectInput] = None,
         include: Optional[{% if has_includes %}{{ model_name }}IncludeInput{% else %}Dict[str, Any]{% endif %}] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[{{ model_name }}ComparableFieldKeys]] = None,
         chunk_size: Optional[int] = None,
     ) -> Union[List[{{ model_name }}], List[{{ model_name }}Projection]]:
         """Find all {{ model_name }} records matching the given filters.
@@ -95,7 +95,7 @@
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
-            args["distinct"] = distinct
+            args["distinct"] = [_{{ table_name }}_py_to_db.get(field, field) for field in distinct]
         payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "{{ model_name }}",

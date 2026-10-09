@@ -8,7 +8,7 @@
         skip: Optional[int] = None,
         select: Optional[{{ model_name }}SelectInput] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[{{ model_name }}ComparableFieldKeys]] = None,
         analyze: bool = False,
     ) -> {{ model_name }}ExplainOutput:
         """Ask the database to explain the statement :meth:`find_many` would run.
@@ -50,7 +50,7 @@
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
-            args["distinct"] = distinct
+            args["distinct"] = [_{{ table_name }}_py_to_db.get(field, field) for field in distinct]
 
         result = {% if is_async %}await self._client._rpc({% else %}self._client._sync_rpc({% endif %}"query.explain", {
             "protocolVersion": PROTOCOL_VERSION,

@@ -86,6 +86,13 @@ pub(super) fn build_find_many_plan(
     model: &ModelIr,
     query_args: QueryArgs,
 ) -> Result<FindManyPlan, ProtocolError> {
+    let field_types = state.model_metadata(model).field_types();
+    for field in &query_args.distinct {
+        crate::filter::ensure_xml_comparable(field, field_types, "distinct")?;
+    }
+    for order in &query_args.order_by {
+        crate::filter::ensure_xml_comparable(&order.column, field_types, "orderBy")?;
+    }
     let QueryArgs {
         filter,
         order_by,

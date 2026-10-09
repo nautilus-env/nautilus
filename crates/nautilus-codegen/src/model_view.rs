@@ -78,6 +78,15 @@ impl FieldView<'_> {
         is_orderable_model_field(self.field)
     }
 
+    /// XML has neither equality nor ordering in PostgreSQL, including arrays
+    /// of XML, so it cannot be a grouping or distinct key.
+    pub(crate) fn is_comparable(&self) -> bool {
+        !matches!(
+            self.field.field_type,
+            ResolvedFieldType::Scalar(ScalarType::Xml)
+        )
+    }
+
     /// `true` when the `_min` and `_max` inputs list the field: the fields the
     /// engine accepts in `min` and `max`.
     pub(crate) fn has_min_and_max(&self) -> bool {

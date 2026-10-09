@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, NotRequired, Optional, Required, ClassVar, TypedDict, Union, cast, overload
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, Never, NotRequired, Optional, Required, ClassVar, TypedDict, Union, cast, overload
 {%- if needs_typeddict %}
 from datetime import datetime
 from uuid import UUID
@@ -63,6 +63,7 @@ if TYPE_CHECKING:
         {{ field.target_model }}WhereInput,
         {{ field.target_model }}OrderByInput,
         {{ field.target_model }}ScalarFieldKeys,
+        {{ field.target_model }}ComparableFieldKeys,
 {%- for depth in range(end=recursive_type_depth) %}
         {{ field.target_model }}IncludeRecursive{{ depth + 1 }},
 {%- endfor %}

@@ -7,7 +7,7 @@ expression: snapshot_value
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, NotRequired, Optional, Required, ClassVar, TypedDict, Union, cast, overload
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, List, Literal, Never, NotRequired, Optional, Required, ClassVar, TypedDict, Union, cast, overload
 from datetime import datetime
 from uuid import UUID
 from decimal import Decimal
@@ -302,6 +302,12 @@ class DecimalFieldUpdate(TypedDict, total=False):
     divide: NotRequired[Decimal]
 
 
+class NullFilter(TypedDict, total=False):
+    """Null checks for a field whose type has no comparison operators."""
+    is_null: NotRequired[bool]
+    is_not_null: NotRequired[bool]
+
+
 class StringFilter(TypedDict, total=False):
     """String field filter operations."""
     equals: NotRequired[str]
@@ -474,6 +480,7 @@ class UserUpsertInput(TypedDict, total=False):
 
 
 UserScalarFieldKeys = Literal["id", "name"]
+UserComparableFieldKeys = Literal["id", "name"]
 
 SortOrder = Literal["asc", "desc"]
 
@@ -832,7 +839,7 @@ class UserDelegate:
         select: None = None,
         include: Optional[Dict[str, Any]] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[UserComparableFieldKeys]] = None,
         chunk_size: Optional[int] = None,
     ) -> List[User]: ...
 
@@ -847,7 +854,7 @@ class UserDelegate:
         select: UserSelectInput,
         include: Optional[Dict[str, Any]] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[UserComparableFieldKeys]] = None,
         chunk_size: Optional[int] = None,
     ) -> List[UserProjection]: ...
 
@@ -861,7 +868,7 @@ class UserDelegate:
         select: Optional[UserSelectInput] = None,
         include: Optional[Dict[str, Any]] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[UserComparableFieldKeys]] = None,
         chunk_size: Optional[int] = None,
     ) -> Union[List[User], List[UserProjection]]:
         """Find all User records matching the given filters.
@@ -910,7 +917,7 @@ class UserDelegate:
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
-            args["distinct"] = distinct
+            args["distinct"] = [_User_py_to_db.get(field, field) for field in distinct]
         payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
             "model": "User",
@@ -936,7 +943,7 @@ class UserDelegate:
         select: None = None,
         include: Optional[Dict[str, Any]] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[UserComparableFieldKeys]] = None,
         chunk_size: int = 128,
     ) -> AsyncIterator[User]: ...
 
@@ -951,7 +958,7 @@ class UserDelegate:
         select: UserSelectInput,
         include: Optional[Dict[str, Any]] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[UserComparableFieldKeys]] = None,
         chunk_size: int = 128,
     ) -> AsyncIterator[UserProjection]: ...
 
@@ -965,7 +972,7 @@ class UserDelegate:
         select: Optional[UserSelectInput] = None,
         include: Optional[Dict[str, Any]] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[UserComparableFieldKeys]] = None,
         chunk_size: int = 128,
     ) -> AsyncIterator[Union[User, UserProjection]]:
         """Stream User records as they arrive from the engine.
@@ -1008,7 +1015,7 @@ class UserDelegate:
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
-            args["distinct"] = distinct
+            args["distinct"] = [_User_py_to_db.get(field, field) for field in distinct]
 
         payload: Dict[str, Any] = {
             "protocolVersion": PROTOCOL_VERSION,
@@ -1695,7 +1702,7 @@ class UserDelegate:
         skip: Optional[int] = None,
         select: Optional[UserSelectInput] = None,
         cursor: Optional[Dict[str, Any]] = None,
-        distinct: Optional[List[str]] = None,
+        distinct: Optional[List[UserComparableFieldKeys]] = None,
         analyze: bool = False,
     ) -> UserExplainOutput:
         """Ask the database to explain the statement :meth:`find_many` would run.
@@ -1732,7 +1739,7 @@ class UserDelegate:
         if cursor is not None:
             args["cursor"] = cursor
         if distinct is not None:
-            args["distinct"] = distinct
+            args["distinct"] = [_User_py_to_db.get(field, field) for field in distinct]
 
         result = await self._client._rpc("query.explain", {
             "protocolVersion": PROTOCOL_VERSION,
@@ -1783,7 +1790,7 @@ class UserDelegate:
 
     async def group_by(
         self,
-        by: List[UserScalarFieldKeys],
+        by: List[UserComparableFieldKeys],
         *,
         where: Optional[UserWhereInput] = None,
         having: Optional[Dict[str, Any]] = None,
@@ -1797,8 +1804,8 @@ class UserDelegate:
         min: Optional[UserMinAggregateInput] = None,
         max: Optional[UserMaxAggregateInput] = None,
         order: Optional[Union[
-            Dict[UserScalarFieldKeys, SortOrder],
-            List[Dict[UserScalarFieldKeys, SortOrder]],
+            Dict[UserComparableFieldKeys, SortOrder],
+            List[Dict[UserComparableFieldKeys, SortOrder]],
         ]] = None,
     ) -> List[UserGroupByOutput]:
         """Group User records and compute aggregates.
@@ -1998,6 +2005,7 @@ __all__ = [
     "UserOrderByInput",
     "UserSelectInput",
     "UserScalarFieldKeys",
+    "UserComparableFieldKeys",
     "UserCountAggregateInput",
     "UserAvgAggregateInput",
     "UserSumAggregateInput",
@@ -2008,6 +2016,7 @@ __all__ = [
     "UserExplainOutput",
     "SortOrder",
     "StringFilter",
+    "NullFilter",
     "IntFilter",
     "FloatFilter",
     "DecimalFilter",

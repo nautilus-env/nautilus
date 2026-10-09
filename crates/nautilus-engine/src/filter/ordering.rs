@@ -28,6 +28,9 @@ pub(super) fn parse_order_by(
         })?;
 
         for (field, direction) in obj {
+            if let Some(types) = field_types {
+                super::validate::ensure_xml_comparable(field, types, "orderBy")?;
+            }
             let dir_str = direction.as_str().ok_or_else(|| {
                 ProtocolError::InvalidFilter("orderBy direction must be a string".to_string())
             })?;
@@ -133,6 +136,7 @@ pub(crate) fn parse_group_by_order_by(
     logical_to_db: &HashMap<String, String>,
 ) -> Result<Vec<GroupByOrderItem>, ProtocolError> {
     let table = model.db_name.as_str();
+    let field_types = crate::metadata::build_field_type_map(model);
     let order_array = order_value
         .as_array()
         .ok_or_else(|| ProtocolError::InvalidFilter("orderBy must be an array".to_string()))?;
@@ -161,6 +165,9 @@ pub(crate) fn parse_group_by_order_by(
                         ))
                     })?;
                     for (field, dir_val) in inner {
+                        if agg_fn != "COUNT" {
+                            super::validate::ensure_xml_comparable(field, &field_types, key)?;
+                        }
                         let dir_str = dir_val.as_str().ok_or_else(|| {
                             ProtocolError::InvalidFilter(
                                 "orderBy direction must be a string".to_string(),
@@ -181,6 +188,7 @@ pub(crate) fn parse_group_by_order_by(
                     }
                 }
                 _ => {
+                    super::validate::ensure_xml_comparable(key, &field_types, "groupBy orderBy")?;
                     let dir_str = value.as_str().ok_or_else(|| {
                         ProtocolError::InvalidFilter(
                             "orderBy direction must be a string".to_string(),
@@ -255,6 +263,7 @@ pub(crate) fn parse_having(
     logical_to_db: &HashMap<String, String>,
 ) -> Result<Expr, ProtocolError> {
     let table = model.db_name.as_str();
+    let field_types = crate::metadata::build_field_type_map(model);
     let obj = having_value
         .as_object()
         .ok_or_else(|| ProtocolError::InvalidFilter("having must be an object".to_string()))?;
@@ -267,6 +276,13 @@ pub(crate) fn parse_having(
                 ProtocolError::InvalidFilter(format!("having.{} must be an object", key))
             })?;
             for (field, filter_val) in fields_obj {
+                if agg_fn != "COUNT" {
+                    super::validate::ensure_xml_comparable(
+                        field,
+                        &field_types,
+                        "having aggregate",
+                    )?;
+                }
                 let agg_expr = aggregate_call(
                     agg_fn,
                     model,
@@ -288,13 +304,24 @@ pub(crate) fn parse_having(
         for (inner_key, filter_val) in inner {
             match having_aggregate_fn(inner_key) {
                 Some(agg_fn) => {
+                    if agg_fn != "COUNT" {
+                        super::validate::ensure_xml_comparable(
+                            key,
+                            &field_types,
+                            "having aggregate",
+                        )?;
+                    }
                     let agg_expr = aggregate_call(agg_fn, model, key, column.clone());
                     let operators =
                         having_operators(filter_val, &format!("{}.{}", key, inner_key))?;
                     nested.push(parse_field_operators(agg_expr, operators, None)?);
                 }
                 None => {
-                    nested.push(parse_field_operators(column.clone(), inner, None)?);
+                    nested.push(parse_field_operators(
+                        column.clone(),
+                        inner,
+                        field_types.get(key).map(|field| &field.field_type),
+                    )?);
                     break;
                 }
             }

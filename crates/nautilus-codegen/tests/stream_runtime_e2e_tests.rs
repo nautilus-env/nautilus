@@ -517,6 +517,24 @@ fn generated_js_enum_filters_compile() {
     );
 }
 
+#[test]
+fn generated_js_xml_inputs_compile() {
+    let Some(dependencies) = typescript_dependencies() else {
+        return;
+    };
+    check_typescript_consumer(
+        &dependencies,
+        &validate(
+            r#"
+datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+model Order { id Int @id invoice Xml? region String }
+"#,
+        ),
+        include_str!("fixtures/stream_runtime_e2e/js_xml_consumer.ts"),
+        "generated TypeScript XML inputs",
+    );
+}
+
 fn java_test_classpath() -> Option<OsString> {
     if let Some(explicit) = env::var_os("NAUTILUS_JAVA_TEST_CLASSPATH") {
         if !explicit.is_empty() {
@@ -647,21 +665,28 @@ fn generated_python_stream_many_early_break_cleans_up() {
 
 /// Generate the async Python client of `schema` into `./pyclient` and run
 /// `runner` beside it against a SQLite database named `database`, which the
-/// runner creates. `None` when Python is missing.
+/// runner creates, or a PostgreSQL URL. `None` when Python is missing.
 fn run_generated_python(
     schema: &str,
     database: &str,
     runner: (&str, &str),
     context: &str,
 ) -> Option<BTreeMap<String, String>> {
-    let python = python_executable()?;
+    let python = env::var("NAUTILUS_PYTHON")
+        .ok()
+        .or_else(|| python_executable().map(str::to_string))?;
     let dir = tempfile::tempdir_in(workspace_root()).unwrap();
     let root = dir.path();
     let schema_path = root.join("schema.nautilus");
-    let database_url = format!(
-        "sqlite:///{}",
-        root.join(database).to_string_lossy().replace('\\', "/")
-    );
+    let postgres = database.starts_with("postgresql://") || database.starts_with("postgres://");
+    let database_url = if postgres {
+        database.to_string()
+    } else {
+        format!(
+            "sqlite:///{}",
+            root.join(database).to_string_lossy().replace('\\', "/")
+        )
+    };
     fs::write(
         &schema_path,
         schema.replace(
@@ -679,7 +704,9 @@ fn run_generated_python(
         },
     )
     .unwrap();
-    fs::write(root.join("pydantic.py"), PYDANTIC_STUB).unwrap();
+    if !postgres {
+        fs::write(root.join("pydantic.py"), PYDANTIC_STUB).unwrap();
+    }
     let (runner_name, runner_source) = runner;
     let runner_path = root.join(runner_name);
     fs::write(&runner_path, runner_source).unwrap();
@@ -692,6 +719,41 @@ fn run_generated_python(
         context,
     );
     Some(parse_key_values(&output))
+}
+
+#[test]
+#[ignore = "requires PostgreSQL and Pydantic; set NAUTILUS_TEST_POSTGRES_URL"]
+fn generated_python_postgres_xml_round_trip() {
+    let database = env::var("NAUTILUS_TEST_POSTGRES_URL").expect("PostgreSQL test URL");
+    let table = format!(
+        "xml_client_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let source = format!(
+        r#"
+datasource db {{ provider = "postgresql" url = env("DATABASE_URL") }}
+generator client {{ provider = "nautilus-client-py" interface = "async" output = "./pyclient" }}
+model Order {{
+  id Int @id
+  invoice Xml? @map("invoice_xml")
+  regionName String @map("region_code")
+  @@map("{table}")
+}}
+"#
+    );
+    let runner =
+        include_str!("fixtures/stream_runtime_e2e/run_python_xml.py").replace("__TABLE__", &table);
+    let values = run_generated_python(
+        &source,
+        &database,
+        ("run_python_xml.py", &runner),
+        "Python PostgreSQL XML",
+    )
+    .expect("Python prerequisites");
+    assert_eq!(values.get("xml").map(String::as_str), Some("ok"));
 }
 
 #[test]

@@ -1,6 +1,6 @@
     {% if is_async %}async {% endif %}def group_by(
         self,
-        by: List[{{ model_name }}ScalarFieldKeys],
+        by: List[{{ model_name }}ComparableFieldKeys],
         *,
         where: Optional[{{ model_name }}WhereInput] = None,
         having: Optional[Dict[str, Any]] = None,
@@ -14,8 +14,8 @@
         min: Optional[{{ model_name }}MinAggregateInput] = None,
         max: Optional[{{ model_name }}MaxAggregateInput] = None,
         order: Optional[Union[
-            Dict[{{ model_name }}ScalarFieldKeys, SortOrder],
-            List[Dict[{{ model_name }}ScalarFieldKeys, SortOrder]],
+            Dict[{{ model_name }}ComparableFieldKeys, SortOrder],
+            List[Dict[{{ model_name }}ComparableFieldKeys, SortOrder]],
         ]] = None,
     ) -> List[{{ model_name }}GroupByOutput]:
         """Group {{ model_name }} records and compute aggregates.

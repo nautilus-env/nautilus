@@ -1,4 +1,5 @@
 {{ model_name }}ScalarFieldKeys = Literal[{% for field in scalar_fields %}"{{ field.name }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+{{ model_name }}ComparableFieldKeys = {% if comparable_field_names %}Literal[{% for name in comparable_field_names %}"{{ name }}"{% if not loop.last %}, {% endif %}{% endfor %}]{% else %}Never{% endif %}
 
 SortOrder = Literal["asc", "desc"]
 

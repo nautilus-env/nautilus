@@ -22,6 +22,11 @@ export interface JsonObject {
 export type JsonScalarOrArray = JsonPrimitive | JsonValue[];
 export type HstoreValue = Record<string, string | null>;
 
+export interface NullFilter {
+  isNull?: boolean;
+  isNotNull?: boolean;
+}
+
 export interface StringFilter {
   contains?:   string;
   startsWith?: string;
@@ -196,7 +201,7 @@ export interface FindMany{{ field.target_model }}ArgsFrom{{ model_name }} {
   take?:     number;
   skip?:     number;
   cursor?:   Record<string, unknown>;
-  distinct?: string[];
+  distinct?: {{ field.target_model }}ComparableFieldKeys[];
 {%- endif %}
   include?:  {{ field.target_model }}IncludeInput;
 }
@@ -210,4 +215,5 @@ export interface {{ model_name }}UpsertInput {
 }
 
 export type {{ model_name }}ScalarFieldKeys = {% for f in scalar_fields %}'{{ f.name }}'{% if not loop.last %} | {% endif %}{% endfor %};
+export type {{ model_name }}ComparableFieldKeys = {% if comparable_field_names %}{% for name in comparable_field_names %}'{{ name }}'{% if not loop.last %} | {% endif %}{% endfor %}{% else %}never{% endif %};
 

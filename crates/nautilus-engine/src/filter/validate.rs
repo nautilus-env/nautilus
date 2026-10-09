@@ -3,7 +3,29 @@
 
 use nautilus_protocol::ProtocolError;
 
+use super::types::FieldTypeMap;
 use super::types::VectorNearestQuery;
+use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
+
+/// PostgreSQL XML has no equality or ordering, so neither a scalar XML
+/// column nor an XML array can be compared as a query key.
+pub(crate) fn ensure_xml_comparable(
+    field: &str,
+    field_types: &FieldTypeMap,
+    operation: &str,
+) -> Result<(), ProtocolError> {
+    let column = field.split_once("__").map_or(field, |(_, column)| column);
+    if field_types
+        .get(column)
+        .is_some_and(|field| matches!(field.field_type, ResolvedFieldType::Scalar(ScalarType::Xml)))
+    {
+        return Err(ProtocolError::InvalidFilter(format!(
+            "Xml field '{}' cannot be used with {} because XML has no comparison operators",
+            field, operation
+        )));
+    }
+    Ok(())
+}
 
 /// Refuse a request that both projects columns and eager-loads relations.
 pub(super) fn ensure_select_include_exclusive<T>(

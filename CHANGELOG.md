@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **PostgreSQL XML fields.** XML strings are now cast to `xml` on writes,
+  including batch writes and upserts. Generated Python and JavaScript inputs
+  offer only null checks for XML predicates and exclude XML from ordering,
+  grouping and distinct keys; Java's filter DSL no longer offers equality or
+  string operators. The engine rejects unsupported XML comparisons before
+  querying, including nested filters and grouped ordering or `having`.
+  Reads, projections, null checks and field counts remain supported.
+
 - **Python async client context managers.** `async with Nautilus() as client`
   now retains the generated client's type, including its model delegates,
   instead of exposing only the runtime base class to type checkers. Subclasses

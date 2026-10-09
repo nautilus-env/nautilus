@@ -41,6 +41,7 @@
         }
 
 {%- for field in scalar_fields %}
+{%- if field.accepts_equality %}
         public Where {{ field.name }}({{ field.java_type }} value) {
             Filters.equals(this.node, "{{ field.db_name }}", value);
             return this;
@@ -51,6 +52,7 @@
             return {{ field.name }}(new {{ field.java_type }}(value));
         }
 
+{%- endif %}
 {%- endif %}
 {%- for op in field.filter_ops %}
         public Where {{ field.name }}{{ op.suffix_pascal }}({{ op.java_type }} value) {

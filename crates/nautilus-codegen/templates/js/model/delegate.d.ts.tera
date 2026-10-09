@@ -66,7 +66,7 @@ export interface {{ model_name }}FindManyArgs {
   select?:   {{ model_name }}SelectInput;
   include?:  {% if has_includes %}{{ model_name }}IncludeInput{% else %}Record<string, unknown>{% endif %};
   cursor?:   Record<string, unknown>;
-  distinct?: string[];
+  distinct?: {{ model_name }}ComparableFieldKeys[];
   chunkSize?: number;
 }
 
@@ -227,7 +227,7 @@ export declare class {{ delegate_name }} {
 {% endif %}
 
   groupBy(args: {
-    by:      {{ model_name }}ScalarFieldKeys[];
+    by:      {{ model_name }}ComparableFieldKeys[];
     where?:  {{ model_name }}WhereInput;
     having?: Record<string, unknown>;
     take?:   number;
@@ -239,7 +239,7 @@ export declare class {{ delegate_name }} {
 {%- endif %}
     min?:    {{ model_name }}MinAggregateInput;
     max?:    {{ model_name }}MaxAggregateInput;
-    order?:  Record<string, SortOrder> | Record<string, SortOrder>[];
+    order?:  Partial<Record<{{ model_name }}ComparableFieldKeys, SortOrder>> | Partial<Record<{{ model_name }}ComparableFieldKeys, SortOrder>>[];
   }): Promise<{{ model_name }}GroupByOutput[]>;
 }
 

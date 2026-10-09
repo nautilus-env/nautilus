@@ -28,4 +28,5 @@ pub(crate) use ordering::{
     aggregate_call, parse_group_by_order_by, parse_having, GroupByOrderItem,
 };
 pub(crate) use types::{FieldTypeMap, FilterFieldType};
+pub(crate) use validate::ensure_xml_comparable;
 pub(crate) use where_filter::{parse_where_filter, qualify_filter_columns};

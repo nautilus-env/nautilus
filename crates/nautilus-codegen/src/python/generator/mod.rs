@@ -78,6 +78,15 @@ fn model_context(
     insert_derived_names(&mut context, &view);
 
     context.insert("primary_key_fields", &view.primary_key_fields);
+    context.insert(
+        "comparable_field_names",
+        &view
+            .scalars
+            .iter()
+            .filter(|field| field.is_comparable())
+            .map(|field| field.snake_name())
+            .collect::<Vec<_>>(),
+    );
 
     let fields = build_scalar_fields(&view, ir, extensions);
 

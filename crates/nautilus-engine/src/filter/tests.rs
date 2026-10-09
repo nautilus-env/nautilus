@@ -9,6 +9,104 @@ use nautilus_protocol::ProtocolError;
 use nautilus_schema::validate_schema_source;
 use serde_json::json;
 
+#[test]
+fn xml_filters_accept_only_null_checks_even_in_nested_requests() {
+    let ir = parse_ir(
+        r#"
+datasource db { provider = "postgresql" url = "postgresql://unused/unused" }
+model Customer { id Int @id orders Order[] }
+model Order {
+  id Int @id
+  invoice Xml? @map("invoice_xml")
+  customerId Int
+  customer Customer @relation(fields: [customerId], references: [id])
+}
+"#,
+    );
+    let order = &ir.models["Order"];
+    let fields = crate::metadata::build_field_type_map(order);
+    let relations = crate::metadata::build_relation_map(order, &ir.models).unwrap();
+    for field in ["invoice", "invoice_xml"] {
+        for op in [
+            "eq",
+            "ne",
+            "not",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "contains",
+            "startsWith",
+            "endsWith",
+            "in",
+            "notIn",
+        ] {
+            let value = if matches!(op, "in" | "notIn") {
+                json!(["<a/>"])
+            } else {
+                json!("<a/>")
+            };
+            assert!(
+                QueryArgs::parse_with_context(
+                    Some(json!({"where": {field: {op: value}}})),
+                    &relations,
+                    &fields,
+                    SchemaContext::with_models(&ir.models)
+                )
+                .is_err(),
+                "{op}"
+            );
+        }
+        for args in [
+            json!({"where": {field: 1}}),
+            json!({"where": {"NOT": {field: "<a/>"}}}),
+            json!({"orderBy": [{field: "asc"}]}),
+            json!({"orderBy": [{format!("orders__{field}"): "desc"}]}),
+            json!({"distinct": [field]}),
+        ] {
+            let error = QueryArgs::parse_with_context(
+                Some(args),
+                &relations,
+                &fields,
+                SchemaContext::with_models(&ir.models),
+            )
+            .unwrap_err();
+            assert!(matches!(error, ProtocolError::InvalidFilter(_)), "{error}");
+        }
+        for predicate in [
+            json!({"isNull": true}),
+            json!({"isNotNull": false}),
+            json!(null),
+            json!({"eq": null}),
+        ] {
+            QueryArgs::parse_with_context(
+                Some(json!({"where": {field: predicate}})),
+                &relations,
+                &fields,
+                SchemaContext::with_models(&ir.models),
+            )
+            .unwrap();
+        }
+    }
+    let customer = &ir.models["Customer"];
+    let relations = crate::metadata::build_relation_map(customer, &ir.models).unwrap();
+    let fields = crate::metadata::build_field_type_map(customer);
+    for args in [
+        json!({"where": {"orders": {"some": {"invoice": "<a/>"}}}}),
+        json!({"include": {"orders": {"where": {"invoice": {"contains": "a"}}}}}),
+        json!({"include": {"orders": {"orderBy": [{"invoice_xml": "asc"}]}}}),
+    ] {
+        let error = QueryArgs::parse_with_context(
+            Some(args),
+            &relations,
+            &fields,
+            SchemaContext::with_models(&ir.models),
+        )
+        .unwrap_err();
+        assert!(matches!(error, ProtocolError::InvalidFilter(_)), "{error}");
+    }
+}
+
 /// A pgvector-enabled schema; the tests below are about the filter, not it.
 const VECTOR_USER_SCHEMA: &str = r#"
 datasource db {

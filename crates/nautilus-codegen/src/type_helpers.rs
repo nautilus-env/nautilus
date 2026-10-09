@@ -67,6 +67,7 @@ pub(crate) fn is_orderable_resolved_type(field_type: &ResolvedFieldType) -> bool
             | ScalarType::Geometry
             | ScalarType::Geography
             | ScalarType::Vector { .. }
+            | ScalarType::Xml
             | ScalarType::Bytes,
         ) => false,
         ResolvedFieldType::Scalar(_) => true,

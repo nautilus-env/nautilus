@@ -51,6 +51,15 @@ fn generate_js_model_with_registry(
     let fields = build_scalar_fields(&view, ir, extensions);
 
     context.insert("scalar_fields", &fields.scalar);
+    context.insert(
+        "comparable_field_names",
+        &view
+            .scalars
+            .iter()
+            .filter(|field| field.is_comparable())
+            .map(|field| field.logical_name())
+            .collect::<Vec<_>>(),
+    );
     context.insert("relation_fields", &build_relation_fields(&view));
     context.insert("where_input_fields", &fields.where_input);
     context.insert("create_input_fields", &fields.create_input);

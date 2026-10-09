@@ -15,6 +15,11 @@ export interface JsonObject {
 export type JsonScalarOrArray = JsonPrimitive | JsonValue[];
 export type HstoreValue = Record<string, string | null>;
 
+export interface NullFilter {
+  isNull?: boolean;
+  isNotNull?: boolean;
+}
+
 export interface StringFilter {
   contains?:   string;
   startsWith?: string;
@@ -123,6 +128,7 @@ export interface UserUpsertInput {
 }
 
 export type UserScalarFieldKeys = 'id' | 'displayName';
+export type UserComparableFieldKeys = 'id' | 'displayName';
 
 export interface UserCreateEventArgs {
   data: UserCreateInput;
@@ -309,7 +315,7 @@ export interface UserFindManyArgs {
   select?:   UserSelectInput;
   include?:  Record<string, unknown>;
   cursor?:   Record<string, unknown>;
-  distinct?: string[];
+  distinct?: UserComparableFieldKeys[];
   chunkSize?: number;
 }
 
@@ -451,7 +457,7 @@ export declare class UserDelegate {
 
 
   groupBy(args: {
-    by:      UserScalarFieldKeys[];
+    by:      UserComparableFieldKeys[];
     where?:  UserWhereInput;
     having?: Record<string, unknown>;
     take?:   number;
@@ -461,7 +467,7 @@ export declare class UserDelegate {
     sum?:    UserSumAggregateInput;
     min?:    UserMinAggregateInput;
     max?:    UserMaxAggregateInput;
-    order?:  Record<string, SortOrder> | Record<string, SortOrder>[];
+    order?:  Partial<Record<UserComparableFieldKeys, SortOrder>> | Partial<Record<UserComparableFieldKeys, SortOrder>>[];
   }): Promise<UserGroupByOutput[]>;
 }
 

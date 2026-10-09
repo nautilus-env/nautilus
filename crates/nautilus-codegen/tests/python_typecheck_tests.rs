@@ -105,7 +105,7 @@ async def subclass_context() -> None:
     }
     if source == SCHEMA {
         consumer.push_str(&format!(
-            "\n\n{async_def}def lists(client: Nautilus) -> None:\n"
+            "\n\nfrom generated.enums import OrderStatus\n\n{async_def}def lists(client: Nautilus) -> None:\n"
         ));
         for field in LIST_FIELDS {
             consumer.push_str(&format!(
@@ -113,6 +113,7 @@ async def subclass_context() -> None:
             ));
         }
         consumer.push_str(&format!("    {await_call}client.order.aggregate(avg={{\"weight\": True}}, sum={{\"quantity\": True}}, count={{\"weights\": True}})\n"));
+        consumer.push_str(&format!("    {await_call}client.order.create(data={{\"status\": OrderStatus.PENDING, \"customerId\": 1, \"xmlNote\": \"<a/>\"}})\n    {await_call}client.order.update(data={{\"xmlNote\": None}})\n    {await_call}client.order.find_many(where={{\"xmlNote\": {{\"is_null\": True}}}})\n    {await_call}client.order.find_many(where={{\"xmlNote\": {{\"is_not_null\": False}}}})\n    {await_call}client.order.aggregate(count={{\"xml_note\": True}})\n    {await_call}client.order.group_by([\"note\"], count={{\"xml_note\": True}}, order={{\"note\": \"asc\"}})\n"));
     }
     fs::write(fixture.path().join("app.py"), consumer).unwrap();
     let imports = Command::new(&python)
@@ -249,6 +250,28 @@ async def subclass_context() -> None:
                 invalid.push_str(&format!("    {await_call}client.order.{call}\n"));
                 expected_errors += 1;
             }
+        }
+        for call in [
+            "find_many(where={\"xmlNote\": \"<a/>\"})",
+            "find_many(where={\"xmlNote\": {\"equals\": \"<a/>\"}})",
+            "find_many(where={\"xmlNote\": {\"contains\": \"a\"}})",
+            "find_many(where={\"xmlNote\": {\"is_null\": \"true\"}})",
+            "find_many(order_by={\"xmlNote\": \"asc\"})",
+            "find_many(distinct=[\"xmlNote\"])",
+            "stream_many(distinct=[\"xmlNote\"])",
+            "explain(distinct=[\"xmlNote\"])",
+            "group_by([\"xmlNote\"])",
+            "group_by([\"note\"], order={\"xmlNote\": \"asc\"})",
+            "aggregate(min={\"xml_note\": True})",
+            "aggregate(max={\"xml_note\": True})",
+        ] {
+            let prefix = if call.starts_with("stream_many") {
+                ""
+            } else {
+                await_call
+            };
+            invalid.push_str(&format!("    {prefix}client.order.{call}\n"));
+            expected_errors += 1;
         }
         fs::write(invalid_path, invalid).unwrap();
     }
