@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Enum array fields in the Python client.** The generated client converted
+  an enum array field by calling the enum class on the whole list, so every
+  read of a model with such a field raised `ValueError: ['PENDING', 'SHIPPED']
+  is not a valid OrderStatus`: full reads, `select` projections that named the
+  field, and the rows `create` and `update` return, after the write had
+  already succeeded. Each element now becomes a member of the enum, and an
+  empty array reads as `[]`.
 - **`count` with a `cursor`.** `count` accepted a `cursor` but left it out of
   the query, so it counted from the first matching row: on the rows 1 to 4, a
   cursor on 3 with `take: 10` found two rows with `findMany` and counted four.

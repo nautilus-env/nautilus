@@ -12,7 +12,9 @@ _{{ table_name }}_fields: frozenset = frozenset({
 
 _{{ table_name }}_scalar_coercers: Dict[str, Any] = {
 {%- for f in scalar_fields %}
-{%- if f.is_enum %}
+{%- if f.is_enum and f.is_array %}
+    "{{ f.name }}": lambda v: [{{ f.base_type }}(item) for item in v] if isinstance(v, list) else v,
+{%- elif f.is_enum %}
     "{{ f.name }}": {{ f.base_type }},
 {%- elif f.extension_coercer %}
     "{{ f.name }}": {{ f.extension_coercer }},

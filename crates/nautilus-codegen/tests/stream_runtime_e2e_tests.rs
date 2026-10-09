@@ -791,6 +791,39 @@ model Product {
     assert_eq!(values.get("value_types").map(String::as_str), Some("ok"));
 }
 
+/// The elements of an enum array field become members of the enum in the
+/// rows a write returns, full reads and `select` projections, empty arrays
+/// included.
+#[test]
+fn generated_python_decodes_enum_array_elements() {
+    let Some(values) = run_generated_python(
+        r#"
+datasource db { provider = "sqlite" url = env("DATABASE_URL") }
+generator client { provider = "nautilus-client-py" interface = "async" output = "./pyclient" }
+enum OrderStatus {
+  PENDING
+  SHIPPED
+  DELIVERED
+}
+model Order {
+  id      Int           @id
+  status  OrderStatus
+  history OrderStatus[] @store(json)
+  @@map("orders")
+}
+"#,
+        "enum_arrays.sqlite",
+        (
+            "run_python_enum_arrays.py",
+            include_str!("fixtures/stream_runtime_e2e/run_python_enum_arrays.py"),
+        ),
+        "Python enum arrays",
+    ) else {
+        return;
+    };
+    assert_eq!(values.get("enum_arrays").map(String::as_str), Some("ok"));
+}
+
 /// A response line longer than the reader's 16 MB buffer arrives whole, and
 /// the client keeps answering after it.
 #[test]
