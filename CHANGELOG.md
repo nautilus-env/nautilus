@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- **Index labels in `db status` and `db push`.** The change list printed an
+  index added without `type:` as `ADDINDEX`, and a unique one as
+  `ADD UNIQUEINDEX`, because only the access method brought spaces around it.
+  The label now separates every word: `ADD INDEX`, `ADD UNIQUE INDEX`,
+  `ADD Hash INDEX`. Only the label was wrong; the generated SQL was not.
 - **Column order of compound primary keys.** The migration diff compared a
   compound primary key as a set of columns, so a live key on
   `(line_no, order_id)` matched `@@id([orderId, lineNo])`: `db status` saw no

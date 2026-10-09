@@ -543,6 +543,40 @@ fn index_added_with_pgvector_hnsw_options_postgres() {
 }
 
 #[test]
+fn index_added_description_spaces_its_words() {
+    use nautilus_schema::ir::{BasicIndexType, IndexKind};
+
+    let describe = |unique: bool, kind: IndexKind| {
+        Change::IndexAdded {
+            table: TableName::new("orders"),
+            columns: vec!["customer_id".to_string(), "placed_at".to_string()],
+            unique,
+            kind,
+            index_name: None,
+            predicate: None,
+        }
+        .describe()
+    };
+
+    let plain = describe(false, IndexKind::Default);
+    assert_eq!(plain.sigil, "+");
+    assert_eq!(plain.subject, "orders (customer_id, placed_at)");
+    assert_eq!(plain.annotation, "ADD INDEX (safe)");
+    assert_eq!(
+        describe(true, IndexKind::Default).annotation,
+        "ADD UNIQUE INDEX (safe)"
+    );
+    assert_eq!(
+        describe(false, IndexKind::Basic(BasicIndexType::Hash)).annotation,
+        "ADD Hash INDEX (safe)"
+    );
+    assert_eq!(
+        describe(true, IndexKind::Basic(BasicIndexType::BTree)).annotation,
+        "ADD UNIQUE BTree INDEX (safe)"
+    );
+}
+
+#[test]
 fn foreign_key_added_generates_sql_postgres() {
     let ir = common::parse("model User { id Int @id }").unwrap();
     let live = LiveSchema::default();

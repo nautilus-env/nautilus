@@ -452,15 +452,13 @@ impl Change {
                 kind,
                 ..
             } => ("+", format!("{} ({})", table, columns.join(", ")), {
-                let type_str = kind
-                    .as_type_str()
-                    .map(|t| format!(" {} ", t))
-                    .unwrap_or_default();
+                let mut words = vec!["ADD"];
                 if *unique {
-                    format!("ADD UNIQUE{}INDEX (safe)", type_str)
-                } else {
-                    format!("ADD{}INDEX (safe)", type_str)
+                    words.push("UNIQUE");
                 }
+                words.extend(kind.as_type_str());
+                words.push("INDEX");
+                format!("{} (safe)", words.join(" "))
             }),
             Change::IndexDropped { table, columns, .. } => (
                 "-",
