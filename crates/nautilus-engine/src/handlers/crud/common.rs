@@ -3,7 +3,7 @@
 //! methods accept.
 
 use nautilus_connector::Row;
-use nautilus_core::Expr;
+use nautilus_core::{build_cursor_predicate, Expr, Value};
 use nautilus_dialect::Sql;
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::ModelIr;
@@ -11,6 +11,7 @@ use serde_json::Value as JsonValue;
 
 use crate::conversion::{normalize_rows_with_hints, rows_to_raw_json, ValueHint};
 use crate::filter::qualify_filter_columns;
+use crate::metadata::PrimaryKeyFieldMetadata;
 use crate::state::EngineState;
 
 pub(super) enum MutationResultData {
@@ -141,6 +142,24 @@ pub(super) fn qualify_model_filter(
     filter: Option<Expr>,
 ) -> Option<Expr> {
     filter.map(|expr| qualify_filter_columns(expr, &model.db_name, logical_to_db))
+}
+
+/// The keyset predicate a `cursor` adds to the filter: the rows whose primary
+/// key is at or after the cursor's, or at or before it when `backward`.
+///
+/// `findMany` and `count` share it, so a count over a cursor window counts the
+/// rows that page returns.
+pub(super) fn cursor_predicate(
+    pk_fields: &[PrimaryKeyFieldMetadata],
+    cursor: &std::collections::HashMap<String, Value>,
+    backward: bool,
+) -> Result<Expr, ProtocolError> {
+    let pk_refs: Vec<(&str, &str)> = pk_fields
+        .iter()
+        .map(|field| (field.logical_name(), field.qualified_column()))
+        .collect();
+    build_cursor_predicate(&pk_refs, cursor, backward)
+        .map_err(|e| ProtocolError::InvalidParams(format!("Invalid cursor: {}", e)))
 }
 
 /// Unwrap a `{ "where": { ... } }` envelope down to the filter body.

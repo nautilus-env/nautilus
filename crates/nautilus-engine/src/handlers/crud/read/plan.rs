@@ -9,9 +9,7 @@
 use std::collections::HashMap;
 
 use nautilus_connector::Row;
-use nautilus_core::{
-    build_cursor_predicate, Expr, OrderDir, Select, SelectCapacity, SelectItem, Value,
-};
+use nautilus_core::{Expr, OrderDir, Select, SelectCapacity, SelectItem, Value};
 use nautilus_dialect::Sql;
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::ModelIr;
@@ -19,6 +17,7 @@ use nautilus_schema::ir::ModelIr;
 use super::ordering::{resolve_order_target, ResolvedOrderTarget};
 use crate::conversion::ValueHint;
 use crate::filter::{qualify_filter_columns, IncludeNode, QueryArgs};
+use crate::handlers::crud::common::cursor_predicate;
 use crate::state::EngineState;
 
 /// Pre-execution artefact produced by [`build_find_many_plan`].
@@ -133,13 +132,7 @@ pub(super) fn build_find_many_plan(
     }
 
     let combined_filter = if let Some(ref cursor_map) = cursor {
-        let pk_refs: Vec<(&str, &str)> = pk_fields
-            .iter()
-            .map(|field| (field.logical_name(), field.qualified_column()))
-            .collect();
-
-        let cursor_pred = build_cursor_predicate(&pk_refs, cursor_map, backward)
-            .map_err(|e| ProtocolError::InvalidParams(format!("Invalid cursor: {}", e)))?;
+        let cursor_pred = cursor_predicate(pk_fields, cursor_map, backward)?;
 
         let existing_order_cols: std::collections::HashSet<&str> =
             order_by.iter().map(|order| order.column.as_str()).collect();

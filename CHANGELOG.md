@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **`count` with a `cursor`.** `count` accepted a `cursor` but left it out of
+  the query, so it counted from the first matching row: on the rows 1 to 4, a
+  cursor on 3 with `take: 10` found two rows with `findMany` and counted four.
+  The cursor now keeps the rows from its own on, or up to it with a negative
+  `take`, as in `findMany`, so `count` equals the length of the `findMany` with
+  the same arguments, with and without `take` and `skip`.
 - **`Decimal`, `Uuid` and `DateTime[]` values in Python projections.** The
   engine sends these values as text. A full model read converted them through
   pydantic, but a `select` projection, the grouped values of `group_by` and

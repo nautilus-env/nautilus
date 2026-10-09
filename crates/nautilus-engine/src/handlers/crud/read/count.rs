@@ -2,7 +2,8 @@
 //!
 //! Without pagination the count is a plain aggregate; with `take` or `skip` it
 //! has to count the rows of the window, which the window itself can only limit
-//! inside a subquery.
+//! inside a subquery. A `cursor` keeps the rows from its own on, or up to it
+//! with a negative `take`, as in `findMany`.
 
 use nautilus_core::{Expr, Select, SelectCapacity, SelectItem, Value};
 use nautilus_dialect::Sql;
@@ -10,14 +11,15 @@ use nautilus_protocol::{check_protocol_version, CountParams, ProtocolError, RpcR
 use serde_json::value::RawValue;
 
 use crate::filter::{QueryArgs, SchemaContext};
-use crate::handlers::crud::common::{qualify_model_filter, wrap_count_result};
+use crate::handlers::crud::common::{cursor_predicate, qualify_model_filter, wrap_count_result};
 use crate::handlers::{get_model_or_error, parse_params};
 use crate::metadata::model_table;
 use crate::state::EngineState;
 
 /// Handle `query.count`.
 ///
-/// When `take` and/or `skip` are provided, the count is performed over the paginated window.
+/// When `take` and/or `skip` are provided, the count is performed over the paginated window,
+/// which a `cursor` bounds at its row.
 pub(in crate::handlers) async fn handle_count(
     state: &EngineState,
     request: RpcRequest,
@@ -45,6 +47,20 @@ async fn execute_count_params(
         SchemaContext::with_state(state),
     )?;
     let qualified_filter = qualify_model_filter(model, metadata.logical_to_db(), query_args.filter);
+    // The cursor bounds the rows at its own, as in `findMany`. `findMany`
+    // also orders them by the key, but a `take`/`skip` window holds as many
+    // rows in any order, so the count needs no ORDER BY.
+    let qualified_filter = match &query_args.cursor {
+        Some(cursor) => {
+            let cursor_pred =
+                cursor_predicate(metadata.primary_key_fields(), cursor, query_args.backward)?;
+            Some(match qualified_filter {
+                Some(existing) => existing.and(cursor_pred),
+                None => cursor_pred,
+            })
+        }
+        None => qualified_filter,
+    };
 
     let has_pagination = query_args.take.is_some() || query_args.skip.is_some();
 
