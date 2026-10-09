@@ -824,6 +824,32 @@ model Order {
     assert_eq!(values.get("enum_arrays").map(String::as_str), Some("ok"));
 }
 
+#[test]
+fn generated_python_rejects_list_operators_without_losing_readable_rows() {
+    let Some(values) = run_generated_python(
+        r#"
+datasource db { provider = "sqlite" url = env("DATABASE_URL") }
+generator client { provider = "nautilus-client-py" interface = "async" output = "./pyclient" }
+model Order {
+  id Int @id
+  weights Float[] @store(json)
+  notes String[] @store(json)
+  metadata Json
+  @@map("orders")
+}
+"#,
+        "list_inputs.sqlite",
+        (
+            "run_python_list_inputs.py",
+            include_str!("fixtures/stream_runtime_e2e/run_python_list_inputs.py"),
+        ),
+        "Python list inputs",
+    ) else {
+        return;
+    };
+    assert_eq!(values.get("list_inputs").map(String::as_str), Some("ok"));
+}
+
 /// A response line longer than the reader's 16 MB buffer arrives whole, and
 /// the client keeps answering after it.
 #[test]

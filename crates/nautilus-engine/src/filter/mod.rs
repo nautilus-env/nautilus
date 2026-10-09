@@ -27,5 +27,5 @@ pub(crate) use json_args::ensure_known_arg_keys;
 pub(crate) use ordering::{
     aggregate_call, parse_group_by_order_by, parse_having, GroupByOrderItem,
 };
-pub(crate) use types::FieldTypeMap;
+pub(crate) use types::{FieldTypeMap, FilterFieldType};
 pub(crate) use where_filter::{parse_where_filter, qualify_filter_columns};

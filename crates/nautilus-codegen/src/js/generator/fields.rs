@@ -142,13 +142,15 @@ pub(super) fn build_scalar_fields(
             index: scalar.index,
         });
 
-        sets.where_input.push(where_input_field(
-            field,
-            ir,
-            extension_type,
-            &raw_base_type,
-            &ts_type,
-        ));
+        if !field.is_array {
+            sets.where_input.push(where_input_field(
+                field,
+                ir,
+                extension_type,
+                &raw_base_type,
+                &ts_type,
+            ));
+        }
 
         if !auto_generated {
             sets.create_input.push(JsCreateInputFieldContext {

@@ -29,6 +29,49 @@ fn parse_ir(source: &str) -> nautilus_schema::ir::SchemaIr {
         .ir
 }
 
+#[test]
+fn list_predicates_are_rejected_inside_boolean_and_relation_filters() {
+    let ir = parse_ir(
+        r#"
+datasource db { provider = "sqlite" url = "sqlite::memory:" }
+model Customer {
+  id Int @id
+  orders Order[]
+}
+model Order {
+  id Int @id
+  weights Float[] @store(json) @map("item_weights")
+  customerId Int
+  customer Customer @relation(fields: [customerId], references: [id])
+}
+"#,
+    );
+    let customer = &ir.models["Customer"];
+    let relations = crate::metadata::build_relation_map(customer, &ir.models).unwrap();
+    let fields = crate::metadata::build_field_type_map(customer);
+    for field in ["weights", "item_weights"] {
+        for args in [
+            json!({"where": {"orders": {"some": {field: {"gt": 1}}}}}),
+            json!({"where": {"OR": [{"orders": {"none": {field: 1}}}]}}),
+            json!({"where": {"NOT": {"orders": {"every": {field: []}}}}}),
+            json!({"include": {"orders": {"where": {"AND": [{field: {"eq": []}}]}}}}),
+        ] {
+            let error = QueryArgs::parse_with_context(
+                Some(args),
+                &relations,
+                &fields,
+                SchemaContext::with_models(&ir.models),
+            )
+            .unwrap_err();
+            assert!(matches!(error, ProtocolError::InvalidFilter(_)));
+            assert!(
+                error.to_string().contains("does not support where filters"),
+                "{error}"
+            );
+        }
+    }
+}
+
 fn user_query_context(
     source: &str,
 ) -> (

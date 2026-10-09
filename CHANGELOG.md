@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Inputs for list fields.** Python, JavaScript and Java clients no longer offer
+  scalar filters or arithmetic updates on lists. Numeric lists are excluded
+  from `avg` and `sum` in every client. List updates take a complete list value;
+  operator objects and other non-list values are rejected before any write on
+  every provider, including SQLite and MySQL JSON storage, where they used to
+  be stored as the list itself and make the row unreadable. The engine also
+  rejects list predicates before querying, including nested relation filters.
 - **Type-checking generated Python packages.** A client imported from the
   application tree failed mypy even without strict mode: delegates passed
   generated `TypedDict` inputs to helpers expecting `dict`, event overloads

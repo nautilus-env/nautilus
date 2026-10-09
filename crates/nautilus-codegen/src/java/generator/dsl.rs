@@ -179,14 +179,16 @@ pub(super) fn generate_dsl_file(
             })
             .collect();
 
-        scalar_fields.push(DslScalarFieldCtx {
-            variant_name: field.logical_name.to_upper_camel_case(),
-            name: field.logical_name.clone(),
-            db_name: field.db_name.clone(),
-            java_type: base_type,
-            raw_java_type: raw_java_type.clone(),
-            filter_ops,
-        });
+        if !field.is_array {
+            scalar_fields.push(DslScalarFieldCtx {
+                variant_name: field.logical_name.to_upper_camel_case(),
+                name: field.logical_name.clone(),
+                db_name: field.db_name.clone(),
+                java_type: base_type,
+                raw_java_type: raw_java_type.clone(),
+                filter_ops,
+            });
+        }
 
         all_scalar_field_names.push(field.logical_name.clone());
 

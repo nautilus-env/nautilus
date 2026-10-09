@@ -17,6 +17,20 @@ model Order {
 }
 "#;
 
+const LIST_FIELDS: &[&str] = &[
+    "history",
+    "notes",
+    "prices",
+    "times",
+    "identifiers",
+    "files",
+    "weights",
+    "flags",
+    "quantities",
+    "sequences",
+    "addresses",
+];
+
 fn python() -> Option<String> {
     let candidates = env::var("NAUTILUS_PYTHON")
         .map(|value| vec![value])
@@ -60,21 +74,29 @@ fn check_generated_client(interface: &str, source: &str) {
     .expect("generate client");
     let await_call = if interface == "async" { "await " } else { "" };
     let async_def = if interface == "async" { "async " } else { "" };
-    fs::write(
-        fixture.path().join("app.py"),
-        CONSUMER
-            .replace("__ASYNC__", async_def)
-            .replace("__AWAIT__", await_call)
-            .replace(
-                "__TRANSACTION__",
-                if interface == "async" {
-                    "transaction"
-                } else {
-                    "sync_transaction"
-                },
-            ),
-    )
-    .unwrap();
+    let mut consumer = CONSUMER
+        .replace("__ASYNC__", async_def)
+        .replace("__AWAIT__", await_call)
+        .replace(
+            "__TRANSACTION__",
+            if interface == "async" {
+                "transaction"
+            } else {
+                "sync_transaction"
+            },
+        );
+    if source == SCHEMA {
+        consumer.push_str(&format!(
+            "\n\n{async_def}def lists(client: Nautilus) -> None:\n"
+        ));
+        for field in LIST_FIELDS {
+            consumer.push_str(&format!(
+                "    {await_call}client.order.update(data={{\"{field}\": []}})\n"
+            ));
+        }
+        consumer.push_str(&format!("    {await_call}client.order.aggregate(avg={{\"weight\": True}}, sum={{\"quantity\": True}}, count={{\"weights\": True}})\n"));
+    }
+    fs::write(fixture.path().join("app.py"), consumer).unwrap();
     let imports = Command::new(&python)
         .args(["-c", "import app; from generated.models import Order; assert 'nautilus' not in Order.model_fields"])
         .current_dir(fixture.path())
@@ -123,6 +145,26 @@ fn check_generated_client(interface: &str, source: &str) {
             "from generated import Nautilus\n\n{async_def}def invalid(client: Nautilus) -> None:\n    {await_call}client.order.find_unique(where={{\"id\": \"wrong\"}})\n    {await_call}client.order.find_many(unknown=True)\n    async with client.transaction() as tx:\n        {await_call}tx.order.find_many(unknown=True)\n"
         ).replace("    async with client.transaction()", &format!("    {async_def}with client.{}()", if interface == "async" { "transaction" } else { "sync_transaction" })),
     ).unwrap();
+    let mut expected_errors = 3;
+    if source == SCHEMA {
+        let invalid_path = fixture.path().join("invalid.py");
+        let mut invalid = fs::read_to_string(&invalid_path).unwrap();
+        for field in LIST_FIELDS {
+            for call in [
+                format!("find_many(where={{\"{field}\": 1}})"),
+                format!("find_many(where={{\"{field}\": {{\"equals\": 1}}}})"),
+                format!("update(data={{\"{field}\": {{\"set\": []}}}})"),
+                format!("update(data={{\"{field}\": {{\"increment\": 1}}}})"),
+                format!("update(data={{\"{field}\": 1.5}})"),
+                format!("aggregate(avg={{\"{field}\": True}})"),
+                format!("aggregate(sum={{\"{field}\": True}})"),
+            ] {
+                invalid.push_str(&format!("    {await_call}client.order.{call}\n"));
+                expected_errors += 1;
+            }
+        }
+        fs::write(invalid_path, invalid).unwrap();
+    }
     let output = Command::new(&python)
         .args([
             "-m",
@@ -138,8 +180,9 @@ fn check_generated_client(interface: &str, source: &str) {
         .expect("check invalid calls");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        !output.status.success() && stdout.contains("Found 3 errors in 1 file"),
-        "invalid calls must report three errors:\n{stdout}\n{}",
+        !output.status.success()
+            && stdout.contains(&format!("Found {expected_errors} errors in 1 file")),
+        "invalid calls must report {expected_errors} errors:\n{stdout}\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
 }

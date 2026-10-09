@@ -186,7 +186,14 @@ pub(super) fn parse_field_condition(
     field_types: &FieldTypeMap,
 ) -> Result<Expr, ProtocolError> {
     let field_expr = Expr::Column(field.to_string());
-    let field_type = field_types.get(field);
+    let metadata = field_types.get(field);
+    if metadata.is_some_and(|field| field.is_array) {
+        return Err(ProtocolError::InvalidFilter(format!(
+            "List field '{}' does not support where filters",
+            field
+        )));
+    }
+    let field_type = metadata.map(|field| &field.field_type);
 
     if let Some(operator_obj) = value.as_object() {
         parse_field_operators(field_expr, operator_obj, field_type)

@@ -60,7 +60,7 @@ pub(super) fn parse_order_by(
                 .and_then(|types| types.get(field))
                 .is_some_and(|field_type| {
                     matches!(
-                        field_type,
+                        field_type.field_type,
                         ResolvedFieldType::Scalar(
                             ScalarType::Vector { .. }
                                 | ScalarType::Geometry

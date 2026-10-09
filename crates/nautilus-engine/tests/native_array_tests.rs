@@ -1,5 +1,5 @@
-//! List fields written and read back: native arrays on PostgreSQL, JSON text
-//! on SQLite.
+//! List fields written and read back: native arrays on PostgreSQL, JSON storage
+//! on SQLite and MySQL. Invalid list inputs must leave every row readable.
 //!
 //! On PostgreSQL a `Decimal`, `Uuid` or `DateTime` list used to be bound as
 //! `text[]`, which is assigned to no `numeric[]`, `uuid[]` or `timestamp[]`
@@ -13,12 +13,12 @@
 
 mod common;
 
-use common::{call_rpc_json, parse_ir, sqlite_state};
+use common::{call_rpc_json, call_rpc_response, parse_ir, sqlite_state};
 use nautilus_engine::EngineState;
 use nautilus_migrate::{DatabaseProvider, DdlGenerator};
 use nautilus_protocol::{
-    PROTOCOL_VERSION, QUERY_CREATE, QUERY_CREATE_MANY, QUERY_FIND_MANY, QUERY_FIND_UNIQUE,
-    QUERY_UPDATE, QUERY_UPSERT,
+    PROTOCOL_VERSION, QUERY_AGGREGATE, QUERY_CREATE, QUERY_CREATE_MANY, QUERY_FIND_MANY,
+    QUERY_FIND_UNIQUE, QUERY_UPDATE, QUERY_UPDATE_MANY, QUERY_UPSERT,
 };
 use serde_json::{json, Value};
 
@@ -28,8 +28,8 @@ const PARCEL_B: &str = "7d9e8f1a-3b2c-4d5e-8f6a-7b8c9d0e1f23";
 /// The schema of one run. On PostgreSQL the enum becomes a type of the database
 /// rather than of the table, so each run names its own.
 fn schema_source(provider: &str, table: &str, status_enum: &str) -> String {
-    // SQLite has no native arrays, so its lists are stored as JSON text.
-    let store = if provider == "sqlite" {
+    // Providers without native arrays store their lists as JSON.
+    let store = if provider != "postgresql" {
         " @store(json)"
     } else {
         ""
@@ -224,6 +224,121 @@ async fn arrays_round_trip(state: &EngineState, table: &str, decimal_numbers: Va
     )
     .await;
     assert_eq!(rows["data"].as_array().expect("rows missing").len(), 4);
+    invalid_list_inputs_leave_rows_unchanged(state, table).await;
+}
+
+async fn invalid_list_inputs_leave_rows_unchanged(state: &EngineState, table: &str) {
+    let before = stored(state, table, 1).await;
+    let empty = json!({
+        "unitPrices": [], "weights": [], "parcelIds": [],
+        "shippedAt": [], "notes": [], "history": [],
+    });
+    for field in [
+        "unitPrices",
+        "weights",
+        "parcelIds",
+        "shippedAt",
+        "notes",
+        "history",
+    ] {
+        for invalid in [
+            json!({"increment": 1}),
+            json!({"set": 1.5}),
+            json!({"set": [4.5]}),
+            json!({}),
+            json!(2.5),
+            json!("wrong"),
+        ] {
+            let mut create = empty.clone();
+            create["id"] = json!(5);
+            create[field] = invalid.clone();
+            for (method, params) in [
+                (QUERY_CREATE, json!({"data": create})),
+                (
+                    QUERY_CREATE_MANY,
+                    json!({"data": [{"id": 6, "unitPrices": [], "weights": [], "parcelIds": [], "shippedAt": [], "notes": [], "history": []}, create]}),
+                ),
+                (
+                    QUERY_UPDATE,
+                    json!({"filter": {"id": 1}, "data": {field: invalid}}),
+                ),
+                (
+                    QUERY_UPDATE_MANY,
+                    json!({"filter": {}, "data": {field: invalid}}),
+                ),
+                (
+                    QUERY_UPSERT,
+                    json!({"filter": {"id": 1}, "create": {"id": 1, "unitPrices": [], "weights": [], "parcelIds": [], "shippedAt": [], "notes": [], "history": []}, "update": {field: invalid}, "returnData": true}),
+                ),
+                (
+                    QUERY_UPSERT,
+                    json!({"filter": {"id": 5}, "create": create, "update": {}, "returnData": true}),
+                ),
+            ] {
+                let mut params = params;
+                params["protocolVersion"] = json!(PROTOCOL_VERSION);
+                params["model"] = json!("Order");
+                let error = call_rpc_response(state, method, params)
+                    .await
+                    .error
+                    .unwrap_or_else(|| panic!("{method} accepted {field}: {invalid}"));
+                assert_eq!(error.code, 9003, "{method}: {error:?}");
+                assert!(error.message.contains("takes an array value"), "{error:?}");
+                assert_eq!(stored(state, table, 1).await, before);
+            }
+        }
+        for filter in [
+            json!(2.5),
+            json!([2.5]),
+            json!({"eq": 2.5}),
+            json!({"gt": 2.5}),
+            json!({"in": [2.5]}),
+            json!({"isNull": true}),
+        ] {
+            let response = call_rpc_response(
+                state,
+                QUERY_FIND_MANY,
+                json!({
+                    "protocolVersion": PROTOCOL_VERSION, "model": "Order",
+                    "args": {"where": {"AND": [{field: filter}]}},
+                }),
+            )
+            .await;
+            let error = response.error.expect("list predicate should fail");
+            assert_eq!(error.code, 2001, "{error:?}");
+            assert!(
+                error.message.contains("does not support where filters"),
+                "{error:?}"
+            );
+        }
+    }
+    for operator in ["avg", "sum", "min", "max"] {
+        let response = call_rpc_response(
+            state,
+            QUERY_AGGREGATE,
+            json!({
+                "protocolVersion": PROTOCOL_VERSION, "model": "Order", operator: {"weights": true},
+            }),
+        )
+        .await;
+        assert_eq!(
+            response.error.expect("list aggregate should fail").code,
+            9003
+        );
+    }
+    let rows = call_rpc_json(
+        state,
+        QUERY_FIND_MANY,
+        json!({
+            "protocolVersion": PROTOCOL_VERSION, "model": "Order", "args": {},
+        }),
+    )
+    .await;
+    assert_eq!(
+        rows["data"].as_array().unwrap().len(),
+        4,
+        "invalid creates must store no rows"
+    );
 }
 
 #[tokio::test]
@@ -256,6 +371,24 @@ async fn postgres_native_arrays_round_trip() {
             format!("DROP TABLE \"{table}\""),
             format!("DROP TYPE \"{}\"", status_enum.to_lowercase()),
         ])
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires MySQL; set NAUTILUS_TEST_MYSQL_URL"]
+async fn mysql_json_arrays_round_trip() {
+    let url = std::env::var("NAUTILUS_TEST_MYSQL_URL").expect("set NAUTILUS_TEST_MYSQL_URL");
+    let table = format!("json_arrays_{}", uuid::Uuid::new_v4().simple());
+    let schema = parse_ir(&schema_source("mysql", &table, "OrderStatus"));
+    let ddl = DdlGenerator::new(DatabaseProvider::Mysql)
+        .generate_create_tables(&schema)
+        .unwrap();
+    let state = EngineState::new(schema, url, None).await.unwrap();
+    state.execute_ddl_sql(ddl).await.unwrap();
+    arrays_round_trip(&state, &table, json!([1, 2.5])).await;
+    state
+        .execute_ddl_sql(vec![format!("DROP TABLE `{table}`")])
         .await
         .unwrap();
 }

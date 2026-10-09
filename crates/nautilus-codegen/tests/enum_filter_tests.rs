@@ -80,7 +80,7 @@ fn the_python_where_input_takes_enum_filters() {
     assert!(
         where_input
             .iter()
-            .any(|line| line.starts_with("    history:") && !line.contains("Filter")),
+            .all(|line| !line.starts_with("    history:")),
         "the operators compare one value, so an array field does not take them:\n{task}"
     );
 
@@ -166,11 +166,11 @@ fn the_typescript_where_input_takes_enum_filters() {
     for expected in [
         "  status?: Status | EnumFilter<Status>;",
         "  previous?: Status | null | EnumFilter<Status>;",
-        "  history?: Status[];",
         "  answer?: Bool | EnumFilter<Bool>;",
     ] {
         assert!(where_input.contains(&expected), "{expected}:\n{task}");
     }
+    assert!(where_input.iter().all(|line| !line.contains("history")));
     let filter = declaration(task, "export interface EnumFilter<T> {");
     for expected in [
         "  in?:     T[];",

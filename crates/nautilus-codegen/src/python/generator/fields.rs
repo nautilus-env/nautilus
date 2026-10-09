@@ -179,12 +179,14 @@ pub(super) fn build_scalar_fields(
         sets.create.push(field_ctx.clone());
         sets.scalar.push(field_ctx);
 
-        sets.where_input.push(where_input_field(
-            field,
-            ir,
-            extension_type,
-            &base_python_type,
-        ));
+        if !field.is_array {
+            sets.where_input.push(where_input_field(
+                field,
+                ir,
+                extension_type,
+                &base_python_type,
+            ));
+        }
 
         sets.create_input.push(CreateInputFieldContext {
             name: field.logical_name.clone(),

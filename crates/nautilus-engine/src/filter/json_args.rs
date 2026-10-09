@@ -16,7 +16,7 @@ use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
 use super::context::SchemaContext;
 use super::include::{parse_include, parse_select};
 use super::ordering::{parse_int, parse_order_by, parse_signed_int};
-use super::types::{FieldTypeMap, QueryArgs, RelationMap, VectorNearestQuery};
+use super::types::{FieldTypeMap, FilterFieldType, QueryArgs, RelationMap, VectorNearestQuery};
 use super::validate::{ensure_nearest_supported, ensure_select_include_exclusive};
 use super::where_filter::parse_where_filter;
 use crate::conversion::{json_to_value, json_to_value_field};
@@ -71,18 +71,13 @@ impl QueryArgs {
 
     /// Parse without relation context but with field-type context.
     ///
-    /// Used by `update` / `delete` / `findUnique` handlers where the model is
-    /// known but there are no eager-loaded relations.
+    /// This compatibility entry point knows element types only. Handlers use
+    /// the full model metadata through `parse_with_context` instead.
     pub fn parse_typed(
         args: Option<JsonValue>,
-        field_types: &FieldTypeMap,
+        field_types: &HashMap<String, ResolvedFieldType>,
     ) -> Result<Self, ProtocolError> {
-        Self::parse_with_context(
-            args,
-            &RelationMap::new(),
-            field_types,
-            SchemaContext::none(),
-        )
+        Self::parse_with_relations(args, &RelationMap::new(), field_types)
     }
 
     /// Parse with relation context so that `some` / `none` / `every` predicates
@@ -90,9 +85,21 @@ impl QueryArgs {
     pub fn parse_with_relations(
         args: Option<JsonValue>,
         relations: &RelationMap,
-        field_types: &FieldTypeMap,
+        field_types: &HashMap<String, ResolvedFieldType>,
     ) -> Result<Self, ProtocolError> {
-        Self::parse_with_context(args, relations, field_types, SchemaContext::none())
+        let fields = field_types
+            .iter()
+            .map(|(name, field_type)| {
+                (
+                    name.clone(),
+                    FilterFieldType {
+                        field_type: field_type.clone(),
+                        is_array: false,
+                    },
+                )
+            })
+            .collect();
+        Self::parse_with_context(args, relations, &fields, SchemaContext::none())
     }
 
     /// Parse with relation context and full schema access so nested include
@@ -175,7 +182,7 @@ impl QueryArgs {
             let mut map = HashMap::new();
             for (k, v) in obj {
                 let value = match field_types.get(k) {
-                    Some(field_type) => json_to_value_field(v, field_type)?,
+                    Some(field) => json_to_value_field(v, &field.field_type)?,
                     None => json_to_value(v)?,
                 };
                 map.insert(k.clone(), value);
@@ -274,7 +281,7 @@ fn parse_nearest_query(
         ))
     })?;
 
-    let ResolvedFieldType::Scalar(ScalarType::Vector { .. }) = field_type else {
+    let ResolvedFieldType::Scalar(ScalarType::Vector { .. }) = &field_type.field_type else {
         return Err(ProtocolError::InvalidParams(format!(
             "'nearest.field' must reference a Vector field, got '{}'",
             field
@@ -284,7 +291,7 @@ fn parse_nearest_query(
     let query_json = obj
         .get("query")
         .ok_or_else(|| ProtocolError::InvalidParams("'nearest.query' is required".to_string()))?;
-    let query = match json_to_value_field(query_json, field_type)? {
+    let query = match json_to_value_field(query_json, &field_type.field_type)? {
         Value::Vector(values) => values,
         _ => {
             return Err(ProtocolError::InvalidParams(

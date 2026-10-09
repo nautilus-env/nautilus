@@ -7,7 +7,7 @@ use nautilus_schema::ast::StorageStrategy;
 use nautilus_schema::ir::{CompositeTypeIr, FieldIr, ModelIr, ResolvedFieldType, ScalarType};
 
 use crate::conversion::ValueHint;
-use crate::filter::FieldTypeMap;
+use crate::filter::{FieldTypeMap, FilterFieldType};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ScalarFieldMetadata {
@@ -99,9 +99,13 @@ pub(crate) fn build_field_type_map(model: &ModelIr) -> FieldTypeMap {
         .iter()
         .filter(|field| !matches!(field.field_type, ResolvedFieldType::Relation(_)))
         .flat_map(|field| {
-            let mut entries = vec![(field.logical_name.clone(), field.field_type.clone())];
+            let metadata = FilterFieldType {
+                field_type: field.field_type.clone(),
+                is_array: field.is_array,
+            };
+            let mut entries = vec![(field.logical_name.clone(), metadata.clone())];
             if field.db_name != field.logical_name {
-                entries.push((field.db_name.clone(), field.field_type.clone()));
+                entries.push((field.db_name.clone(), metadata));
             }
             entries
         })

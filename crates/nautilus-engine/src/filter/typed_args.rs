@@ -100,7 +100,8 @@ impl QueryArgs {
                 ))
             })?;
 
-            let ResolvedFieldType::Scalar(ScalarType::Vector { .. }) = field_type else {
+            let ResolvedFieldType::Scalar(ScalarType::Vector { .. }) = &field_type.field_type
+            else {
                 return Err(ProtocolError::InvalidParams(format!(
                     "'nearest.field' must reference a Vector field, got '{}'",
                     field

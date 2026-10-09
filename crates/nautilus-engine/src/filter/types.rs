@@ -11,9 +11,15 @@ use nautilus_schema::ir::ResolvedFieldType;
 
 use crate::conversion::ValueHint;
 
-/// Map from a model's logical field name to its resolved field type.
-/// Used during filter parsing to emit `Value::Enum` for enum-typed fields.
-pub(crate) type FieldTypeMap = HashMap<String, ResolvedFieldType>;
+/// Field metadata by logical or database name. Filter parsing needs both the
+/// element type and the list flag to avoid comparing lists as scalar values.
+pub(crate) type FieldTypeMap = HashMap<String, FilterFieldType>;
+
+#[derive(Debug, Clone)]
+pub(crate) struct FilterFieldType {
+    pub(crate) field_type: ResolvedFieldType,
+    pub(crate) is_array: bool,
+}
 
 /// Metadata needed to compile EXISTS / NOT EXISTS subqueries for a single relation field.
 #[derive(Debug, Clone)]

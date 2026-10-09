@@ -71,8 +71,8 @@ fn atomic_operator_sql(operator: &str) -> Option<BinaryOp> {
 /// Read one field's input as an atomic update operator, if that is what it is.
 ///
 /// A field whose declared type makes an object or array a legitimate value —
-/// `Json`, `Bytes`, a composite, any list — is never interpreted this way: a
-/// `{"set": …}` there is the value the caller means to store.
+/// `Json`, `Bytes`, a composite — is never interpreted this way. Lists take
+/// only array values, and reject operator objects during input conversion.
 fn atomic_operator<'a>(
     json: &'a JsonValue,
     field: &FieldIr,
@@ -265,6 +265,12 @@ fn convert_field_input(
     json_val: &JsonValue,
     field: &FieldIr,
 ) -> Result<Value, ProtocolError> {
+    if field.is_array && !json_val.is_array() && !json_val.is_null() {
+        return Err(ProtocolError::InvalidParams(format!(
+            "List field '{}' takes an array value; scalar values and update operators are not supported",
+            field.logical_name
+        )));
+    }
     crate::conversion::ensure_scalar_input(
         json_val,
         &field.field_type,

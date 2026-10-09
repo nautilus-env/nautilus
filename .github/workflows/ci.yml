@@ -370,9 +370,10 @@ jobs:
           NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
         run: cargo test --locked -p nautilus-orm-engine --test upsert_tests -- --ignored --nocapture
 
-      - name: Run PostgreSQL array tests
+      - name: Run PostgreSQL and MySQL array tests
         env:
           NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
+          NAUTILUS_TEST_MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
         run: cargo test --locked -p nautilus-orm-engine --test native_array_tests -- --ignored --nocapture
 
       - name: Run cursor tests

@@ -195,6 +195,11 @@ pub trait LanguageBackend {
         field: &FieldIr,
         enums: &HashMap<String, EnumIr>,
     ) -> Vec<FilterOperator> {
+        // List predicates need their own semantics; scalar operators compare
+        // one element and cannot be applied to a list column.
+        if field.is_array {
+            return Vec::new();
+        }
         let mut ops: Vec<FilterOperator> = Vec::new();
 
         match &field.field_type {

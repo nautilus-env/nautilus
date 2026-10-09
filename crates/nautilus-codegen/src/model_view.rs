@@ -60,6 +60,9 @@ impl FieldView<'_> {
     /// The scalar type when the field can take part in numeric aggregates
     /// (`_avg` / `_sum`), `None` otherwise.
     pub(crate) fn numeric_scalar(&self) -> Option<&ScalarType> {
+        if self.field.is_array {
+            return None;
+        }
         match &self.field.field_type {
             ResolvedFieldType::Scalar(
                 scalar @ (ScalarType::Int
