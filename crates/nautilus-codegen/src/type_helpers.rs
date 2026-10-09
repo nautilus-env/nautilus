@@ -54,8 +54,8 @@ pub(crate) fn field_to_rust_base_type(field: &FieldIr, extensions: &ExtensionReg
     }
 }
 
-/// Returns true when a resolved field type can participate in classic ORDER BY,
-/// MIN and MAX inputs.
+/// Returns true when a resolved field type can participate in classic ORDER BY
+/// inputs. The MIN and MAX inputs follow [`FieldIr::has_min_and_max`] instead.
 pub(crate) fn is_orderable_resolved_type(field_type: &ResolvedFieldType) -> bool {
     match field_type {
         ResolvedFieldType::Enum { .. } => true,

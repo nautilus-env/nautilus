@@ -4,6 +4,16 @@
 
 ### Fixed
 
+- **The fields `_min` and `_max` apply to.** The generated
+  `<Model>MinAggregateInput` and `<Model>MaxAggregateInput` and the engine
+  took them from two lists that disagreed. The inputs listed `Char`, `VarChar`,
+  `Xml` and `Ltree` fields, which the engine refused with `min needs a
+  orderable field, and 'code' is not one`, although PostgreSQL and MySQL
+  aggregate `Char` and `VarChar` columns; and they left out `Boolean` fields,
+  which the engine aggregates on every provider. Both now follow one list: the
+  engine accepts `Char` and `VarChar` fields, and every client lists them and
+  `Boolean` fields, but no longer `Xml` and `Ltree` ones, which PostgreSQL has
+  neither aggregate for.
 - **`Float` and `Decimal` lists mixing integers and fractions on PostgreSQL.**
   The engine converted a JSON number written to a `Float` field as it looked,
   `1` as an integer and `2.5` as a float, so a list holding both, such as

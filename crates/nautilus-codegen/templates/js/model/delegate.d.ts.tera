@@ -19,13 +19,13 @@ export interface {{ model_name }}SumAggregateInput {
 {%- endif %}
 
 export interface {{ model_name }}MinAggregateInput {
-{%- for f in orderable_fields %}
+{%- for f in min_max_fields %}
   {{ f.name }}?: boolean;
 {%- endfor %}
 }
 
 export interface {{ model_name }}MaxAggregateInput {
-{%- for f in orderable_fields %}
+{%- for f in min_max_fields %}
   {{ f.name }}?: boolean;
 {%- endfor %}
 }

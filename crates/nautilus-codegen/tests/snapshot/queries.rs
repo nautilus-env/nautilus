@@ -1,6 +1,6 @@
 use super::support::{
     assert_codegen_snapshot, generated_java_file, generated_named_file, generated_python_file,
-    validate,
+    section_until, validate,
 };
 use nautilus_codegen::generator::generate_all_models;
 use nautilus_codegen::java::generate_java_client;
@@ -69,6 +69,117 @@ model User {
         code.contains("pub struct UserGroupByOutput"),
         "expected generated Rust code to expose a typed group_by output:\n{code}"
     );
+}
+
+/// The `_min` and `_max` inputs list the fields the engine aggregates with
+/// `MIN` and `MAX`, `Char`, `VarChar` and `Boolean` fields among them, but not
+/// lists, nor `Ltree` and `Xml` fields, which PostgreSQL has neither aggregate
+/// for.
+#[test]
+fn test_generated_min_and_max_inputs_list_the_fields_the_engine_aggregates() {
+    let ir = validate(
+        r#"
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [ltree]
+}
+
+generator client {
+  provider    = "nautilus-client-java"
+  output      = "./generated-java"
+  package     = "com.acme.db"
+  group_id    = "com.acme"
+  artifact_id = "db-client"
+  interface   = "sync"
+}
+
+model Order {
+  id      Int        @id
+  code    VarChar(8)
+  grade   Char(2)
+  paid    Boolean
+  sku     Uuid
+  path    Ltree?
+  invoice Xml?
+  payload Json?
+  tags    String[]
+}
+"#,
+    );
+    let listed = ["id", "code", "grade", "paid", "sku"];
+    let left_out = ["path", "invoice", "payload", "tags"];
+
+    let rust_models = generate_all_models(&ir, false).expect("generate_all_models should succeed");
+    let rust = rust_models.get("Order").expect("Order model missing");
+    let py_models = generate_all_python_models(&ir, false, 1)
+        .expect("generate_all_python_models should succeed");
+    let python = py_models
+        .iter()
+        .map(|(_, code)| code.as_str())
+        .find(|code| code.contains("class OrderMinAggregateInput("))
+        .expect("Python aggregate inputs missing");
+    let (_, dts_models) =
+        generate_all_js_models(&ir).expect("generate_all_js_models should succeed");
+    let dts = generated_named_file(&dts_models, "order.d.ts");
+    let java_files =
+        generate_java_client(&ir, "schema.nautilus", false).expect("generate_java_client failed");
+    let java = generated_java_file(&java_files, "dsl/OrderDsl.java");
+
+    for aggregate in ["Min", "Max"] {
+        let rust_input = section_until(
+            rust,
+            &format!("pub struct Order{aggregate}AggregateInput {{"),
+            "}",
+        );
+        let rust_output = section_until(
+            rust,
+            &format!("pub struct Order{aggregate}AggregateOutput {{"),
+            "}",
+        );
+        let python_input = section_until(
+            python,
+            &format!("class Order{aggregate}AggregateInput("),
+            "\nclass ",
+        );
+        let js_input = section_until(
+            dts,
+            &format!("export interface Order{aggregate}AggregateInput {{"),
+            "}",
+        );
+        for (name, expected) in listed
+            .iter()
+            .map(|name| (name, true))
+            .chain(left_out.iter().map(|name| (name, false)))
+        {
+            let context = format!("{aggregate} input, field '{name}'");
+            assert_eq!(
+                rust_input.contains(&format!("pub {name}: bool,")),
+                expected,
+                "Rust {context}:\n{rust_input}"
+            );
+            assert_eq!(
+                rust_output.contains(&format!("pub {name}: Option<")),
+                expected,
+                "Rust {context}:\n{rust_output}"
+            );
+            assert_eq!(
+                python_input.contains(&format!("{name}: NotRequired[bool]")),
+                expected,
+                "Python {context}:\n{python_input}"
+            );
+            assert_eq!(
+                js_input.contains(&format!("{name}?: boolean;")),
+                expected,
+                "JS {context}:\n{js_input}"
+            );
+            assert_eq!(
+                java.contains(&format!("public {aggregate}Aggregate {name}()")),
+                expected,
+                "Java {context}"
+            );
+        }
+    }
 }
 
 #[test]

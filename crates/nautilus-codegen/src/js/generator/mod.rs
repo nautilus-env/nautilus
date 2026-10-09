@@ -59,7 +59,7 @@ fn generate_js_model_with_registry(
     context.insert("include_fields", &build_include_fields(&view));
     context.insert("has_includes", &!view.relations.is_empty());
     context.insert("numeric_fields", &fields.numeric);
-    context.insert("orderable_fields", &fields.orderable);
+    context.insert("min_max_fields", &fields.min_max);
     context.insert("object_value_db_fields", &view.object_value_db_names);
     context.insert("has_numeric_fields", &!fields.numeric.is_empty());
     context.insert("has_vector_fields", &!view.vector_field_names.is_empty());

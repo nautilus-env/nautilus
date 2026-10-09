@@ -65,7 +65,7 @@ impl {{ model_name }}SumAggregateOutput {
 /// Typed MIN aggregates returned by `{{ delegate_name }}::group_by()`.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct {{ model_name }}MinAggregateOutput {
-{%- for field in orderable_fields %}
+{%- for field in min_max_fields %}
     pub {{ field.name }}: Option<{{ field.rust_type }}>,
 {%- endfor %}
 }
@@ -75,7 +75,7 @@ impl {{ model_name }}MinAggregateOutput {
         obj: &serde_json::Map<String, serde_json::Value>,
     ) -> nautilus_core::Result<Self> {
         Ok(Self {
-{%- for field in orderable_fields %}
+{%- for field in min_max_fields %}
             {{ field.name }}: decode_optional_group_by_json_value(obj, "{{ field.logical_name }}")?,
 {%- endfor %}
         })
@@ -85,7 +85,7 @@ impl {{ model_name }}MinAggregateOutput {
 /// Typed MAX aggregates returned by `{{ delegate_name }}::group_by()`.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct {{ model_name }}MaxAggregateOutput {
-{%- for field in orderable_fields %}
+{%- for field in min_max_fields %}
     pub {{ field.name }}: Option<{{ field.rust_type }}>,
 {%- endfor %}
 }
@@ -95,7 +95,7 @@ impl {{ model_name }}MaxAggregateOutput {
         obj: &serde_json::Map<String, serde_json::Value>,
     ) -> nautilus_core::Result<Self> {
         Ok(Self {
-{%- for field in orderable_fields %}
+{%- for field in min_max_fields %}
             {{ field.name }}: decode_optional_group_by_json_value(obj, "{{ field.logical_name }}")?,
 {%- endfor %}
         })

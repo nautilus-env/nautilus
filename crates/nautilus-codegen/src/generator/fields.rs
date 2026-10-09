@@ -57,7 +57,7 @@ pub(super) struct ScalarFieldContexts {
     pub(super) create: Vec<FieldContext>,
     pub(super) updated_at: Vec<FieldContext>,
     pub(super) numeric: Vec<AggregateFieldContext>,
-    pub(super) orderable: Vec<AggregateFieldContext>,
+    pub(super) min_max: Vec<AggregateFieldContext>,
 }
 
 fn field_read_hint_expr(field: &FieldIr) -> String {
@@ -119,8 +119,8 @@ pub(super) fn build_scalar_fields(
             });
         }
 
-        if scalar.is_orderable() {
-            contexts.orderable.push(AggregateFieldContext {
+        if scalar.has_min_and_max() {
+            contexts.min_max.push(AggregateFieldContext {
                 name: scalar.snake_name(),
                 logical_name: field.logical_name.clone(),
                 rust_type: base_rust_type,

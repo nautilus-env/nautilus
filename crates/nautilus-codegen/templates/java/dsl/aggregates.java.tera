@@ -45,7 +45,7 @@
     public static final class MinAggregate implements WireSerializable {
         private final ObjectNode node = JsonSupport.object();
 
-{%- for name in orderable_field_names %}
+{%- for name in min_max_field_names %}
         public MinAggregate {{ name }}() {
             this.node.put("{{ name }}", true);
             return this;
@@ -58,7 +58,7 @@
     public static final class MaxAggregate implements WireSerializable {
         private final ObjectNode node = JsonSupport.object();
 
-{%- for name in orderable_field_names %}
+{%- for name in min_max_field_names %}
         public MaxAggregate {{ name }}() {
             this.node.put("{{ name }}", true);
             return this;

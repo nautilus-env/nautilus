@@ -75,6 +75,12 @@ impl FieldView<'_> {
         is_orderable_model_field(self.field)
     }
 
+    /// `true` when the `_min` and `_max` inputs list the field: the fields the
+    /// engine accepts in `min` and `max`.
+    pub(crate) fn has_min_and_max(&self) -> bool {
+        self.field.has_min_and_max()
+    }
+
     pub(crate) fn is_database_generated(&self) -> bool {
         is_database_generated(self.field)
     }

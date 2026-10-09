@@ -307,6 +307,76 @@ model User {
     assert!(array.is_array);
 }
 
+/// `MIN` and `MAX` apply to enums and to the scalars every provider of the
+/// type can aggregate; not to lists, nor to `Ltree` and `Xml`, which
+/// PostgreSQL has neither aggregate for.
+#[test]
+fn test_ir_fields_with_min_and_max() {
+    let source = r#"
+datasource db {
+  provider   = "postgresql"
+  url        = "postgres://localhost/test"
+  extensions = [citext, hstore, ltree, vector, postgis]
+}
+
+enum Status {
+  OPEN
+  CLOSED
+}
+
+model Order {
+  id        Int            @id
+  quantity  BigInt
+  weight    Float
+  unitPrice Decimal(10, 2)
+  placedAt  DateTime
+  note      String
+  email     Citext
+  code      VarChar(8)
+  grade     Char(2)
+  paid      Boolean
+  sku       Uuid
+  status    Status
+  receipt   Bytes
+  payload   Json
+  details   Jsonb
+  labels    Hstore
+  path      Ltree
+  invoice   Xml
+  location  Geometry
+  area      Geography
+  embedding Vector(3)
+  tags      String[]
+  history   Status[]
+}
+"#;
+    let ast = parse(source).unwrap();
+    let ir = validate_schema(ast).unwrap();
+
+    let with_min_and_max: Vec<&str> = ir.models["Order"]
+        .scalar_fields()
+        .filter(|field| field.has_min_and_max())
+        .map(|field| field.logical_name.as_str())
+        .collect();
+    assert_eq!(
+        with_min_and_max,
+        [
+            "id",
+            "quantity",
+            "weight",
+            "unitPrice",
+            "placedAt",
+            "note",
+            "email",
+            "code",
+            "grade",
+            "paid",
+            "sku",
+            "status",
+        ]
+    );
+}
+
 #[test]
 fn test_ir_default_values() {
     let source = r#"

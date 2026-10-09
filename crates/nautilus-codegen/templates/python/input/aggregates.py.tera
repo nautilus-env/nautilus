@@ -29,14 +29,14 @@ class {{ model_name }}SumAggregateInput(TypedDict, total=False):
 
 class {{ model_name }}MinAggregateInput(TypedDict, total=False):
     """Select which fields to include in MIN aggregation."""
-    {% for field in orderable_fields %}
+    {% for field in min_max_fields %}
     {{ field.name }}: NotRequired[bool]
     {% endfor %}
 
 
 class {{ model_name }}MaxAggregateInput(TypedDict, total=False):
     """Select which fields to include in MAX aggregation."""
-    {% for field in orderable_fields %}
+    {% for field in min_max_fields %}
     {{ field.name }}: NotRequired[bool]
     {% endfor %}
 

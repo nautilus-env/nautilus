@@ -105,10 +105,10 @@ fn model_context(
     context.insert("updated_at_fields", &fields.updated_at);
     context.insert("all_scalar_fields", &fields.scalar);
     context.insert("numeric_fields", &fields.numeric);
-    context.insert("orderable_fields", &fields.orderable);
+    context.insert("min_max_fields", &fields.min_max);
     context.insert("nested_order_by_fields", &nested_order_by_fields);
     context.insert("has_numeric_fields", &!fields.numeric.is_empty());
-    context.insert("has_orderable_fields", &!fields.orderable.is_empty());
+    context.insert("has_min_max_fields", &!fields.min_max.is_empty());
     context.insert("is_async", &is_async);
 
     context

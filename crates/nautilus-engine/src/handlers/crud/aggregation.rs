@@ -23,8 +23,9 @@ use crate::state::EngineState;
 /// Which scalar types an aggregate function accepts.
 ///
 /// `AVG` and `SUM` are arithmetic: PostgreSQL and MySQL reject a text column
-/// outright and SQLite quietly answers 0. `MIN` and `MAX` only need an order,
-/// which the structured types (JSON, arrays, vectors, geometry) do not have.
+/// outright and SQLite quietly answers 0. `MIN` and `MAX` need an order, and
+/// take the fields of [`FieldIr::has_min_and_max`], which the generated
+/// `_min` and `_max` inputs list too.
 #[derive(Clone, Copy, PartialEq)]
 enum AggDomain {
     Numeric,
@@ -33,40 +34,27 @@ enum AggDomain {
 
 impl AggDomain {
     fn accepts(self, field: &FieldIr) -> bool {
-        if field.is_array {
-            return false;
-        }
-        match &field.field_type {
-            ResolvedFieldType::Scalar(scalar) => match self {
-                Self::Numeric => matches!(
-                    scalar,
-                    ScalarType::Int
-                        | ScalarType::BigInt
-                        | ScalarType::Float
-                        | ScalarType::Decimal { .. }
-                ),
-                Self::Ordered => matches!(
-                    scalar,
-                    ScalarType::Int
-                        | ScalarType::BigInt
-                        | ScalarType::Float
-                        | ScalarType::Decimal { .. }
-                        | ScalarType::DateTime
-                        | ScalarType::String
-                        | ScalarType::Citext
-                        | ScalarType::Boolean
-                        | ScalarType::Uuid
-                ),
-            },
-            ResolvedFieldType::Enum { .. } => self == Self::Ordered,
-            _ => false,
+        match self {
+            Self::Numeric => {
+                !field.is_array
+                    && matches!(
+                        field.field_type,
+                        ResolvedFieldType::Scalar(
+                            ScalarType::Int
+                                | ScalarType::BigInt
+                                | ScalarType::Float
+                                | ScalarType::Decimal { .. }
+                        )
+                    )
+            }
+            Self::Ordered => field.has_min_and_max(),
         }
     }
 
     fn describe(self) -> &'static str {
         match self {
-            Self::Numeric => "numeric",
-            Self::Ordered => "orderable",
+            Self::Numeric => "a numeric",
+            Self::Ordered => "an orderable",
         }
     }
 }
@@ -110,7 +98,7 @@ fn collect_agg_fields(
             })?;
         if !domain.accepts(field) {
             return Err(ProtocolError::InvalidParams(format!(
-                "{} needs a {} field, and '{}' is not one",
+                "{} needs {} field, and '{}' is not one",
                 agg_key,
                 domain.describe(),
                 field_name

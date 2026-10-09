@@ -97,7 +97,7 @@ struct DslTemplateContext {
     nested_writes: Vec<DslNestedWriteCtx>,
     numeric_field_names: Vec<String>,
     order_by_fields: Vec<DslOrderByFieldCtx>,
-    orderable_field_names: Vec<String>,
+    min_max_field_names: Vec<String>,
     vector_field_names: Vec<String>,
     all_scalar_field_names: Vec<String>,
 }
@@ -154,7 +154,7 @@ pub(super) fn generate_dsl_file(
     let mut update_fields: Vec<DslWritableFieldCtx> = Vec::new();
     let mut numeric_field_names: Vec<String> = Vec::new();
     let mut order_by_fields: Vec<DslOrderByFieldCtx> = Vec::new();
-    let mut orderable_field_names: Vec<String> = Vec::new();
+    let mut min_max_field_names: Vec<String> = Vec::new();
     let mut all_scalar_field_names: Vec<String> = Vec::new();
     let mut used_order_by_methods: BTreeSet<String> = BTreeSet::new();
 
@@ -199,7 +199,9 @@ pub(super) fn generate_dsl_file(
                 wire_name: field.logical_name.clone(),
             });
             used_order_by_methods.insert(field.logical_name.clone());
-            orderable_field_names.push(field.logical_name.clone());
+        }
+        if scalar.has_min_and_max() {
+            min_max_field_names.push(field.logical_name.clone());
         }
 
         if is_writable_on_create(field) {
@@ -272,7 +274,7 @@ pub(super) fn generate_dsl_file(
         nested_writes,
         numeric_field_names,
         order_by_fields,
-        orderable_field_names,
+        min_max_field_names,
         vector_field_names: view.vector_field_names,
         all_scalar_field_names,
     })

@@ -105,7 +105,7 @@ pub(super) struct PythonFieldSets {
     pub(super) update_input: Vec<UpdateInputFieldContext>,
     pub(super) order_by: Vec<OrderByFieldContext>,
     pub(super) numeric: Vec<AggregateFieldContext>,
-    pub(super) orderable: Vec<AggregateFieldContext>,
+    pub(super) min_max: Vec<AggregateFieldContext>,
     pub(super) has_datetime: bool,
     pub(super) has_uuid: bool,
     pub(super) has_decimal: bool,
@@ -217,7 +217,9 @@ pub(super) fn build_scalar_fields(
                 name: field.logical_name.clone(),
                 is_dotted: false,
             });
-            sets.orderable.push(AggregateFieldContext {
+        }
+        if scalar.has_min_and_max() {
+            sets.min_max.push(AggregateFieldContext {
                 name: field.logical_name.clone(),
                 python_type: base_python_type,
             });

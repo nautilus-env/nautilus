@@ -120,6 +120,39 @@ impl FieldIr {
             ResolvedFieldType::Scalar(ScalarType::Vector { .. })
         )
     }
+
+    /// Returns `true` when the `MIN` and `MAX` aggregates apply to this field
+    /// on every provider that supports its type.
+    ///
+    /// The engine accepts these fields, and only these, in `min` and `max`,
+    /// and the generated clients list them in their `_min` and `_max` inputs.
+    /// PostgreSQL has neither aggregate for `uuid` and `boolean`, which the
+    /// engine aggregates through their text and `BOOL_AND`/`BOOL_OR`, nor for
+    /// `ltree` and `xml`, which are left out. Lists and the structured types
+    /// are left out too.
+    pub fn has_min_and_max(&self) -> bool {
+        if self.is_array {
+            return false;
+        }
+        match &self.field_type {
+            ResolvedFieldType::Scalar(scalar) => matches!(
+                scalar,
+                ScalarType::Int
+                    | ScalarType::BigInt
+                    | ScalarType::Float
+                    | ScalarType::Decimal { .. }
+                    | ScalarType::DateTime
+                    | ScalarType::String
+                    | ScalarType::Citext
+                    | ScalarType::Char { .. }
+                    | ScalarType::VarChar { .. }
+                    | ScalarType::Boolean
+                    | ScalarType::Uuid
+            ),
+            ResolvedFieldType::Enum { .. } => true,
+            ResolvedFieldType::CompositeType { .. } | ResolvedFieldType::Relation(_) => false,
+        }
+    }
 }
 
 /// Primary key metadata.

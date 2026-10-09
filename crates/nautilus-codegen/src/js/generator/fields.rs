@@ -97,7 +97,7 @@ pub(super) struct JsFieldSets {
     pub(super) update_input: Vec<JsUpdateInputFieldContext>,
     pub(super) order_by: Vec<JsOrderByFieldContext>,
     pub(super) numeric: Vec<JsAggregateFieldContext>,
-    pub(super) orderable: Vec<JsAggregateFieldContext>,
+    pub(super) min_max: Vec<JsAggregateFieldContext>,
 }
 
 pub(super) fn build_scalar_fields(
@@ -193,7 +193,9 @@ pub(super) fn build_scalar_fields(
                 name: field.logical_name.clone(),
                 is_dotted: false,
             });
-            sets.orderable.push(JsAggregateFieldContext {
+        }
+        if scalar.has_min_and_max() {
+            sets.min_max.push(JsAggregateFieldContext {
                 name: field.logical_name.clone(),
                 ts_type: base_type,
             });
