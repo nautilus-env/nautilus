@@ -7,7 +7,7 @@ use serde_json::Value as JsonValue;
 
 use nautilus_core::{BinaryOp, Expr, OrderBy, OrderDir};
 use nautilus_protocol::ProtocolError;
-use nautilus_schema::ir::{ResolvedFieldType, ScalarType};
+use nautilus_schema::ir::{FieldIr, ModelIr, ResolvedFieldType, ScalarType};
 
 use super::types::FieldTypeMap;
 use super::where_filter::{combine_conditions, parse_field_operators};
@@ -90,11 +90,49 @@ pub(crate) enum GroupByOrderItem {
     Expr(Expr, OrderDir),
 }
 
+/// The call computing `agg_fn` over `column`, a column of `model`'s field
+/// `field`.
+///
+/// PostgreSQL orders `uuid` and `boolean` values but has no `min` or `max` for
+/// either, so on those fields `MIN` and `MAX` become markers that each dialect
+/// renders for its database.
+pub(crate) fn aggregate_call(
+    agg_fn: &'static str,
+    model: &ModelIr,
+    field: &str,
+    column: Expr,
+) -> Expr {
+    use nautilus_core::expr::{
+        BOOLEAN_MAX_FUNCTION, BOOLEAN_MIN_FUNCTION, UUID_MAX_FUNCTION, UUID_MIN_FUNCTION,
+    };
+
+    let scalar = model
+        .scalar_fields()
+        .find(|candidate| candidate.logical_name == field || candidate.db_name == field)
+        .and_then(|found| match found {
+            FieldIr {
+                is_array: false,
+                field_type: ResolvedFieldType::Scalar(scalar),
+                ..
+            } => Some(scalar),
+            _ => None,
+        });
+    let name = match (agg_fn, scalar) {
+        ("MIN", Some(ScalarType::Uuid)) => UUID_MIN_FUNCTION,
+        ("MAX", Some(ScalarType::Uuid)) => UUID_MAX_FUNCTION,
+        ("MIN", Some(ScalarType::Boolean)) => BOOLEAN_MIN_FUNCTION,
+        ("MAX", Some(ScalarType::Boolean)) => BOOLEAN_MAX_FUNCTION,
+        _ => agg_fn,
+    };
+    Expr::function_call(name, vec![column])
+}
+
 pub(crate) fn parse_group_by_order_by(
     order_value: &JsonValue,
-    table: &str,
+    model: &ModelIr,
     logical_to_db: &HashMap<String, String>,
 ) -> Result<Vec<GroupByOrderItem>, ProtocolError> {
+    let table = model.db_name.as_str();
     let order_array = order_value
         .as_array()
         .ok_or_else(|| ProtocolError::InvalidFilter("orderBy must be an array".to_string()))?;
@@ -138,7 +176,7 @@ pub(crate) fn parse_group_by_order_by(
                                 .unwrap_or_else(|| field.clone());
                             Expr::Column(format!("{}__{}", table, db_col))
                         };
-                        let agg_expr = Expr::function_call(agg_fn, vec![agg_arg]);
+                        let agg_expr = aggregate_call(agg_fn, model, field, agg_arg);
                         orders.push(GroupByOrderItem::Expr(agg_expr, dir));
                     }
                 }
@@ -213,9 +251,10 @@ fn having_operators<'a>(
 /// (`{"role": {"eq": "ADMIN"}}`), which neither aggregate shape can express.
 pub(crate) fn parse_having(
     having_value: &JsonValue,
-    table: &str,
+    model: &ModelIr,
     logical_to_db: &HashMap<String, String>,
 ) -> Result<Expr, ProtocolError> {
+    let table = model.db_name.as_str();
     let obj = having_value
         .as_object()
         .ok_or_else(|| ProtocolError::InvalidFilter("having must be an object".to_string()))?;
@@ -228,8 +267,12 @@ pub(crate) fn parse_having(
                 ProtocolError::InvalidFilter(format!("having.{} must be an object", key))
             })?;
             for (field, filter_val) in fields_obj {
-                let agg_expr =
-                    Expr::function_call(agg_fn, vec![having_column(table, logical_to_db, field)]);
+                let agg_expr = aggregate_call(
+                    agg_fn,
+                    model,
+                    field,
+                    having_column(table, logical_to_db, field),
+                );
                 let operators = having_operators(filter_val, &format!("{}.{}", key, field))?;
                 conditions.push(parse_field_operators(agg_expr, operators, None)?);
             }
@@ -245,7 +288,7 @@ pub(crate) fn parse_having(
         for (inner_key, filter_val) in inner {
             match having_aggregate_fn(inner_key) {
                 Some(agg_fn) => {
-                    let agg_expr = Expr::function_call(agg_fn, vec![column.clone()]);
+                    let agg_expr = aggregate_call(agg_fn, model, key, column.clone());
                     let operators =
                         having_operators(filter_val, &format!("{}.{}", key, inner_key))?;
                     nested.push(parse_field_operators(agg_expr, operators, None)?);

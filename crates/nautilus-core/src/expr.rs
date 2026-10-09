@@ -11,6 +11,24 @@ pub const VECTOR_INNER_PRODUCT_FUNCTION: &str = "__nautilus_vector_inner_product
 /// Internal expression function marker rendered as pgvector `<=>`.
 pub const VECTOR_COSINE_DISTANCE_FUNCTION: &str = "__nautilus_vector_cosine_distance";
 
+/// Internal aggregate marker for `MIN` over a UUID column.
+///
+/// PostgreSQL orders `uuid` values but has no `min` or `max` for them, so its
+/// dialect aggregates their text, which sorts in the same order. The other
+/// providers store UUIDs as text and render a plain `MIN`.
+pub const UUID_MIN_FUNCTION: &str = "__nautilus_uuid_min";
+/// Internal aggregate marker for `MAX` over a UUID column; see
+/// [`UUID_MIN_FUNCTION`].
+pub const UUID_MAX_FUNCTION: &str = "__nautilus_uuid_max";
+/// Internal aggregate marker for `MIN` over a boolean column.
+///
+/// PostgreSQL has no `min` or `max` for `boolean` and renders `BOOL_AND`. The
+/// other providers store booleans as integers and render a plain `MIN`.
+pub const BOOLEAN_MIN_FUNCTION: &str = "__nautilus_boolean_min";
+/// Internal aggregate marker for `MAX` over a boolean column, rendered as
+/// `BOOL_OR` on PostgreSQL; see [`BOOLEAN_MIN_FUNCTION`].
+pub const BOOLEAN_MAX_FUNCTION: &str = "__nautilus_boolean_max";
+
 /// Cast applied when a nested composite field is rendered through JSON storage.
 ///
 /// PostgreSQL stores composite fields natively and ignores this value. SQLite's

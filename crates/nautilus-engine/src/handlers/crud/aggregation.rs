@@ -14,7 +14,9 @@ use nautilus_connector::Row;
 
 use super::common::wrap_data_result;
 use crate::conversion::ValueHint;
-use crate::filter::{parse_group_by_order_by, parse_having, qualify_filter_columns};
+use crate::filter::{
+    aggregate_call, parse_group_by_order_by, parse_having, qualify_filter_columns,
+};
 use crate::handlers::{get_model_or_error, parse_params};
 use crate::state::EngineState;
 
@@ -176,12 +178,12 @@ pub(super) async fn execute_group_by_rows(
 
     let having_expr = args
         .and_then(|value| value.get("having"))
-        .map(|value| parse_having(value, &model.db_name, logical_to_db))
+        .map(|value| parse_having(value, model, logical_to_db))
         .transpose()?;
 
     let group_orders = args
         .and_then(|value| value.get("orderBy"))
-        .map(|value| parse_group_by_order_by(value, &model.db_name, logical_to_db))
+        .map(|value| parse_group_by_order_by(value, model, logical_to_db))
         .transpose()?
         .unwrap_or_default();
 
@@ -322,7 +324,12 @@ fn build_aggregate_items(
         for field in collect_agg_fields(model, agg_val, agg_key, domain)? {
             items.push((
                 format!("_{}_{}", agg_key, field),
-                Expr::function_call(agg_fn, vec![aggregate_column(model, logical_to_db, &field)]),
+                aggregate_call(
+                    agg_fn,
+                    model,
+                    &field,
+                    aggregate_column(model, logical_to_db, &field),
+                ),
                 aggregate_hint(model, agg_key, &field),
             ));
         }

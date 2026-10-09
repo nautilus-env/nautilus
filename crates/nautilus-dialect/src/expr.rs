@@ -1,5 +1,6 @@
-//! Expression-level pieces shared by the dialects: the operator spellings, and
-//! the default parameter cast for a dialect that needs none.
+//! Expression-level pieces shared by the dialects: the operator spellings, the
+//! plain aggregates behind the typed markers, and the default parameter cast
+//! for a dialect that needs none.
 
 /// The `$param_cast` hook for dialects that never cast a bound parameter.
 ///
@@ -8,6 +9,20 @@
 /// column of the real type without an explicit cast.
 pub(crate) fn no_param_cast(_value: &nautilus_core::Value) -> Option<String> {
     None
+}
+
+/// The function a typed `MIN` or `MAX` marker stands for on a provider that
+/// stores UUIDs as text and booleans as integers, or `name` itself.
+pub(crate) fn untyped_aggregate_name(name: &str) -> &str {
+    use nautilus_core::expr::{
+        BOOLEAN_MAX_FUNCTION, BOOLEAN_MIN_FUNCTION, UUID_MAX_FUNCTION, UUID_MIN_FUNCTION,
+    };
+
+    match name {
+        UUID_MIN_FUNCTION | BOOLEAN_MIN_FUNCTION => "MIN",
+        UUID_MAX_FUNCTION | BOOLEAN_MAX_FUNCTION => "MAX",
+        _ => name,
+    }
 }
 
 /// Return the SQL operator keyword for a standard scalar binary operation.

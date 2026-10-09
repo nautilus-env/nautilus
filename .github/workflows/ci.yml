@@ -377,3 +377,9 @@ jobs:
           NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
           NAUTILUS_TEST_MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
         run: cargo test --locked -p nautilus-orm-engine --test cursor_tests -- --ignored --test-threads=1 --nocapture
+
+      - name: Run MIN and MAX tests
+        env:
+          NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
+          NAUTILUS_TEST_MYSQL_URL: mysql://nautilus:nautilus@localhost:3306/nautilus_test
+        run: cargo test --locked -p nautilus-orm-engine --test min_max_tests -- --ignored --test-threads=1 --nocapture

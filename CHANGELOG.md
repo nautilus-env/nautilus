@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **`_min` and `_max` of `Uuid` and `Boolean` fields on PostgreSQL.**
+  PostgreSQL orders `uuid` and `boolean` values but has no `min` or `max` for
+  either, so an `aggregate` or `groupBy` whose `min` or `max` named such a
+  field failed with `function min(uuid) does not exist`, although the
+  generated `<Model>MinAggregateInput` and `<Model>MaxAggregateInput` list
+  `Uuid` fields. `min: true`, which asks for every field the aggregate applies
+  to, failed on any model with either type, and so did a grouped `orderBy` or
+  a `having` on these aggregates. A `Uuid` column is now aggregated through
+  its text, which sorts as the UUID does, and a `Boolean` column through
+  `BOOL_AND` and `BOOL_OR`. SQLite and MySQL, which store the two types as
+  text and integers, aggregate them as before.
 - **PostgreSQL arrays of `Decimal`, `Uuid` and `DateTime`.** The engine bound
   these lists as `text[]`, which PostgreSQL assigns to no `numeric[]`,
   `uuid[]` or `timestamp[]` column, so a `create` or `update` that set one

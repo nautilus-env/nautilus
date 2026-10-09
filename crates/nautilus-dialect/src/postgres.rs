@@ -192,7 +192,26 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
                     return;
                 }
             }
-            ctx.sql.push_str(name);
+            if let [arg] = args.as_mut_slice() {
+                let uuid_aggregate = match name.as_str() {
+                    nautilus_core::expr::UUID_MIN_FUNCTION => Some("MIN("),
+                    nautilus_core::expr::UUID_MAX_FUNCTION => Some("MAX("),
+                    _ => None,
+                };
+                if let Some(open) = uuid_aggregate {
+                    // The canonical text of a UUID, compared byte by byte,
+                    // sorts as the 16 bytes of the UUID do.
+                    ctx.sql.push_str(open);
+                    render_expr_owned(ctx, arg);
+                    ctx.sql.push_str("::text COLLATE \"C\")::uuid");
+                    return;
+                }
+            }
+            ctx.sql.push_str(match name.as_str() {
+                nautilus_core::expr::BOOLEAN_MIN_FUNCTION => "BOOL_AND",
+                nautilus_core::expr::BOOLEAN_MAX_FUNCTION => "BOOL_OR",
+                name => name,
+            });
             ctx.sql.push('(');
             for (i, arg) in args.iter_mut().enumerate() {
                 if i > 0 {

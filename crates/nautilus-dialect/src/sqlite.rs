@@ -194,7 +194,7 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
             let sqlite_name = match name.as_str() {
                 "json_agg" => "json_group_array",
                 "json_build_object" => "json_object",
-                _ => name,
+                _ => crate::expr::untyped_aggregate_name(name),
             };
             ctx.sql.push_str(sqlite_name);
             ctx.sql.push('(');

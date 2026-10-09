@@ -163,7 +163,7 @@ fn mysql_function_name(name: &str) -> &str {
     match name {
         "json_agg" => "JSON_ARRAYAGG",
         "json_build_object" => "JSON_OBJECT",
-        _ => name,
+        _ => crate::expr::untyped_aggregate_name(name),
     }
 }
 

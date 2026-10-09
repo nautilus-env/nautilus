@@ -1734,6 +1734,62 @@ fn relation_predicate_through_a_join_table() {
     }
 }
 
+/// PostgreSQL has no `min` or `max` for `uuid` or `boolean`; the other
+/// dialects store UUIDs as text and booleans as integers, and aggregate them
+/// as they are.
+#[test]
+fn typed_min_and_max_markers() {
+    use nautilus_core::expr::{
+        BOOLEAN_MAX_FUNCTION, BOOLEAN_MIN_FUNCTION, UUID_MAX_FUNCTION, UUID_MIN_FUNCTION,
+    };
+
+    let select = Select::from_table("orders")
+        .computed(
+            Expr::function_call(UUID_MIN_FUNCTION, vec![Expr::column("orders__sku")]),
+            "lo",
+        )
+        .computed(
+            Expr::function_call(UUID_MAX_FUNCTION, vec![Expr::column("orders__sku")]),
+            "hi",
+        )
+        .computed(
+            Expr::function_call(BOOLEAN_MIN_FUNCTION, vec![Expr::column("orders__paid")]),
+            "all_paid",
+        )
+        .order_by_expr(
+            Expr::function_call(BOOLEAN_MAX_FUNCTION, vec![Expr::column("orders__paid")]),
+            OrderDir::Desc,
+        )
+        .build()
+        .unwrap();
+
+    for (h, expected) in [
+        (
+            Harness::pg(),
+            "SELECT (MIN(\"orders\".\"sku\"::text COLLATE \"C\")::uuid) AS \"lo\", \
+             (MAX(\"orders\".\"sku\"::text COLLATE \"C\")::uuid) AS \"hi\", \
+             (BOOL_AND(\"orders\".\"paid\")) AS \"all_paid\" FROM \"orders\" \
+             ORDER BY BOOL_OR(\"orders\".\"paid\") DESC",
+        ),
+        (
+            Harness::mysql(),
+            "SELECT (MIN(`orders`.`sku`)) AS `lo`, (MAX(`orders`.`sku`)) AS `hi`, \
+             (MIN(`orders`.`paid`)) AS `all_paid` FROM `orders` \
+             ORDER BY MAX(`orders`.`paid`) DESC",
+        ),
+        (
+            Harness::sqlite(),
+            "SELECT (MIN(\"orders\".\"sku\")) AS \"lo\", (MAX(\"orders\".\"sku\")) AS \"hi\", \
+             (MIN(\"orders\".\"paid\")) AS \"all_paid\" FROM \"orders\" \
+             ORDER BY MAX(\"orders\".\"paid\") DESC",
+        ),
+    ] {
+        let sql = h.dialect.render_select(&select).unwrap();
+        assert_eq!(sql.text, expected, "[{}]", h.name);
+        assert!(sql.params.is_empty(), "[{}]", h.name);
+    }
+}
+
 mod qualified_table_names {
     use super::*;
     use nautilus_core::{RelationFilterOp, TableName};
