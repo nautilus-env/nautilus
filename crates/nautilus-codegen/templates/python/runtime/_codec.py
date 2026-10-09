@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import base64
 from dataclasses import asdict, is_dataclass
+from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Union
+from uuid import UUID
 
 JsonPrimitive = Union[str, int, float, bool, None]
 JsonValue = Union[JsonPrimitive, Dict[str, Any], List[Any]]
@@ -86,6 +89,37 @@ def coerce_bytes_value(value: Any) -> Any:
         return base64.b64decode(value, validate=True)
     if isinstance(value, list):
         return [coerce_bytes_value(item) for item in value]
+    return value
+
+
+def coerce_datetime_value(value: Any) -> Any:
+    """Decode DateTime fields, sent as ISO 8601 text with a ``T`` or a space
+    before the time, including elements of array fields."""
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace(" ", "T"))
+    if isinstance(value, list):
+        return [coerce_datetime_value(item) for item in value]
+    return value
+
+
+def coerce_decimal_value(value: Any) -> Any:
+    """Decode Decimal fields, sent as text or as JSON numbers, including
+    elements of array fields."""
+    if isinstance(value, str):
+        return Decimal(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return Decimal(str(value))
+    if isinstance(value, list):
+        return [coerce_decimal_value(item) for item in value]
+    return value
+
+
+def coerce_uuid_value(value: Any) -> Any:
+    """Decode Uuid fields, sent as text, including elements of array fields."""
+    if isinstance(value, str):
+        return UUID(value)
+    if isinstance(value, list):
+        return [coerce_uuid_value(item) for item in value]
     return value
 
 

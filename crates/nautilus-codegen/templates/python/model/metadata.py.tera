@@ -20,8 +20,12 @@ _{{ table_name }}_scalar_coercers: Dict[str, Any] = {
     "{{ f.name }}": _coerce_boolean_value,
 {%- elif f.base_type == "bytes" %}
     "{{ f.name }}": _coerce_bytes_value,
+{%- elif f.base_type == "Decimal" %}
+    "{{ f.name }}": _coerce_decimal_value,
+{%- elif f.base_type == "UUID" %}
+    "{{ f.name }}": _coerce_uuid_value,
 {%- elif f.base_type == "datetime" %}
-    "{{ f.name }}": lambda v: datetime.fromisoformat(v.replace(" ", "T")) if isinstance(v, str) else v,
+    "{{ f.name }}": _coerce_datetime_value,
 {%- endif %}
 {%- endfor %}
 }

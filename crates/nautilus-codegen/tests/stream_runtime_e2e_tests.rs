@@ -757,6 +757,40 @@ model Order {
     assert_eq!(values.get("group_by_names").map(String::as_str), Some("ok"));
 }
 
+/// The engine sends `Decimal`, `Uuid` and `DateTime` values as text. Full
+/// reads, `select` projections, grouped values and `_min`/`_max` all hold the
+/// `Decimal`, `UUID` and `datetime` the generated types declare, array
+/// elements included.
+#[test]
+fn generated_python_decodes_values_as_declared_types() {
+    let Some(values) = run_generated_python(
+        r#"
+datasource db { provider = "sqlite" url = env("DATABASE_URL") }
+generator client { provider = "nautilus-client-py" interface = "async" output = "./pyclient" }
+model Product {
+  id           Int               @id
+  sku          Uuid
+  unitPrice    Decimal(10, 2)    @map("unit_price")
+  discount     Decimal(10, 2)?
+  supplierId   Uuid?             @map("supplier_id")
+  priceHistory Decimal(10, 2)[]  @store(json) @map("price_history")
+  relatedSkus  Uuid[]            @store(json) @map("related_skus")
+  restockedAt  DateTime[]        @store(json) @map("restocked_at")
+  @@map("products")
+}
+"#,
+        "value_types.sqlite",
+        (
+            "run_python_value_types.py",
+            include_str!("fixtures/stream_runtime_e2e/run_python_value_types.py"),
+        ),
+        "Python value types",
+    ) else {
+        return;
+    };
+    assert_eq!(values.get("value_types").map(String::as_str), Some("ok"));
+}
+
 /// A response line longer than the reader's 16 MB buffer arrives whole, and
 /// the client keeps answering after it.
 #[test]

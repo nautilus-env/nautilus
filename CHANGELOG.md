@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **`Decimal`, `Uuid` and `DateTime[]` values in Python projections.** The
+  engine sends these values as text. A full model read converted them through
+  pydantic, but a `select` projection, the grouped values of `group_by` and
+  the `_min` and `_max` of a field kept the text, although `<Model>Projection`
+  and `<Model>GroupByOutput` declare `Decimal`, `UUID` and `List[datetime]`:
+  adding such a price to a `Decimal` raised `TypeError`, and multiplying it by
+  an integer repeated the text. A single `DateTime` value was already decoded,
+  but not the elements of a `DateTime[]` field. All of them now hold their
+  declared types, array elements included.
 - **Index labels in `db status` and `db push`.** The change list printed an
   index added without `type:` as `ADDINDEX`, and a unique one as
   `ADD UNIQUEINDEX`, because only the access method brought spaces around it.

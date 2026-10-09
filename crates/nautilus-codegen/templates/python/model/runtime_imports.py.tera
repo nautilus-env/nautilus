@@ -6,6 +6,15 @@ from .._internal.codec import (
 {%- if has_bytes %}
     coerce_bytes_value as _coerce_bytes_value,
 {%- endif %}
+{%- if has_datetime %}
+    coerce_datetime_value as _coerce_datetime_value,
+{%- endif %}
+{%- if has_decimal %}
+    coerce_decimal_value as _coerce_decimal_value,
+{%- endif %}
+{%- if has_uuid %}
+    coerce_uuid_value as _coerce_uuid_value,
+{%- endif %}
     first_data_row as _first_data_row,
     get_wire_value as _get_wire_value,
     logical_aggregate_args as _logical_aggregate_args,
