@@ -135,7 +135,7 @@ async fn execute_create_many(
 
     let sql = state
         .dialect()
-        .render_insert_owned(insert)
+        .render_insert_output_owned(insert)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 
     execute_mutation_result(

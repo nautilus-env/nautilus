@@ -192,6 +192,23 @@ impl Row {
         &self.columns
     }
 
+    /// Restore the full result names associated with bounded SQL aliases.
+    ///
+    /// Keeps column order, duplicate columns and values intact, sharing the
+    /// original names across rows. Apply only the metadata for this statement.
+    pub fn restore_result_names(mut self, aliases: &[(String, Arc<str>)]) -> Self {
+        if aliases.is_empty() {
+            return self;
+        }
+        for (name, _) in &mut self.columns {
+            if let Some((_, original)) = aliases.iter().find(|(alias, _)| alias == name.as_ref()) {
+                *name = Arc::clone(original);
+            }
+        }
+        self.index.take();
+        self
+    }
+
     /// Consume the row and iterate over owned `(name, value)` pairs without
     /// forcing the internal storage back into a `Vec`.
     pub fn into_columns_iter(self) -> impl Iterator<Item = (Arc<str>, Value)> {
@@ -234,6 +251,27 @@ impl<'row> RowAccess<'row> for Row {
 mod tests {
     use super::*;
     use nautilus_core::Value;
+
+    #[test]
+    fn restoring_names_preserves_columns_and_invalidates_the_lookup_index() {
+        let original: Arc<str> = Arc::from(format!("orders_{}__contact_names", "a".repeat(42)));
+        let mut columns = vec![
+            ("__nautilus_col_0".into(), Value::I64(1)),
+            ("__nautilus_col_0".into(), Value::I64(2)),
+        ];
+        columns.extend((2..10).map(|n| (format!("column_{n}"), Value::I64(n))));
+        let row = Row::new(columns);
+        assert_eq!(row.get("__nautilus_col_0"), Some(&Value::I64(1)));
+        assert!(row.index.get().is_some());
+        let row = row.restore_result_names(&[("__nautilus_col_0".into(), Arc::clone(&original))]);
+        assert!(row.index.get().is_none());
+        assert_eq!(row.get(&original), Some(&Value::I64(1)));
+        assert_eq!(row.get("__nautilus_col_0"), None);
+        assert_eq!(row.get_by_pos(1), Some(&Value::I64(2)));
+        assert_eq!(row.get("column_9"), Some(&Value::I64(9)));
+        assert!(Arc::ptr_eq(&row.columns[0].0, &original));
+        assert!(Arc::ptr_eq(&row.columns[1].0, &original));
+    }
 
     #[test]
     fn test_row_positional_access() {

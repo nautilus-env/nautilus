@@ -39,7 +39,7 @@ macro_rules! render_insert_body_mut {
         }
 
         if $supports_returning {
-            crate::clauses::push_returning(&mut $ctx.sql, &$insert.returning, $quote);
+            $ctx.push_returning(&$insert.returning, $quote);
         }
     }};
 }
@@ -127,7 +127,7 @@ macro_rules! render_update_body_mut {
         }
 
         if $supports_returning {
-            crate::clauses::push_returning(&mut $ctx.sql, &$update.returning, $quote);
+            $ctx.push_returning(&$update.returning, $quote);
         }
     }};
 }
@@ -144,7 +144,7 @@ macro_rules! render_delete_body_mut {
         }
 
         if $supports_returning {
-            crate::clauses::push_returning(&mut $ctx.sql, &$delete.returning, $quote);
+            $ctx.push_returning(&$delete.returning, $quote);
         }
     }};
 }

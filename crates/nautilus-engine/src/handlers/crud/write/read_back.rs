@@ -153,7 +153,7 @@ pub(super) async fn read_back_upserted_row(
     )?;
 
     let rows = normalize_rows_with_hints(
-        state.execute_query_on(&sql, "Query", tx_id).await?,
+        state.execute_output_on(&sql, "Query", tx_id).await?,
         &row_hints,
     )?;
     Ok(MutationResultData::Rows(rows))

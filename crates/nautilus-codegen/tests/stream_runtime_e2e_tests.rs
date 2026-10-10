@@ -822,6 +822,45 @@ model Order {{
 
 #[test]
 #[ignore = "requires PostgreSQL and Pydantic; set NAUTILUS_TEST_POSTGRES_URL"]
+fn generated_python_postgres_result_aliases() {
+    let database = env::var("NAUTILUS_TEST_POSTGRES_URL").expect("PostgreSQL test URL");
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+        .to_string();
+    for table in [
+        format!("orders_{nonce:a<42}"),
+        format!("ordini_{}_{nonce}", "è".repeat(16)),
+    ] {
+        let source = format!(
+            r#"
+datasource db {{ provider = "postgresql" url = env("DATABASE_URL") extensions = [citext] }}
+generator client {{ provider = "nautilus-client-py" interface = "async" output = "./pyclient" }}
+model Order {{
+  id Int @id @map("order_identifier")
+  contactNames Citext[] @map("contact_names")
+  contactNamex Citext[] @map("contact_namex")
+  contactNotes String? @map("contact_notes")
+  @@map("{table}")
+}}
+"#
+        );
+        let runner = include_str!("fixtures/stream_runtime_e2e/run_python_result_aliases.py")
+            .replace("__TABLE__", &table);
+        let values = run_generated_python(
+            &source,
+            &database,
+            ("run_python_result_aliases.py", &runner),
+            "Python PostgreSQL result aliases",
+        )
+        .expect("Python prerequisites");
+        assert_eq!(values.get("result_aliases").map(String::as_str), Some("ok"));
+    }
+}
+
+#[test]
+#[ignore = "requires PostgreSQL and Pydantic; set NAUTILUS_TEST_POSTGRES_URL"]
 fn generated_python_postgres_ltree_round_trip() {
     let database = env::var("NAUTILUS_TEST_POSTGRES_URL").expect("PostgreSQL test URL");
     let table = format!(

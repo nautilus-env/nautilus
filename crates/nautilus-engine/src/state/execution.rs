@@ -11,6 +11,23 @@ use crate::state::database::connector_to_protocol;
 use crate::state::EngineState;
 
 impl EngineState {
+    /// Execute modeled SQL and restore its full protocol field names.
+    pub(crate) async fn execute_output_on(
+        &self,
+        output: &nautilus_dialect::SqlOutput,
+        context: &str,
+        tx_id: Option<&str>,
+    ) -> Result<Vec<Row>, ProtocolError> {
+        let rows = self.execute_query_on(&output.sql, context, tx_id).await?;
+        if output.aliases.is_empty() {
+            return Ok(rows);
+        }
+        Ok(rows
+            .into_iter()
+            .map(|row| row.restore_result_names(&output.aliases))
+            .collect())
+    }
+
     /// Execute raw DDL SQL statements against the database.
     ///
     /// Used for running migrations (CREATE TABLE, etc.).

@@ -107,7 +107,7 @@ where
         self,
     ) -> nautilus_core::Result<(
         crate::Client<E>,
-        nautilus_dialect::Sql,
+        nautilus_dialect::SqlOutput,
         Vec<Option<crate::ValueHint>>,
         Vec<usize>,
         bool,
@@ -234,7 +234,7 @@ where
         }
 
         let select = builder.build()?;
-        let sql = client.dialect().render_select_owned(select)?;
+        let sql = client.dialect().render_select_output_owned(select)?;
 
         Ok((client, sql, row_hints, decode_slots, backward))
     }
@@ -244,7 +244,7 @@ where
         selection: &C,
     ) -> nautilus_core::Result<(
         crate::Client<E>,
-        nautilus_dialect::Sql,
+        nautilus_dialect::SqlOutput,
         Vec<Option<crate::ValueHint>>,
         bool,
     )>
@@ -357,7 +357,7 @@ where
         }
 
         let select = builder.build()?;
-        let sql = client.dialect().render_select_owned(select)?;
+        let sql = client.dialect().render_select_output_owned(select)?;
 
         Ok((client, sql, row_hints, backward))
     }

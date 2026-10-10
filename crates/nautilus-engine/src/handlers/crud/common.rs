@@ -4,7 +4,7 @@
 
 use nautilus_connector::Row;
 use nautilus_core::{build_cursor_predicate, Expr, Value};
-use nautilus_dialect::Sql;
+use nautilus_dialect::SqlOutput;
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::ModelIr;
 use serde_json::Value as JsonValue;
@@ -265,7 +265,7 @@ pub(super) fn wrap_mutation_result(
 
 pub(super) async fn execute_mutation_result(
     state: &EngineState,
-    sql: &Sql,
+    sql: &SqlOutput,
     exec_tag: &'static str,
     tx_id: Option<&str>,
     scalar_hints: &[Option<ValueHint>],
@@ -273,7 +273,7 @@ pub(super) async fn execute_mutation_result(
 ) -> Result<MutationResultData, ProtocolError> {
     if return_data {
         let rows = normalize_rows_with_hints(
-            state.execute_query_on(sql, exec_tag, tx_id).await?,
+            state.execute_output_on(sql, exec_tag, tx_id).await?,
             scalar_hints,
         )?;
         Ok(MutationResultData::Rows(rows))

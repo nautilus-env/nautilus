@@ -54,7 +54,7 @@ pub(in crate::handlers::crud) async fn execute_delete(
 
     let sql = state
         .dialect()
-        .render_delete_owned(delete)
+        .render_delete_output_owned(delete)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 
     if returns_inline || !params.return_data {

@@ -21,7 +21,7 @@ macro_rules! render_order_by_clause_mut {
                     first = false;
                     match item {
                         nautilus_core::OrderByItem::Column(order) => {
-                            crate::clauses::push_column_order(&mut $ctx.sql, order, $quote);
+                            $ctx.push_column_order(order, $quote);
                         }
                         nautilus_core::OrderByItem::Expr(expr, dir) => {
                             $render_expr($ctx, expr);
@@ -35,7 +35,7 @@ macro_rules! render_order_by_clause_mut {
                         $ctx.sql.push_str(", ");
                     }
                     first = false;
-                    crate::clauses::push_column_order(&mut $ctx.sql, order, $quote);
+                    $ctx.push_column_order(order, $quote);
                 }
                 for (expr, dir) in $select.order_by_exprs.iter_mut() {
                     if !first {
@@ -63,12 +63,12 @@ macro_rules! render_select_body_core_mut {
 
         if partition_window.is_some() {
             $ctx.sql.push_str("SELECT ");
-            crate::clauses::push_window_projection(&mut $ctx.sql, select, $quote);
+            $ctx.push_window_projection(select, $quote);
             $ctx.sql.push_str(" FROM (");
         }
 
         $ctx.sql.push_str("SELECT ");
-        crate::clauses::push_distinct(&mut $ctx.sql, &select.distinct, $distinct_on, $quote);
+        $ctx.push_distinct(&select.distinct, $distinct_on, $quote);
 
         let items = select.items.iter_mut().chain(
             select
@@ -84,14 +84,14 @@ macro_rules! render_select_body_core_mut {
             first = false;
             match item {
                 nautilus_core::SelectItem::Column(col) => {
-                    crate::clauses::push_aliased_column(&mut $ctx.sql, col, $quote);
+                    $ctx.push_aliased_column(col, $quote);
                 }
                 nautilus_core::SelectItem::Computed { expr, alias } => {
                     $ctx.sql.push('(');
                     $render_expr($ctx, expr);
                     $ctx.sql.push(')');
                     $ctx.sql.push_str(" AS ");
-                    crate::ident::push_quoted_identifier(&mut $ctx.sql, alias, $quote);
+                    $ctx.push_result_alias(alias, $quote);
                 }
             }
         }

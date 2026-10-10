@@ -81,8 +81,9 @@ pub(super) async fn stream_find_many_chunked(
     request_id: Option<RpcId>,
     sender: mpsc::Sender<RpcResponse>,
 ) -> Result<Box<RawValue>, ProtocolError> {
+    let result_aliases = plan.sql.aliases;
     let mut row_stream = state
-        .execute_query_stream_on(plan.sql, tx_id)
+        .execute_query_stream_on(plan.sql.sql, tx_id)
         .await
         .map_err(|e| match e {
             ProtocolError::ConnectionFailed(msg) => ProtocolError::ConnectionFailed(msg),
@@ -99,6 +100,7 @@ pub(super) async fn stream_find_many_chunked(
 
     while let Some(item) = row_stream.next().await {
         let raw_row = item.map_err(|e| connector_to_protocol(e, "Query"))?;
+        let raw_row = raw_row.restore_result_names(&result_aliases);
         let row = normalize_row_with_hints(raw_row, &plan.row_hints)?;
         accum.push(row);
         if accum.len() >= chunk_size {

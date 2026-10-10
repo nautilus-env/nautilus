@@ -106,7 +106,7 @@ where
             .returning(returning_cols);
 
         let insert = builder.build()?;
-        let sql = self.client.dialect().render_insert_owned(insert)?;
+        let sql = self.client.dialect().render_insert_output_owned(insert)?;
 
         let rows = crate::execute_all(self.client.executor(), &sql)
             .await
@@ -115,6 +115,7 @@ where
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let row: crate::Row = row.into();
+            let row = row.restore_result_names(&sql.aliases);
             let decoded = decode_model_row_with_hints(
                 row,
                 all_scalar_decode_slots(),

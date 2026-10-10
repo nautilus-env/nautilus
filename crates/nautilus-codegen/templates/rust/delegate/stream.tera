@@ -42,11 +42,12 @@
         }
         Ok(async_stream::stream! {
             use futures::stream::StreamExt;
-            let mut rows = client.executor().execute_owned(sql);
+            let mut rows = client.executor().execute_owned(sql.sql);
             while let Some(item) = rows.next().await {
                 match item {
                     Ok(raw) => {
                         let row: crate::Row = raw.into();
+                        let row = row.restore_result_names(&sql.aliases);
                         yield decode_model_row_with_hints(row, &decode_slots, &row_hints);
                     }
                     Err(e) => {

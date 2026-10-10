@@ -77,6 +77,27 @@ struct RenderContext {
 }
 
 impl RenderContext {
+    fn push_result_alias(&mut self, alias: &str, quote: char) {
+        crate::ident::push_quoted_identifier(&mut self.sql, alias, quote);
+    }
+
+    fn push_column_order(&mut self, order: &nautilus_core::OrderBy, quote: char) {
+        crate::clauses::push_column_order(&mut self.sql, order, quote);
+    }
+
+    fn push_distinct(&mut self, distinct: &[String], distinct_on: bool, quote: char) {
+        crate::clauses::push_distinct(&mut self.sql, distinct, distinct_on, quote);
+    }
+    fn push_aliased_column(&mut self, column: &nautilus_core::ColumnMarker, quote: char) {
+        crate::clauses::push_aliased_column(&mut self.sql, column, quote);
+    }
+    fn push_window_projection(&mut self, select: &Select, quote: char) {
+        crate::clauses::push_window_projection(&mut self.sql, select, quote);
+    }
+    fn push_returning(&mut self, columns: &[nautilus_core::ColumnMarker], quote: char) {
+        crate::clauses::push_returning(&mut self.sql, columns, quote);
+    }
+
     fn with_estimate(estimate: crate::render_estimate::RenderEstimate) -> Self {
         Self {
             sql: String::with_capacity(estimate.sql_capacity),

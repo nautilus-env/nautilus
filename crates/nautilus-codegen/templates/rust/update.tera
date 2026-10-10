@@ -103,7 +103,7 @@ where
         }
 
         let update = builder.build()?;
-        let sql = self.client.dialect().render_update_owned(update)?;
+        let sql = self.client.dialect().render_update_output_owned(update)?;
 
         let rows = crate::execute_all(self.client.executor(), &sql)
             .await
@@ -112,6 +112,7 @@ where
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let row: crate::Row = row.into();
+            let row = row.restore_result_names(&sql.aliases);
             results.push(decode_model_row_with_hints(
                 row,
                 all_scalar_decode_slots(),

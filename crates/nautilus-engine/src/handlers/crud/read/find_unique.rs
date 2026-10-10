@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use nautilus_connector::Row;
 use nautilus_core::{Expr, Select, SelectCapacity, SelectItem};
-use nautilus_dialect::Sql;
+use nautilus_dialect::{Sql, SqlOutput};
 use nautilus_protocol::{check_protocol_version, FindUniqueParams, ProtocolError, RpcRequest};
 use nautilus_schema::ir::ModelIr;
 use serde_json::value::RawValue;
@@ -39,7 +39,7 @@ fn build_scalar_select(
     qualified_filter: Option<Expr>,
     selected_fields: &HashSet<&str>,
     limit: Option<i32>,
-) -> Result<(Sql, Vec<Option<ValueHint>>), ProtocolError> {
+) -> Result<(SqlOutput, Vec<Option<ValueHint>>), ProtocolError> {
     let metadata = state.model_metadata(model);
     let pk_fields = metadata.primary_key_fields();
 
@@ -77,7 +77,7 @@ fn build_scalar_select(
 
     let sql = state
         .dialect()
-        .render_select_owned(select)
+        .render_select_output_owned(select)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 
     Ok((sql, row_hints))
@@ -88,7 +88,7 @@ pub(in crate::handlers::crud) fn build_find_unique_sql(
     model: &ModelIr,
     qualified_filter: Expr,
     selected_fields: &HashSet<&str>,
-) -> Result<(Sql, Vec<Option<ValueHint>>), ProtocolError> {
+) -> Result<(SqlOutput, Vec<Option<ValueHint>>), ProtocolError> {
     build_scalar_select(
         state,
         model,
@@ -107,7 +107,7 @@ async fn execute_find_unique_rows(
 ) -> Result<Vec<Row>, ProtocolError> {
     let (sql, row_hints) = build_find_unique_sql(state, model, qualified_filter, selected_fields)?;
     normalize_rows_with_hints(
-        state.execute_query_on(&sql, "Query", tx_id).await?,
+        state.execute_output_on(&sql, "Query", tx_id).await?,
         &row_hints,
     )
 }
@@ -148,13 +148,16 @@ pub(in crate::handlers) async fn execute_find_unique_typed(
     if let Some(shape) = extract_simple_eq_filter(&args.where_) {
         let cache_key = find_unique_plan_key(model, metadata, &selected_fields, &shape);
         if let Some(plan) = state.plan_cache().get_find_unique(&cache_key) {
-            let sql = Sql {
-                text: plan.sql_text.clone(),
-                params: shape.values.iter().map(|v| (*v).clone()).collect(),
+            let sql = SqlOutput {
+                sql: Sql {
+                    text: plan.sql_text.clone(),
+                    params: shape.values.iter().map(|v| (*v).clone()).collect(),
+                },
+                aliases: plan.result_aliases.clone(),
             };
             return normalize_rows_with_hints(
                 state
-                    .execute_query_on(&sql, "Query", transaction_id)
+                    .execute_output_on(&sql, "Query", transaction_id)
                     .await?,
                 &plan.row_hints,
             );
@@ -171,12 +174,13 @@ pub(in crate::handlers) async fn execute_find_unique_typed(
             cache_key,
             Arc::new(CachedReadPlan {
                 sql_text: sql.text.clone(),
+                result_aliases: sql.aliases.clone(),
                 row_hints: row_hints.clone(),
             }),
         );
         return normalize_rows_with_hints(
             state
-                .execute_query_on(&sql, "Query", transaction_id)
+                .execute_output_on(&sql, "Query", transaction_id)
                 .await?,
             &row_hints,
         );
@@ -290,7 +294,7 @@ pub(in crate::handlers::crud) async fn find_rows_by_expr(
         build_scalar_select(state, model, qualified_filter, &HashSet::new(), limit)?;
 
     normalize_rows_with_hints(
-        state.execute_query_on(&sql, "Query", tx_id).await?,
+        state.execute_output_on(&sql, "Query", tx_id).await?,
         &row_hints,
     )
 }

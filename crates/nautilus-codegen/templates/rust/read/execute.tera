@@ -17,6 +17,7 @@ where
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let row: crate::Row = row.into();
+            let row = row.restore_result_names(&sql.aliases);
             let decoded = decode_model_row_with_hints(row, &decode_slots, &row_hints)?;
             results.push(decoded);
         }
@@ -44,6 +45,7 @@ where
         };
 
         let row: crate::Row = row.into();
+        let row = row.restore_result_names(&sql.aliases);
         Ok(Some(decode_model_row_with_hints(row, &decode_slots, &row_hints)?))
     }
 
@@ -67,6 +69,7 @@ where
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let row: crate::Row = row.into();
+            let row = row.restore_result_names(&sql.aliases);
             let row = normalize_projection_row(row, &row_hints)?;
             results.push(selection.decode(&row)?);
         }
@@ -99,6 +102,7 @@ where
         };
 
         let row: crate::Row = row.into();
+        let row = row.restore_result_names(&sql.aliases);
         let row = normalize_projection_row(row, &row_hints)?;
         Ok(Some(selection.decode(&row)?))
     }

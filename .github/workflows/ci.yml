@@ -393,14 +393,15 @@ jobs:
           NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
         run: cargo test --locked -p nautilus-orm-engine --test xml_tests -- --ignored --nocapture
 
-      - name: Run PostgreSQL ltree tests
+      - name: Run PostgreSQL ltree and result alias tests
         env:
           NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
         run: |
           cargo test --locked -p nautilus-orm-connector --lib postgres::ltree -- --include-ignored --nocapture
           cargo test --locked -p nautilus-orm-engine --test ltree_tests -- --ignored --nocapture
+          cargo test --locked -p nautilus-orm-engine --test result_alias_tests -- --ignored --nocapture
 
-      - name: Run generated Python PostgreSQL XML, ltree and extension null filter tests
+      - name: Run generated PostgreSQL client tests
         env:
           NAUTILUS_REQUIRE_E2E: '1'
           NAUTILUS_TEST_POSTGRES_URL: postgres://nautilus:nautilus@localhost:5432/nautilus_test
@@ -409,4 +410,6 @@ jobs:
           cargo build --locked -p nautilus-orm --bin nautilus
           cargo test --locked -p nautilus-orm-codegen --test stream_runtime_e2e_tests generated_python_postgres_xml_round_trip -- --exact --ignored --nocapture
           cargo test --locked -p nautilus-orm-codegen --test stream_runtime_e2e_tests generated_python_postgres_ltree_round_trip -- --exact --ignored --nocapture
+          cargo test --locked -p nautilus-orm-codegen --test stream_runtime_e2e_tests generated_python_postgres_result_aliases -- --exact --ignored --nocapture
+          cargo test --locked -p nautilus-orm-codegen --test result_alias_e2e_tests -- --ignored --nocapture
           cargo test --locked -p nautilus-orm-codegen --test stream_runtime_e2e_tests generated_python_postgres_extension_null_filters -- --exact --ignored --nocapture

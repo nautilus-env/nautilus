@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use nautilus_connector::Row;
 use nautilus_core::{Expr, OrderDir, Select, SelectCapacity, SelectItem, Value};
-use nautilus_dialect::Sql;
+use nautilus_dialect::SqlOutput;
 use nautilus_protocol::ProtocolError;
 use nautilus_schema::ir::ModelIr;
 
@@ -29,7 +29,7 @@ use crate::state::EngineState;
 /// `backward = false` and `include.is_empty()` because both transformations
 /// need the full row set in memory before any output can leave the engine.
 pub(super) struct FindManyPlan {
-    pub(super) sql: Sql,
+    pub(super) sql: SqlOutput,
     pub(super) row_hints: Vec<Option<ValueHint>>,
     pub(super) backward: bool,
     pub(super) include: HashMap<String, IncludeNode>,
@@ -276,7 +276,7 @@ pub(super) fn build_find_many_plan(
 
     let sql = state
         .dialect()
-        .render_select_owned(select)
+        .render_select_output_owned(select)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 
     Ok(FindManyPlan {

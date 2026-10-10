@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **PostgreSQL result aliases longer than 63 bytes.** Modeled reads and
+  RETURNING rows now use bounded, distinct SQL aliases and restore the complete
+  result names before decoding the client models. This preserves mapped fields,
+  including lists and nullable values, instead of silently returning defaults.
+  UTF-8 byte lengths, cached plans, projections, joins, partition windows,
+  aggregates, transactions and chunked reads retain their result names.
+  Generated Rust clients apply the same metadata on their direct connector
+  paths, including typed projections and owned streams.
+
 - **PostgreSQL extension array writes.** Non-empty `Ltree` and `Citext` lists
   are now cast to their PostgreSQL array type instead of being sent as
   uncast `text[]`. This applies to create, update, batch writes and both

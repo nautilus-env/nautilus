@@ -119,8 +119,9 @@ async fn execute_explain(
         .await?;
 
     Ok(ExplainResult {
-        sql: plan.sql.text,
+        sql: plan.sql.sql.text,
         params: plan
+            .sql
             .sql
             .params
             .iter()

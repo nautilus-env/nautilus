@@ -1309,6 +1309,7 @@ where
         self.find_first_select(find_args, columns)
     }
 
+
     /// Create a new Post record.
     ///
     /// Executes immediately and returns the created `Post`.
@@ -2098,7 +2099,7 @@ where
         self,
     ) -> nautilus_core::Result<(
         crate::Client<E>,
-        nautilus_dialect::Sql,
+        nautilus_dialect::SqlOutput,
         Vec<Option<crate::ValueHint>>,
         Vec<usize>,
         bool,
@@ -2216,7 +2217,7 @@ where
         }
 
         let select = builder.build()?;
-        let sql = client.dialect().render_select_owned(select)?;
+        let sql = client.dialect().render_select_output_owned(select)?;
 
         Ok((client, sql, row_hints, decode_slots, backward))
     }
@@ -2226,7 +2227,7 @@ where
         selection: &C,
     ) -> nautilus_core::Result<(
         crate::Client<E>,
-        nautilus_dialect::Sql,
+        nautilus_dialect::SqlOutput,
         Vec<Option<crate::ValueHint>>,
         bool,
     )>
@@ -2335,7 +2336,7 @@ where
         }
 
         let select = builder.build()?;
-        let sql = client.dialect().render_select_owned(select)?;
+        let sql = client.dialect().render_select_output_owned(select)?;
 
         Ok((client, sql, row_hints, backward))
     }
@@ -2360,6 +2361,7 @@ where
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let row: crate::Row = row.into();
+            let row = row.restore_result_names(&sql.aliases);
             let decoded = decode_model_row_with_hints(row, &decode_slots, &row_hints)?;
             results.push(decoded);
         }
@@ -2387,6 +2389,7 @@ where
         };
 
         let row: crate::Row = row.into();
+        let row = row.restore_result_names(&sql.aliases);
         Ok(Some(decode_model_row_with_hints(row, &decode_slots, &row_hints)?))
     }
 
@@ -2410,6 +2413,7 @@ where
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let row: crate::Row = row.into();
+            let row = row.restore_result_names(&sql.aliases);
             let row = normalize_projection_row(row, &row_hints)?;
             results.push(selection.decode(&row)?);
         }
@@ -2442,6 +2446,7 @@ where
         };
 
         let row: crate::Row = row.into();
+        let row = row.restore_result_names(&sql.aliases);
         let row = normalize_projection_row(row, &row_hints)?;
         Ok(Some(selection.decode(&row)?))
     }
@@ -2508,12 +2513,13 @@ where
         }
 
         let insert = builder.build()?;
-        let sql = self.client.dialect().render_insert_owned(insert)?;
+        let sql = self.client.dialect().render_insert_output_owned(insert)?;
 
         let row: Row = crate::execute_one(self.client.executor(), &sql)
             .await
             .map_err(|e| Error::Other(e.to_string()))?
             .into();
+        let row = row.restore_result_names(&sql.aliases);
 
         decode_model_row_with_hints(row, all_scalar_decode_slots(), all_scalar_value_hints())
     }
@@ -2621,7 +2627,7 @@ where
             .returning(returning_cols);
 
         let insert = builder.build()?;
-        let sql = self.client.dialect().render_insert_owned(insert)?;
+        let sql = self.client.dialect().render_insert_output_owned(insert)?;
 
         let rows = crate::execute_all(self.client.executor(), &sql)
             .await
@@ -2630,6 +2636,7 @@ where
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let row: crate::Row = row.into();
+            let row = row.restore_result_names(&sql.aliases);
             let decoded = decode_model_row_with_hints(
                 row,
                 all_scalar_decode_slots(),
@@ -2746,7 +2753,7 @@ where
         }
 
         let update = builder.build()?;
-        let sql = self.client.dialect().render_update_owned(update)?;
+        let sql = self.client.dialect().render_update_output_owned(update)?;
 
         let rows = crate::execute_all(self.client.executor(), &sql)
             .await
@@ -2755,6 +2762,7 @@ where
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let row: crate::Row = row.into();
+            let row = row.restore_result_names(&sql.aliases);
             results.push(decode_model_row_with_hints(
                 row,
                 all_scalar_decode_slots(),
@@ -2832,7 +2840,7 @@ where
         }
 
         let delete = builder.build()?;
-        let sql = self.client.dialect().render_delete_owned(delete)?;
+        let sql = self.client.dialect().render_delete_output_owned(delete)?;
 
         let rows = crate::execute_all(self.client.executor(), &sql)
             .await
@@ -2841,6 +2849,7 @@ where
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let row: crate::Row = row.into();
+            let row = row.restore_result_names(&sql.aliases);
             results.push(decode_model_row_with_hints(
                 row,
                 all_scalar_decode_slots(),

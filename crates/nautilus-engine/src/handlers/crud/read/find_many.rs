@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use nautilus_connector::Row;
-use nautilus_dialect::Sql;
+use nautilus_dialect::{Sql, SqlOutput};
 use nautilus_protocol::{
     check_protocol_version, FindFirstParams, FindManyParams, ProtocolError, RpcId, RpcRequest,
     RpcResponse,
@@ -36,12 +36,15 @@ pub(in crate::handlers::crud) async fn execute_find_many_rows(
 ) -> Result<Vec<Row>, ProtocolError> {
     if let Some((cache_key, params)) = find_many_cache_request(state, model, &query_args) {
         if let Some(plan) = state.plan_cache().get_find_many(&cache_key) {
-            let sql = Sql {
-                text: plan.sql_text.clone(),
-                params,
+            let sql = SqlOutput {
+                sql: Sql {
+                    text: plan.sql_text.clone(),
+                    params,
+                },
+                aliases: plan.result_aliases.clone(),
             };
             return normalize_rows_with_hints(
-                state.execute_query_on(&sql, "Query", tx_id).await?,
+                state.execute_output_on(&sql, "Query", tx_id).await?,
                 &plan.row_hints,
             );
         }
@@ -51,18 +54,19 @@ pub(in crate::handlers::crud) async fn execute_find_many_rows(
             cache_key,
             Arc::new(CachedReadPlan {
                 sql_text: plan.sql.text.clone(),
+                result_aliases: plan.sql.aliases.clone(),
                 row_hints: plan.row_hints.clone(),
             }),
         );
         return normalize_rows_with_hints(
-            state.execute_query_on(&plan.sql, "Query", tx_id).await?,
+            state.execute_output_on(&plan.sql, "Query", tx_id).await?,
             &plan.row_hints,
         );
     }
 
     let plan = build_find_many_plan(state, model, query_args)?;
     let mut rows = normalize_rows_with_hints(
-        state.execute_query_on(&plan.sql, "Query", tx_id).await?,
+        state.execute_output_on(&plan.sql, "Query", tx_id).await?,
         &plan.row_hints,
     )?;
 

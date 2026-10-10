@@ -19,7 +19,7 @@ fn test_rust_async_delegate_exposes_stream_many() {
         "expected async delegate to expose stream_many:\n{async_code}"
     );
     assert!(
-        async_code.contains("execute_owned(sql)"),
+        async_code.contains("execute_owned(sql.sql)"),
         "expected stream_many to drive the executor's owned-stream path:\n{async_code}"
     );
     assert!(

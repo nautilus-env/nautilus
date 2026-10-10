@@ -14,10 +14,59 @@ pub struct Sql {
     pub params: Vec<Value>,
 }
 
+/// Rendered SQL with the original names of shortened result aliases.
+///
+/// Execute `sql`, then restore each returned SQL alias to its original name
+/// before accessing or serializing the row. Raw SQL needs no such mapping.
+#[derive(Debug, Clone, PartialEq)]
+#[must_use]
+pub struct SqlOutput {
+    /// The statement and its bound values.
+    pub sql: Sql,
+    /// SQL alias and original result name, shared across returned rows.
+    pub aliases: Vec<(String, std::sync::Arc<str>)>,
+}
+
+impl From<Sql> for SqlOutput {
+    fn from(sql: Sql) -> Self {
+        Self {
+            sql,
+            aliases: Vec::new(),
+        }
+    }
+}
+
+impl std::ops::Deref for SqlOutput {
+    type Target = Sql;
+    fn deref(&self) -> &Sql {
+        &self.sql
+    }
+}
+
 /// Trait for SQL dialect renderers.
 ///
 /// Allows rendering AST queries into dialect-specific SQL strings.
 pub trait Dialect {
+    /// Render a SELECT with result-name metadata for provider alias limits.
+    fn render_select_output_owned(&self, select: Select) -> Result<SqlOutput> {
+        self.render_select_owned(select).map(Into::into)
+    }
+
+    /// Render an INSERT with result-name metadata for RETURNING columns.
+    fn render_insert_output_owned(&self, insert: Insert) -> Result<SqlOutput> {
+        self.render_insert_owned(insert).map(Into::into)
+    }
+
+    /// Render an UPDATE with result-name metadata for RETURNING columns.
+    fn render_update_output_owned(&self, update: Update) -> Result<SqlOutput> {
+        self.render_update_owned(update).map(Into::into)
+    }
+
+    /// Render a DELETE with result-name metadata for RETURNING columns.
+    fn render_delete_output_owned(&self, delete: Delete) -> Result<SqlOutput> {
+        self.render_delete_owned(delete).map(Into::into)
+    }
+
     /// Whether this dialect natively supports the RETURNING clause
     /// on INSERT, UPDATE, and DELETE statements.
     ///
@@ -38,8 +87,8 @@ pub trait Dialect {
     }
 
     /// Render an owned SELECT query into SQL, moving bound values out of the AST
-    /// instead of cloning them. This is the primary rendering entry point used by
-    /// the engine's hot paths; dialects implement this.
+    /// instead of cloning them. Use [`Self::render_select_output_owned`] when
+    /// returned field names must survive provider identifier limits.
     fn render_select_owned(&self, select: Select) -> Result<Sql>;
 
     /// Render a borrowed SELECT query into SQL.

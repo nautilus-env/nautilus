@@ -75,7 +75,7 @@ async fn update_rows(
 
     let sql = state
         .dialect()
-        .render_update_owned(update)
+        .render_update_output_owned(update)
         .map_err(|e| ProtocolError::QueryPlanning(format!("Failed to render SQL: {}", e)))?;
 
     if returns_inline || !return_data {

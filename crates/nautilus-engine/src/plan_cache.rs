@@ -78,6 +78,7 @@ pub(crate) struct FindManyPlanKey {
 /// SQL plan reusable across calls with the same cache key.
 #[derive(Debug)]
 pub(crate) struct CachedReadPlan {
+    pub(crate) result_aliases: Vec<(String, Arc<str>)>,
     pub(crate) sql_text: String,
     pub(crate) row_hints: Vec<Option<ValueHint>>,
 }
@@ -516,6 +517,7 @@ mod tests {
 
     fn test_plan(sql: &str) -> Arc<CachedReadPlan> {
         Arc::new(CachedReadPlan {
+            result_aliases: vec![],
             sql_text: sql.to_string(),
             row_hints: vec![None],
         })

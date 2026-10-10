@@ -10,11 +10,12 @@ mod expr;
 mod ident;
 mod macros;
 mod mysql;
+mod output_aliases;
 mod postgres;
 mod render_estimate;
 mod sqlite;
 
-pub use dialect::{Dialect, Sql};
+pub use dialect::{Dialect, Sql, SqlOutput};
 pub use mysql::MysqlDialect;
 pub use postgres::PostgresDialect;
 pub use sqlite::SqliteDialect;

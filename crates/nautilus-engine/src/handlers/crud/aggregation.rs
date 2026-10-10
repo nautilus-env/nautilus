@@ -199,13 +199,16 @@ pub(super) async fn execute_group_by_rows(
             .map(|value| value as u32),
     })?;
 
-    let sql = state.dialect().render_select_owned(select).map_err(|e| {
-        ProtocolError::QueryPlanning(format!("Failed to render groupBy query: {}", e))
-    })?;
+    let sql = state
+        .dialect()
+        .render_select_output_owned(select)
+        .map_err(|e| {
+            ProtocolError::QueryPlanning(format!("Failed to render groupBy query: {}", e))
+        })?;
 
     let rows = crate::conversion::normalize_rows_with_hints(
         state
-            .execute_query_on(&sql, "GroupBy", tx_id.as_deref())
+            .execute_output_on(&sql, "GroupBy", tx_id.as_deref())
             .await?,
         &row_hints,
     )?;
@@ -570,13 +573,16 @@ async fn execute_aggregate_rows(
         skip: None,
     })?;
 
-    let sql = state.dialect().render_select_owned(select).map_err(|e| {
-        ProtocolError::QueryPlanning(format!("Failed to render aggregate query: {}", e))
-    })?;
+    let sql = state
+        .dialect()
+        .render_select_output_owned(select)
+        .map_err(|e| {
+            ProtocolError::QueryPlanning(format!("Failed to render aggregate query: {}", e))
+        })?;
 
     let rows = crate::conversion::normalize_rows_with_hints(
         state
-            .execute_query_on(&sql, "Aggregate", tx_id.as_deref())
+            .execute_output_on(&sql, "Aggregate", tx_id.as_deref())
             .await?,
         &row_hints,
     )?;

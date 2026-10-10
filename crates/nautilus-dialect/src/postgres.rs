@@ -1,12 +1,13 @@
 //! PostgreSQL SQL dialect renderer.
 
-use crate::dialect::{Dialect, Sql};
+use crate::dialect::{Dialect, Sql, SqlOutput};
 use crate::macros::expressions::render_expr_common_mut;
 use crate::macros::select::render_select_body_core_mut;
 use crate::macros::write::{
     render_delete_body_mut, render_insert_body_mut, render_on_conflict_body_mut,
     render_update_body_mut,
 };
+use crate::output_aliases::{column_name, OutputAliases};
 use nautilus_core::{BinaryOp, Delete, Expr, Insert, OnConflict, Result, Select, Update, Value};
 
 /// PostgreSQL SQL dialect renderer.
@@ -21,20 +22,49 @@ impl Dialect for PostgresDialect {
     fn supports_distinct_on(&self) -> bool {
         true
     }
+    fn render_select_owned(&self, select: Select) -> Result<Sql> {
+        Self::render_select_with_aliases(select, OutputAliases::default()).map(|output| output.sql)
+    }
+    fn render_select_output_owned(&self, select: Select) -> Result<SqlOutput> {
+        let aliases = OutputAliases::for_select(&select);
+        Self::render_select_with_aliases(select, aliases)
+    }
+    fn render_insert_owned(&self, insert: Insert) -> Result<Sql> {
+        Self::render_insert_with_aliases(insert, OutputAliases::default()).map(|output| output.sql)
+    }
+    fn render_insert_output_owned(&self, insert: Insert) -> Result<SqlOutput> {
+        let aliases = OutputAliases::for_returning(&insert.returning);
+        Self::render_insert_with_aliases(insert, aliases)
+    }
+    fn render_update_owned(&self, update: Update) -> Result<Sql> {
+        Self::render_update_with_aliases(update, OutputAliases::default()).map(|output| output.sql)
+    }
+    fn render_update_output_owned(&self, update: Update) -> Result<SqlOutput> {
+        let aliases = OutputAliases::for_returning(&update.returning);
+        Self::render_update_with_aliases(update, aliases)
+    }
+    fn render_delete_owned(&self, delete: Delete) -> Result<Sql> {
+        Self::render_delete_with_aliases(delete, OutputAliases::default()).map(|output| output.sql)
+    }
+    fn render_delete_output_owned(&self, delete: Delete) -> Result<SqlOutput> {
+        let aliases = OutputAliases::for_returning(&delete.returning);
+        Self::render_delete_with_aliases(delete, aliases)
+    }
+}
 
-    fn render_select_owned(&self, mut select: Select) -> Result<Sql> {
+impl PostgresDialect {
+    fn render_select_with_aliases(mut select: Select, aliases: OutputAliases) -> Result<SqlOutput> {
         let mut ctx =
             RenderContext::with_estimate(crate::render_estimate::estimate_select_render(&select));
+        ctx.aliases = aliases;
         render_select_body_core_mut!(&mut ctx, &mut select, '"', render_expr_owned, true, "");
-        Ok(Sql {
-            text: ctx.sql,
-            params: ctx.params,
-        })
+        Ok(ctx.finish())
     }
 
-    fn render_insert_owned(&self, mut insert: Insert) -> Result<Sql> {
+    fn render_insert_with_aliases(mut insert: Insert, aliases: OutputAliases) -> Result<SqlOutput> {
         let mut ctx =
             RenderContext::with_estimate(crate::render_estimate::estimate_insert_render(&insert));
+        ctx.aliases = aliases;
         render_insert_body_mut!(
             &mut ctx,
             &mut insert,
@@ -43,15 +73,13 @@ impl Dialect for PostgresDialect {
             postgres_assignment_cast,
             render_on_conflict
         );
-        Ok(Sql {
-            text: ctx.sql,
-            params: ctx.params,
-        })
+        Ok(ctx.finish())
     }
 
-    fn render_update_owned(&self, mut update: Update) -> Result<Sql> {
+    fn render_update_with_aliases(mut update: Update, aliases: OutputAliases) -> Result<SqlOutput> {
         let mut ctx =
             RenderContext::with_estimate(crate::render_estimate::estimate_update_render(&update));
+        ctx.aliases = aliases;
         render_update_body_mut!(
             &mut ctx,
             &mut update,
@@ -60,33 +88,127 @@ impl Dialect for PostgresDialect {
             true,
             postgres_assignment_cast
         );
-        Ok(Sql {
-            text: ctx.sql,
-            params: ctx.params,
-        })
+        Ok(ctx.finish())
     }
 
-    fn render_delete_owned(&self, mut delete: Delete) -> Result<Sql> {
+    fn render_delete_with_aliases(mut delete: Delete, aliases: OutputAliases) -> Result<SqlOutput> {
         let mut ctx =
             RenderContext::with_estimate(crate::render_estimate::estimate_delete_render(&delete));
+        ctx.aliases = aliases;
         render_delete_body_mut!(&mut ctx, &mut delete, '"', render_expr_owned, true);
-        Ok(Sql {
-            text: ctx.sql,
-            params: ctx.params,
-        })
+        Ok(ctx.finish())
     }
 }
 
 struct RenderContext {
     sql: String,
     params: Vec<Value>,
+    aliases: OutputAliases,
 }
 
 impl RenderContext {
+    fn finish(self) -> SqlOutput {
+        SqlOutput {
+            sql: Sql {
+                text: self.sql,
+                params: self.params,
+            },
+            aliases: self.aliases.into_restored(),
+        }
+    }
+
+    fn push_result_alias(&mut self, original: &str, quote: char) {
+        crate::ident::push_quoted_identifier(&mut self.sql, self.aliases.sql_name(original), quote);
+    }
+
+    fn push_column_order(&mut self, order: &nautilus_core::OrderBy, quote: char) {
+        if let Some(alias) = self.aliases.computed_sql_name(&order.column) {
+            crate::ident::push_quoted_identifier(&mut self.sql, alias, quote);
+            crate::clauses::push_direction(&mut self.sql, order.direction);
+        } else {
+            crate::clauses::push_column_order(&mut self.sql, order, quote);
+        }
+    }
+
+    fn push_distinct(&mut self, distinct: &[String], distinct_on: bool, quote: char) {
+        if self.aliases.is_empty() || !distinct_on {
+            crate::clauses::push_distinct(&mut self.sql, distinct, distinct_on, quote);
+            return;
+        }
+        if distinct.is_empty() {
+            return;
+        }
+        self.sql.push_str("DISTINCT ON (");
+        for (index, column) in distinct.iter().enumerate() {
+            if index > 0 {
+                self.sql.push_str(", ");
+            }
+            if let Some(alias) = self.aliases.computed_sql_name(column) {
+                crate::ident::push_quoted_identifier(&mut self.sql, alias, quote);
+            } else {
+                crate::ident::push_identifier_reference(&mut self.sql, column, quote);
+            }
+        }
+        self.sql.push_str(") ");
+    }
+
+    fn push_aliased_column(&mut self, column: &nautilus_core::ColumnMarker, quote: char) {
+        if self.aliases.is_empty() {
+            crate::clauses::push_aliased_column(&mut self.sql, column, quote);
+            return;
+        }
+        crate::ident::push_qualified_identifier(&mut self.sql, &column.table, &column.name, quote);
+        self.sql.push_str(" AS ");
+        self.push_result_alias(&column_name(column), quote);
+    }
+
+    fn push_window_projection(&mut self, select: &Select, quote: char) {
+        if self.aliases.is_empty() {
+            crate::clauses::push_window_projection(&mut self.sql, select, quote);
+            return;
+        }
+        let mut first = true;
+        for item in select
+            .items
+            .iter()
+            .chain(select.joins.iter().flat_map(|join| &join.items))
+        {
+            if !first {
+                self.sql.push_str(", ");
+            }
+            first = false;
+            match item {
+                nautilus_core::SelectItem::Column(column) => {
+                    self.push_result_alias(&column_name(column), quote)
+                }
+                nautilus_core::SelectItem::Computed { alias, .. } => {
+                    self.push_result_alias(alias, quote)
+                }
+            }
+        }
+        if first {
+            self.sql.push('*');
+        }
+    }
+
+    fn push_returning(&mut self, columns: &[nautilus_core::ColumnMarker], quote: char) {
+        if columns.is_empty() {
+            return;
+        }
+        self.sql.push_str(" RETURNING ");
+        for (index, column) in columns.iter().enumerate() {
+            if index > 0 {
+                self.sql.push_str(", ");
+            }
+            self.push_aliased_column(column, quote);
+        }
+    }
+
     fn with_estimate(estimate: crate::render_estimate::RenderEstimate) -> Self {
         Self {
             sql: String::with_capacity(estimate.sql_capacity),
             params: Vec::with_capacity(estimate.params_capacity),
+            aliases: OutputAliases::default(),
         }
     }
 
