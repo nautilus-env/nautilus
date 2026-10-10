@@ -45,7 +45,7 @@ impl_from_row!(T1, T2, T3, T4, T5, T6, T7, T8);
 
 #[cfg(test)]
 mod tests {
-    use core::f64;
+    use core::f64::consts::PI;
 
     use super::*;
     use crate::Row;
@@ -78,15 +78,11 @@ mod tests {
 
     #[test]
     fn test_from_row_3_tuple() {
-        let r = row(vec![
-            Value::I64(7),
-            Value::Bool(true),
-            Value::F64(f64::consts::PI),
-        ]);
+        let r = row(vec![Value::I64(7), Value::Bool(true), Value::F64(PI)]);
         let (a, b, c): (i64, bool, f64) = FromRow::from_row(&r).unwrap();
         assert_eq!(a, 7);
         assert!(b);
-        assert!((c - f64::consts::PI).abs() < f64::EPSILON);
+        assert!((c - PI).abs() < f64::EPSILON);
     }
 
     #[test]

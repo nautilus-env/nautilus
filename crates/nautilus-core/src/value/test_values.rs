@@ -1,4 +1,4 @@
-use core::f64;
+use core::f64::consts::PI;
 use std::collections::BTreeMap;
 
 use super::Value;
@@ -18,7 +18,7 @@ pub(super) fn plain_equivalence_samples() -> Vec<Value> {
         Value::I64(9007199254740991),
         Value::I64(i64::MAX),
         Value::I64(i64::MIN),
-        Value::F64(f64::consts::PI),
+        Value::F64(PI),
         Value::F64(f64::NAN),
         Value::F64(f64::INFINITY),
         Value::Decimal(rust_decimal::Decimal::new(-12345, 2)),
