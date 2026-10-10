@@ -62,9 +62,8 @@ fn bindable_pg_array(items: &[Value]) -> Result<Option<PgArrayBinding>> {
         Value::String(_) => {
             PgArrayBinding::Strings(collect_pg_array!(items, String, v => v.clone(), "String"))
         }
-        // citext / ltree elements bind as text; the column's element type gives
-        // the server the real type. Enum labels bind as text too, and the
-        // dialect casts the array to the enum's array type.
+        // Extension values and enum labels bind as text; the dialect casts a
+        // homogeneous array to its named element type's array.
         Value::Extension { .. } => PgArrayBinding::Strings(collect_pg_extension_array(items)?),
         Value::Enum { .. } => PgArrayBinding::Strings(collect_pg_enum_array(items)?),
         Value::Hstore(_) => PgArrayBinding::Hstores(

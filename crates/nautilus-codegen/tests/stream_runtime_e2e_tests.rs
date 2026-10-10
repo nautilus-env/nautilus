@@ -833,12 +833,13 @@ fn generated_python_postgres_ltree_round_trip() {
     );
     let source = format!(
         r#"
-datasource db {{ provider = "postgresql" url = env("DATABASE_URL") extensions = [ltree] }}
+datasource db {{ provider = "postgresql" url = env("DATABASE_URL") extensions = [ltree, citext] }}
 generator client {{ provider = "nautilus-client-py" interface = "async" output = "./pyclient" }}
 model Order {{
   id Int @id
   routePath Ltree? @map("route_path")
   routePaths Ltree[] @map("route_paths")
+  contactNames Citext[] @map("contact_names")
   @@map("{table}")
 }}
 "#

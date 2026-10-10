@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- **PostgreSQL extension array writes.** Non-empty `Ltree` and `Citext` lists
+  are now cast to their PostgreSQL array type instead of being sent as
+  uncast `text[]`. This applies to create, update, batch writes and both
+  branches of upsert; empty lists continue to take their column's type.
+
 - **Python null filters on PostgreSQL extensions.** `is_null` and `is_not_null`
   preserve their boolean operands instead of passing them through the field's
   extension serializer. This applies to `Citext`, `Ltree`, `Hstore`, `Geometry`,

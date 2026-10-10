@@ -233,7 +233,7 @@ fn render_expr_owned(ctx: &mut RenderContext, expr: &mut Expr) {
 enum ParamCast {
     Static(&'static str),
     Enum(String),
-    EnumArray(String),
+    NamedArray(String),
     Composite(String),
 }
 
@@ -248,7 +248,7 @@ impl ParamCast {
                 sql.push_str("::");
                 crate::ident::push_quoted_identifier(sql, type_name, '"');
             }
-            Self::EnumArray(type_name) => {
+            Self::NamedArray(type_name) => {
                 sql.push_str("::");
                 crate::ident::push_quoted_identifier(sql, type_name, '"');
                 sql.push_str("[]");
@@ -285,7 +285,7 @@ fn postgres_param_cast(value: &Value) -> Option<ParamCast> {
         Value::Geography(_) => Some(ParamCast::Static("geography")),
         value if is_homogeneous_geometry_array(value) => Some(ParamCast::Static("geometry[]")),
         value if is_homogeneous_geography_array(value) => Some(ParamCast::Static("geography[]")),
-        Value::Array(items) => homogeneous_enum_array_type(items).map(ParamCast::EnumArray),
+        Value::Array(items) => homogeneous_text_array_type(items).map(ParamCast::NamedArray),
         Value::Extension { type_name, .. } | Value::Enum { type_name, .. } => {
             Some(ParamCast::Enum(type_name.clone()))
         }
@@ -294,16 +294,31 @@ fn postgres_param_cast(value: &Value) -> Option<ParamCast> {
     }
 }
 
-/// The enum type of a list of labels of one enum. The labels bind as `text[]`,
-/// which PostgreSQL assigns to no enum array column, so the list is cast to the
-/// array of its enum, as a single label is cast to the enum.
-fn homogeneous_enum_array_type(items: &[Value]) -> Option<String> {
-    let Some(Value::Enum { type_name, .. }) = items.first() else {
-        return None;
+/// Enum labels and extension values bind as `text[]`, so a homogeneous list
+/// needs a cast to the array of its named type, just as a scalar does.
+fn homogeneous_text_array_type(items: &[Value]) -> Option<String> {
+    let first = items.first()?;
+    let type_name = match first {
+        Value::Enum { type_name, .. } | Value::Extension { type_name, .. } => type_name,
+        _ => return None,
     };
     items
         .iter()
-        .all(|item| matches!(item, Value::Enum { type_name: other, .. } if other == type_name))
+        .all(|item| match (first, item) {
+            (
+                Value::Enum { .. },
+                Value::Enum {
+                    type_name: other, ..
+                },
+            )
+            | (
+                Value::Extension { .. },
+                Value::Extension {
+                    type_name: other, ..
+                },
+            ) => other == type_name,
+            _ => false,
+        })
         .then(|| type_name.clone())
 }
 
@@ -762,6 +777,78 @@ mod tests {
 
         let mixed = Value::Array(vec![label("PENDING"), Value::String("SHIPPED".to_string())]);
         assert!(postgres_param_cast(&mixed).is_none());
+    }
+
+    #[test]
+    fn extension_array_params_are_cast_to_the_array_of_their_type() {
+        let dialect = PostgresDialect;
+        for type_name in ["ltree", "citext", "custom\"type"] {
+            let extension = |value: &str| Value::Extension {
+                value: value.to_string(),
+                type_name: type_name.to_string(),
+            };
+            let values = Value::Array(vec![extension("top.c"), extension("")]);
+            let quoted_type = type_name.replace('"', "\"\"");
+            let cast = format!("::\"{quoted_type}\"[]");
+            let insert = Insert::into_table("orders")
+                .columns(vec![nautilus_core::ColumnMarker::new("orders", "paths")])
+                .values(vec![values.clone()])
+                .build()
+                .unwrap();
+            let sql = dialect.render_insert(&insert).unwrap();
+            assert_eq!(
+                sql.text,
+                format!("INSERT INTO \"orders\" (\"paths\") VALUES ($1{cast})")
+            );
+            assert_eq!(sql.params, vec![values.clone()]);
+
+            let update = Update::table("orders")
+                .set(
+                    nautilus_core::ColumnMarker::new("orders", "paths"),
+                    values.clone(),
+                )
+                .build()
+                .unwrap();
+            let sql = dialect.render_update(&update).unwrap();
+            assert_eq!(
+                sql.text,
+                format!("UPDATE \"orders\" SET \"paths\" = $1{cast}")
+            );
+            assert_eq!(sql.params, vec![values.clone()]);
+
+            let select = Select::from_table("orders")
+                .filter(Expr::Binary {
+                    left: Box::new(Expr::column("orders__paths")),
+                    op: BinaryOp::ArrayContains,
+                    right: Box::new(Expr::param(values.clone())),
+                })
+                .build()
+                .unwrap();
+            let sql = dialect.render_select(&select).unwrap();
+            assert_eq!(
+                sql.text,
+                format!("SELECT * FROM \"orders\" WHERE (\"orders\".\"paths\" @> $1{cast})")
+            );
+            assert_eq!(sql.params, vec![values]);
+
+            for other in [
+                Value::Extension {
+                    value: "top.d".into(),
+                    type_name: "other".into(),
+                },
+                Value::Enum {
+                    value: "top.d".into(),
+                    type_name: type_name.into(),
+                },
+                Value::String("top.d".into()),
+                Value::Null,
+            ] {
+                assert!(
+                    postgres_param_cast(&Value::Array(vec![extension("top.c"), other])).is_none()
+                );
+            }
+        }
+        assert!(postgres_param_cast(&Value::Array(vec![])).is_none());
     }
 
     #[test]
