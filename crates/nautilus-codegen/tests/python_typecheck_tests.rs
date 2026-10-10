@@ -114,6 +114,22 @@ async def subclass_context() -> None:
         }
         consumer.push_str(&format!("    {await_call}client.order.aggregate(avg={{\"weight\": True}}, sum={{\"quantity\": True}}, count={{\"weights\": True}})\n"));
         consumer.push_str(&format!("    {await_call}client.order.create(data={{\"status\": OrderStatus.PENDING, \"customerId\": 1, \"xmlNote\": \"<a/>\"}})\n    {await_call}client.order.update(data={{\"xmlNote\": None}})\n    {await_call}client.order.find_many(where={{\"xmlNote\": {{\"is_null\": True}}}})\n    {await_call}client.order.find_many(where={{\"xmlNote\": {{\"is_not_null\": False}}}})\n    {await_call}client.order.aggregate(count={{\"xml_note\": True}})\n    {await_call}client.order.group_by([\"note\"], count={{\"xml_note\": True}}, order={{\"note\": \"asc\"}})\n"));
+        for field in [
+            "email",
+            "path",
+            "attributes",
+            "footprint",
+            "serviceArea",
+            "embedding",
+        ] {
+            for operator in ["is_null", "is_not_null"] {
+                for value in ["True", "False"] {
+                    consumer.push_str(&format!(
+                        "    {await_call}client.order.find_many(where={{\"{field}\": {{\"{operator}\": {value}}}}})\n"
+                    ));
+                }
+            }
+        }
     }
     fs::write(fixture.path().join("app.py"), consumer).unwrap();
     let imports = Command::new(&python)
@@ -272,6 +288,21 @@ async def subclass_context() -> None:
             };
             invalid.push_str(&format!("    {prefix}client.order.{call}\n"));
             expected_errors += 1;
+        }
+        for field in [
+            "email",
+            "path",
+            "attributes",
+            "footprint",
+            "serviceArea",
+            "embedding",
+        ] {
+            for operator in ["is_null", "is_not_null"] {
+                invalid.push_str(&format!(
+                    "    {await_call}client.order.find_many(where={{\"{field}\": {{\"{operator}\": 1}}}})\n"
+                ));
+                expected_errors += 1;
+            }
         }
         fs::write(invalid_path, invalid).unwrap();
     }

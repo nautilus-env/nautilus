@@ -46,6 +46,7 @@ class StringFilter(TypedDict, total=False):
     in_: NotRequired[List[str]]
     not_in: NotRequired[List[str]]
     is_null: NotRequired[bool]
+    is_not_null: NotRequired[bool]
 
 
 class IntFilter(TypedDict, total=False):
@@ -128,6 +129,7 @@ class HstoreFilter(TypedDict, total=False):
     equals: NotRequired[{% if has_hstore_extension %}HstoreInput{% else %}HstoreValue{% endif %}]
     not_: NotRequired[{% if has_hstore_extension %}HstoreInput{% else %}HstoreValue{% endif %}]
     is_null: NotRequired[bool]
+    is_not_null: NotRequired[bool]
 
 
 class VectorFilter(TypedDict, total=False):
@@ -135,6 +137,7 @@ class VectorFilter(TypedDict, total=False):
     equals: NotRequired[{% if has_vector_extension %}VectorInput{% else %}List[float]{% endif %}]
     not_: NotRequired[{% if has_vector_extension %}VectorInput{% else %}List[float]{% endif %}]
     is_null: NotRequired[bool]
+    is_not_null: NotRequired[bool]
 {%- for filter in enum_filters %}
 
 

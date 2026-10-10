@@ -334,6 +334,8 @@ class ModelInputCodec:
 
     def filter_input(self, field_name: str, operator: str, value: Any) -> Any:
         """Serialize the operand of ``operator`` applied to ``field_name``."""
+        if operator in ("isNull", "isNotNull"):
+            return serialize_wire_value(value)
         serializer = self.extension_input_serializers.get(field_name)
         if value is None or serializer is None:
             return serialize_wire_value(value)

@@ -318,6 +318,7 @@ class StringFilter(TypedDict, total=False):
     in_: NotRequired[List[str]]
     not_in: NotRequired[List[str]]
     is_null: NotRequired[bool]
+    is_not_null: NotRequired[bool]
 
 
 class IntFilter(TypedDict, total=False):
@@ -400,6 +401,7 @@ class HstoreFilter(TypedDict, total=False):
     equals: NotRequired[HstoreValue]
     not_: NotRequired[HstoreValue]
     is_null: NotRequired[bool]
+    is_not_null: NotRequired[bool]
 
 
 class VectorFilter(TypedDict, total=False):
@@ -407,6 +409,7 @@ class VectorFilter(TypedDict, total=False):
     equals: NotRequired[List[float]]
     not_: NotRequired[List[float]]
     is_null: NotRequired[bool]
+    is_not_null: NotRequired[bool]
 
 
 class UserWhereInput(TypedDict, total=False):

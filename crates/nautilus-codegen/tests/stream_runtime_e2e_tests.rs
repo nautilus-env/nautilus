@@ -411,6 +411,70 @@ fn generated_python_modules_preserve_public_imports() {
     );
 }
 
+#[test]
+fn generated_python_extension_null_filters_preserve_booleans() {
+    let Some(python) = env::var("NAUTILUS_PYTHON")
+        .ok()
+        .or_else(|| python_executable().map(str::to_string))
+    else {
+        return;
+    };
+    for interface in ["async", "sync"] {
+        let fixture = tempfile::tempdir_in(workspace_root()).unwrap();
+        let schema = fixture.path().join("schema.nautilus");
+        let output = fixture.path().join("pyclient");
+        fs::write(
+            &schema,
+            format!(
+                r#"
+datasource db {{ provider = "postgresql" url = env("DATABASE_URL") extensions = [citext, ltree, hstore, postgis, vector] }}
+generator client {{ provider = "nautilus-client-py" interface = "{interface}" output = {:?} }}
+model Order {{
+  id Int @id
+  emailAddress Citext? @map("email_value")
+  routePath Ltree? @map("route_value")
+  attributeMap Hstore? @map("attribute_value")
+  footprint Geometry? @map("footprint_value")
+  serviceArea Geography? @map("service_value")
+  embedding Vector(3)? @map("embedding_value")
+}}
+"#,
+                output.to_str().unwrap()
+            ),
+        )
+        .unwrap();
+        generate_command(
+            &schema,
+            GenerateOptions {
+                install: InstallMode::Never,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        if env::var_os("NAUTILUS_PYTHON").is_none() {
+            fs::write(fixture.path().join("pydantic.py"), PYDANTIC_STUB).unwrap();
+        }
+        let runner = fixture.path().join("check_null_filters.py");
+        fs::write(
+            &runner,
+            include_str!("fixtures/stream_runtime_e2e/check_python_extension_null_filters.py"),
+        )
+        .unwrap();
+        let stdout = run_checked(
+            Command::new(&python)
+                .arg(runner)
+                .env("PYTHONPATH", fixture.path()),
+            &format!("Python {interface} extension null filters"),
+        );
+        assert_eq!(
+            parse_key_values(&stdout)
+                .get("extension_null_filters")
+                .map(String::as_str),
+            Some("ok")
+        );
+    }
+}
+
 fn generate_js_client_fixture(output_dir: &Path, schema_path: &str) {
     write_js_client(&validate(BASE_SCHEMA), output_dir, schema_path);
 }
@@ -789,6 +853,45 @@ model Order {{
     )
     .expect("Python prerequisites");
     assert_eq!(values.get("ltree").map(String::as_str), Some("ok"));
+}
+
+#[test]
+#[ignore = "requires PostgreSQL and Pydantic; set NAUTILUS_TEST_POSTGRES_URL"]
+fn generated_python_postgres_extension_null_filters() {
+    let database = env::var("NAUTILUS_TEST_POSTGRES_URL").expect("PostgreSQL test URL");
+    let table = format!(
+        "extension_null_client_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let source = format!(
+        r#"
+datasource db {{ provider = "postgresql" url = env("DATABASE_URL") extensions = [citext, ltree, hstore] }}
+generator client {{ provider = "nautilus-client-py" interface = "async" output = "./pyclient" }}
+model Order {{
+  id Int @id
+  emailAddress Citext? @map("email_value")
+  routePath Ltree? @map("route_value")
+  attributeMap Hstore? @map("attribute_value")
+  @@map("{table}")
+}}
+"#
+    );
+    let runner = include_str!("fixtures/stream_runtime_e2e/run_python_extension_null_filters.py")
+        .replace("__TABLE__", &table);
+    let values = run_generated_python(
+        &source,
+        &database,
+        ("run_python_extension_null_filters.py", &runner),
+        "Python PostgreSQL extension null filters",
+    )
+    .expect("Python prerequisites");
+    assert_eq!(
+        values.get("extension_null_filters").map(String::as_str),
+        Some("ok")
+    );
 }
 
 #[test]

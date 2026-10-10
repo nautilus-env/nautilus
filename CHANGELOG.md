@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **Python null filters on PostgreSQL extensions.** `is_null` and `is_not_null`
+  preserve their boolean operands instead of passing them through the field's
+  extension serializer. This applies to `Citext`, `Ltree`, `Hstore`, `Geometry`,
+  `Geography` and `Vector`, including nested filters. Their typed filter inputs
+  now also expose `is_not_null` in both async and sync clients.
+
 - **PostgreSQL ltree reads.** Scalar and array values now check and remove the
   binary version byte, preserving the path instead of returning a leading
   `\x01`. Empty paths, Unicode labels, nulls and text protocol values are
