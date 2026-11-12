@@ -194,6 +194,67 @@ pub(super) fn install_runtime_dependencies(app_root: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use zip::write::{SimpleFileOptions, ZipWriter};
+
+    fn write_archive(path: &Path, entries: &[(&str, Option<&[u8]>)]) {
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let mut writer = ZipWriter::new(File::create(path).expect("archive file"));
+        for (name, contents) in entries {
+            match contents {
+                Some(bytes) => {
+                    writer.start_file(*name, options).expect("start file");
+                    writer.write_all(bytes).expect("write entry");
+                }
+                None => writer.add_directory(*name, options).expect("add directory"),
+            }
+        }
+        writer.finish().expect("finish archive");
+    }
+
+    #[test]
+    fn release_archive_extracts_deflated_entries_and_directories() {
+        let temp_dir = tempfile::TempDir::new().expect("temp dir");
+        let archive_path = temp_dir.path().join("release.zip");
+        write_archive(
+            &archive_path,
+            &[
+                ("release-package/", None),
+                (
+                    "release-package/package.json",
+                    Some(br#"{"version":"0.2.0"}"#),
+                ),
+                ("release-package/dist/empty/", None),
+                ("release-package/dist/server.js", Some(b"console.log(1);")),
+            ],
+        );
+
+        let app_dir = temp_dir.path().join("app");
+        extract_release_archive(&archive_path, &app_dir).expect("extract");
+
+        let app_root = resolve_app_root(&app_dir).expect("app root");
+        assert_eq!(app_root, app_dir.join("release-package"));
+        assert_eq!(read_installed_version(&app_root).as_deref(), Some("0.2.0"));
+        assert_eq!(
+            std::fs::read(app_root.join("dist").join("server.js")).expect("server.js"),
+            b"console.log(1);"
+        );
+        assert!(app_root.join("dist").join("empty").is_dir());
+    }
+
+    #[test]
+    fn release_archive_rejects_entries_escaping_the_target() {
+        let temp_dir = tempfile::TempDir::new().expect("temp dir");
+        let archive_path = temp_dir.path().join("release.zip");
+        write_archive(&archive_path, &[("../escaped.txt", Some(b"nope"))]);
+
+        let app_dir = temp_dir.path().join("app");
+        let error = extract_release_archive(&archive_path, &app_dir).expect_err("must reject");
+
+        assert!(error.to_string().contains("invalid path"), "{error:#}");
+        assert!(!temp_dir.path().join("escaped.txt").exists());
+    }
 
     #[test]
     fn resolve_app_root_prefers_release_package_directory() {

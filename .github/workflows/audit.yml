@@ -41,4 +41,8 @@ jobs:
           # rkyv 0.7 is an inactive optional dependency of rust_decimal. The
           # unsupported 0.7 series has no patch; the separately locked 0.8
           # series is kept on a fixed release.
-          ignore: RUSTSEC-2023-0071,RUSTSEC-2026-0235
+          # libsqlite3-sys bundles SQLite for SQLx's SQLite driver, and the fix
+          # needs 0.39 (SQLite 3.54). No SQLx release accepts it: 0.8 requires
+          # ^0.30.1 and 0.9 caps it below 0.38. Exposure is limited to opening
+          # a database together with a `-wal` file a less trusted party wrote.
+          ignore: RUSTSEC-2023-0071,RUSTSEC-2026-0235,RUSTSEC-2026-0459

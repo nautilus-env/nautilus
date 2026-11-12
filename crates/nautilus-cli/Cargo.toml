@@ -44,7 +44,7 @@ reqwest = { workspace = true, features = ["json"] }
 semver = "1.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
-zip = { version = "2.2", default-features = false, features = ["deflate"] }
+zip = { version = "9.5", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
