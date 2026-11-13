@@ -67,18 +67,33 @@ mod tests {
         }
     }
 
+    /// Connect to the test database with `ltree` installed. On a database
+    /// without it, two tests running `CREATE EXTENSION IF NOT EXISTS` at once
+    /// both find it missing and the second fails on the catalog's unique
+    /// index, so the creation runs under a transaction-scoped advisory lock.
+    async fn ltree_pool() -> sqlx::PgPool {
+        let url = std::env::var("NAUTILUS_TEST_POSTGRES_URL").expect("PostgreSQL test URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('nautilus ltree tests'))")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("CREATE EXTENSION IF NOT EXISTS ltree")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        pool
+    }
+
     #[tokio::test]
     #[ignore = "requires PostgreSQL; set NAUTILUS_TEST_POSTGRES_URL"]
     async fn postgres_ltree_binary_and_text() {
         use nautilus_core::Value;
         use sqlx::Row as _;
 
-        let url = std::env::var("NAUTILUS_TEST_POSTGRES_URL").expect("PostgreSQL test URL");
-        let pool = sqlx::PgPool::connect(&url).await.unwrap();
-        sqlx::query("CREATE EXTENSION IF NOT EXISTS ltree")
-            .execute(&pool)
-            .await
-            .unwrap();
+        let pool = ltree_pool().await;
         let query = "SELECT 'top.caffè'::ltree AS path, \
             ARRAY['top.c', '', NULL, repeat('x', 300)]::ltree[] AS paths, \
             NULL::ltree AS null_path, ARRAY[]::ltree[] AS empty_paths, \
@@ -131,12 +146,7 @@ mod tests {
     async fn postgres_ltree_inside_composites() {
         use nautilus_core::Value;
 
-        let url = std::env::var("NAUTILUS_TEST_POSTGRES_URL").expect("PostgreSQL test URL");
-        let pool = sqlx::PgPool::connect(&url).await.unwrap();
-        sqlx::query("CREATE EXTENSION IF NOT EXISTS ltree")
-            .execute(&pool)
-            .await
-            .unwrap();
+        let pool = ltree_pool().await;
         let name = format!("route_{}", uuid::Uuid::new_v4().simple());
         sqlx::query(&format!(
             "CREATE TYPE \"{name}\" AS (path ltree, note text)"

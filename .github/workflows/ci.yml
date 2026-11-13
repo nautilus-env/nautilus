@@ -338,8 +338,10 @@ jobs:
       - name: Run MySQL transaction isolation tests
         env:
           MYSQL_URL: mysql://root:nautilus_root@localhost:3306/nautilus_test
+        # The library's ignored PostgreSQL tests run in their own step below.
         run: |
-          cargo test --locked -p nautilus-orm-connector --lib --test transaction_mysql -- --ignored --test-threads=1
+          cargo test --locked -p nautilus-orm-connector --lib transaction::mysql:: -- --ignored --test-threads=1
+          cargo test --locked -p nautilus-orm-connector --test transaction_mysql -- --ignored --test-threads=1
           cargo test --locked -p nautilus-orm-engine --test mysql_transaction_tests -- --ignored --test-threads=1
 
 
